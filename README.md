@@ -7,3 +7,9 @@ This repository hosts the Solana implementation, currently in early development.
 ## Development
 
 Install the Solana toolchain (Rust, Solana CLI, and friends) by following the [Solana quick setup](https://solana.com/docs/intro/installation).
+
+### How to build
+
+```sh
+cargo build-sbf
+```
