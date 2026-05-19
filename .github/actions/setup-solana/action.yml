@@ -1,22 +1,53 @@
 name: Setup Solana toolchain
-description: Install the Anza Solana toolchain pinned to a specific version.
+description: Install (or restore from cache) the Anza Solana toolchain pinned to a specific version.
 
 runs:
   using: composite
   steps:
+    - name: Set Solana version
+      env:
+        # Bump to upgrade. Releases: https://github.com/anza-xyz/agave/releases
+        SOLANA_VERSION: v3.1.14
+      shell: bash
+      # Re-export to $GITHUB_ENV so later steps (the cache key, the install
+      # command) see the same value. Composite actions can't declare a
+      # top-level env block, so $GITHUB_ENV is how we share it across steps.
+      run:
+        echo "SOLANA_VERSION=${SOLANA_VERSION}" >> "$GITHUB_ENV"
+
+    # Caching mechanism mostly copied from the official action:
+    # https://github.com/solana-program/actions/blob/35ddfe2d2a4a0ab4681f77eaad39efc22c7d1be2/install-solana/action.yml#L19-L27
+    - name: Cache Solana toolchain
+      id: cache-solana
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: |
+          ~/.local/share/solana/install/releases
+          ~/.cache/solana
+        key: solana-${{ runner.os }}-${{ env.SOLANA_VERSION }}
+
     - name: Install Solana toolchain
+      if: steps.cache-solana.outputs.cache-hit != 'true'
       # The official Solana GitHub Action can be found at:
       # https://github.com/solana-program/actions/tree/main/install-solana
       # However, it doesn't pin dependencies to commit values and it's
       # rejected by CoW's Actions pinning policy.
       # Here we use a simplified version of the commands in the above action.
-      env:
-        # Bump to upgrade. Releases: https://github.com/anza-xyz/agave/releases
-        SOLANA_VERSION: v3.1.14
+      shell: bash
+      run: sh -c "$(curl -sSfL "https://release.anza.xyz/${SOLANA_VERSION}/install")"
+
+    # Part of the caching mechanism, see:
+    # https://github.com/solana-program/actions/blob/35ddfe2d2a4a0ab4681f77eaad39efc22c7d1be2/install-solana/action.yml#L58-L63
+    - name: Set active version
       shell: bash
       run: |
-        sh -c "$(curl -sSfL "https://release.anza.xyz/${SOLANA_VERSION}/install")"
-        echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+        rm -f "$HOME/.local/share/solana/install/active_release"
+        release=$(ls -d "$HOME/.local/share/solana/install/releases/"*)
+        ln -s "$release/solana-release" "$HOME/.local/share/solana/install/active_release"
+
+    - name: Add Solana toolchain to PATH
+      shell: bash
+      run: echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
     - name: Solana version
       shell: bash
