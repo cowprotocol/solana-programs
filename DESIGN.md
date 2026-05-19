@@ -2,14 +2,14 @@
 
 There's a single dedicated settlement program, deployed once and used for executing all settlements.
 
-The settlement program stores funds through dedicated token accounts (*buffer accounts*), one per token.
+The settlement program stores funds through dedicated token accounts (_buffer accounts_), one per token.
 
 It uses a dedicated state account to:
 
 - Manage solver authentication (including fee access by the protocol).
-- Acting as a token delegate to manage user funds.
+- Act as a token delegate to manage user funds.
 
-Its state is stored in a PDA is generated using seed `["settlement"]`.
+Its state is stored in a PDA generated using seed `["settlement"]`.
 
 Once deployed, we will make the code at that account unchangeable.
 
@@ -17,14 +17,14 @@ Once deployed, we will make the code at that account unchangeable.
 
 Buffer accounts are token accounts that hold funds on behalf of the settlement contract.
 
-These token accounts are accessible to all solvers and are effectively work like the current buffers. They are used to collect user funds, send out funds to the user, and collecting fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
+These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to collect user funds, send out funds to the user, and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
 Corresponding PDAs are generated using seed `["settlement", token, "buffer"]`.
 
 Differences with Ethereum:
 
 - In a settlement, a solver can only access buffers for tokens that are part of some order.
-- Traded funds aren't sent automatically to the buffers at the start of the trade. Solvers can specify arbitrary receivers accounts for the user's sell tokens, as well as send the trade proceeds from any arbitrary account. In practice, buffers may still be used by solvers for pooling funds before interactions for efficiency reasons.
+- Traded funds aren't sent automatically to the buffers at the start of the trade. Solvers can specify arbitrary receiver accounts for the user's sell tokens, as well as send the trade proceeds from any arbitrary account. In practice, buffers may still be used by solvers for pooling funds before interactions for efficiency reasons.
 
 ## Solver authentication
 
@@ -32,10 +32,10 @@ Solver authentication is managed by the settlement program.
 
 There are two roles for authentication:
 
-- The *solvers*, accounts that can execute settlements and withdraw from the buffers.
-- The *manager*, an account that can add and remove solvers, as well as transferring its own role to another account.
+- The _solvers_, accounts that can execute settlements and withdraw from the buffers.
+- The _manager_, an account that can add and remove solvers, as well as transfer its own role to another account.
 
-The settlement program state PDA stores the state used for authentication. 
+The settlement program state PDA stores the state used for authentication.
 
 On settlement program deployment, the program state is initialized with a fixed initial manager controlled by CoW and an empty list of solvers.
 
@@ -48,7 +48,6 @@ Differences with Ethereum:
 Limitation:
 
 - Storing all solvers on the same account limits the amount of possible solver accounts to ~64k.
-
 
 ## Fee withdrawals
 
@@ -76,7 +75,7 @@ As long as the settlement program is immutable, there's no other way to access u
 Differences with Ethereum:
 
 - There can only be a single delegate. This could create situations where the user delegates us, creates an order, and then another dapp delegates a different program and the order can't be settled anymore. This is very different from approvals, where an approval for one dapp doesn't affect approvals for other dapps.
-- There's no dedicated vault relayer, the user delegates their tokens to the settlement state PDA (*not* the settlement program!). This is because "interactions" aren't executed by the settlement program but as dedicated instructions originating from the transaction signer.
+- There's no dedicated vault relayer, the user delegates their tokens to the settlement state PDA (_not_ the settlement program!). This is because "interactions" aren't executed by the settlement program but as dedicated instructions originating from the transaction signer.
 
 ## Orders
 
@@ -90,10 +89,10 @@ An order intent is the following list of parameters:
 struct OrderIntent {
 	owner: Pubkey
 	// Origin and destination of funds in this order.
-	// They implicitly encode both the receiver account the traded tokens.
+	// They implicitly encode both the receiver account and the traded tokens.
 	buy_token_account: Pubkey
 	sell_token_account: Pubkey
-	// Amonts are interpreted as exact or maximum depending on kind.
+	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
 	// Unix timestamp
@@ -102,13 +101,13 @@ struct OrderIntent {
 	kind: OrderKind
 	partially_fillable: bool
 	// Usual app data field, it isn't directly used in the program.
-	app_data: [u8, 32]
+	app_data: [u8; 32]
 }
 ```
 
 Differences with Ethereum:
 
-- In Solana, the spender token account (and the owner) is part of the intent, while in Ethereum is implied in the signature.
+- In Solana, the spender token account (and the owner) is part of the intent, while in Ethereum it is implied in the signature.
 - The `receiver` field in Ethereum is captured by the field `buy_token_account`.
 - Sell and buy amounts are 64 bits instead of Ethereum's 256.
 
@@ -116,7 +115,7 @@ Differences with Ethereum:
 
 For processing an order in a settlement, the data of that order needs to be stored in a dedicated account. Storing this data is, in general, the responsibility of the solver who settles the order the first time, but anyone can do it if a user signed an order.
 
-Useful information can be recovered from the order PDA, is available. Notably:
+Useful information can be recovered from the order PDA. Notably:
 
 ```rust
 cancelled: bool
@@ -133,7 +132,7 @@ An order PDA can only exist and hold data if the order has been [authenticated](
 
 At the time of order creation, the executor can specify a different address as the `created_by` address. This allows rent to be reclaimed by a different account than the one that signed the instruction.
 
-Corresponding PDAs are generated using seed `["settlement", hash(intent), "buffer"]`.
+Corresponding PDAs are generated using seed `["settlement", hash(intent), "order"]`.
 
 The serialization of the parameters before hashing and the hashing function will be formally specified at a later point.
 
@@ -144,8 +143,8 @@ We use the hash of the intent parameters to represent the order, `hash(parameter
 Differences with Ethereum:
 
 - Solana's order UIDs are 32 bytes, compared to 56 bytes in Ethereum. This is because:
-    - The owner isn't added to the UID. The owner is already included in the parameters, unlike in Ethereum, thus the owner doesn't need to be appended to disambiguation.
-    - The expiration isn't added to the UID. In Ethereum it was only added because of state clearing, here it isn't needed.
+  - The owner isn't added to the UID. The owner is already included in the parameters, unlike in Ethereum, thus the owner doesn't need to be appended for disambiguation.
+  - The expiration isn't added to the UID. In Ethereum it was only added because of state clearing, here it isn't needed.
 
 ### Invalidating an order
 
@@ -155,17 +154,15 @@ Invalidating an order requires an on-chain operation. This operation can be auth
 
 - Directly, sending an invalidation instruction from the order owner account.
 - By anyone through a signed intent, signing the following cancellation struct:
-    
-    ```rust
-    struct CancelIntent {
-      intent: OrderIntent
-    }
-    ```
-    
+  ```rust
+  struct CancelIntent {
+    intent: OrderIntent
+  }
+  ```
 
-Creating the order in advance is *not* needed: if the order wasn’t created before invalidating, the corresponding order PDA is created and then invalidated.
+Creating the order in advance is _not_ needed: if the order wasn’t created before invalidating, the corresponding order PDA is created and then invalidated.
 
-Note that deleting the order PDA is *not* enough to invalidate an order. In fact, if an order signature is available, the same order could always be created again until it expires.
+Note that deleting the order PDA is _not_ enough to invalidate an order. In fact, if an order signature is available, the same order could always be created again until it expires.
 
 ### Order clearing
 
@@ -173,7 +170,7 @@ Allocating an order PDA requires paying rent.
 
 If the order is expired, anyone can close the order account. On account closure, the rent is sent to the original creator of the order.
 
-This is useful for solvers who need to allocate the order for executing it, but the allocation itself would be orders of magnitude more expensive than the compute cost for executing an instruction. This is particularly relevant to make small orders economically viable. 
+This is useful for solvers who need to allocate the order for executing it, but the allocation itself would be orders of magnitude more expensive than the compute cost for executing an instruction. This is particularly relevant to make small orders economically viable.
 
 ## Authenticating an order
 
@@ -191,12 +188,12 @@ The data to sign is encoded using Solana’s [off-chain message signing standard
 
 Differences with Ethereum:
 
-- Off-chain message signing seems to be much less supported by wallets compared to ECR-712. For example, there doesn’t seem to be a Phantom wallet API to encode off-chain messages (see [documentation](https://docs.phantom.com/sdks/browser-sdk/sign-messages), Solana only has a simple `signMessage`). Further research is needed to determine wallet compatibility, but there’s reason to believe it’s very low and it will compromise user signing experience.
-- Off-chain message signing doesn’t have a native representation of structured data. Only UTF8 and ASCII data can be signed, meaning that even if wallets were supporting this standards, many of them would just present, in the best case, a sequence of bytes.
+- Off-chain message signing seems to be much less supported by wallets compared to ERC-712. For example, there doesn’t seem to be a Phantom wallet API to encode off-chain messages (see [documentation](https://docs.phantom.com/sdks/browser-sdk/sign-messages), Solana only has a simple `signMessage`). Further research is needed to determine wallet compatibility, but there’s reason to believe it’s very low and it will compromise user signing experience.
+- Off-chain message signing doesn’t have a native representation of structured data. Only UTF8 and ASCII data can be signed, meaning that even if wallets were supporting this standard, many of them would just present, in the best case, a sequence of bytes.
 
 ### Ed25519
 
-Raw Ed25519 signatures are supported by all native Solana account.
+Raw Ed25519 signatures are supported by all native Solana accounts.
 
 The data to be signed is encoded as an off-chain message and signed with raw Ed25519 signatures.
 
@@ -211,11 +208,11 @@ Orders can be created by the owner by executing an instruction on-chain.
 
 The order owner executes the `OwnerCreateOrderIntent` instruction. The settlement program checks that the order comes from the owner and [creates the order PDA](#orders-are-accounts).
 
-In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be be significantly higher than the expected trading fee. The rent can be recovered by the user once the order expired by [clearing the order](#order-clearing).
+In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered by the user once the order has expired by [clearing the order](#order-clearing).
 
-This flow supports both standard (”on-curve”) accounts and PDA signatures.
+This flow supports both standard ("on-curve") accounts and PDA signatures.
 
-This flow is the only one allowing on-chain programs to trade through the settlement program. 
+This flow is the only one allowing on-chain programs to trade through the settlement program.
 
 Advantages:
 
@@ -228,7 +225,7 @@ Disadvantages:
 Differences with Ethereum:
 
 - The rent refund process isn’t part of Ethereum and adds extra costs for the user.
-- Unlike Ethereum’s pre-signing, this flow isn’t considered a “signature scheme” but it’s a direct way to publish in a trusted way all order information on-chain. This is because, in Solana, it’s more complex and expensive to manage dedicated storage for pre-signatures than just creating the order on-chain.
+- Unlike Ethereum’s pre-signing, this flow isn’t considered a "signature scheme" but it’s a direct way to publish in a trusted way all order information on-chain. This is because, in Solana, it’s more complex and expensive to manage dedicated storage for pre-signatures than just creating the order on-chain.
 
 ## Settlements
 
@@ -243,11 +240,11 @@ A settlement is composed of:
 Security guarantees:
 
 - User:
-    - Funds can only be taken in the context of a signed order.
-    - No more than the order’s sell amount can be taken from the user.
-    - The user receives at least the specified buy amount (proportional to how much of the sell amount was used in the settlement).
+  - Funds can only be taken in the context of a signed order.
+  - No more than the order’s sell amount can be taken from the user.
+  - The user receives at least the specified buy amount (proportional to how much of the sell amount was used in the settlement).
 - Protocol:
-    - Only approved solvers can settle.
+  - Only approved solvers can settle.
 
 Differences with Ethereum:
 
@@ -256,7 +253,7 @@ Differences with Ethereum:
 
 ### The settlement transaction
 
-A settlement transaction is split into multiple instructions. All settlement operation occur between a `BeginSettle` and a `FinalizeSettle` instruction with the exception of arbitrary interactions, which can take place at any point of a transaction. Except for that, the order of instructions in the transaction is arbitrary. 
+A settlement transaction is split into multiple instructions. All settlement operations occur between a `BeginSettle` and a `FinalizeSettle` instruction with the exception of arbitrary interactions, which can take place at any point of a transaction. Except for that, the order of instructions in the transaction is arbitrary.
 
 - `BeginSettle`: Snapshots each order's receiver token account, spender token account, and withdrawal balances. Grants the solver token-spending authority on each buffer account. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
 - `Pull`: Takes tokens from an order’s sell token account and sends them to any token account specified in the instruction.
@@ -264,21 +261,21 @@ A settlement transaction is split into multiple instructions. All settlement ope
 - (arbitrary interactions): Any instruction from the solver. This could be a token transfer, an AMM swap, or anything else.
 - `FinalizeSettle`: Reads balances again, computes deltas against the snapshots, validates clearing/limit prices, updates `amount_received` and order status, revokes solver approvals. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
 
-Additionally, a settlement transaction will include the batch number as part of the instruction bytes of `BeginSettle` .
+Additionally, a settlement transaction will include the batch number as part of the instruction bytes of `BeginSettle`.
 
 Only a single settlement can be executed at a time. This means that there can’t be a `BeginSettle` instruction or a spurious `FinalizeSettle` instruction between a coupled pair of `Begin`/`FinalizeSettle`.
 
 Differences with Ethereum:
 
 - Interactions aren’t executed from the context of the settlement program but from the context of the solver as completely separate instructions.
-    - Notably: a solver doesn’t have to set approvals from the settlement contract to on-chain contracts. Once solver privileges are removed, there’s no way to access the buffers by old solvers anymore, unlike in the current Ethereum contract.
+  - Notably: a solver doesn’t have to set approvals from the settlement contract to on-chain contracts. Once solver privileges are removed, there’s no way for old solvers to access the buffers anymore, unlike in the current Ethereum contract.
 - Fund transfers are explicit instead of being automatically done as part of the order inclusion. These transfers aren’t automatically done to the buffers, they may go to different accounts.
 
-## Selling SOL (a.k.a., ETH flow)
+## Selling SOL (a.k.a. ETH flow)
 
 Selling SOL is supported through a separate program (called SOL flow).
 
-Selling native tokens requires taking control of the user funds and wrapping them. 
+Selling native tokens requires taking control of the user funds and wrapping them.
 
 While the technical details are different, for the user this will be very similar to the ETH flow experience.
 
@@ -292,20 +289,20 @@ Differences with Ethereum:
 
 The user interacts with the SolFlow program through the instruction `CreateSolOrder`. This instruction takes the traded amount of SOL and the data describing a [user intent](#intents) minus the owner (implicitly assumed to be the instruction signer), the sell token account, and the amount (assumed to be the SOL amount in the instruction).
 
-This will create an SPL token account for WSOL, owned by the SolFlow PDA, with seeds equal to (`intent`, `owner`), storing the intent data and the user’s lamports. We call this the *custodial* account of the user for that intent.
+This will create an SPL token account for WSOL, owned by the SolFlow PDA, with seeds equal to (`intent`, `owner`), storing the intent data and the user’s lamports. We call this the _custodial_ account of the user for that intent.
 
 The token account will be created automatically with the delegate set to the settlement program.
 
 ### Enabling a SOL sell order (solver facing)
 
-Any unprivileged participant can interact with the SolFlow program to have it create an Order in the Settlement program using the funds in the dedicated custodial account. We call that unprivileged participant the *enabler*.
+Any unprivileged participant can interact with the SolFlow program to have it create an Order in the Settlement program using the funds in the dedicated custodial account. We call that unprivileged participant the _enabler_.
 
-The enabler calls the `SetUpOrder` instruction passing on the user accounts (custodial and buy token accounts) and the user order intent. 
+The enabler calls the `SetUpOrder` instruction passing on the user accounts (custodial and buy token accounts) and the user order intent.
 
-Then, the `SolFlow` processor creates an order on the `SettlementProgram` using a modified version of the original intent: 
+Then, the `SolFlow` processor creates an order on the `SettlementProgram` using a modified version of the original intent:
 
 - Order owner becomes the `SolFlow` PDA.
-- Sell token becomes the *custodial* token account.
+- Sell token becomes the _custodial_ token account.
 - Order `created_by` field is set to enabler’s address.
 
 The `SetUpOrder` validates the given intent by successfully re-deriving the custodial account.
@@ -318,8 +315,8 @@ Each intermediate step can be reverted by the original owner to recover the fund
 
 Wrapping and creating an order is easier in Solana and everything can be executed in the same transaction. The delegation instruction can be bundled as well.
 
-The main reason to prefer the SOL flow described here is the handling of the rent amount. When wrapping and creating an order, the user needs to pay rent possibly for creating the order account. This is particularly notable for small orders: the order account would have to be refunded later to recover the user’s SOL. 
+The main reason to prefer the SOL flow described here is the handling of the rent amount. When wrapping and creating an order, the user needs to pay rent possibly for creating the order account. This is particularly notable for small orders: the order account would have to be refunded later to recover the user’s SOL.
 
 ## Token 2022
 
-The settlement program will natively support [Token-2022](https://www.solana-program.com/docs/token-2022) tokens. All operations available to standard token will be usable for tokens based on this standard and no major front-end and back-end handling is expected to support the majority of tokens based on this standard.
+The settlement program will natively support [Token-2022](https://www.solana-program.com/docs/token-2022) tokens. All operations available to standard tokens will be usable for tokens based on this standard, and no major front-end or back-end changes are expected in order to support the majority of tokens based on this standard.
