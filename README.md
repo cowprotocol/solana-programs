@@ -8,3 +8,13 @@ This repository hosts the Solana implementation, currently in early development.
 
 The design of the program is documented in [DESIGN.md](./DESIGN.md).
 It contains a high-level technical description of what the program does and points out meaningful differences from the [Ethereum implementation](https://github.com/cowprotocol/contracts).
+
+## Development
+
+Install the Solana toolchain (Rust, Solana CLI, and friends) by following the [Solana quick setup](https://solana.com/docs/intro/installation).
+
+### How to build
+
+```sh
+cargo build-sbf
+```

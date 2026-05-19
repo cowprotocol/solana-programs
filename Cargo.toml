@@ -1,0 +1,8 @@
+[package]
+name = "cow-solana-programs"
+version = "0.1.0"
+# Solana recommends edition 2021: https://solana.com/docs/programs/rust
+edition = "2021"
+
+[dependencies]
+pinocchio = "0.11.1"
