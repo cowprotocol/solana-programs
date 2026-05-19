@@ -1,0 +1,17 @@
+name: Setup just
+description: Install the just task runner pinned to a specific version.
+
+runs:
+  using: composite
+  steps:
+    - name: Install just
+      # Recommended in just's README, "GitHub Actions" section:
+      # https://github.com/casey/just?tab=readme-ov-file#github-actions
+      uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      with:
+        # Bump to upgrade. Releases: https://github.com/casey/just/releases
+        just-version: "1.51.0"
+
+    - name: just version
+      shell: bash
+      run: just --version
