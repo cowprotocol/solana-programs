@@ -6,6 +6,10 @@ default:
 build:
     cargo build-sbf
 
+# Run the test suite (builds the program first so the .so exists).
+test: build
+    cargo test
+
 # Format the source code.
 fmt:
     cargo fmt
