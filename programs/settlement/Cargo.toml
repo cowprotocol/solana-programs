@@ -16,3 +16,6 @@ settlement-interface.workspace = true
 litesvm = "0.12.0"
 settlement-client = { path = "../../client" }
 solana-sdk = "3"
+
+[lints]
+workspace = true

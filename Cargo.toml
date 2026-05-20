@@ -9,3 +9,25 @@ edition = "2021"
 
 [workspace.dependencies]
 settlement-interface = { path = "interface" }
+
+[workspace.lints.clippy]
+# The settlement program (and related crates) need to do safe integer
+# manipulation. This lint makes sure that we're aware of overflow-underflow
+# issues in arithmetic operations.
+# https://rust-lang.github.io/rust-clippy/master/index.html#arithmetic_side_effects
+arithmetic_side_effects = "deny"
+
+# Pinocchio's `entrypoint!` macro expands to `#[cfg(target_os = "solana")]`. The
+# Solana toolchain sets that target_os when building via `cargo build-sbf`, but
+# host `rustc` doesn't know "solana" is a valid value and warns. Registering it
+# via `check-cfg` matches the pattern used by official SPL programs (e.g.
+# https://github.com/solana-program/address-lookup-table program/Cargo.toml).
+#
+# Only the `programs/settlement` crate actually uses this. This workaround sits
+# at the workspace level only because Cargo doesn't currently allow combining
+# `[lints] workspace = true` with crate-local `[lints.rust.*]`. Once that
+# changes, this can be moved to `programs/settlement/Cargo.toml`.
+# https://github.com/rust-lang/cargo/issues/13157
+[workspace.lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = ['cfg(target_os, values("solana"))']
