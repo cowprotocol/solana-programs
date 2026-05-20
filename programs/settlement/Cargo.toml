@@ -1,0 +1,18 @@
+[package]
+name = "settlement"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+# Required for `cargo build-sbf` to emit a Solana shared object (.so). See:
+# https://solana.com/docs/programs/rust/program-structure
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+pinocchio = "0.11.1"
+settlement-interface.workspace = true
+
+[dev-dependencies]
+litesvm = "0.12.0"
+settlement-client = { path = "../../client" }
+solana-sdk = "3"

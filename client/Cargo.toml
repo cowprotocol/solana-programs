@@ -1,0 +1,7 @@
+[package]
+name = "settlement-client"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+settlement-interface.workspace = true
