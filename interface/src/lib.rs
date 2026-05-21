@@ -4,27 +4,26 @@ pub use solana_instruction::Instruction;
 pub use solana_pubkey::Pubkey;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub enum SettlementInstruction {
-    BeginSettle,
-    FinalizeSettle,
+    BeginSettle = 0,
+    FinalizeSettle = 1,
 }
 
 impl SettlementInstruction {
-    pub const BEGIN_SETTLE_DISC: u8 = 0;
-    pub const FINALIZE_SETTLE_DISC: u8 = 1;
-
     pub fn discriminator(&self) -> u8 {
-        match self {
-            Self::BeginSettle => Self::BEGIN_SETTLE_DISC,
-            Self::FinalizeSettle => Self::FINALIZE_SETTLE_DISC,
-        }
+        *self as u8
     }
+}
 
-    pub fn try_from_bytes(data: &[u8]) -> Option<Self> {
-        match data {
-            [Self::BEGIN_SETTLE_DISC] => Some(Self::BeginSettle),
-            [Self::FINALIZE_SETTLE_DISC] => Some(Self::FinalizeSettle),
-            _ => None,
+impl TryFrom<u8> for SettlementInstruction {
+    type Error = solana_program_error::ProgramError;
+
+    fn try_from(b: u8) -> Result<Self, Self::Error> {
+        match b {
+            0 => Ok(Self::BeginSettle),
+            1 => Ok(Self::FinalizeSettle),
+            _ => Err(Self::Error::InvalidInstructionData),
         }
     }
 }
@@ -33,7 +32,7 @@ pub fn begin_settle(program_id: &Pubkey) -> Instruction {
     Instruction {
         program_id: *program_id,
         accounts: vec![],
-        data: vec![SettlementInstruction::BEGIN_SETTLE_DISC],
+        data: vec![SettlementInstruction::BeginSettle.discriminator()],
     }
 }
 
@@ -41,6 +40,6 @@ pub fn finalize_settle(program_id: &Pubkey) -> Instruction {
     Instruction {
         program_id: *program_id,
         accounts: vec![],
-        data: vec![SettlementInstruction::FINALIZE_SETTLE_DISC],
+        data: vec![SettlementInstruction::FinalizeSettle.discriminator()],
     }
 }
