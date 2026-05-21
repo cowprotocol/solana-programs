@@ -10,8 +10,11 @@ pub fn process_instruction(
     _accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    let instruction = SettlementInstruction::try_from_bytes(instruction_data)
-        .ok_or(ProgramError::InvalidInstructionData)?;
+    let instruction = instruction_data
+        .first()
+        .copied()
+        .ok_or(ProgramError::InvalidInstructionData)
+        .and_then(SettlementInstruction::try_from)?;
     match instruction {
         SettlementInstruction::BeginSettle => process_begin_settle(),
         SettlementInstruction::FinalizeSettle => process_finalize_settle(),
