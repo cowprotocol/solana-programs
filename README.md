@@ -13,8 +13,12 @@ It contains a high-level technical description of what the program does and poin
 
 Install the Solana toolchain (Rust, Solana CLI, and friends) by following the [Solana quick setup](https://solana.com/docs/intro/installation).
 
+Common dev tasks are exposed via [`just`](https://just.systems/) recipes (see `Justfile`).
+Most package managers provide this package, see [list of available Just packages](https://just.systems/man/en/packages.html).
+Run `just --list` to see what's available.
+
 ### How to build
 
 ```sh
-cargo build-sbf
+just build
 ```
