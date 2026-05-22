@@ -22,7 +22,12 @@ fn program_can_be_invoked() {
     let (mut svm, program_id, payer) = common::setup();
 
     let tx = Transaction::new_signed_with_payer(
-        &[begin_settle(&program_id), finalize_settle(&program_id)],
+        // Indices encode the BeginSettle/FinalizeSettle pair
+        // `Begin` at 0 → finalize_ix=1, `Finalize` at 1 → begin_ix=0.
+        &[
+            begin_settle(&program_id, 1),
+            finalize_settle(&program_id, 0),
+        ],
         Some(&payer.pubkey()),
         &[&payer],
         svm.latest_blockhash(),
