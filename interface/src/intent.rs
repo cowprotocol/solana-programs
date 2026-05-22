@@ -406,4 +406,130 @@ mod tests {
         ];
         assert_eq!(*encoding, expected);
     }
+
+    // Property-based tests, non-deterministic.
+    mod proptest {
+        use ::proptest::{prelude::*, strategy::Union, test_runner::TestCaseError};
+
+        use super::*;
+
+        // Any valid `OrderKind`.
+        fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
+            Union::new(OrderKind::ALL.map(Just))
+        }
+
+        // Any byte not decoding to a valid order type.
+        fn arb_bad_order_kind_byte() -> impl Strategy<Value = u8> {
+            2u8..=255
+        }
+
+        // Any byte not decoding to a valid bool.
+        fn arb_bad_bool_byte() -> impl Strategy<Value = u8> {
+            2u8..=255
+        }
+
+        // Any valid `OrderIntent`.
+        fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
+            (
+                any::<[u8; 32]>(),
+                any::<[u8; 32]>(),
+                any::<[u8; 32]>(),
+                any::<u64>(),
+                any::<u64>(),
+                any::<u32>(),
+                arb_order_kind(),
+                any::<bool>(),
+                any::<[u8; 32]>(),
+            )
+                .prop_map(
+                    |(
+                        owner,
+                        buy_tok,
+                        sell_tok,
+                        sell_amount,
+                        buy_amount,
+                        valid_to,
+                        kind,
+                        pf,
+                        app,
+                    )| {
+                        OrderIntent {
+                            owner: Pubkey::new_from_array(owner),
+                            buy_token_account: Pubkey::new_from_array(buy_tok),
+                            sell_token_account: Pubkey::new_from_array(sell_tok),
+                            sell_amount,
+                            buy_amount,
+                            valid_to,
+                            kind,
+                            partially_fillable: pf,
+                            app_data: app,
+                        }
+                    },
+                )
+        }
+
+        proptest! {
+            // For any `OrderIntent`, `encode().decode_and_hash()` returns
+            // the same intent plus a UID that matches the encoded bytes'
+            // hash.
+            #[test]
+            fn intent_roundtrip(intent in arb_order_intent()) {
+                let encoded = intent.encode();
+                let (decoded, uid) = EncodedOrderIntent::decode_and_hash(&encoded)
+                    .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
+                prop_assert_eq!(decoded, intent);
+                prop_assert_eq!(uid, encoded.hash());
+            }
+
+            // For any bytes whose `kind` and `partially_fillable` slots
+            // are valid, `decode_and_hash` + re-`encode` produces back
+            // the original bytes.
+            #[test]
+            fn bytes_roundtrip(
+                mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
+                kind in arb_order_kind(),
+                partially_fillable in any::<bool>(),
+            ) {
+                bytes[EncodedOrderIntent::OFF_KIND] = kind as u8;
+                bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = partially_fillable as u8;
+                let (intent, _uid) = EncodedOrderIntent::decode_and_hash(&bytes)
+                    .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
+                prop_assert_eq!(*intent.encode(), bytes);
+            }
+
+            // For any bytes with an invalid `kind` byte (and a valid
+            // `partially_fillable`), `decode_and_hash` returns
+            // `InvalidInstructionData`.
+            #[test]
+            fn rejects_invalid_kind_byte(
+                mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
+                bad_kind in arb_bad_order_kind_byte(),
+                partially_fillable in any::<bool>(),
+            ) {
+                bytes[EncodedOrderIntent::OFF_KIND] = bad_kind;
+                bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = partially_fillable as u8;
+                prop_assert_eq!(
+                    EncodedOrderIntent::decode_and_hash(&bytes),
+                    Err(ProgramError::InvalidInstructionData),
+                );
+            }
+
+            // Symmetric: any bytes with an out-of-range
+            // `partially_fillable` byte (and a valid `kind`) return
+            // `InvalidInstructionData`.
+            #[test]
+            fn rejects_invalid_partially_fillable_byte(
+                mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
+                kind in arb_order_kind(),
+                bad_pf in arb_bad_bool_byte(),
+            ) {
+                bytes[EncodedOrderIntent::OFF_KIND] = kind as u8;
+                bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = bad_pf;
+                prop_assert_eq!(
+                    EncodedOrderIntent::decode_and_hash(&bytes),
+                    Err(ProgramError::InvalidInstructionData),
+                );
+            }
+        }
+    }
 }

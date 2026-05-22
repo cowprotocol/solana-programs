@@ -9,5 +9,8 @@ solana-program-error.workspace = true
 solana-pubkey.workspace = true
 solana-sha256-hasher.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true
