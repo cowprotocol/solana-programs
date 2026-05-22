@@ -1,0 +1,9 @@
+[package]
+name = "settlement-interface"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+solana-instruction.workspace = true
+solana-program-error.workspace = true
+solana-pubkey.workspace = true

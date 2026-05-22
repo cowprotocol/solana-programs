@@ -2,12 +2,16 @@
 default:
     @{{ just_executable() }} --list
 
-# Build the on-chain program for Solana.
-build:
-    cargo build-sbf
+# Build the on-chain settlement program (.so) for Solana.
+build-program:
+    cargo build-sbf --manifest-path programs/settlement/Cargo.toml
+
+# Build everything: host-side workspace crates plus the on-chain program.
+build: build-program
+    cargo build
 
 # Run the test suite (builds the program first so the .so exists).
-test: build
+test: build-program
     cargo test
 
 # Format the source code.

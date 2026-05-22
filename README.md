@@ -17,8 +17,31 @@ Common dev tasks are exposed via [`just`](https://just.systems/) recipes (see `J
 Most package managers provide this package, see [list of available Just packages](https://just.systems/man/en/packages.html).
 Run `just --list` to see what's available.
 
+## Repository layout
+
+The repository is a Cargo workspace following the program / client / interface split:
+
+- [`interface/`](./interface): shared types and the `Instruction` builders. Depends only on the lightweight crates so it can be consumed from both on-chain and off-chain code.
+- [`programs/settlement/`](./programs/settlement): the on-chain settlement program.
+- [`client/`](./client): off-chain client helpers that re-export the builders from `interface` and add small convenience wrappers.
+
+
 ### How to build
+
+Build the on-chain program (produces `target/deploy/settlement.so`):
+
+```sh
+just build-program
+```
+
+Build everything (workspace crates plus the on-chain program):
 
 ```sh
 just build
+```
+
+### How to test
+
+```sh
+just test
 ```

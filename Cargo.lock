@@ -636,15 +636,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
-name = "cow-solana-programs"
-version = "0.1.0"
-dependencies = [
- "litesvm",
- "pinocchio",
- "solana-sdk",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2037,6 +2028,33 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "settlement"
+version = "0.1.0"
+dependencies = [
+ "litesvm",
+ "pinocchio",
+ "settlement-client",
+ "settlement-interface",
+ "solana-sdk",
+]
+
+[[package]]
+name = "settlement-client"
+version = "0.1.0"
+dependencies = [
+ "settlement-interface",
+]
+
+[[package]]
+name = "settlement-interface"
+version = "0.1.0"
+dependencies = [
+ "solana-instruction",
+ "solana-program-error",
+ "solana-pubkey 3.0.0",
 ]
 
 [[package]]
