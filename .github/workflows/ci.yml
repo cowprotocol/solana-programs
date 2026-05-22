@@ -4,10 +4,6 @@ on:
   push:
   pull_request:
 
-env:
-  # Bump to upgrade. Releases: https://github.com/anza-xyz/agave/releases
-  SOLANA_VERSION: v3.1.14
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,23 +12,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Solana toolchain
-        # The official Solana GitHub Action can be found at:
-        # https://github.com/solana-program/actions/tree/main/install-solana
-        # However, it doesn't pin dependencies to commit values and it's
-        # rejected by CoW's Actions pinning policy.
-        # Here we use a simplified version of the commands in the above action.
-        run: |
-          sh -c "$(curl -sSfL "https://release.anza.xyz/${{ env.SOLANA_VERSION }}/install")"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-
-      - name: Solana version
-        run: solana --version
-
+      - uses: ./.github/actions/setup-solana
       - uses: ./.github/actions/setup-just
 
       - name: Build
         run: just build
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-solana
+      - uses: ./.github/actions/setup-just
+
+      - name: Test
+        run: just test
 
   fmt-check:
     runs-on: ubuntu-latest
