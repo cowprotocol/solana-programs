@@ -3,6 +3,8 @@
 pub use solana_instruction::Instruction;
 pub use solana_pubkey::Pubkey;
 
+pub mod intent;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum SettlementInstruction {
