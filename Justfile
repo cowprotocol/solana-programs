@@ -21,3 +21,7 @@ fmt:
 # Check that the source code is formatted.
 fmt-check:
     cargo fmt -- --check
+
+# Lint the source code with clippy.
+lint:
+    cargo clippy --workspace --all-targets --all-features -- --deny=warnings

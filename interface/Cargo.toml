@@ -7,3 +7,6 @@ edition.workspace = true
 solana-instruction.workspace = true
 solana-program-error.workspace = true
 solana-pubkey.workspace = true
+
+[lints]
+workspace = true

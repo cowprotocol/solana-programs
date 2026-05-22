@@ -16,3 +16,6 @@ settlement-interface.workspace = true
 litesvm.workspace = true
 settlement-client.workspace = true
 solana-sdk.workspace = true
+
+[lints]
+workspace = true

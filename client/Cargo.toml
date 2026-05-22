@@ -5,3 +5,6 @@ edition.workspace = true
 
 [dependencies]
 settlement-interface.workspace = true
+
+[lints]
+workspace = true
