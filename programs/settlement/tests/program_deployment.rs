@@ -1,22 +1,11 @@
-use litesvm::LiteSVM;
-use settlement_client::{begin_settle, finalize_settle};
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-};
+use settlement_client::settlement_interface::settle::{begin_settle, finalize_settle};
+use solana_sdk::{signature::Signer, transaction::Transaction};
 
-const PROGRAM_SO: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../target/deploy/settlement.so"
-);
+mod common;
 
 #[test]
 fn program_is_deployed_with_code() {
-    let mut svm = LiteSVM::new();
-    let program_id = Pubkey::new_unique();
-    svm.add_program_from_file(program_id, PROGRAM_SO)
-        .expect("compiled program .so not found, run `just build-program` first");
+    let (svm, program_id, _) = common::setup();
 
     let account = svm
         .get_account(&program_id)
@@ -30,14 +19,7 @@ fn program_is_deployed_with_code() {
 
 #[test]
 fn program_can_be_invoked() {
-    let mut svm = LiteSVM::new();
-    let program_id = Pubkey::new_unique();
-    svm.add_program_from_file(program_id, PROGRAM_SO)
-        .expect("compiled program .so not found, run `just build-program` first");
-
-    let payer = Keypair::new();
-    svm.airdrop(&payer.pubkey(), 1_000_000_000)
-        .expect("airdrop to payer should succeed");
+    let (mut svm, program_id, payer) = common::setup();
 
     let tx = Transaction::new_signed_with_payer(
         &[begin_settle(&program_id), finalize_settle(&program_id)],
