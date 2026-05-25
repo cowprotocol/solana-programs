@@ -1,3 +1,3 @@
 //! Off-chain helpers for interacting with the settlement program.
 
-pub use settlement_interface::{begin_settle, finalize_settle};
+pub use settlement_interface;

@@ -1,30 +1,28 @@
 //! On-chain CoW Protocol settlement program.
 
-use pinocchio::{entrypoint, error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::SettlementInstruction;
+mod processor;
+mod settle;
+
+#[cfg(test)]
+mod test_utils;
+
+use pinocchio::{entrypoint, AccountView, Address, ProgramResult};
+use settle::{process_begin_settle, process_finalize_settle};
+use settlement_interface::{recover_discriminator, SettlementInstruction};
 
 entrypoint!(process_instruction);
 
 pub fn process_instruction(
-    _program_id: &Address,
-    _accounts: &mut [AccountView],
+    program_id: &Address,
+    accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    let instruction = instruction_data
-        .first()
-        .copied()
-        .ok_or(ProgramError::InvalidInstructionData)
-        .and_then(SettlementInstruction::try_from)?;
-    match instruction {
-        SettlementInstruction::BeginSettle => process_begin_settle(),
-        SettlementInstruction::FinalizeSettle => process_finalize_settle(),
+    match recover_discriminator(instruction_data)? {
+        SettlementInstruction::BeginSettle => {
+            process_begin_settle(program_id, accounts, instruction_data)
+        }
+        SettlementInstruction::FinalizeSettle => {
+            process_finalize_settle(program_id, accounts, instruction_data)
+        }
     }
-}
-
-fn process_begin_settle() -> ProgramResult {
-    Ok(())
-}
-
-fn process_finalize_settle() -> ProgramResult {
-    Ok(())
 }
