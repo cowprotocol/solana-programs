@@ -44,7 +44,7 @@ impl TryFrom<[u8; 1]> for OrderKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OrderIntent {
     /// Account authorized to create and invalidate this order and whose
     /// signature authenticates it. For off-chain orders this is the Ed25519
@@ -113,7 +113,7 @@ pub struct OrderIntent {
 /// 0                               32                              64                              96      104    112 116 118                            150
 ///                                                                                                                     117
 /// ```
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EncodedOrderIntent([u8; Self::SIZE]);
 
 impl EncodedOrderIntent {
@@ -141,7 +141,7 @@ impl EncodedOrderIntent {
     pub fn decode_and_hash(
         bytes: &[u8; Self::SIZE],
     ) -> Result<(OrderIntent, [u8; 32]), ProgramError> {
-        let intent = OrderIntent::try_from(*bytes)?;
+        let intent = OrderIntent::try_from(bytes)?;
         // The UID is the SHA-256 of the input bytes. Hashing the input
         // (no re-encode) is correct because encode/decode is a bijection on
         // inputs that pass validation. Any normalization added to the `From`
@@ -152,14 +152,14 @@ impl EncodedOrderIntent {
     }
 }
 
-impl From<EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
-    fn from(encoded: EncodedOrderIntent) -> Self {
+impl From<&EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
+    fn from(encoded: &EncodedOrderIntent) -> Self {
         encoded.0
     }
 }
 
-impl From<OrderIntent> for EncodedOrderIntent {
-    fn from(intent: OrderIntent) -> Self {
+impl From<&OrderIntent> for EncodedOrderIntent {
+    fn from(intent: &OrderIntent) -> Self {
         let mut out = [0u8; Self::SIZE];
         out[Self::OFF_OWNER..Self::OFF_BUY_TOKEN].copy_from_slice(intent.owner.as_ref());
         out[Self::OFF_BUY_TOKEN..Self::OFF_SELL_TOKEN]
@@ -178,10 +178,10 @@ impl From<OrderIntent> for EncodedOrderIntent {
     }
 }
 
-impl TryFrom<[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
+impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
     type Error = ProgramError;
 
-    fn try_from(bytes: [u8; EncodedOrderIntent::SIZE]) -> Result<Self, Self::Error> {
+    fn try_from(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Result<Self, Self::Error> {
         // It's important that the byte representation of an intent is unique.
         // This function should be injective: there shouldn't be two byte
         // sequences that decode to the same order intent.
@@ -248,11 +248,11 @@ impl TryFrom<[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
     }
 }
 
-impl TryFrom<EncodedOrderIntent> for OrderIntent {
+impl TryFrom<&EncodedOrderIntent> for OrderIntent {
     type Error = ProgramError;
 
-    fn try_from(encoded: EncodedOrderIntent) -> Result<Self, Self::Error> {
-        OrderIntent::try_from(encoded.0)
+    fn try_from(encoded: &EncodedOrderIntent) -> Result<Self, Self::Error> {
+        OrderIntent::try_from(&encoded.0)
     }
 }
 
@@ -269,7 +269,7 @@ impl OrderIntent {
     /// middle seed of the order PDA. On SBF this compiles to a single
     /// `sol_sha256` syscall; off-target it goes through the `sha2` crate.
     pub fn uid(&self) -> [u8; 32] {
-        EncodedOrderIntent::from(*self).hash()
+        EncodedOrderIntent::from(self).hash()
     }
 }
 
@@ -356,7 +356,7 @@ mod tests {
     fn roundtrip_all_kind_and_bool_combinations() {
         for (kind, partially_fillable) in all_kind_and_fillable() {
             let intent = default_order_intent(kind, partially_fillable);
-            let encoded = EncodedOrderIntent::from(intent);
+            let encoded = EncodedOrderIntent::from(&intent);
             let (decoded, _uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
             assert_eq!(decoded, intent);
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn decode_and_hash_uid_matches_encoded_hash() {
         for (kind, partially_fillable) in all_kind_and_fillable() {
-            let encoded = EncodedOrderIntent::from(default_order_intent(kind, partially_fillable));
+            let encoded = EncodedOrderIntent::from(&default_order_intent(kind, partially_fillable));
             let (_intent, uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
             assert_eq!(uid, encoded.hash());
@@ -379,8 +379,8 @@ mod tests {
 
     #[test]
     fn decode_rejects_out_of_range_kind() {
-        let mut bytes: [u8; EncodedOrderIntent::SIZE] =
-            EncodedOrderIntent::from(default_order_intent(OrderKind::Sell, false)).into();
+        let encoded = EncodedOrderIntent::from(&default_order_intent(OrderKind::Sell, false));
+        let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
         for bad in 0x02u8..=0xff {
             bytes[EncodedOrderIntent::OFF_KIND] = bad;
             let err = EncodedOrderIntent::decode_and_hash(&bytes)
@@ -391,8 +391,8 @@ mod tests {
 
     #[test]
     fn decode_rejects_non_boolean_partially_fillable() {
-        let mut bytes: [u8; EncodedOrderIntent::SIZE] =
-            EncodedOrderIntent::from(default_order_intent(OrderKind::Sell, false)).into();
+        let encoded = EncodedOrderIntent::from(&default_order_intent(OrderKind::Sell, false));
+        let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
         for bad in 0x02u8..=0xff {
             bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = bad;
             let err = EncodedOrderIntent::decode_and_hash(&bytes)
@@ -415,8 +415,8 @@ mod tests {
     #[test]
     #[rustfmt::skip]
     fn encoding_regression() {
-        let encoding: [u8; EncodedOrderIntent::SIZE] =
-            EncodedOrderIntent::from(default_order_intent(OrderKind::Buy, true)).into();
+        let encoded = EncodedOrderIntent::from(&default_order_intent(OrderKind::Buy, true));
+        let encoding: [u8; EncodedOrderIntent::SIZE] = *encoded;
         let expected: [u8; EncodedOrderIntent::SIZE] = [
             // owner ([0x11; 32])
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
