@@ -103,6 +103,8 @@ pub struct OrderIntent {
 /// annotated below. Amounts and `valid_to` are big-endian encoded.
 ///
 /// ```text
+///                                                                                              partially_fillable ─────┐
+///                                                                                                            kind ────┐│
 /// ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────┬───────┬───┬┬┬───────────────────────────────┐
 /// │                               │                               │                               │sell_  │buy_   │val│││                               │
 /// │             owner             │       buy_token_account       │       sell_token_account      │       │       │id_│││            app_data           │
