@@ -1,7 +1,9 @@
 //! `BeginSettle`/`FinalizeSettle` instruction handlers.
 
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::{recover_discriminator, SettlementInstruction};
+use settlement_interface::SettlementInstruction;
+
+use crate::processor::InstructionInputParsing;
 
 /// Parsed inputs (currently empty) of a `BeginSettle` instruction.
 ///
@@ -10,12 +12,13 @@ use settlement_interface::{recover_discriminator, SettlementInstruction};
 /// that the discriminator matches the desired input.
 struct BeginSettleInput {}
 
-impl BeginSettleInput {
-    fn parse(instruction_data: &[u8], _accounts: &[AccountView]) -> Result<Self, ProgramError> {
-        let discriminator = recover_discriminator(instruction_data)?;
-        if discriminator != SettlementInstruction::BeginSettle {
-            return Err(ProgramError::InvalidInstructionData);
-        }
+impl InstructionInputParsing for BeginSettleInput {
+    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
+
+    fn parse_body(
+        _instruction_data: &[u8],
+        _accounts: &[AccountView],
+    ) -> Result<Self, ProgramError> {
         Ok(Self {})
     }
 }
@@ -27,12 +30,13 @@ impl BeginSettleInput {
 /// that the discriminator matches the desired input.
 struct FinalizeSettleInput {}
 
-impl FinalizeSettleInput {
-    fn parse(instruction_data: &[u8], _accounts: &[AccountView]) -> Result<Self, ProgramError> {
-        let discriminator = recover_discriminator(instruction_data)?;
-        if discriminator != SettlementInstruction::FinalizeSettle {
-            return Err(ProgramError::InvalidInstructionData);
-        }
+impl InstructionInputParsing for FinalizeSettleInput {
+    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::FinalizeSettle;
+
+    fn parse_body(
+        _instruction_data: &[u8],
+        _accounts: &[AccountView],
+    ) -> Result<Self, ProgramError> {
         Ok(Self {})
     }
 }

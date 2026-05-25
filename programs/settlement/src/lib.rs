@@ -1,5 +1,6 @@
 //! On-chain CoW Protocol settlement program.
 
+mod processor;
 mod settle;
 
 #[cfg(test)]
