@@ -274,7 +274,7 @@ impl OrderIntent {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::data) mod tests {
     use super::*;
 
     // Full Cartesian product of `OrderKind × bool` for tests that need to
@@ -288,7 +288,7 @@ mod tests {
     // Hand-picked example used for both the roundtrip and the digest
     // regression. Distinct pubkeys, non-zero amounts, `valid_to` with both
     // halves set, recognizable `app_data` pattern.
-    fn default_order_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
+    pub(in crate::data) fn sample_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
         OrderIntent {
             owner: Pubkey::new_from_array([0x11; 32]),
             buy_token_account: Pubkey::new_from_array([0x22; 32]),
@@ -312,7 +312,7 @@ mod tests {
 
         // Any `OrderIntent` works — `size_of_val` only consults the field
         // type, never the data.
-        let i = default_order_intent(OrderKind::Sell, false);
+        let i = sample_intent(OrderKind::Sell, false);
 
         assert_eq!(
             EncodedOrderIntent::OFF_BUY_TOKEN - EncodedOrderIntent::OFF_OWNER,
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn roundtrip_all_kind_and_bool_combinations() {
         for (kind, partially_fillable) in all_kind_and_fillable() {
-            let intent = default_order_intent(kind, partially_fillable);
+            let intent = sample_intent(kind, partially_fillable);
             let encoded = EncodedOrderIntent::from(&intent);
             let (decoded, _uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn decode_and_hash_uid_matches_encoded_hash() {
         for (kind, partially_fillable) in all_kind_and_fillable() {
-            let encoded = EncodedOrderIntent::from(&default_order_intent(kind, partially_fillable));
+            let encoded = EncodedOrderIntent::from(&sample_intent(kind, partially_fillable));
             let (_intent, uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
             assert_eq!(uid, encoded.hash());
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_out_of_range_kind() {
-        let encoded = EncodedOrderIntent::from(&default_order_intent(OrderKind::Sell, false));
+        let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Sell, false));
         let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
         for bad in 0x02u8..=0xff {
             bytes[EncodedOrderIntent::OFF_KIND] = bad;
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn decode_rejects_non_boolean_partially_fillable() {
-        let encoded = EncodedOrderIntent::from(&default_order_intent(OrderKind::Sell, false));
+        let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Sell, false));
         let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
         for bad in 0x02u8..=0xff {
             bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = bad;
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn uid_digest_regression() {
-        let intent = default_order_intent(OrderKind::Buy, true);
+        let intent = sample_intent(OrderKind::Buy, true);
         let expected: [u8; 32] = [
             0x09, 0x1d, 0x7e, 0x19, 0x59, 0xac, 0x6f, 0x7a, 0x40, 0x0a, 0x91, 0xf1, 0xdc, 0xd9,
             0xce, 0x43, 0x6f, 0x8f, 0x53, 0xe2, 0xb7, 0xa1, 0xd9, 0x68, 0xac, 0xb0, 0x8f, 0x79,
@@ -415,7 +415,7 @@ mod tests {
     #[test]
     #[rustfmt::skip]
     fn encoding_regression() {
-        let encoded = EncodedOrderIntent::from(&default_order_intent(OrderKind::Buy, true));
+        let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Buy, true));
         let encoding: [u8; EncodedOrderIntent::SIZE] = *encoded;
         let expected: [u8; EncodedOrderIntent::SIZE] = [
             // owner ([0x11; 32])
@@ -453,13 +453,13 @@ mod tests {
     }
 
     // Property-based tests, non-deterministic.
-    mod proptest {
+    pub(in crate::data) mod proptest {
         use ::proptest::{prelude::*, strategy::Union, test_runner::TestCaseError};
 
         use super::*;
 
         // Any valid `OrderKind`.
-        fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
+        pub(in crate::data) fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
             Union::new(OrderKind::ALL.map(Just))
         }
 
@@ -474,7 +474,7 @@ mod tests {
         }
 
         // Any valid `OrderIntent`.
-        fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
+        pub(in crate::data) fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
             (
                 any::<[u8; 32]>(),
                 any::<[u8; 32]>(),
