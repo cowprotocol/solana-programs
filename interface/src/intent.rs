@@ -519,7 +519,7 @@ mod tests {
             // hash.
             #[test]
             fn intent_roundtrip(intent in arb_order_intent()) {
-                let encoded = intent.encode();
+                let encoded = EncodedOrderIntent::from(intent);
                 let (decoded, uid) = EncodedOrderIntent::decode_and_hash(&encoded)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(decoded, intent);
@@ -539,7 +539,7 @@ mod tests {
                 bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = partially_fillable as u8;
                 let (intent, _uid) = EncodedOrderIntent::decode_and_hash(&bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
-                prop_assert_eq!(*intent.encode(), bytes);
+                prop_assert_eq!(*EncodedOrderIntent::from(intent), bytes);
             }
 
             // For any bytes with an invalid `kind` byte (and a valid
