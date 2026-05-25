@@ -9,11 +9,11 @@
 //!   thing sent on the wire and also the data encoding used to generate the
 //!   order UID.
 //!
-//! Conversion is asymmetric: [`OrderIntent::encode`] is infallible;
-//! [`EncodedOrderIntent::decode`] returns `Result` and rejects out-of-range
-//! `kind` or `partially_fillable` bytes up front. There is no path that
-//! produces an `OrderIntent` whose `kind` byte or `partially_fillable` byte was
-//! not validated.
+//! Conversion is asymmetric: [`EncodedOrderIntent`]`::from(OrderIntent)` is
+//! infallible; decoding raw bytes via [`OrderIntent`]`::try_from` returns
+//! `Result` and rejects out-of-range `kind` or `partially_fillable` bytes up
+//! front. There is no path that produces an `OrderIntent` whose `kind` byte or
+//! `partially_fillable` byte was not validated.
 
 use core::ops::Deref;
 
@@ -103,6 +103,8 @@ pub struct OrderIntent {
 /// annotated below. Amounts and `valid_to` are big-endian encoded.
 ///
 /// ```text
+///                                                                                              partially_fillable ─────┐
+///                                                                                                            kind ────┐│
 /// ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────┬───────┬───┬┬┬───────────────────────────────┐
 /// │                               │                               │                               │sell_  │buy_   │val│││                               │
 /// │             owner             │       buy_token_account       │       sell_token_account      │       │       │id_│││            app_data           │
@@ -132,12 +134,61 @@ impl EncodedOrderIntent {
         solana_sha256_hasher::hashv(&[self.as_slice()]).to_bytes()
     }
 
-    /// Decode to the idiomatic [`OrderIntent`]. Returns
-    /// [`ProgramError::InvalidInstructionData`] for an out-of-range `kind`
-    /// or `partially_fillable` byte; every other byte combination decodes.
+    /// Decode raw bytes to an [`OrderIntent`] and compute the UID in one shot.
+    /// Returns [`ProgramError::InvalidInstructionData`] for an out-of-range
+    /// `kind` or `partially_fillable` byte; every other byte combination
+    /// decodes.
     pub fn decode_and_hash(
-        bytes: &[u8; EncodedOrderIntent::SIZE],
+        bytes: &[u8; Self::SIZE],
     ) -> Result<(OrderIntent, [u8; 32]), ProgramError> {
+        let intent = OrderIntent::try_from(*bytes)?;
+        // The UID is the SHA-256 of the input bytes. Hashing the input
+        // (no re-encode) is correct because encode/decode is a bijection on
+        // inputs that pass validation. Any normalization added to the `From`
+        // or `TryFrom` impls later would break this and the UID would silently
+        // diverge from `OrderIntent::uid()`.
+        let uid = solana_sha256_hasher::hashv(&[bytes.as_slice()]).to_bytes();
+        Ok((intent, uid))
+    }
+}
+
+impl From<EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
+    fn from(encoded: EncodedOrderIntent) -> Self {
+        encoded.0
+    }
+}
+
+impl From<OrderIntent> for EncodedOrderIntent {
+    fn from(intent: OrderIntent) -> Self {
+        let mut out = [0u8; Self::SIZE];
+        out[Self::OFF_OWNER..Self::OFF_BUY_TOKEN].copy_from_slice(intent.owner.as_ref());
+        out[Self::OFF_BUY_TOKEN..Self::OFF_SELL_TOKEN]
+            .copy_from_slice(intent.buy_token_account.as_ref());
+        out[Self::OFF_SELL_TOKEN..Self::OFF_SELL_AMOUNT]
+            .copy_from_slice(intent.sell_token_account.as_ref());
+        out[Self::OFF_SELL_AMOUNT..Self::OFF_BUY_AMOUNT]
+            .copy_from_slice(&intent.sell_amount.to_be_bytes());
+        out[Self::OFF_BUY_AMOUNT..Self::OFF_VALID_TO]
+            .copy_from_slice(&intent.buy_amount.to_be_bytes());
+        out[Self::OFF_VALID_TO..Self::OFF_KIND].copy_from_slice(&intent.valid_to.to_be_bytes());
+        out[Self::OFF_KIND] = intent.kind as u8;
+        out[Self::OFF_PARTIALLY_FILLABLE] = intent.partially_fillable as u8;
+        out[Self::OFF_APP_DATA..Self::SIZE].copy_from_slice(&intent.app_data);
+        Self(out)
+    }
+}
+
+impl TryFrom<[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
+    type Error = ProgramError;
+
+    fn try_from(bytes: [u8; EncodedOrderIntent::SIZE]) -> Result<Self, Self::Error> {
+        // It's important that the byte representation of an intent is unique.
+        // This function should be injective: there shouldn't be two byte
+        // sequences that decode to the same order intent.
+        // If this were to happen, then the user intent may not be recognized
+        // as valid or it might be possible to replay the same order more
+        // than once.
+
         fn partially_fillable(bytes: &[u8; 1]) -> Result<bool, ProgramError> {
             Ok(match bytes {
                 [0] => false,
@@ -159,38 +210,49 @@ impl EncodedOrderIntent {
             };
         }
 
-        let intent = OrderIntent {
-            owner: Pubkey::new_from_array(field_at!(Self::OFF_OWNER, Self::OFF_BUY_TOKEN)),
+        Ok(OrderIntent {
+            owner: Pubkey::new_from_array(field_at!(
+                EncodedOrderIntent::OFF_OWNER,
+                EncodedOrderIntent::OFF_BUY_TOKEN
+            )),
             buy_token_account: Pubkey::new_from_array(field_at!(
-                Self::OFF_BUY_TOKEN,
-                Self::OFF_SELL_TOKEN
+                EncodedOrderIntent::OFF_BUY_TOKEN,
+                EncodedOrderIntent::OFF_SELL_TOKEN
             )),
             sell_token_account: Pubkey::new_from_array(field_at!(
-                Self::OFF_SELL_TOKEN,
-                Self::OFF_SELL_AMOUNT
+                EncodedOrderIntent::OFF_SELL_TOKEN,
+                EncodedOrderIntent::OFF_SELL_AMOUNT
             )),
-            sell_amount: u64::from_be_bytes(field_at!(Self::OFF_SELL_AMOUNT, Self::OFF_BUY_AMOUNT)),
-            buy_amount: u64::from_be_bytes(field_at!(Self::OFF_BUY_AMOUNT, Self::OFF_VALID_TO)),
-            valid_to: u32::from_be_bytes(field_at!(Self::OFF_VALID_TO, Self::OFF_KIND)),
+            sell_amount: u64::from_be_bytes(field_at!(
+                EncodedOrderIntent::OFF_SELL_AMOUNT,
+                EncodedOrderIntent::OFF_BUY_AMOUNT
+            )),
+            buy_amount: u64::from_be_bytes(field_at!(
+                EncodedOrderIntent::OFF_BUY_AMOUNT,
+                EncodedOrderIntent::OFF_VALID_TO
+            )),
+            valid_to: u32::from_be_bytes(field_at!(
+                EncodedOrderIntent::OFF_VALID_TO,
+                EncodedOrderIntent::OFF_KIND
+            )),
             kind: <OrderKind as TryFrom<[u8; 1]>>::try_from(field_at!(
-                Self::OFF_KIND,
-                Self::OFF_PARTIALLY_FILLABLE
+                EncodedOrderIntent::OFF_KIND,
+                EncodedOrderIntent::OFF_PARTIALLY_FILLABLE
             ))?,
             partially_fillable: partially_fillable(field_at!(
-                Self::OFF_PARTIALLY_FILLABLE,
-                Self::OFF_APP_DATA
+                EncodedOrderIntent::OFF_PARTIALLY_FILLABLE,
+                EncodedOrderIntent::OFF_APP_DATA
             ))?,
-            app_data: field_at!(Self::OFF_APP_DATA, Self::SIZE),
-        };
+            app_data: field_at!(EncodedOrderIntent::OFF_APP_DATA, EncodedOrderIntent::SIZE),
+        })
+    }
+}
 
-        // Hashing the input bytes (no re-encode) is correct because
-        // encode/decode is a bijection on inputs that pass validation
-        // above. Any normalization added to `encode`/`decode_and_hash`
-        // later would break this and the UID would silently diverge
-        // from `OrderIntent::uid()`.
-        let uid = solana_sha256_hasher::hashv(&[bytes.as_slice()]).to_bytes();
+impl TryFrom<EncodedOrderIntent> for OrderIntent {
+    type Error = ProgramError;
 
-        Ok((intent, uid))
+    fn try_from(encoded: EncodedOrderIntent) -> Result<Self, Self::Error> {
+        OrderIntent::try_from(encoded.0)
     }
 }
 
@@ -203,33 +265,11 @@ impl Deref for EncodedOrderIntent {
 }
 
 impl OrderIntent {
-    /// Infallibly serialize to the canonical 150-byte layout.
-    pub fn encode(&self) -> EncodedOrderIntent {
-        let mut out = [0u8; EncodedOrderIntent::SIZE];
-        out[EncodedOrderIntent::OFF_OWNER..EncodedOrderIntent::OFF_BUY_TOKEN]
-            .copy_from_slice(self.owner.as_ref());
-        out[EncodedOrderIntent::OFF_BUY_TOKEN..EncodedOrderIntent::OFF_SELL_TOKEN]
-            .copy_from_slice(self.buy_token_account.as_ref());
-        out[EncodedOrderIntent::OFF_SELL_TOKEN..EncodedOrderIntent::OFF_SELL_AMOUNT]
-            .copy_from_slice(self.sell_token_account.as_ref());
-        out[EncodedOrderIntent::OFF_SELL_AMOUNT..EncodedOrderIntent::OFF_BUY_AMOUNT]
-            .copy_from_slice(&self.sell_amount.to_be_bytes());
-        out[EncodedOrderIntent::OFF_BUY_AMOUNT..EncodedOrderIntent::OFF_VALID_TO]
-            .copy_from_slice(&self.buy_amount.to_be_bytes());
-        out[EncodedOrderIntent::OFF_VALID_TO..EncodedOrderIntent::OFF_KIND]
-            .copy_from_slice(&self.valid_to.to_be_bytes());
-        out[EncodedOrderIntent::OFF_KIND] = self.kind as u8;
-        out[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = self.partially_fillable as u8;
-        out[EncodedOrderIntent::OFF_APP_DATA..EncodedOrderIntent::SIZE]
-            .copy_from_slice(&self.app_data);
-        EncodedOrderIntent(out)
-    }
-
     /// SHA-256 of the canonical bytes. Doubles as the order UID and the
     /// middle seed of the order PDA. On SBF this compiles to a single
     /// `sol_sha256` syscall; off-target it goes through the `sha2` crate.
     pub fn uid(&self) -> [u8; 32] {
-        self.encode().hash()
+        EncodedOrderIntent::from(*self).hash()
     }
 }
 
@@ -316,7 +356,7 @@ mod tests {
     fn roundtrip_all_kind_and_bool_combinations() {
         for (kind, partially_fillable) in all_kind_and_fillable() {
             let intent = default_order_intent(kind, partially_fillable);
-            let encoded = intent.encode();
+            let encoded = EncodedOrderIntent::from(intent);
             let (decoded, _uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
             assert_eq!(decoded, intent);
@@ -330,7 +370,7 @@ mod tests {
     #[test]
     fn decode_and_hash_uid_matches_encoded_hash() {
         for (kind, partially_fillable) in all_kind_and_fillable() {
-            let encoded = default_order_intent(kind, partially_fillable).encode();
+            let encoded = EncodedOrderIntent::from(default_order_intent(kind, partially_fillable));
             let (_intent, uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
             assert_eq!(uid, encoded.hash());
@@ -339,20 +379,24 @@ mod tests {
 
     #[test]
     fn decode_rejects_out_of_range_kind() {
-        let mut bytes = default_order_intent(OrderKind::Sell, false).encode().0;
+        let mut bytes: [u8; EncodedOrderIntent::SIZE] =
+            EncodedOrderIntent::from(default_order_intent(OrderKind::Sell, false)).into();
         for bad in 0x02u8..=0xff {
             bytes[EncodedOrderIntent::OFF_KIND] = bad;
-            let err = EncodedOrderIntent::decode_and_hash(&bytes).unwrap_err();
+            let err = EncodedOrderIntent::decode_and_hash(&bytes)
+                .expect_err("should reject out of range kind");
             assert_eq!(err, ProgramError::InvalidInstructionData);
         }
     }
 
     #[test]
     fn decode_rejects_non_boolean_partially_fillable() {
-        let mut bytes = default_order_intent(OrderKind::Sell, false).encode().0;
+        let mut bytes: [u8; EncodedOrderIntent::SIZE] =
+            EncodedOrderIntent::from(default_order_intent(OrderKind::Sell, false)).into();
         for bad in 0x02u8..=0xff {
             bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = bad;
-            let err = EncodedOrderIntent::decode_and_hash(&bytes).unwrap_err();
+            let err = EncodedOrderIntent::decode_and_hash(&bytes)
+                .expect_err("should reject out of range partially fillable");
             assert_eq!(err, ProgramError::InvalidInstructionData);
         }
     }
@@ -371,7 +415,8 @@ mod tests {
     #[test]
     #[rustfmt::skip]
     fn encoding_regression() {
-        let encoding = default_order_intent(OrderKind::Buy, true).encode();
+        let encoding: [u8; EncodedOrderIntent::SIZE] =
+            EncodedOrderIntent::from(default_order_intent(OrderKind::Buy, true)).into();
         let expected: [u8; EncodedOrderIntent::SIZE] = [
             // owner ([0x11; 32])
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
@@ -404,7 +449,7 @@ mod tests {
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
         ];
-        assert_eq!(*encoding, expected);
+        assert_eq!(encoding, expected);
     }
 
     // Property-based tests, non-deterministic.
