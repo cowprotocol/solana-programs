@@ -8,6 +8,8 @@ use settlement_interface::{
     SettlementInstruction,
 };
 
+use crate::processor::InstructionInputParsing;
+
 /// Parsed inputs (instruction-data fields + relevant accounts) of a
 /// `BeginSettle` instruction.
 ///
@@ -19,13 +21,14 @@ struct BeginSettleInput<'a> {
     sysvar_account: &'a AccountView,
 }
 
-impl<'a> BeginSettleInput<'a> {
-    fn parse(instruction_data: &[u8], accounts: &'a [AccountView]) -> Result<Self, ProgramError> {
-        let (discriminator, finalize_ix_index) =
-            recover_discriminator_and_partner_index(instruction_data)?;
-        if discriminator != SettlementInstruction::BeginSettle {
-            return Err(ProgramError::InvalidInstructionData);
-        }
+impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
+    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
+
+    fn parse_body(
+        instruction_data: &[u8],
+        accounts: &'a [AccountView],
+    ) -> Result<Self, ProgramError> {
+        let (_, finalize_ix_index) = recover_discriminator_and_partner_index(instruction_data)?;
         let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             finalize_ix_index,
@@ -45,13 +48,14 @@ struct FinalizeSettleInput<'a> {
     sysvar_account: &'a AccountView,
 }
 
-impl<'a> FinalizeSettleInput<'a> {
-    fn parse(instruction_data: &[u8], accounts: &'a [AccountView]) -> Result<Self, ProgramError> {
-        let (discriminator, begin_ix_index) =
-            recover_discriminator_and_partner_index(instruction_data)?;
-        if discriminator != SettlementInstruction::FinalizeSettle {
-            return Err(ProgramError::InvalidInstructionData);
-        }
+impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
+    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::FinalizeSettle;
+
+    fn parse_body(
+        instruction_data: &[u8],
+        accounts: &'a [AccountView],
+    ) -> Result<Self, ProgramError> {
+        let (_, begin_ix_index) = recover_discriminator_and_partner_index(instruction_data)?;
         let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             begin_ix_index,
