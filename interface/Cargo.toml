@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+derive_more.workspace = true
 solana-instruction.workspace = true
 solana-program-error.workspace = true
 solana-pubkey.workspace = true

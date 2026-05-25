@@ -15,8 +15,7 @@
 //! front. There is no path that produces an `OrderIntent` whose `kind` byte or
 //! `partially_fillable` byte was not validated.
 
-use core::ops::Deref;
-
+use derive_more::Deref;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
@@ -113,7 +112,7 @@ pub struct OrderIntent {
 /// 0                               32                              64                              96      104    112 116 118                            150
 ///                                                                                                                     117
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderIntent([u8; Self::SIZE]);
 
 impl EncodedOrderIntent {
@@ -253,14 +252,6 @@ impl TryFrom<&EncodedOrderIntent> for OrderIntent {
 
     fn try_from(encoded: &EncodedOrderIntent) -> Result<Self, Self::Error> {
         OrderIntent::try_from(&encoded.0)
-    }
-}
-
-impl Deref for EncodedOrderIntent {
-    type Target = [u8; Self::SIZE];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 

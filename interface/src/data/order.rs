@@ -18,8 +18,7 @@
 //! an [`OrderAccount`] whose `cancelled` byte or `intent` slot was not
 //! validated.
 
-use core::ops::Deref;
-
+use derive_more::Deref;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
@@ -65,7 +64,7 @@ pub struct OrderAccount {
 /// └┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
 /// 0 1      9       17                              49                ...                 199
 /// ```
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
 
 impl EncodedOrderAccount {
@@ -154,14 +153,6 @@ impl TryFrom<EncodedOrderAccount> for OrderAccount {
 
     fn try_from(encoded: EncodedOrderAccount) -> Result<Self, Self::Error> {
         OrderAccount::try_from(encoded.0)
-    }
-}
-
-impl Deref for EncodedOrderAccount {
-    type Target = [u8; Self::SIZE];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
