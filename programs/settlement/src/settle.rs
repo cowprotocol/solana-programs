@@ -4,8 +4,7 @@ use pinocchio::{
     error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 use settlement_interface::{
-    recover_discriminator, settle::recover_discriminator_and_partner_index, SettlementError,
-    SettlementInstruction,
+    recover_discriminator, settle::recover_partner_index, SettlementError, SettlementInstruction,
 };
 
 use crate::processor::InstructionInputParsing;
@@ -28,7 +27,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
         instruction_data: &[u8],
         accounts: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
-        let (_, finalize_ix_index) = recover_discriminator_and_partner_index(instruction_data)?;
+        let finalize_ix_index = recover_partner_index(instruction_data)?;
         let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             finalize_ix_index,
@@ -55,7 +54,7 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
         instruction_data: &[u8],
         accounts: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
-        let (_, begin_ix_index) = recover_discriminator_and_partner_index(instruction_data)?;
+        let begin_ix_index = recover_partner_index(instruction_data)?;
         let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             begin_ix_index,
@@ -158,9 +157,11 @@ fn validate_reciprocal<T: core::ops::Deref<Target = [u8]>>(
     let current_index_u8: u8 = current_index
         .try_into()
         .map_err(|_| SettlementError::MismatchingSettlePair)?;
-    let (their_discriminator, their_reciprocal) =
-        recover_discriminator_and_partner_index(partner.get_instruction_data())
-            .map_err(|_| SettlementError::MismatchingSettlePair)?;
+    let partner_data = partner.get_instruction_data();
+    let their_discriminator =
+        recover_discriminator(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
+    let their_reciprocal =
+        recover_partner_index(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
     if their_discriminator != expected_discriminator || their_reciprocal != current_index_u8 {
         return Err(SettlementError::MismatchingSettlePair.into());
     }
