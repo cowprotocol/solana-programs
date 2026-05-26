@@ -3,7 +3,7 @@
 use pinocchio::{error::ProgramError, AccountView};
 use settlement_interface::{recover_discriminator, SettlementInstruction};
 
-/// Raw parsed form of a settlement instruction's input.
+/// Shared components for parsing generic instruction input.
 ///
 /// Implementations declare which [`SettlementInstruction`] discriminator they
 /// belong to and parse the remaining instruction data and accounts. The
