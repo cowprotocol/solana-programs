@@ -28,10 +28,6 @@ pub enum OrderKind {
     Buy = 1,
 }
 
-impl OrderKind {
-    pub const ALL: [Self; 2] = [Self::Sell, Self::Buy];
-}
-
 impl TryFrom<[u8; 1]> for OrderKind {
     type Error = ProgramError;
 
@@ -280,7 +276,7 @@ mod tests {
     // Full Cartesian product of `OrderKind × bool` for tests that need to
     // exercise every shape an `OrderIntent` can take on these axes.
     fn all_kind_and_fillable() -> impl Iterator<Item = (OrderKind, bool)> {
-        OrderKind::ALL
+        [OrderKind::Sell, OrderKind::Buy]
             .into_iter()
             .flat_map(|kind| core::iter::repeat(kind).zip([false, true]))
     }
