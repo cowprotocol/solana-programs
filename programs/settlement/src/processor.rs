@@ -18,6 +18,7 @@ pub trait InstructionInputParsing: Sized {
         if recover_discriminator(instruction_data)? != Self::DISCRIMINATOR {
             return Err(ProgramError::InvalidInstructionData);
         }
-        Self::parse_body(instruction_data, accounts)
+        // Skip the discriminator byte.
+        Self::parse_body(&instruction_data[1..], accounts)
     }
 }
