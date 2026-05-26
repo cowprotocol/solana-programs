@@ -2052,6 +2052,7 @@ dependencies = [
 name = "settlement-interface"
 version = "0.1.0"
 dependencies = [
+ "arrayref",
  "num_enum",
  "solana-instruction",
  "solana-program-error",
