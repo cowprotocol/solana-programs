@@ -1,12 +1,17 @@
 //! Shared types and instruction builders for the CoW Protocol settlement program.
 
 pub use solana_instruction::{AccountMeta, Instruction};
+use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
 pub mod settle;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
+#[num_enum(error_type(
+    name = ProgramError,
+    constructor = SettlementInstruction::unknown_discriminator,
+))]
 pub enum SettlementInstruction {
     BeginSettle = 0,
     FinalizeSettle = 1,
@@ -16,17 +21,9 @@ impl SettlementInstruction {
     pub fn discriminator(self) -> u8 {
         self as u8
     }
-}
 
-impl TryFrom<u8> for SettlementInstruction {
-    type Error = solana_program_error::ProgramError;
-
-    fn try_from(b: u8) -> Result<Self, Self::Error> {
-        match b {
-            0 => Ok(Self::BeginSettle),
-            1 => Ok(Self::FinalizeSettle),
-            _ => Err(Self::Error::InvalidInstructionData),
-        }
+    fn unknown_discriminator(_: u8) -> ProgramError {
+        ProgramError::InvalidInstructionData
     }
 }
 
@@ -35,11 +32,11 @@ impl TryFrom<u8> for SettlementInstruction {
 /// length or an unknown discriminator byte.
 pub fn recover_discriminator(
     instruction_data: &[u8],
-) -> Result<SettlementInstruction, solana_program_error::ProgramError> {
+) -> Result<SettlementInstruction, ProgramError> {
     instruction_data
         .first()
         .copied()
-        .ok_or(solana_program_error::ProgramError::InvalidInstructionData)
+        .ok_or(ProgramError::InvalidInstructionData)
         .and_then(SettlementInstruction::try_from)
 }
 
@@ -51,7 +48,7 @@ mod tests {
     fn rejects_empty_payload() {
         assert_eq!(
             recover_discriminator(&[]),
-            Err(solana_program_error::ProgramError::InvalidInstructionData),
+            Err(ProgramError::InvalidInstructionData),
         );
     }
 
@@ -60,7 +57,7 @@ mod tests {
         // 42 is outside the set of valid discriminators.
         assert_eq!(
             recover_discriminator(&[42]),
-            Err(solana_program_error::ProgramError::InvalidInstructionData),
+            Err(ProgramError::InvalidInstructionData),
         );
     }
 
@@ -72,6 +69,24 @@ mod tests {
                 42 // unused
             ]),
             Ok(SettlementInstruction::BeginSettle),
+        );
+    }
+
+    #[test]
+    fn settlement_instruction_try_from_partitions_all_bytes() {
+        for i in u8::MIN..=u8::MAX {
+            match SettlementInstruction::try_from(i) {
+                Ok(ix) => assert_eq!(ix as u8, i),
+                Err(err) => assert_eq!(err, ProgramError::InvalidInstructionData),
+            }
+        }
+    }
+
+    #[test]
+    fn settlement_instruction_try_from_matches_begin_settle() {
+        assert_eq!(
+            SettlementInstruction::try_from(0),
+            Ok(SettlementInstruction::BeginSettle)
         );
     }
 }
