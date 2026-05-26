@@ -102,15 +102,23 @@ pub fn process_begin_settle(
         .expect("the finalize index is tested to be larger, no overflow can happen");
     for i in search_start..finalize_ix_index_u16 {
         let inner = instructions.load_instruction_at(usize::from(i))?;
-        let (discriminator, _) = recover_discriminator(inner.get_instruction_data())?;
-        if inner.get_program_id() == program_id
-            && [
+        // Nothing to see if the instruction belongs to a different program.
+        if inner.get_program_id() != program_id {
+            continue;
+        }
+        // If it can't recover the discriminator, it's fine: we expect that
+        // instruction to fail, but this isn't something that matters here.
+        // If the discriminator is valid, then it should not be the start
+        // or end of a settlement.
+        if let Ok((discriminator, _)) = recover_discriminator(inner.get_instruction_data()) {
+            if [
                 SettlementInstruction::BeginSettle,
                 SettlementInstruction::FinalizeSettle,
             ]
             .contains(&discriminator)
-        {
-            return Err(SettlementError::MismatchingSettlePair.into());
+            {
+                return Err(SettlementError::MismatchingSettlePair.into());
+            }
         }
     }
 

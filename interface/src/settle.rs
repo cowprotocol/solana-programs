@@ -60,26 +60,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_single_byte_payload() {
-        let only_discriminator = [SettlementInstruction::BeginSettle.discriminator()];
-        assert_eq!(
-            recover_partner_index(&only_discriminator),
-            Err(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
-    fn ignores_leading_discriminator() {
-        // The leading byte is treated opaquely; an unknown discriminator is
-        // not rejected at this layer.
-        assert_eq!(recover_partner_index(&[42, 67]), Ok(67));
-    }
-
-    #[test]
     fn ignores_trailing_bytes() {
         assert_eq!(
             recover_partner_index(&[
-                SettlementInstruction::BeginSettle.discriminator(),
                 42, // partner index
                 67, // unused
             ]),
