@@ -27,9 +27,9 @@ impl SettlementInstruction {
     }
 }
 
-/// For any valid settlement instruction, recover the discriminator from the
-/// first byte of the payload. Returns `InvalidInstructionData` for any other
-/// length or an unknown discriminator byte.
+/// Recover the discriminator from the first byte of the payload.
+/// Returns `InvalidInstructionData` for any other length or an unknown
+/// discriminator.
 pub fn recover_discriminator(
     instruction_data: &[u8],
 ) -> Result<SettlementInstruction, ProgramError> {
