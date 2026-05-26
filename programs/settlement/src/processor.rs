@@ -15,10 +15,11 @@ pub trait InstructionInputParsing: Sized {
     fn parse_body(instruction_data: &[u8], accounts: &[AccountView]) -> Result<Self, ProgramError>;
 
     fn parse(instruction_data: &[u8], accounts: &[AccountView]) -> Result<Self, ProgramError> {
-        if recover_discriminator(instruction_data)? != Self::DISCRIMINATOR {
-            return Err(ProgramError::InvalidInstructionData);
+        match recover_discriminator(instruction_data)? {
+            (discriminator, remaining_data) if discriminator == Self::DISCRIMINATOR => {
+                Self::parse_body(remaining_data, accounts)
+            }
+            _ => Err(ProgramError::InvalidInstructionData),
         }
-        // Skip the discriminator byte.
-        Self::parse_body(&instruction_data[1..], accounts)
     }
 }

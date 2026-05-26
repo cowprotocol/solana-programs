@@ -27,17 +27,19 @@ impl SettlementInstruction {
     }
 }
 
-/// Recover the discriminator from the first byte of the payload.
-/// Returns `InvalidInstructionData` for any other length or an unknown
-/// discriminator.
+/// Recover the discriminator from the first byte of the payload and the
+/// remaining bytes to parse.
+/// Returns `InvalidInstructionData` for an insufficient length or an
+/// unknown discriminator.
 pub fn recover_discriminator(
     instruction_data: &[u8],
-) -> Result<SettlementInstruction, ProgramError> {
-    instruction_data
+) -> Result<(SettlementInstruction, &[u8]), ProgramError> {
+    let discriminator = instruction_data
         .first()
         .copied()
         .ok_or(ProgramError::InvalidInstructionData)
-        .and_then(SettlementInstruction::try_from)
+        .and_then(SettlementInstruction::try_from)?;
+    Ok((discriminator, &instruction_data[1..]))
 }
 
 #[cfg(test)]
@@ -62,14 +64,14 @@ mod tests {
     }
 
     #[test]
-    fn ignores_trailing_bytes() {
-        assert_eq!(
+    fn forwards_trailing_bytes() {
+        assert!(matches!(
             recover_discriminator(&[
                 SettlementInstruction::BeginSettle.discriminator(),
                 42 // unused
             ]),
-            Ok(SettlementInstruction::BeginSettle),
-        );
+            Ok((SettlementInstruction::BeginSettle, [42])),
+        ));
     }
 
     #[test]
