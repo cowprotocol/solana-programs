@@ -1754,6 +1754,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinocchio-system"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3ae2ee67b42e2ac797dd88312da473c895660e270d8093e0ba2749b885b5778"
+dependencies = [
+ "pinocchio",
+ "solana-address 2.6.0",
+]
+
+[[package]]
 name = "pkcs8"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2158,6 +2168,7 @@ version = "0.1.0"
 dependencies = [
  "litesvm",
  "pinocchio",
+ "pinocchio-system",
  "settlement-client",
  "settlement-interface",
  "solana-sdk",
@@ -2180,7 +2191,9 @@ dependencies = [
  "solana-instruction",
  "solana-program-error",
  "solana-pubkey 3.0.0",
+ "solana-sdk-ids",
  "solana-sha256-hasher",
+ "solana-system-interface 3.2.0",
 ]
 
 [[package]]

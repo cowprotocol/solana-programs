@@ -3,7 +3,9 @@
 pub use solana_instruction::{AccountMeta, Instruction};
 pub use solana_pubkey::Pubkey;
 
+pub mod create_order;
 pub mod data;
+pub mod pda;
 pub mod settle;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -11,6 +13,7 @@ pub mod settle;
 pub enum SettlementInstruction {
     BeginSettle = 0,
     FinalizeSettle = 1,
+    CreateOrder = 2,
 }
 
 impl SettlementInstruction {
@@ -26,6 +29,7 @@ impl TryFrom<u8> for SettlementInstruction {
         match b {
             0 => Ok(Self::BeginSettle),
             1 => Ok(Self::FinalizeSettle),
+            2 => Ok(Self::CreateOrder),
             _ => Err(Self::Error::InvalidInstructionData),
         }
     }

@@ -5,12 +5,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::SettlementInstruction;
+pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
-/// Instructions sysvar account, referenced by every settlement instruction so
-/// the program can introspect the surrounding transaction.
-const INSTRUCTIONS_SYSVAR_ID: Pubkey =
-    Pubkey::from_str_const("Sysvar1nstructions1111111111111111111111111");
+use crate::SettlementInstruction;
 
 pub fn begin_settle(program_id: &Pubkey, finalize_ix_index: u8) -> Instruction {
     Instruction {

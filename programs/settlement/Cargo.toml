@@ -9,7 +9,8 @@ edition.workspace = true
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-pinocchio.workspace = true
+pinocchio = { workspace = true, features = ["cpi"] }
+pinocchio-system.workspace = true
 settlement-interface.workspace = true
 
 [dev-dependencies]

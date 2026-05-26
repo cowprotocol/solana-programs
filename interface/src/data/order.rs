@@ -75,6 +75,18 @@ impl EncodedOrderAccount {
     pub const OFF_INTENT: usize = 49;
 
     pub const SIZE: usize = 199;
+
+    /// Canonical bytes for a freshly created order: not cancelled, no fills
+    /// yet, with the given `created_by` pubkey and the given encoded intent
+    /// payload. The intent bytes must be a canonical [`EncodedOrderIntent`]
+    /// encoding: validation is the caller's responsibility.
+    pub fn init(created_by: &Pubkey, intent: &[u8; EncodedOrderIntent::SIZE]) -> Self {
+        let mut out = [0u8; Self::SIZE];
+        // cancelled / amount_withdrawn / amount_received start at zero.
+        out[Self::OFF_CREATED_BY..Self::OFF_INTENT].copy_from_slice(created_by.as_ref());
+        out[Self::OFF_INTENT..Self::SIZE].copy_from_slice(intent);
+        Self(out)
+    }
 }
 
 impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
@@ -236,6 +248,26 @@ mod tests {
         let err = OrderAccount::try_from(bytes)
             .expect_err("an invalid intent kind byte must propagate as a decode failure");
         assert_eq!(err, ProgramError::InvalidAccountData);
+    }
+
+    #[test]
+    fn init_matches_from_order_account() {
+        let intent = sample_intent(OrderKind::Sell, false);
+        let created_by = Pubkey::new_from_array([0x42u8; 32]);
+
+        let direct = EncodedOrderAccount::init(
+            &created_by,
+            &<[u8; EncodedOrderIntent::SIZE]>::from(&EncodedOrderIntent::from(&intent)),
+        );
+        let via_order_account = EncodedOrderAccount::from(OrderAccount {
+            cancelled: false,
+            amount_withdrawn: 0,
+            amount_received: 0,
+            created_by,
+            intent,
+        });
+
+        assert_eq!(direct, via_order_account);
     }
 
     // Property-based tests, non-deterministic.

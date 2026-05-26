@@ -14,10 +14,13 @@ pub trait InstructionInputParsing<'a>: Sized {
 
     fn parse_body(
         instruction_data: &[u8],
-        accounts: &'a [AccountView],
+        accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError>;
 
-    fn parse(instruction_data: &[u8], accounts: &'a [AccountView]) -> Result<Self, ProgramError> {
+    fn parse(
+        instruction_data: &[u8],
+        accounts: &'a mut [AccountView],
+    ) -> Result<Self, ProgramError> {
         if recover_discriminator(instruction_data)? != Self::DISCRIMINATOR {
             return Err(ProgramError::InvalidInstructionData);
         }
