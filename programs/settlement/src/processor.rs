@@ -3,7 +3,7 @@
 use pinocchio::{error::ProgramError, AccountView};
 use settlement_interface::{recover_discriminator, SettlementInstruction};
 
-/// Raw parsed form of a settlement instruction's input.
+/// Shared components for parsing generic instruction input.
 ///
 /// Implementations declare which [`SettlementInstruction`] discriminator they
 /// belong to and parse the remaining instruction data and accounts. The
@@ -18,9 +18,11 @@ pub trait InstructionInputParsing<'a>: Sized {
     ) -> Result<Self, ProgramError>;
 
     fn parse(instruction_data: &[u8], accounts: &'a [AccountView]) -> Result<Self, ProgramError> {
-        if recover_discriminator(instruction_data)? != Self::DISCRIMINATOR {
-            return Err(ProgramError::InvalidInstructionData);
+        match recover_discriminator(instruction_data)? {
+            (discriminator, remaining_data) if discriminator == Self::DISCRIMINATOR => {
+                Self::parse_body(remaining_data, accounts)
+            }
+            _ => Err(ProgramError::InvalidInstructionData),
         }
-        Self::parse_body(instruction_data, accounts)
     }
 }
