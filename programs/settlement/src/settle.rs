@@ -5,7 +5,7 @@ use settlement_interface::SettlementInstruction;
 
 use crate::processor::InstructionInputParsing;
 
-/// Parsed inputs (currently empty) of a `BeginSettle` instruction.
+/// Parsed inputs of a `BeginSettle` instruction.
 ///
 /// Strictly the raw extracted form. Fields are read from `instruction_data` and
 /// `accounts` but **not validated** against runtime context except confirming
