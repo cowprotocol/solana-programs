@@ -102,12 +102,13 @@ pub fn process_begin_settle(
         .expect("the finalize index is tested to be larger, no overflow can happen");
     for i in search_start..finalize_ix_index_u16 {
         let inner = instructions.load_instruction_at(usize::from(i))?;
+        let (discriminator, _) = recover_discriminator(inner.get_instruction_data())?;
         if inner.get_program_id() == program_id
             && [
                 SettlementInstruction::BeginSettle,
                 SettlementInstruction::FinalizeSettle,
             ]
-            .contains(&recover_discriminator(inner.get_instruction_data())?)
+            .contains(&discriminator)
         {
             return Err(SettlementError::MismatchingSettlePair.into());
         }
@@ -157,10 +158,10 @@ fn validate_reciprocal<T: core::ops::Deref<Target = [u8]>>(
         .try_into()
         .map_err(|_| SettlementError::MismatchingSettlePair)?;
     let partner_data = partner.get_instruction_data();
-    let their_discriminator =
+    let (their_discriminator, remaining_data) =
         recover_discriminator(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
-    let their_reciprocal =
-        recover_partner_index(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
+    let their_reciprocal = recover_partner_index(remaining_data)
+        .map_err(|_| SettlementError::MismatchingSettlePair)?;
     if their_discriminator != expected_discriminator || their_reciprocal != current_index_u8 {
         return Err(SettlementError::MismatchingSettlePair.into());
     }

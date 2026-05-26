@@ -35,13 +35,14 @@ pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u8) -> Instruction {
 }
 
 /// For both `BeginSettle` and `FinalizeSettle` instructions, recover the
-/// `partner_index` byte from the `[discriminator, partner_index, ..]` payload.
+/// `partner_index` byte from the payload, assuming the discriminator was
+/// already stripped.
 /// Trailing bytes are ignored, so it can be used with instruction input
 /// directly. The leading discriminator byte is *not* validated here.
 /// Returns `InvalidInstructionData` if fewer than two bytes are provided.
 pub fn recover_partner_index(instruction_data: &[u8]) -> Result<u8, ProgramError> {
     match instruction_data {
-        [_, partner_index, ..] => Ok(*partner_index),
+        [partner_index, ..] => Ok(*partner_index),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
