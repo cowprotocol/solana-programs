@@ -7,7 +7,10 @@ use pinocchio::{
 };
 use pinocchio_system::instructions::CreateAccount;
 use settlement_interface::{
-    data::{intent::EncodedOrderIntent, order::EncodedOrderAccount},
+    data::{
+        intent::EncodedOrderIntent,
+        order::{self, EncodedOrderAccount},
+    },
     pda::order::{order_pda_seeds, order_pda_signer_seeds},
     SettlementError, SettlementInstruction,
 };
@@ -29,8 +32,8 @@ impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
         instruction_data: &[u8],
         accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
-        // Wire format: [discriminator, ..150 intent bytes]
-        if instruction_data.len() != 1 + EncodedOrderIntent::SIZE {
+        // Body (discriminator already stripped): exactly the 150 intent bytes.
+        if instruction_data.len() != EncodedOrderIntent::SIZE {
             return Err(ProgramError::InvalidInstructionData);
         }
         // Accounts: [owner (S), created_by (W,S), order_pda (W), some other
@@ -41,10 +44,8 @@ impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
-        let intent_bytes: [u8; EncodedOrderIntent::SIZE] = instruction_data
-            [1..1 + EncodedOrderIntent::SIZE]
-            .try_into()
-            .expect("length checked above");
+        let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
+            instruction_data.try_into().expect("length checked above");
 
         Ok(Self {
             intent_bytes,
@@ -98,9 +99,11 @@ pub fn process_create_order(
     .invoke_signed(&[signer])?;
 
     // Note: `intent_bytes` were validated before and are known to represent a valid intent.
-    let initial = EncodedOrderAccount::init(created_by.address(), &intent_bytes);
-    let mut data = order_pda.try_borrow_mut()?;
-    data.copy_from_slice(&initial[..]);
+    let mut buffer = order_pda.try_borrow_mut()?;
+    let buffer: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *buffer)
+        .try_into()
+        .map_err(|_| ProgramError::AccountDataTooSmall)?;
+    order::write_account(buffer, false, 0, 0, created_by.address(), &intent_bytes);
 
     Ok(())
 }
@@ -256,11 +259,30 @@ mod tests {
 
     #[test]
     fn process_create_order_rejects_invalid_encoded_intent() {
-        let mut intent_bytes = valid_intent_bytes();
-        // We build an invalid intent by choosing an out-of-range `kind`.
-        // Parse succeeds, but `decode_and_hash` rejects this before any
-        // allocation.
-        intent_bytes[EncodedOrderIntent::OFF_KIND] = 0x02;
+        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntent {
+            kind: OrderKind::Buy,
+            ..intent
+        });
+        let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntent {
+            kind: OrderKind::Sell,
+            ..intent
+        });
+        fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
+            lhs.iter()
+                .zip(rhs)
+                .enumerate()
+                .find(|(_, (l, r))| l != r)
+                .map(|(i, _)| i)
+        }
+        let kind_offset =
+            first_differing_byte(intent_bytes_buy.as_slice(), intent_bytes_sell.as_slice())
+                .expect("kind is different");
+
+        let mut intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&intent_bytes_buy).into();
+        // Invalid order kind
+        intent_bytes[kind_offset] = 0x42;
+
         let data = default_order_data(&intent_bytes);
         let mut accounts = four_accounts();
 

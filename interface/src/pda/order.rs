@@ -26,6 +26,9 @@ pub fn order_pda_seeds(uid: &[u8; 32]) -> [&[u8]; 3] {
 
 /// Canonical seeds for signing as the order PDA at `uid` with `bump`. The
 /// on-chain `CreateOrder` handler uses this to construct the CPI signer.
+/// By design, order PDAs can be created only if it uses the canonical bump.
+/// Calling this function with another bump could lead to a theoretically
+/// valid PDA that however cannot and should not be instantiated.  
 pub fn order_pda_signer_seeds<'a>(uid: &'a [u8; 32], bump: &'a [u8; 1]) -> [&'a [u8]; 4] {
     let [s0, s1, s2] = order_pda_seeds(uid);
     [s0, s1, s2, bump]
@@ -50,9 +53,20 @@ mod tests {
 
         let (pda, bump) = find_order_pda(&program_id, &uid);
 
-        let expected =
-            Pubkey::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), &program_id)
-                .expect("derived bump must round-trip");
+        let derive_pda = |candidate| {
+            Pubkey::create_program_address(&order_pda_signer_seeds(&uid, &[candidate]), &program_id)
+        };
+
+        // The canonical bump is the largest value in `0..=255` that yields a
+        // valid (off-curve) address. Any higher bump must be rejected, and the
+        // canonical one must reproduce the derived address.
+        for candidate in (bump + 1)..=u8::MAX {
+            assert!(
+                derive_pda(candidate).is_err(),
+                "bump {candidate} above the canonical bump {bump} must be invalid",
+            );
+        }
+        let expected = derive_pda(bump).expect("canonical bump must produce a valid address");
         assert_eq!(pda, expected);
     }
 

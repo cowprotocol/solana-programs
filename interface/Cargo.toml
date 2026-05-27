@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+arrayref.workspace = true
 derive_more.workspace = true
+num_enum.workspace = true
 solana-instruction.workspace = true
 solana-program-error.workspace = true
 solana-pubkey = { workspace = true, features = ["curve25519"] }

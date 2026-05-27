@@ -2166,6 +2166,7 @@ dependencies = [
 name = "settlement"
 version = "0.1.0"
 dependencies = [
+ "arrayref",
  "litesvm",
  "pinocchio",
  "pinocchio-system",
@@ -2186,7 +2187,9 @@ dependencies = [
 name = "settlement-interface"
 version = "0.1.0"
 dependencies = [
+ "arrayref",
  "derive_more",
+ "num_enum",
  "proptest",
  "solana-instruction",
  "solana-program-error",

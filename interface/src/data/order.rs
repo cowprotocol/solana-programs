@@ -18,6 +18,9 @@
 //! an [`OrderAccount`] whose `cancelled` byte or `intent` slot was not
 //! validated.
 
+use core::mem::size_of;
+
+use arrayref::{array_refs, mut_array_refs};
 use derive_more::Deref;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -68,25 +71,40 @@ pub struct OrderAccount {
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
 
 impl EncodedOrderAccount {
-    pub const OFF_CANCELLED: usize = 0;
-    pub const OFF_AMOUNT_WITHDRAWN: usize = 1;
-    pub const OFF_AMOUNT_RECEIVED: usize = 9;
-    pub const OFF_CREATED_BY: usize = 17;
-    pub const OFF_INTENT: usize = 49;
+    // Per-field widths, derived from the `OrderAccount` field types.
+    const W_CANCELLED: usize = size_of::<bool>();
+    const W_AMOUNT_WITHDRAWN: usize = size_of::<u64>();
+    const W_AMOUNT_RECEIVED: usize = size_of::<u64>();
+    const W_CREATED_BY: usize = size_of::<Pubkey>();
+    const W_INTENT: usize = EncodedOrderIntent::SIZE;
 
     pub const SIZE: usize = 199;
+}
 
-    /// Canonical bytes for a freshly created order: not cancelled, no fills
-    /// yet, with the given `created_by` pubkey and the given encoded intent
-    /// payload. The intent bytes must be a canonical [`EncodedOrderIntent`]
-    /// encoding: validation is the caller's responsibility.
-    pub fn init(created_by: &Pubkey, intent: &[u8; EncodedOrderIntent::SIZE]) -> Self {
-        let mut out = [0u8; Self::SIZE];
-        // cancelled / amount_withdrawn / amount_received start at zero.
-        out[Self::OFF_CREATED_BY..Self::OFF_INTENT].copy_from_slice(created_by.as_ref());
-        out[Self::OFF_INTENT..Self::SIZE].copy_from_slice(intent);
-        Self(out)
-    }
+/// Writes the canonical [`EncodedOrderAccount`] encoding of the given fields
+/// into `buffer`. `encoded_intent` must be a canonical [`EncodedOrderIntent`]
+/// encoding: validating it is the caller's responsibility.
+pub fn write_account(
+    buffer: &mut [u8; EncodedOrderAccount::SIZE],
+    cancelled: bool,
+    amount_withdrawn: u64,
+    amount_received: u64,
+    created_by: &Pubkey,
+    encoded_intent: &[u8; EncodedOrderIntent::SIZE],
+) {
+    let (cancelled_slot, amount_withdrawn_slot, amount_received_slot, created_by_slot, intent_slot) = mut_array_refs![
+        buffer,
+        EncodedOrderAccount::W_CANCELLED,
+        EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
+        EncodedOrderAccount::W_AMOUNT_RECEIVED,
+        EncodedOrderAccount::W_CREATED_BY,
+        EncodedOrderAccount::W_INTENT
+    ];
+    *cancelled_slot = [cancelled as u8];
+    *amount_withdrawn_slot = amount_withdrawn.to_be_bytes();
+    *amount_received_slot = amount_received.to_be_bytes();
+    *created_by_slot = created_by.to_bytes();
+    *intent_slot = *encoded_intent;
 }
 
 impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
@@ -98,14 +116,14 @@ impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
 impl From<OrderAccount> for EncodedOrderAccount {
     fn from(account: OrderAccount) -> Self {
         let mut out = [0u8; Self::SIZE];
-        out[Self::OFF_CANCELLED] = account.cancelled as u8;
-        out[Self::OFF_AMOUNT_WITHDRAWN..Self::OFF_AMOUNT_RECEIVED]
-            .copy_from_slice(&account.amount_withdrawn.to_be_bytes());
-        out[Self::OFF_AMOUNT_RECEIVED..Self::OFF_CREATED_BY]
-            .copy_from_slice(&account.amount_received.to_be_bytes());
-        out[Self::OFF_CREATED_BY..Self::OFF_INTENT].copy_from_slice(account.created_by.as_ref());
-        let intent_encoded = EncodedOrderIntent::from(&account.intent);
-        out[Self::OFF_INTENT..Self::SIZE].copy_from_slice(intent_encoded.as_slice());
+        write_account(
+            &mut out,
+            account.cancelled,
+            account.amount_withdrawn,
+            account.amount_received,
+            &account.created_by,
+            &EncodedOrderIntent::from(&account.intent),
+        );
         Self(out)
     }
 }
@@ -114,48 +132,25 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
     type Error = ProgramError;
 
     fn try_from(bytes: [u8; EncodedOrderAccount::SIZE]) -> Result<Self, Self::Error> {
-        fn cancelled(byte: u8) -> Result<bool, ProgramError> {
-            match byte {
-                0 => Ok(false),
-                1 => Ok(true),
-                _ => Err(ProgramError::InvalidAccountData),
-            }
-        }
-        fn intent(intent_bytes: [u8; 150]) -> Result<OrderIntent, ProgramError> {
-            OrderIntent::try_from(&intent_bytes).map_err(|_| ProgramError::InvalidAccountData)
-        }
-
-        // Pull a fixed-size byte array out of `bytes` between `$start` and
-        // `$end`. The width is inferred from the caller's target type
-        // (e.g. `[u8; 8]` for a u64 slot, `[u8; 32]` for a pubkey slot).
-        // Offset constants pin the layout, so the slice has the expected
-        // width at compile time and the `try_into` cannot fail.
-        macro_rules! field_at {
-            ($start:expr, $end:expr) => {
-                bytes[$start..$end]
-                    .try_into()
-                    .expect("offset constants pin the slice to the field's width")
-            };
-        }
+        let (cancelled, amount_withdrawn, amount_received, created_by, intent) = array_refs![
+            &bytes,
+            EncodedOrderAccount::W_CANCELLED,
+            EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
+            EncodedOrderAccount::W_AMOUNT_RECEIVED,
+            EncodedOrderAccount::W_CREATED_BY,
+            EncodedOrderAccount::W_INTENT
+        ];
 
         Ok(OrderAccount {
-            cancelled: cancelled(bytes[EncodedOrderAccount::OFF_CANCELLED])?,
-            amount_withdrawn: u64::from_be_bytes(field_at!(
-                EncodedOrderAccount::OFF_AMOUNT_WITHDRAWN,
-                EncodedOrderAccount::OFF_AMOUNT_RECEIVED
-            )),
-            amount_received: u64::from_be_bytes(field_at!(
-                EncodedOrderAccount::OFF_AMOUNT_RECEIVED,
-                EncodedOrderAccount::OFF_CREATED_BY
-            )),
-            created_by: Pubkey::new_from_array(field_at!(
-                EncodedOrderAccount::OFF_CREATED_BY,
-                EncodedOrderAccount::OFF_INTENT
-            )),
-            intent: intent(field_at!(
-                EncodedOrderAccount::OFF_INTENT,
-                EncodedOrderAccount::SIZE
-            ))?,
+            cancelled: match cancelled {
+                [0] => false,
+                [1] => true,
+                _ => return Err(ProgramError::InvalidAccountData),
+            },
+            amount_withdrawn: u64::from_be_bytes(*amount_withdrawn),
+            amount_received: u64::from_be_bytes(*amount_received),
+            created_by: Pubkey::new_from_array(*created_by),
+            intent: OrderIntent::try_from(intent).map_err(|_| ProgramError::InvalidAccountData)?,
         })
     }
 }
@@ -172,7 +167,10 @@ impl TryFrom<EncodedOrderAccount> for OrderAccount {
 mod tests {
     use core::mem::size_of;
 
-    use crate::data::intent::{tests::sample_intent, OrderKind};
+    use crate::data::intent::{
+        tests::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
+        OrderKind,
+    };
 
     use super::*;
 
@@ -186,30 +184,38 @@ mod tests {
         }
     }
 
-    // Pin the layout: every consecutive offset gap must equal the width of
-    // the field it represents, and the final field plus its size must land
-    // exactly at `SIZE`. Catches a field reorder or a size change in any
-    // CI run.
+    // Pin each width to the size of the `OrderAccount` field it encodes. The
+    // widths summing to `SIZE` is enforced separately, at compile time, by the
+    // `array_refs!` / `mut_array_refs!` invocations in the codec.
     #[test]
-    fn layout_offsets_match_field_sizes() {
+    fn widths_match_field_sizes() {
+        use core::mem::size_of_val;
+
+        // Any `OrderAccount` works: `size_of_val` only consults the field
+        // type, never the data.
+        let OrderAccount {
+            cancelled,
+            amount_withdrawn,
+            amount_received,
+            created_by,
+            // `OrderAccount` decodes the intent, but the encoded order uses
+            // `EncodedOrderIntent`, not `OrderIntent`.
+            intent: _intent,
+        } = sample_account(false);
+
+        assert_eq!(EncodedOrderAccount::W_CANCELLED, size_of_val(&cancelled));
         assert_eq!(
-            EncodedOrderAccount::OFF_AMOUNT_WITHDRAWN - EncodedOrderAccount::OFF_CANCELLED,
-            size_of::<bool>()
+            EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
+            size_of_val(&amount_withdrawn)
         );
         assert_eq!(
-            EncodedOrderAccount::OFF_AMOUNT_RECEIVED - EncodedOrderAccount::OFF_AMOUNT_WITHDRAWN,
-            size_of::<u64>()
+            EncodedOrderAccount::W_AMOUNT_RECEIVED,
+            size_of_val(&amount_received)
         );
+        assert_eq!(EncodedOrderAccount::W_CREATED_BY, size_of_val(&created_by));
+
         assert_eq!(
-            EncodedOrderAccount::OFF_CREATED_BY - EncodedOrderAccount::OFF_AMOUNT_RECEIVED,
-            size_of::<u64>()
-        );
-        assert_eq!(
-            EncodedOrderAccount::OFF_INTENT - EncodedOrderAccount::OFF_CREATED_BY,
-            size_of::<Pubkey>()
-        );
-        assert_eq!(
-            EncodedOrderAccount::SIZE - EncodedOrderAccount::OFF_INTENT,
+            EncodedOrderAccount::W_INTENT,
             size_of::<EncodedOrderIntent>()
         );
     }
@@ -224,12 +230,56 @@ mod tests {
         }
     }
 
+    // Hardcoded but verified in a sanity-check test.
+    const CANCELLED_OFFSET: usize = 0;
+    const INTENT_OFFSET: usize = 49;
+
+    #[test]
+    fn sanity_check_offsets() {
+        fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
+            lhs.iter()
+                .zip(rhs)
+                .enumerate()
+                .find(|(_, (l, r))| l != r)
+                .map(|(i, _)| i)
+        }
+
+        let mut sample_account_base = sample_account(false);
+        let base: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(sample_account_base.clone()).into();
+        let cancelled: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(sample_account(true)).into();
+        assert_eq!(
+            first_differing_byte(&base, &cancelled).expect("should differ in the cancelled byte"),
+            CANCELLED_OFFSET
+        );
+
+        // Differs only in the embedded intent.
+        let encoded_intent: [u8; EncodedOrderIntent::SIZE] =
+            (&EncodedOrderIntent::from(&sample_account_base.intent)).into();
+        // Hack: xoring each byte makes sure all bytes are different.
+        // In general, it isn't guaranteed that the result encodes to a
+        // valid intent, but in this case we know it because the only bytes
+        // that may fail decoding are `kind` and `partially_fillable`, both
+        // of which stay valid if flipped with `^0x01`.
+        let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
+            encoded_intent.map(|b| b ^ 0x01);
+        sample_account_base.intent =
+            OrderIntent::try_from(&bitwise_different_encoded_intent).expect("hack should work");
+        let changed_intent: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(sample_account_base).into();
+        assert_eq!(
+            first_differing_byte(&base, &changed_intent).expect("should differ in the intent slot"),
+            INTENT_OFFSET
+        );
+    }
+
     #[test]
     fn decode_rejects_non_boolean_cancelled() {
         let mut bytes: [u8; EncodedOrderAccount::SIZE] =
             EncodedOrderAccount::from(sample_account(false)).into();
         for bad in 0x02u8..=0xff {
-            bytes[EncodedOrderAccount::OFF_CANCELLED] = bad;
+            bytes[CANCELLED_OFFSET] = bad;
             let err = OrderAccount::try_from(bytes)
                 .expect_err("non-boolean cancelled byte must be rejected");
             assert_eq!(err, ProgramError::InvalidAccountData);
@@ -243,7 +293,7 @@ mod tests {
         // Corrupt the `kind` byte inside the intent slot: the intent
         // decoder rejects it and the order-account decode surfaces that
         // failure as `InvalidAccountData`.
-        let kind_offset = EncodedOrderAccount::OFF_INTENT + EncodedOrderIntent::OFF_KIND;
+        let kind_offset = INTENT_OFFSET + KIND_OFFSET;
         bytes[kind_offset] = 0x02;
         let err = OrderAccount::try_from(bytes)
             .expect_err("an invalid intent kind byte must propagate as a decode failure");
@@ -251,18 +301,27 @@ mod tests {
     }
 
     #[test]
-    fn init_matches_from_order_account() {
+    fn direct_write_account_matches_order_account_decoding() {
+        let cancelled = true;
+        let amount_withdrawn = 1337;
+        let amount_received = 31337;
         let intent = sample_intent(OrderKind::Sell, false);
         let created_by = Pubkey::new_from_array([0x42u8; 32]);
 
-        let direct = EncodedOrderAccount::init(
+        let mut buffer = [0u8; EncodedOrderAccount::SIZE];
+        write_account(
+            &mut buffer,
+            cancelled,
+            amount_withdrawn,
+            amount_received,
             &created_by,
             &<[u8; EncodedOrderIntent::SIZE]>::from(&EncodedOrderIntent::from(&intent)),
         );
+        let direct = EncodedOrderAccount(buffer);
         let via_order_account = EncodedOrderAccount::from(OrderAccount {
-            cancelled: false,
-            amount_withdrawn: 0,
-            amount_received: 0,
+            cancelled,
+            amount_withdrawn,
+            amount_received,
             created_by,
             intent,
         });
@@ -321,10 +380,9 @@ mod tests {
                 kind in arb_order_kind(),
                 partially_fillable in any::<bool>(),
             ) {
-                bytes[EncodedOrderAccount::OFF_CANCELLED] = cancelled as u8;
-                bytes[EncodedOrderAccount::OFF_INTENT + EncodedOrderIntent::OFF_KIND] = kind as u8;
-                bytes[EncodedOrderAccount::OFF_INTENT + EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] =
-                    partially_fillable as u8;
+                bytes[CANCELLED_OFFSET] = cancelled as u8;
+                bytes[INTENT_OFFSET + KIND_OFFSET] = kind as u8;
+                bytes[INTENT_OFFSET + PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
                 let account = OrderAccount::try_from(bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(*EncodedOrderAccount::from(account), bytes);
