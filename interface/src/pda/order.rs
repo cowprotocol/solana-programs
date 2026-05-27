@@ -26,6 +26,9 @@ pub fn order_pda_seeds(uid: &[u8; 32]) -> [&[u8]; 3] {
 
 /// Canonical seeds for signing as the order PDA at `uid` with `bump`. The
 /// on-chain `CreateOrder` handler uses this to construct the CPI signer.
+/// By design, order PDAs can be created only if it uses the canonical bump.
+/// Calling this function with another bump could lead to a theoretically
+/// valid PDA that however cannot and should not be instantiated.  
 pub fn order_pda_signer_seeds<'a>(uid: &'a [u8; 32], bump: &'a [u8; 1]) -> [&'a [u8]; 4] {
     let [s0, s1, s2] = order_pda_seeds(uid);
     [s0, s1, s2, bump]
