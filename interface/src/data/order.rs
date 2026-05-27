@@ -79,26 +79,32 @@ impl EncodedOrderAccount {
     const W_INTENT: usize = EncodedOrderIntent::SIZE;
 
     pub const SIZE: usize = 199;
+}
 
-    /// Canonical bytes for a freshly created order: not cancelled, no fills
-    /// yet, with the given `created_by` pubkey and the given encoded intent
-    /// payload. The intent bytes must be a canonical [`EncodedOrderIntent`]
-    /// encoding: validation is the caller's responsibility.
-    pub fn init(created_by: &Pubkey, intent: &[u8; EncodedOrderIntent::SIZE]) -> Self {
-        let mut out = [0u8; Self::SIZE];
-        // cancelled / amount_withdrawn / amount_received start at zero.
-        let (_cancelled, _amount_withdrawn, _amount_received, created_by_slot, intent_slot) = mut_array_refs![
-            &mut out,
-            EncodedOrderAccount::W_CANCELLED,
-            EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
-            EncodedOrderAccount::W_AMOUNT_RECEIVED,
-            EncodedOrderAccount::W_CREATED_BY,
-            EncodedOrderAccount::W_INTENT
-        ];
-        *created_by_slot = created_by.to_bytes();
-        *intent_slot = *intent;
-        Self(out)
-    }
+/// Writes the canonical [`EncodedOrderAccount`] encoding of the given fields
+/// into `buffer`. `encoded_intent` must be a canonical [`EncodedOrderIntent`]
+/// encoding: validating it is the caller's responsibility.
+pub fn write_account(
+    buffer: &mut [u8; EncodedOrderAccount::SIZE],
+    cancelled: bool,
+    amount_withdrawn: u64,
+    amount_received: u64,
+    created_by: &Pubkey,
+    encoded_intent: &[u8; EncodedOrderIntent::SIZE],
+) {
+    let (cancelled_slot, amount_withdrawn_slot, amount_received_slot, created_by_slot, intent_slot) = mut_array_refs![
+        buffer,
+        EncodedOrderAccount::W_CANCELLED,
+        EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
+        EncodedOrderAccount::W_AMOUNT_RECEIVED,
+        EncodedOrderAccount::W_CREATED_BY,
+        EncodedOrderAccount::W_INTENT
+    ];
+    *cancelled_slot = [cancelled as u8];
+    *amount_withdrawn_slot = amount_withdrawn.to_be_bytes();
+    *amount_received_slot = amount_received.to_be_bytes();
+    *created_by_slot = created_by.to_bytes();
+    *intent_slot = *encoded_intent;
 }
 
 impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
@@ -110,19 +116,14 @@ impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
 impl From<OrderAccount> for EncodedOrderAccount {
     fn from(account: OrderAccount) -> Self {
         let mut out = [0u8; Self::SIZE];
-        let (cancelled, amount_withdrawn, amount_received, created_by, intent) = mut_array_refs![
+        write_account(
             &mut out,
-            EncodedOrderAccount::W_CANCELLED,
-            EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
-            EncodedOrderAccount::W_AMOUNT_RECEIVED,
-            EncodedOrderAccount::W_CREATED_BY,
-            EncodedOrderAccount::W_INTENT
-        ];
-        *cancelled = [account.cancelled as u8];
-        *amount_withdrawn = account.amount_withdrawn.to_be_bytes();
-        *amount_received = account.amount_received.to_be_bytes();
-        *created_by = account.created_by.to_bytes();
-        *intent = *EncodedOrderIntent::from(&account.intent);
+            account.cancelled,
+            account.amount_withdrawn,
+            account.amount_received,
+            &account.created_by,
+            &EncodedOrderIntent::from(&account.intent),
+        );
         Self(out)
     }
 }
@@ -300,18 +301,27 @@ mod tests {
     }
 
     #[test]
-    fn init_matches_from_order_account() {
+    fn direct_write_account_matches_order_account_decoding() {
+        let cancelled = true;
+        let amount_withdrawn = 1337;
+        let amount_received = 31337;
         let intent = sample_intent(OrderKind::Sell, false);
         let created_by = Pubkey::new_from_array([0x42u8; 32]);
 
-        let direct = EncodedOrderAccount::init(
+        let mut buffer = [0u8; EncodedOrderAccount::SIZE];
+        write_account(
+            &mut buffer,
+            cancelled,
+            amount_withdrawn,
+            amount_received,
             &created_by,
             &<[u8; EncodedOrderIntent::SIZE]>::from(&EncodedOrderIntent::from(&intent)),
         );
+        let direct = EncodedOrderAccount(buffer);
         let via_order_account = EncodedOrderAccount::from(OrderAccount {
-            cancelled: false,
-            amount_withdrawn: 0,
-            amount_received: 0,
+            cancelled,
+            amount_withdrawn,
+            amount_received,
             created_by,
             intent,
         });

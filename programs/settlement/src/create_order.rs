@@ -7,7 +7,10 @@ use pinocchio::{
 };
 use pinocchio_system::instructions::CreateAccount;
 use settlement_interface::{
-    data::{intent::EncodedOrderIntent, order::EncodedOrderAccount},
+    data::{
+        intent::EncodedOrderIntent,
+        order::{self, EncodedOrderAccount},
+    },
     pda::order::{order_pda_seeds, order_pda_signer_seeds},
     SettlementInstruction,
 };
@@ -84,9 +87,11 @@ pub fn process_create_order(
     .invoke_signed(&[signer])?;
 
     // Note: `intent_bytes` were validated before and are known to represent a valid intent.
-    let initial = EncodedOrderAccount::init(created_by.address(), &intent_bytes);
-    let mut data = order_pda.try_borrow_mut()?;
-    data.copy_from_slice(&initial[..]);
+    let mut buffer = order_pda.try_borrow_mut()?;
+    let buffer: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *buffer)
+        .try_into()
+        .map_err(|_| ProgramError::AccountDataTooSmall)?;
+    order::write_account(buffer, false, 0, 0, created_by.address(), &intent_bytes);
 
     Ok(())
 }
