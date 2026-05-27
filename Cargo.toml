@@ -9,6 +9,7 @@ edition = "2021"
 
 [workspace.dependencies]
 litesvm = "0.12.0"
+litesvm-token = "0.12.0"
 num_enum = "0.7"
 pinocchio = "0.11.1"
 settlement-client = { path = "client" }
