@@ -1,47 +1,95 @@
 //! Shared types and instruction builders for the CoW Protocol settlement program.
 
-pub use solana_instruction::Instruction;
+pub use solana_instruction::{AccountMeta, Instruction};
+use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
 pub mod intent;
+pub mod settle;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
+#[num_enum(error_type(
+    name = ProgramError,
+    constructor = SettlementInstruction::unknown_discriminator,
+))]
 pub enum SettlementInstruction {
     BeginSettle = 0,
     FinalizeSettle = 1,
 }
 
 impl SettlementInstruction {
-    pub fn discriminator(&self) -> u8 {
-        *self as u8
+    pub fn discriminator(self) -> u8 {
+        self as u8
+    }
+
+    fn unknown_discriminator(_: u8) -> ProgramError {
+        ProgramError::InvalidInstructionData
     }
 }
 
-impl TryFrom<u8> for SettlementInstruction {
-    type Error = solana_program_error::ProgramError;
+/// Recover the discriminator from the first byte of the payload and the
+/// remaining bytes to parse.
+/// Returns `InvalidInstructionData` for an insufficient length or an
+/// unknown discriminator.
+pub fn recover_discriminator(
+    instruction_data: &[u8],
+) -> Result<(SettlementInstruction, &[u8]), ProgramError> {
+    let discriminator = instruction_data
+        .first()
+        .copied()
+        .ok_or(ProgramError::InvalidInstructionData)
+        .and_then(SettlementInstruction::try_from)?;
+    Ok((discriminator, &instruction_data[1..]))
+}
 
-    fn try_from(b: u8) -> Result<Self, Self::Error> {
-        match b {
-            0 => Ok(Self::BeginSettle),
-            1 => Ok(Self::FinalizeSettle),
-            _ => Err(Self::Error::InvalidInstructionData),
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_empty_payload() {
+        assert_eq!(
+            recover_discriminator(&[]),
+            Err(ProgramError::InvalidInstructionData),
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_discriminator() {
+        // 42 is outside the set of valid discriminators.
+        assert_eq!(
+            recover_discriminator(&[42]),
+            Err(ProgramError::InvalidInstructionData),
+        );
+    }
+
+    #[test]
+    fn forwards_trailing_bytes() {
+        assert!(matches!(
+            recover_discriminator(&[
+                SettlementInstruction::BeginSettle.discriminator(),
+                42 // unused
+            ]),
+            Ok((SettlementInstruction::BeginSettle, [42])),
+        ));
+    }
+
+    #[test]
+    fn settlement_instruction_try_from_partitions_all_bytes() {
+        for i in u8::MIN..=u8::MAX {
+            match SettlementInstruction::try_from(i) {
+                Ok(ix) => assert_eq!(ix as u8, i),
+                Err(err) => assert_eq!(err, ProgramError::InvalidInstructionData),
+            }
         }
     }
-}
 
-pub fn begin_settle(program_id: &Pubkey) -> Instruction {
-    Instruction {
-        program_id: *program_id,
-        accounts: vec![],
-        data: vec![SettlementInstruction::BeginSettle.discriminator()],
-    }
-}
-
-pub fn finalize_settle(program_id: &Pubkey) -> Instruction {
-    Instruction {
-        program_id: *program_id,
-        accounts: vec![],
-        data: vec![SettlementInstruction::FinalizeSettle.discriminator()],
+    #[test]
+    fn settlement_instruction_try_from_matches_begin_settle() {
+        assert_eq!(
+            SettlementInstruction::try_from(0),
+            Ok(SettlementInstruction::BeginSettle)
+        );
     }
 }
