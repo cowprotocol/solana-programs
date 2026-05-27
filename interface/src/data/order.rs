@@ -169,7 +169,10 @@ impl Deref for EncodedOrderAccount {
 mod tests {
     use core::mem::size_of;
 
-    use crate::data::intent::{tests::sample_intent, OrderKind};
+    use crate::data::intent::{
+        tests::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
+        OrderKind,
+    };
 
     use super::*;
 
@@ -240,7 +243,7 @@ mod tests {
         // Corrupt the `kind` byte inside the intent slot: the intent
         // decoder rejects it and the order-account decode surfaces that
         // failure as `InvalidAccountData`.
-        let kind_offset = EncodedOrderAccount::OFF_INTENT + EncodedOrderIntent::OFF_KIND;
+        let kind_offset = EncodedOrderAccount::OFF_INTENT + KIND_OFFSET;
         bytes[kind_offset] = 0x02;
         let err = OrderAccount::try_from(bytes)
             .expect_err("an invalid intent kind byte must propagate as a decode failure");
@@ -299,8 +302,8 @@ mod tests {
                 partially_fillable in any::<bool>(),
             ) {
                 bytes[EncodedOrderAccount::OFF_CANCELLED] = cancelled as u8;
-                bytes[EncodedOrderAccount::OFF_INTENT + EncodedOrderIntent::OFF_KIND] = kind as u8;
-                bytes[EncodedOrderAccount::OFF_INTENT + EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] =
+                bytes[EncodedOrderAccount::OFF_INTENT + KIND_OFFSET] = kind as u8;
+                bytes[EncodedOrderAccount::OFF_INTENT + PARTIALLY_FILLABLE_OFFSET] =
                     partially_fillable as u8;
                 let account = OrderAccount::try_from(bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;

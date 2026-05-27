@@ -357,8 +357,9 @@ pub(in crate::data) mod tests {
     }
 
     // Hardcoded but verified in a sanity-check test.
-    const KIND_OFFSET: usize = 116;
-    const PARTIALLY_FILLABLE_OFFSET: usize = KIND_OFFSET + EncodedOrderIntent::W_KIND;
+    pub(in crate::data) const KIND_OFFSET: usize = 116;
+    pub(in crate::data) const PARTIALLY_FILLABLE_OFFSET: usize =
+        KIND_OFFSET + EncodedOrderIntent::W_KIND;
 
     #[test]
     fn sanity_check_offsets() {
@@ -369,9 +370,9 @@ pub(in crate::data) mod tests {
                 .find(|(_, (l, r))| l != r)
                 .map(|(i, _)| i)
         }
-        let sell_false: EncodedOrderIntent = (&default_order_intent(OrderKind::Sell, false)).into();
-        let sell_true: EncodedOrderIntent = (&default_order_intent(OrderKind::Sell, true)).into();
-        let buy_true: EncodedOrderIntent = (&default_order_intent(OrderKind::Buy, true)).into();
+        let sell_false: EncodedOrderIntent = (&sample_intent(OrderKind::Sell, false)).into();
+        let sell_true: EncodedOrderIntent = (&sample_intent(OrderKind::Sell, true)).into();
+        let buy_true: EncodedOrderIntent = (&sample_intent(OrderKind::Buy, true)).into();
 
         assert_eq!(
             first_differing_byte(sell_false.as_slice(), sell_true.as_slice())
