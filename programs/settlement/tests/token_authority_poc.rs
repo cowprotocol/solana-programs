@@ -7,7 +7,7 @@
 use litesvm::LiteSVM;
 use litesvm_token::{
     get_spl_account, spl_token::instruction::AuthorityType, spl_token::state::Account,
-    CreateAccount, CreateMint, MintTo, SetAuthority, Transfer,
+    CreateAssociatedTokenAccount, CreateMint, MintTo, SetAuthority, Transfer,
 };
 use solana_sdk::{
     pubkey::Pubkey,
@@ -20,10 +20,12 @@ fn balance(svm: &LiteSVM, token_account: &Pubkey) -> u64 {
         .amount
 }
 
-// There are three user (Alice, Bob, Sink) and a token COW. Alice (setup) has a token account storing 1000 COW.
+// There are three user (Alice, Bob, Sink) and a token COW. Alice (setup) has her
+// associated token account for COW storing 1000 COW.
 // - Alice transfers 100 COW to Sink. Expect success as she's the owner.
 // - Bob sends 808 COW to Sink _from Alice's account. Expect failure as she's not the owner.
-// - Alice calls SetAuthority on her token account and gives ownership of the account to Bob.
+// - Alice calls SetAuthority on her associated token account and gives ownership of the account to Bob.
+//   The account address stays derived from Alice's key, but its owner authority is now Bob.
 // - The same two transfers from before are executed, except that success/failure is expected to be inverted.
 
 #[test]
@@ -47,15 +49,16 @@ fn token_account_can_change_owner() {
         .send()
         .expect("create COW mint");
 
-    // Alice's account starts with 1000 COW; Sink's starts empty.
-    let alice_acct = CreateAccount::new(&mut svm, &payer, &cow)
+    // Alice's account starts with 1000 COW; Sink's starts empty. Both are the
+    // mint's associated token account for their respective owner.
+    let alice_acct = CreateAssociatedTokenAccount::new(&mut svm, &payer, &cow)
         .owner(&alice_pk)
         .send()
-        .expect("create Alice token account");
-    let sink_acct = CreateAccount::new(&mut svm, &payer, &cow)
+        .expect("create Alice associated token account");
+    let sink_acct = CreateAssociatedTokenAccount::new(&mut svm, &payer, &cow)
         .owner(&sink_pk)
         .send()
-        .expect("create Sink token account");
+        .expect("create Sink associated token account");
 
     MintTo::new(&mut svm, &payer, &cow, &alice_acct, 1000)
         .send()
