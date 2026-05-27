@@ -28,8 +28,8 @@ impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
         instruction_data: &[u8],
         accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
-        // Wire format: [discriminator, ..150 intent bytes]
-        if instruction_data.len() != 1 + EncodedOrderIntent::SIZE {
+        // Body (discriminator already stripped): exactly the 150 intent bytes.
+        if instruction_data.len() != EncodedOrderIntent::SIZE {
             return Err(ProgramError::InvalidInstructionData);
         }
         // Accounts: [created_by (W,S), order_pda (W), some other account].
@@ -40,10 +40,8 @@ impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
-        let intent_bytes: [u8; EncodedOrderIntent::SIZE] = instruction_data
-            [1..1 + EncodedOrderIntent::SIZE]
-            .try_into()
-            .expect("length checked above");
+        let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
+            instruction_data.try_into().expect("length checked above");
 
         Ok(Self {
             intent_bytes,
