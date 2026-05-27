@@ -2186,6 +2186,7 @@ dependencies = [
 name = "settlement-interface"
 version = "0.1.0"
 dependencies = [
+ "arrayref",
  "derive_more",
  "num_enum",
  "proptest",
