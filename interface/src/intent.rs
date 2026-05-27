@@ -270,10 +270,12 @@ impl OrderIntent {
 mod tests {
     use super::*;
 
+    const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
+
     // Full Cartesian product of `OrderKind × bool` for tests that need to
     // exercise every shape an `OrderIntent` can take on these axes.
     fn all_kind_and_fillable() -> impl Iterator<Item = (OrderKind, bool)> {
-        [OrderKind::Sell, OrderKind::Buy]
+        ALL_ORDER_KINDS
             .into_iter()
             .flat_map(|kind| core::iter::repeat(kind).zip([false, true]))
     }
@@ -466,7 +468,7 @@ mod tests {
 
         // Any valid `OrderKind`.
         fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
-            Union::new(OrderKind::ALL.map(Just))
+            Union::new(ALL_ORDER_KINDS.map(Just))
         }
 
         // Any byte not decoding to a valid order type.
@@ -541,8 +543,8 @@ mod tests {
                 kind in arb_order_kind(),
                 partially_fillable in any::<bool>(),
             ) {
-                bytes[EncodedOrderIntent::OFF_KIND] = kind as u8;
-                bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = partially_fillable as u8;
+                bytes[KIND_OFFSET] = kind as u8;
+                bytes[PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
                 let (intent, _uid) = EncodedOrderIntent::decode_and_hash(&bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(*EncodedOrderIntent::from(&intent), bytes);
@@ -557,8 +559,8 @@ mod tests {
                 bad_kind in arb_bad_order_kind_byte(),
                 partially_fillable in any::<bool>(),
             ) {
-                bytes[EncodedOrderIntent::OFF_KIND] = bad_kind;
-                bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = partially_fillable as u8;
+                bytes[KIND_OFFSET] = bad_kind;
+                bytes[PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
                 prop_assert_eq!(
                     EncodedOrderIntent::decode_and_hash(&bytes),
                     Err(ProgramError::InvalidInstructionData),
@@ -574,8 +576,8 @@ mod tests {
                 kind in arb_order_kind(),
                 bad_pf in arb_bad_bool_byte(),
             ) {
-                bytes[EncodedOrderIntent::OFF_KIND] = kind as u8;
-                bytes[EncodedOrderIntent::OFF_PARTIALLY_FILLABLE] = bad_pf;
+                bytes[KIND_OFFSET] = kind as u8;
+                bytes[PARTIALLY_FILLABLE_OFFSET] = bad_pf;
                 prop_assert_eq!(
                     EncodedOrderIntent::decode_and_hash(&bytes),
                     Err(ProgramError::InvalidInstructionData),
