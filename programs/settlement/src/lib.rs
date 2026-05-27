@@ -17,7 +17,8 @@ pub fn process_instruction(
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    match recover_discriminator(instruction_data)? {
+    let (discriminator, _) = recover_discriminator(instruction_data)?;
+    match discriminator {
         SettlementInstruction::BeginSettle => {
             process_begin_settle(program_id, accounts, instruction_data)
         }

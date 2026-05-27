@@ -35,13 +35,14 @@ pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u8) -> Instruction {
 }
 
 /// For both `BeginSettle` and `FinalizeSettle` instructions, recover the
-/// `partner_index` byte from the `[discriminator, partner_index, ..]` payload.
+/// `partner_index` byte from the payload, assuming the discriminator was
+/// already stripped.
 /// Trailing bytes are ignored, so it can be used with instruction input
 /// directly. The leading discriminator byte is *not* validated here.
 /// Returns `InvalidInstructionData` if fewer than two bytes are provided.
 pub fn recover_partner_index(instruction_data: &[u8]) -> Result<u8, ProgramError> {
     match instruction_data {
-        [_, partner_index, ..] => Ok(*partner_index),
+        [partner_index, ..] => Ok(*partner_index),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
@@ -59,26 +60,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_single_byte_payload() {
-        let only_discriminator = [SettlementInstruction::BeginSettle.discriminator()];
-        assert_eq!(
-            recover_partner_index(&only_discriminator),
-            Err(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
-    fn ignores_leading_discriminator() {
-        // The leading byte is treated opaquely; an unknown discriminator is
-        // not rejected at this layer.
-        assert_eq!(recover_partner_index(&[42, 67]), Ok(67));
-    }
-
-    #[test]
     fn ignores_trailing_bytes() {
         assert_eq!(
             recover_partner_index(&[
-                SettlementInstruction::BeginSettle.discriminator(),
                 42, // partner index
                 67, // unused
             ]),

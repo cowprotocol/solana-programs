@@ -2176,6 +2176,7 @@ name = "settlement-interface"
 version = "0.1.0"
 dependencies = [
  "derive_more",
+ "num_enum",
  "proptest",
  "solana-instruction",
  "solana-program-error",

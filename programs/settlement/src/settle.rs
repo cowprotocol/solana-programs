@@ -9,8 +9,7 @@ use settlement_interface::{
 
 use crate::processor::InstructionInputParsing;
 
-/// Parsed inputs (instruction-data fields + relevant accounts) of a
-/// `BeginSettle` instruction.
+/// Parsed inputs of a `BeginSettle` instruction.
 ///
 /// Strictly the raw extracted form. Fields are read from `instruction_data` and
 /// `accounts` but **not validated** against runtime context except confirming
@@ -103,14 +102,23 @@ pub fn process_begin_settle(
         .expect("the finalize index is tested to be larger, no overflow can happen");
     for i in search_start..finalize_ix_index_u16 {
         let inner = instructions.load_instruction_at(usize::from(i))?;
-        if inner.get_program_id() == program_id
-            && [
+        // Nothing to see if the instruction belongs to a different program.
+        if inner.get_program_id() != program_id {
+            continue;
+        }
+        // If it can't recover the discriminator, it's fine: we expect that
+        // instruction to fail, but this isn't something that matters here.
+        // If the discriminator is valid, then it should not be the start
+        // or end of a settlement.
+        if let Ok((discriminator, _)) = recover_discriminator(inner.get_instruction_data()) {
+            if [
                 SettlementInstruction::BeginSettle,
                 SettlementInstruction::FinalizeSettle,
             ]
-            .contains(&recover_discriminator(inner.get_instruction_data())?)
-        {
-            return Err(SettlementError::MismatchingSettlePair.into());
+            .contains(&discriminator)
+            {
+                return Err(SettlementError::MismatchingSettlePair.into());
+            }
         }
     }
 
@@ -158,10 +166,10 @@ fn validate_reciprocal<T: core::ops::Deref<Target = [u8]>>(
         .try_into()
         .map_err(|_| SettlementError::MismatchingSettlePair)?;
     let partner_data = partner.get_instruction_data();
-    let their_discriminator =
+    let (their_discriminator, remaining_data) =
         recover_discriminator(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
-    let their_reciprocal =
-        recover_partner_index(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
+    let their_reciprocal = recover_partner_index(remaining_data)
+        .map_err(|_| SettlementError::MismatchingSettlePair)?;
     if their_discriminator != expected_discriminator || their_reciprocal != current_index_u8 {
         return Err(SettlementError::MismatchingSettlePair.into());
     }
