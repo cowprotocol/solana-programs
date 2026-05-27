@@ -226,11 +226,30 @@ mod tests {
 
     #[test]
     fn process_create_order_rejects_invalid_encoded_intent() {
-        let mut intent_bytes = valid_intent_bytes();
-        // We build an invalid intent by choosing an out-of-range `kind`.
-        // Parse succeeds, but `decode_and_hash` rejects this before any
-        // allocation.
-        intent_bytes[EncodedOrderIntent::OFF_KIND] = 0x02;
+        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntent {
+            kind: OrderKind::Buy,
+            ..intent
+        });
+        let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntent {
+            kind: OrderKind::Sell,
+            ..intent
+        });
+        fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
+            lhs.iter()
+                .zip(rhs)
+                .enumerate()
+                .find(|(_, (l, r))| l != r)
+                .map(|(i, _)| i)
+        }
+        let kind_offset =
+            first_differing_byte(intent_bytes_buy.as_slice(), intent_bytes_sell.as_slice())
+                .expect("kind is different");
+
+        let mut intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&intent_bytes_buy).into();
+        // Invalid order kind
+        intent_bytes[kind_offset] = 0x42;
+
         let data = default_order_data(&intent_bytes);
         let mut accounts = three_accounts();
 

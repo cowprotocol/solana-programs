@@ -87,8 +87,16 @@ impl EncodedOrderAccount {
     pub fn init(created_by: &Pubkey, intent: &[u8; EncodedOrderIntent::SIZE]) -> Self {
         let mut out = [0u8; Self::SIZE];
         // cancelled / amount_withdrawn / amount_received start at zero.
-        out[Self::OFF_CREATED_BY..Self::OFF_INTENT].copy_from_slice(created_by.as_ref());
-        out[Self::OFF_INTENT..Self::SIZE].copy_from_slice(intent);
+        let (_cancelled, _amount_withdrawn, _amount_received, created_by_slot, intent_slot) = mut_array_refs![
+            &mut out,
+            EncodedOrderAccount::W_CANCELLED,
+            EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
+            EncodedOrderAccount::W_AMOUNT_RECEIVED,
+            EncodedOrderAccount::W_CREATED_BY,
+            EncodedOrderAccount::W_INTENT
+        ];
+        *created_by_slot = created_by.to_bytes();
+        *intent_slot = *intent;
         Self(out)
     }
 }
