@@ -5,7 +5,7 @@
 
 use pinocchio::{account::RuntimeAccount, AccountView, Address};
 
-/// Build an `AccountView` whose `.address()` returns `address` and whose
+/// Build an `AccountView` based on the input `RuntimeAccount` and whose
 /// data region is empty.
 ///
 /// This is trickier to do than it should be. There's no safe initializer for
@@ -33,9 +33,14 @@ use pinocchio::{account::RuntimeAccount, AccountView, Address};
 /// and not some manual allocation.
 /// https://docs.rs/crate/solana-account-view/2.0.0/source/src/lib.rs#98-295
 /// https://doc.rust-lang.org/beta/core/slice/fn.from_raw_parts.html
-pub fn fake_account(address: Address) -> AccountView {
-    let backing = Box::leak(Box::new(RuntimeAccount::default()));
-    backing.address = address;
-    backing.data_len = 0;
+pub fn fake_account_from(runtime_account: RuntimeAccount) -> AccountView {
+    let backing = Box::leak(Box::new(runtime_account));
     unsafe { AccountView::new_unchecked(backing as *mut RuntimeAccount) }
+}
+
+pub fn fake_account(address: Address) -> AccountView {
+    fake_account_from(RuntimeAccount {
+        address,
+        ..Default::default()
+    })
 }

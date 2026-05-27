@@ -58,6 +58,9 @@ pub enum SettlementError {
     /// pointer disagrees, the ordering is reversed, or another settlement
     /// pair appears nested inside this one.
     MismatchingSettlePair = 0,
+    /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
+    /// owner.
+    OwnerMismatch = 1,
 }
 
 impl From<SettlementError> for u32 {
