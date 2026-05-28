@@ -8,15 +8,19 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
+arrayref = "0.3"
+derive_more = { version = "1", features = ["deref"] }
 litesvm = "0.12.0"
 num_enum = "0.7"
 pinocchio = "0.11.1"
+proptest = "1"
 settlement-client = { path = "client" }
 settlement-interface = { path = "interface" }
 solana-instruction = "3"
 solana-program-error = "3"
 solana-pubkey = "3"
 solana-sdk = "3"
+solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
 
 [workspace.lints.clippy]
