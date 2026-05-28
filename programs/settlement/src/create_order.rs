@@ -11,7 +11,7 @@ use settlement_interface::{
         intent::EncodedOrderIntent,
         order::{self, EncodedOrderAccount},
     },
-    pda::order::{order_pda_seeds, order_pda_signer_seeds},
+    pda::order::order_pda_seeds,
     SettlementInstruction,
 };
 
@@ -72,7 +72,8 @@ pub fn process_create_order(
     let (_, bump) = Address::find_program_address(&order_pda_seeds(&intent_uid), program_id);
 
     let bump_seed = [bump];
-    let signer_seeds = order_pda_signer_seeds(&intent_uid, &bump_seed).map(Seed::from);
+    let signer_seeds: [&[u8]; 6] = [b"settle", b"ment", &intent_uid, b"o", b"rder", &bump_seed];
+    let signer_seeds = signer_seeds.map(Seed::from);
     let signer = Signer::from(&signer_seeds[..]);
 
     // Implicitly, this also checks that `order_pda.address()` matches the
