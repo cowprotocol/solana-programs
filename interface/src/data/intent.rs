@@ -523,7 +523,8 @@ pub(in crate::data) mod tests {
         }
 
         proptest! {
-            // For any `OrderIntent`, `encode().decode_and_hash()` returns
+            // For any `OrderIntent`, encoding an intent into an encoded
+            // intent and then decoding it with `decode_and_hash()` returns
             // the same intent plus a UID that matches the encoded bytes'
             // hash.
             #[test]
@@ -536,8 +537,8 @@ pub(in crate::data) mod tests {
             }
 
             // For any bytes whose `kind` and `partially_fillable` slots
-            // are valid, `decode_and_hash` + re-`encode` produces back
-            // the original bytes.
+            // are valid, `decode_and_hash` and then re-encoding produces
+            // back the original bytes.
             #[test]
             fn bytes_roundtrip(
                 mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
