@@ -17,9 +17,9 @@ mod common;
 /// Abstract representation of instructions in a settlement transaction.
 enum AbstractInstruction {
     // BeginSettlement pointing at the specified Finalize instruction.
-    Init(u8),
+    Init(u16),
     // FinalizeSettlement pointing at the specified Begin instruction.
-    Fin(u8),
+    Fin(u16),
     // Some other instruction.
     Other,
 }

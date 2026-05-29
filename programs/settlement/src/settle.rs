@@ -15,7 +15,7 @@ use crate::processor::InstructionInputParsing;
 /// `accounts` but **not validated** against runtime context except confirming
 /// that the discriminator matches the desired input.
 struct BeginSettleInput<'a> {
-    finalize_ix_index: u8,
+    finalize_ix_index: u16,
     sysvar_account: &'a AccountView,
 }
 
@@ -43,7 +43,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
 /// `accounts` but **not validated** against runtime context except confirming
 /// that the discriminator matches the desired input.
 struct FinalizeSettleInput<'a> {
-    begin_ix_index: u8,
+    begin_ix_index: u16,
     sysvar_account: &'a AccountView,
 }
 
@@ -92,8 +92,7 @@ pub fn process_begin_settle(
     // The checks that follow are only performed for `process_begin_settle`.
 
     // Ordering: the partner `FinalizeSettle` must sit strictly after us.
-    let finalize_ix_index_u16: u16 = u16::from(input.finalize_ix_index);
-    if finalize_ix_index_u16 <= current_index {
+    if input.finalize_ix_index <= current_index {
         return Err(SettlementError::MismatchingSettlePair.into());
     }
 
@@ -102,7 +101,7 @@ pub fn process_begin_settle(
     let search_start = current_index
         .checked_add(1)
         .expect("the finalize index is tested to be larger, no overflow can happen");
-    for i in search_start..finalize_ix_index_u16 {
+    for i in search_start..input.finalize_ix_index {
         let inner = instructions.load_instruction_at(usize::from(i))?;
         // Nothing to see if the instruction belongs to a different program.
         if inner.get_program_id() != program_id {
@@ -155,7 +154,7 @@ fn validate_reciprocal<T: core::ops::Deref<Target = [u8]>>(
     program_id: &Address,
     instructions: &Instructions<T>,
     current_index: u16,
-    reciprocal_index: u8,
+    reciprocal_index: u16,
     expected_discriminator: SettlementInstruction,
 ) -> ProgramResult {
     let partner = instructions
@@ -164,15 +163,12 @@ fn validate_reciprocal<T: core::ops::Deref<Target = [u8]>>(
     if partner.get_program_id() != program_id {
         return Err(SettlementError::MismatchingSettlePair.into());
     }
-    let current_index_u8: u8 = current_index
-        .try_into()
-        .map_err(|_| SettlementError::MismatchingSettlePair)?;
     let partner_data = partner.get_instruction_data();
     let (their_discriminator, remaining_data) =
         recover_discriminator(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
     let their_reciprocal = recover_partner_index(remaining_data)
         .map_err(|_| SettlementError::MismatchingSettlePair)?;
-    if their_discriminator != expected_discriminator || their_reciprocal != current_index_u8 {
+    if their_discriminator != expected_discriminator || their_reciprocal != current_index {
         return Err(SettlementError::MismatchingSettlePair.into());
     }
     Ok(())
@@ -187,9 +183,13 @@ mod tests {
     fn begin_settle_input_parses_valid_input() {
         let address = Address::new_from_array([0x42u8; 32]);
         let mut accounts = [fake_account(address)];
-        let data = [SettlementInstruction::BeginSettle.discriminator(), 42];
+        let data = [
+            SettlementInstruction::BeginSettle.discriminator(),
+            0x13,
+            0x37,
+        ];
         let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        assert_eq!(parsed.finalize_ix_index, 42);
+        assert_eq!(parsed.finalize_ix_index, 0x1337);
         assert_eq!(parsed.sysvar_account.address(), &address);
     }
 
@@ -197,16 +197,20 @@ mod tests {
     fn finalize_settle_input_parses_valid_input() {
         let address = Address::new_from_array([0x42u8; 32]);
         let mut accounts = [fake_account(address)];
-        let data = [SettlementInstruction::FinalizeSettle.discriminator(), 42];
+        let data = [
+            SettlementInstruction::FinalizeSettle.discriminator(),
+            0x13,
+            0x37,
+        ];
         let parsed =
             FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        assert_eq!(parsed.begin_ix_index, 42);
+        assert_eq!(parsed.begin_ix_index, 0x1337);
         assert_eq!(parsed.sysvar_account.address(), &address);
     }
 
     #[test]
     fn begin_settle_input_rejects_different_discriminator() {
-        let data = [SettlementInstruction::FinalizeSettle.discriminator(), 0];
+        let data = [SettlementInstruction::FinalizeSettle.discriminator(), 0, 0];
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
@@ -216,7 +220,7 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_rejects_different_discriminator() {
-        let data = [SettlementInstruction::BeginSettle.discriminator(), 0];
+        let data = [SettlementInstruction::BeginSettle.discriminator(), 0, 0];
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             FinalizeSettleInput::parse(&data, &mut accounts).err(),
@@ -226,7 +230,7 @@ mod tests {
 
     #[test]
     fn begin_settle_input_rejects_empty_accounts() {
-        let data = [SettlementInstruction::BeginSettle.discriminator(), 0];
+        let data = [SettlementInstruction::BeginSettle.discriminator(), 0, 0];
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
@@ -236,7 +240,7 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_rejects_empty_accounts() {
-        let data = [SettlementInstruction::FinalizeSettle.discriminator(), 0];
+        let data = [SettlementInstruction::FinalizeSettle.discriminator(), 0, 0];
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             FinalizeSettleInput::parse(&data, &mut accounts).err(),
@@ -251,11 +255,12 @@ mod tests {
         let mut accounts = [fake_account(first_address), fake_account(second_address)];
         let data = [
             SettlementInstruction::BeginSettle.discriminator(),
-            42, // used
-            67, // extra
+            0x13, // used
+            0x37, // used
+            42,   // extra
         ];
         let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        assert_eq!(parsed.finalize_ix_index, 42);
+        assert_eq!(parsed.finalize_ix_index, 0x1337);
         assert_eq!(parsed.sysvar_account.address(), &first_address);
     }
 
@@ -266,12 +271,13 @@ mod tests {
         let mut accounts = [fake_account(first_address), fake_account(second_address)];
         let data = [
             SettlementInstruction::FinalizeSettle.discriminator(),
-            42, // used
-            67, // extra
+            0x13, // used
+            0x37, // used
+            42,   // extra
         ];
         let parsed =
             FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        assert_eq!(parsed.begin_ix_index, 42);
+        assert_eq!(parsed.begin_ix_index, 0x1337);
         assert_eq!(parsed.sysvar_account.address(), &first_address);
     }
 }
