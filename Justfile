@@ -25,3 +25,5 @@ fmt-check:
 # Lint the source code with clippy.
 lint:
     cargo clippy --workspace --all-targets --all-features -- --deny=warnings
+
+all: build test lint fmt-check
