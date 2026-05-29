@@ -35,12 +35,13 @@ pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u16) -> Instruction 
     }
 }
 
-/// For both `BeginSettle` and `FinalizeSettle` instructions, recover the
-/// `partner_index` byte from the payload, assuming the discriminator was
-/// already stripped.
-/// Partner index bytes are big-endian encoded (`[0x13, 0x37]` → `0x1337`).
+/// Reads the first two bytes of a byte slice (instruction data) and
+/// interprets them as a big-endian u16.
+/// It's meant to be used for BeginSettle and FinalizeSettle to extract the
+/// partner_index, that is, their settle pair which is encoded as the first
+/// 2 bytes of the instruction data: `[0x13, 0x37]` → `0x1337`.
 /// Trailing bytes are ignored, so it can be used with instruction input
-/// directly. The leading discriminator byte is *not* validated here.
+/// directly.
 /// Returns `InvalidInstructionData` if fewer than two bytes are provided.
 pub fn recover_partner_index(instruction_data: &[u8]) -> Result<u16, ProgramError> {
     match instruction_data {
