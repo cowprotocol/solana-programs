@@ -4,7 +4,7 @@ use pinocchio::{
     error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 use settlement_interface::{
-    recover_discriminator, settle::recover_partner_index, SettlementError, SettlementInstruction,
+    recover_discriminator, settle::recover_paired_index, SettlementError, SettlementInstruction,
 };
 
 use crate::processor::InstructionInputParsing;
@@ -26,7 +26,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
         instruction_data: &[u8],
         accounts: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
-        let finalize_ix_index = recover_partner_index(instruction_data)?;
+        let finalize_ix_index = recover_paired_index(instruction_data)?;
         let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             finalize_ix_index,
@@ -53,7 +53,7 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
         instruction_data: &[u8],
         accounts: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
-        let begin_ix_index = recover_partner_index(instruction_data)?;
+        let begin_ix_index = recover_paired_index(instruction_data)?;
         let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             begin_ix_index,
@@ -78,7 +78,7 @@ pub fn process_begin_settle(
 
     // Reciprocity: the input index is a finalize_settle instruction and that
     // instruction points to the current one.
-    validate_reciprocal(
+    validate_pairing(
         program_id,
         &instructions,
         current_index,
@@ -89,7 +89,7 @@ pub fn process_begin_settle(
     // The checks so far are the same as in `process_finalize_settle`.
     // The checks that follow are only performed for `process_begin_settle`.
 
-    // Ordering: the partner `FinalizeSettle` must sit strictly after us.
+    // Ordering: the paired `FinalizeSettle` must sit strictly after us.
     if input.finalize_ix_index <= current_index {
         return Err(SettlementError::MismatchingSettlePair.into());
     }
@@ -134,7 +134,7 @@ pub fn process_finalize_settle(
 
     // Reciprocity: the input index is a finalize_settle instruction and that
     // instruction points to the current one.
-    validate_reciprocal(
+    validate_pairing(
         program_id,
         &instructions,
         instructions.load_current_index(),
@@ -143,30 +143,30 @@ pub fn process_finalize_settle(
     )
 }
 
-/// Load the partner instruction at `reciprocal_index` and verify it belongs to
+/// Load the paired instruction at `paired_index` and verify it belongs to
 /// `program_id`, carries `expected_discriminator`, and points back at the
 /// current instruction. Ordering (before/after) is the caller's
 /// responsibility.
-#[must_use = "skipping the reciprocal check silently accepts an invalid settle pair"]
-fn validate_reciprocal<T: core::ops::Deref<Target = [u8]>>(
+#[must_use = "skipping the pairing check silently accepts an invalid settle pair"]
+fn validate_pairing<T: core::ops::Deref<Target = [u8]>>(
     program_id: &Address,
     instructions: &Instructions<T>,
     current_index: u16,
-    reciprocal_index: u16,
+    paired_index: u16,
     expected_discriminator: SettlementInstruction,
 ) -> ProgramResult {
-    let partner = instructions
-        .load_instruction_at(usize::from(reciprocal_index))
+    let paired_ix = instructions
+        .load_instruction_at(usize::from(paired_index))
         .map_err(|_| SettlementError::MismatchingSettlePair)?;
-    if partner.get_program_id() != program_id {
+    if paired_ix.get_program_id() != program_id {
         return Err(SettlementError::MismatchingSettlePair.into());
     }
-    let partner_data = partner.get_instruction_data();
-    let (their_discriminator, remaining_data) =
-        recover_discriminator(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
-    let their_reciprocal = recover_partner_index(remaining_data)
+    let paired_ix_data = paired_ix.get_instruction_data();
+    let (their_discriminator, remaining_data) = recover_discriminator(paired_ix_data)
         .map_err(|_| SettlementError::MismatchingSettlePair)?;
-    if their_discriminator != expected_discriminator || their_reciprocal != current_index {
+    let their_paired_ix =
+        recover_paired_index(remaining_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
+    if their_discriminator != expected_discriminator || their_paired_ix != current_index {
         return Err(SettlementError::MismatchingSettlePair.into());
     }
     Ok(())

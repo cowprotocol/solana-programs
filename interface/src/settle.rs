@@ -38,12 +38,12 @@ pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u16) -> Instruction 
 /// Reads the first two bytes of a byte slice (instruction data) and
 /// interprets them as a big-endian u16.
 /// It's meant to be used for BeginSettle and FinalizeSettle to extract the
-/// partner_index, that is, their settle pair which is encoded as the first
+/// paired_index, that is, their settle pair which is encoded as the first
 /// 2 bytes of the instruction data: `[0x13, 0x37]` → `0x1337`.
 /// Trailing bytes are ignored, so it can be used with instruction input
 /// directly.
 /// Returns `InvalidInstructionData` if fewer than two bytes are provided.
-pub fn recover_partner_index(instruction_data: &[u8]) -> Result<u16, ProgramError> {
+pub fn recover_paired_index(instruction_data: &[u8]) -> Result<u16, ProgramError> {
     match instruction_data {
         [b1, b2, ..] => Ok(u16::from_be_bytes([*b1, *b2])),
         _ => Err(ProgramError::InvalidInstructionData),
@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn rejects_empty_payload() {
         assert_eq!(
-            recover_partner_index(&[]),
+            recover_paired_index(&[]),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn rejects_too_short_payload() {
         assert_eq!(
-            recover_partner_index(&[42]),
+            recover_paired_index(&[42]),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -73,9 +73,9 @@ mod tests {
     #[test]
     fn ignores_trailing_bytes() {
         assert_eq!(
-            recover_partner_index(&[
-                0x13, // partner index
-                0x37, // partner index
+            recover_paired_index(&[
+                0x13, // paired index
+                0x37, // paired index
                 42,   // unused
             ]),
             Ok(0x1337),

@@ -150,10 +150,10 @@ fn rejects_non_sysvar_account_at_position_zero() {
 }
 
 #[test]
-/// Structurally-valid `[Fin(1), Init(0)]` shape, but the partner slot is
+/// Structurally-valid `[Fin(1), Init(0)]` shape, but the `Init(0)` slot is
 /// filled with an instruction that has the same data shape as a begin/finalize
-/// settlement instruction but `partner.get_program_id() != program_id`.
-fn rejects_partner_in_different_program() {
+/// settlement instruction but `init.get_program_id() != program_id`.
+fn rejects_paired_instruction_in_different_program() {
     let (mut svm, program_id, payer) = common::setup();
 
     let begin = begin_settle(&program_id, 1);
@@ -172,7 +172,7 @@ fn rejects_partner_in_different_program() {
     );
     let err = svm
         .send_transaction(tx)
-        .expect_err("expected cross-program partner to fail");
+        .expect_err("expected cross-program paired instruction to fail");
     assert_eq!(
         err.err,
         TransactionError::InstructionError(

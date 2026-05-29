@@ -49,9 +49,9 @@ pub fn recover_discriminator(
 #[repr(u32)]
 pub enum SettlementError {
     /// `BeginSettle`/`FinalizeSettle` did not form a valid pair:
-    /// the partner index points at the wrong instruction kind, the reciprocal
-    /// pointer disagrees, the ordering is reversed, or another settlement
-    /// pair appears nested inside this one.
+    /// the paired index on one of the two instructions points at the wrong
+    /// instruction kind, the paired pointer disagrees, the ordering is
+    /// reversed, or another settlement pair appears nested inside this one.
     MismatchingSettlePair = 0,
 }
 
