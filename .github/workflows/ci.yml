@@ -31,6 +31,10 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Test
+        # Deterministic tests. Pin the proptest seed so the fuzz tests in
+        # `cargo test` replay the same case sequence on every CI run.
+        env:
+          PROPTEST_RNG_SEED: "0"
         run: just test
 
   fmt-check:
