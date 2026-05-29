@@ -19,6 +19,9 @@ struct BeginSettleInput<'a> {
     sysvar_account: &'a AccountView,
 }
 
+/// This implementation defines how instruction bytes and accounts are laid out
+/// in the transaction. It's the source of truth for deciding where the data
+/// is stored.
 impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
