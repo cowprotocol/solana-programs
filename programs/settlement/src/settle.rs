@@ -132,7 +132,7 @@ pub fn process_finalize_settle(
     let input = FinalizeSettleInput::parse(instruction_data, accounts)?;
     let instructions = Instructions::try_from(input.sysvar_account)?;
 
-    // Reciprocity: the input index is a finalize_settle instruction and that
+    // Reciprocity: the input index is a begin_settle instruction and that
     // instruction points to the current one.
     validate_pairing(
         program_id,

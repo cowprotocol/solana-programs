@@ -102,7 +102,7 @@ fn invalid_sequences() {
         &[Other, Other, Fin(2), Other, Other],
         // Only fin, pointing to other
         &[Other, Other, Fin(0), Other, Other],
-        // Fin before end, but right matching
+        // Fin before Init, but right matching
         &[Fin(1), Init(0)],
         // A valid init/fin pair, plus an extra fin that points to init
         &[Init(3), Other, Other, Fin(0), Other, Fin(0)],
@@ -150,7 +150,7 @@ fn rejects_non_sysvar_account_at_position_zero() {
 }
 
 #[test]
-/// Structurally-valid `[Fin(1), Init(0)]` shape, but the `Init(0)` slot is
+/// Structurally-valid `[Init(1), Fin(0)]` shape, but the `Fin(0)` slot is
 /// filled with an instruction that has the same data shape as a begin/finalize
 /// settlement instruction but `init.get_program_id() != program_id`.
 fn rejects_paired_instruction_in_different_program() {
