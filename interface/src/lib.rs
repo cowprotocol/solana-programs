@@ -52,13 +52,19 @@ pub fn recover_discriminator(
 #[repr(u32)]
 pub enum SettlementError {
     /// `BeginSettle`/`FinalizeSettle` did not form a valid pair:
-    /// the partner index points at the wrong instruction kind, the reciprocal
-    /// pointer disagrees, the ordering is reversed, or another settlement
-    /// pair appears nested inside this one.
-    MismatchingSettlePair = 0,
+    /// the counterpart index on one of the two instructions points at the wrong
+    /// instruction kind, the pointed data doesn't match, the ordering is
+    /// reversed, or another settlement pair appears nested inside this one.
+    FinalizeBeforeInitialize = 0,
+    BeginFinalizePairOverlap = 1,
+    MissingCounterpartInstruction = 2,
+    CounterpartIsExternal = 3,
+    InvalidCounterpartDiscriminator = 4,
+    InvalidCounterpartCounterpart = 5,
+    MismatchedCounterpartDiscriminator = 6,
     /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
     /// owner.
-    OwnerMismatch = 1,
+    OwnerMismatch = 7,
 }
 
 impl From<SettlementError> for u32 {
