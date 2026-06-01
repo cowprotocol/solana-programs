@@ -4,7 +4,7 @@ use pinocchio::{
     error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 use settlement_interface::{
-    recover_discriminator, settle::recover_partner_index, SettlementError, SettlementInstruction,
+    recover_discriminator, settle::recover_counterpart, SettlementError, SettlementInstruction,
 };
 
 use crate::processor::InstructionInputParsing;
@@ -16,9 +16,12 @@ use crate::processor::InstructionInputParsing;
 /// that the discriminator matches the desired input.
 struct BeginSettleInput<'a> {
     finalize_ix_index: u16,
-    sysvar_account: &'a AccountView,
+    instructions_sysvar_account: &'a AccountView,
 }
 
+/// This implementation defines how instruction bytes and accounts are laid out
+/// in the transaction. It's the source of truth for deciding where the data
+/// is stored.
 impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
@@ -26,12 +29,12 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
         instruction_data: &[u8],
         accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
-        let finalize_ix_index = recover_partner_index(instruction_data)?;
-        let accounts: &'a [AccountView] = accounts;
-        let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+        let finalize_ix_index = recover_counterpart(instruction_data)?;
+        let instructions_sysvar_account =
+            accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             finalize_ix_index,
-            sysvar_account,
+            instructions_sysvar_account,
         })
     }
 }
@@ -44,7 +47,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
 /// that the discriminator matches the desired input.
 struct FinalizeSettleInput<'a> {
     begin_ix_index: u16,
-    sysvar_account: &'a AccountView,
+    instructions_sysvar_account: &'a AccountView,
 }
 
 impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
@@ -54,12 +57,12 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
         instruction_data: &[u8],
         accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
-        let begin_ix_index = recover_partner_index(instruction_data)?;
-        let accounts: &'a [AccountView] = accounts;
-        let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+        let begin_ix_index = recover_counterpart(instruction_data)?;
+        let instructions_sysvar_account =
+            accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             begin_ix_index,
-            sysvar_account,
+            instructions_sysvar_account,
         })
     }
 }
@@ -71,30 +74,27 @@ pub fn process_begin_settle(
 ) -> ProgramResult {
     let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
-    // We use `sysvar_account` from the input but this could be any address
-    // since parsing doesn't validate the input. We rely on the fact that the
-    // Pinocchio library already checks that the input account is the expected
-    // one.
-    let instructions = Instructions::try_from(input.sysvar_account)?;
+    // We use `instructions_sysvar_account` from the input but this could be
+    // any address since parsing doesn't validate the input. We rely on the
+    // fact that the Pinocchio library already checks that the input account
+    // is the expected one.
+    let instructions = Instructions::try_from(input.instructions_sysvar_account)?;
     let current_index = instructions.load_current_index();
+
+    // Ordering: the counterpart `FinalizeSettle` must sit strictly after us.
+    if input.finalize_ix_index <= current_index {
+        return Err(SettlementError::FinalizeBeforeInitialize.into());
+    }
 
     // Reciprocity: the input index is a finalize_settle instruction and that
     // instruction points to the current one.
-    validate_reciprocal(
+    validate_counterpart(
         program_id,
         &instructions,
         current_index,
         input.finalize_ix_index,
         SettlementInstruction::FinalizeSettle,
     )?;
-
-    // The checks so far are the same as in `process_finalize_settle`.
-    // The checks that follow are only performed for `process_begin_settle`.
-
-    // Ordering: the partner `FinalizeSettle` must sit strictly after us.
-    if input.finalize_ix_index <= current_index {
-        return Err(SettlementError::MismatchingSettlePair.into());
-    }
 
     // Nesting check: no BeginSettle/FinalizeSettle of this program may appear
     // strictly between `current_index` and `finalize_ix_index`.
@@ -103,7 +103,7 @@ pub fn process_begin_settle(
         .expect("the finalize index is tested to be larger, no overflow can happen");
     for i in search_start..input.finalize_ix_index {
         let inner = instructions.load_instruction_at(usize::from(i))?;
-        // Nothing to see if the instruction belongs to a different program.
+        // Skip instructions belonging to a different program.
         if inner.get_program_id() != program_id {
             continue;
         }
@@ -118,7 +118,7 @@ pub fn process_begin_settle(
             ]
             .contains(&discriminator)
             {
-                return Err(SettlementError::MismatchingSettlePair.into());
+                return Err(SettlementError::BeginFinalizePairOverlap.into());
             }
         }
     }
@@ -132,44 +132,48 @@ pub fn process_finalize_settle(
     instruction_data: &[u8],
 ) -> ProgramResult {
     let input = FinalizeSettleInput::parse(instruction_data, accounts)?;
-    let instructions = Instructions::try_from(input.sysvar_account)?;
+    let instructions = Instructions::try_from(input.instructions_sysvar_account)?;
 
-    // Reciprocity: the input index is a finalize_settle instruction and that
+    // Reciprocity: the input index is a begin_settle instruction and that
     // instruction points to the current one.
-    validate_reciprocal(
+    validate_counterpart(
         program_id,
         &instructions,
         instructions.load_current_index(),
         input.begin_ix_index,
         SettlementInstruction::BeginSettle,
     )
+
+    // Some checks are carried out by `BeginSettle` and we don't repeat them
+    // under the assumption that the counterpart exists and, since it's a
+    // `BeginSettle`, it performs the checks.
 }
 
-/// Load the partner instruction at `reciprocal_index` and verify it belongs to
-/// `program_id`, carries `expected_discriminator`, and points back at the
-/// current instruction. Ordering (before/after) is the caller's
+/// Load the counterpart instruction at `counterpart_index` and verify it
+/// belongs to `program_id`, carries `expected_discriminator`, and points
+/// back at the current instruction. Ordering (before/after) is the caller's
 /// responsibility.
-#[must_use = "skipping the reciprocal check silently accepts an invalid settle pair"]
-fn validate_reciprocal<T: core::ops::Deref<Target = [u8]>>(
+#[must_use = "skipping the counterpart check silently accepts an invalid settle pair"]
+fn validate_counterpart<T: core::ops::Deref<Target = [u8]>>(
     program_id: &Address,
     instructions: &Instructions<T>,
     current_index: u16,
-    reciprocal_index: u16,
+    counterpart_index: u16,
     expected_discriminator: SettlementInstruction,
 ) -> ProgramResult {
-    let partner = instructions
-        .load_instruction_at(usize::from(reciprocal_index))
-        .map_err(|_| SettlementError::MismatchingSettlePair)?;
-    if partner.get_program_id() != program_id {
-        return Err(SettlementError::MismatchingSettlePair.into());
+    let counterpart_ix = instructions
+        .load_instruction_at(usize::from(counterpart_index))
+        .map_err(|_| SettlementError::MissingCounterpartInstruction)?;
+    if counterpart_ix.get_program_id() != program_id {
+        return Err(SettlementError::CounterpartIsExternal.into());
     }
-    let partner_data = partner.get_instruction_data();
-    let (their_discriminator, remaining_data) =
-        recover_discriminator(partner_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
-    let their_reciprocal = recover_partner_index(remaining_data)
-        .map_err(|_| SettlementError::MismatchingSettlePair)?;
-    if their_discriminator != expected_discriminator || their_reciprocal != current_index {
-        return Err(SettlementError::MismatchingSettlePair.into());
+    let counterpart_ix_data = counterpart_ix.get_instruction_data();
+    let (their_discriminator, remaining_data) = recover_discriminator(counterpart_ix_data)
+        .map_err(|_| SettlementError::InvalidCounterpartDiscriminator)?;
+    let their_counterpart_ix = recover_counterpart(remaining_data)
+        .map_err(|_| SettlementError::InvalidCounterpartCounterpart)?;
+    if their_discriminator != expected_discriminator || their_counterpart_ix != current_index {
+        return Err(SettlementError::MismatchedCounterpartDiscriminator.into());
     }
     Ok(())
 }
@@ -190,7 +194,7 @@ mod tests {
         ];
         let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(parsed.finalize_ix_index, 0x1337);
-        assert_eq!(parsed.sysvar_account.address(), &address);
+        assert_eq!(parsed.instructions_sysvar_account.address(), &address);
     }
 
     #[test]
@@ -205,7 +209,7 @@ mod tests {
         let parsed =
             FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(parsed.begin_ix_index, 0x1337);
-        assert_eq!(parsed.sysvar_account.address(), &address);
+        assert_eq!(parsed.instructions_sysvar_account.address(), &address);
     }
 
     #[test]
@@ -261,7 +265,7 @@ mod tests {
         ];
         let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(parsed.finalize_ix_index, 0x1337);
-        assert_eq!(parsed.sysvar_account.address(), &first_address);
+        assert_eq!(parsed.instructions_sysvar_account.address(), &first_address);
     }
 
     #[test]
@@ -278,6 +282,6 @@ mod tests {
         let parsed =
             FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(parsed.begin_ix_index, 0x1337);
-        assert_eq!(parsed.sysvar_account.address(), &first_address);
+        assert_eq!(parsed.instructions_sysvar_account.address(), &first_address);
     }
 }

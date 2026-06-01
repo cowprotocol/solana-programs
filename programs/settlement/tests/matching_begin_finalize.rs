@@ -102,7 +102,7 @@ fn invalid_sequences() {
         &[Other, Other, Fin(2), Other, Other],
         // Only fin, pointing to other
         &[Other, Other, Fin(0), Other, Other],
-        // Fin before end, but right matching
+        // Fin before Init, but right matching
         &[Fin(1), Init(0)],
         // A valid init/fin pair, plus an extra fin that points to init
         &[Init(3), Other, Other, Fin(0), Other, Fin(0)],
@@ -126,7 +126,7 @@ fn invalid_sequences() {
 /// should reject the substitution with `UnsupportedSysvar` and revert the
 /// transaction.
 #[test]
-fn rejects_non_sysvar_account_at_position_zero() {
+fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let (mut svm, program_id, payer) = common::setup();
 
     let mut begin = begin_settle(&program_id, 1);
@@ -150,10 +150,10 @@ fn rejects_non_sysvar_account_at_position_zero() {
 }
 
 #[test]
-/// Structurally-valid `[Fin(1), Init(0)]` shape, but the partner slot is
+/// Structurally-valid `[Init(1), Fin(0)]` shape, but the `Fin(0)` slot is
 /// filled with an instruction that has the same data shape as a begin/finalize
-/// settlement instruction but `partner.get_program_id() != program_id`.
-fn rejects_partner_in_different_program() {
+/// settlement instruction but `init.get_program_id() != program_id`.
+fn rejects_counterpart_instruction_in_different_program() {
     let (mut svm, program_id, payer) = common::setup();
 
     let begin = begin_settle(&program_id, 1);
@@ -172,13 +172,13 @@ fn rejects_partner_in_different_program() {
     );
     let err = svm
         .send_transaction(tx)
-        .expect_err("expected cross-program partner to fail");
+        .expect_err("expected cross-program counterpart instruction to fail");
     assert_eq!(
         err.err,
         TransactionError::InstructionError(
             expected_failing_instruction_index,
-            to_instruction_error(SettlementError::MismatchingSettlePair),
+            to_instruction_error(SettlementError::CounterpartIsExternal),
         ),
-        "expected MismatchingSettlePair at instruction {expected_failing_instruction_index}"
+        "expected CounterpartIsExternal at instruction {expected_failing_instruction_index}"
     );
 }

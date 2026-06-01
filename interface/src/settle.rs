@@ -35,14 +35,16 @@ pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u16) -> Instruction 
     }
 }
 
-/// For both `BeginSettle` and `FinalizeSettle` instructions, recover the
-/// `partner_index` byte from the payload, assuming the discriminator was
-/// already stripped.
-/// Partner index bytes are big-endian encoded (`[0x13, 0x37]` → `0x1337`).
+/// Reads the first two bytes of a byte slice (instruction data) and
+/// interprets them as a big-endian u16.
+/// It's meant to be used for BeginSettle and FinalizeSettle to extract the
+/// counterpart index, that is, the index linking that instruction to the
+/// opposite instruction which is encoded as the first
+/// 2 bytes of the instruction data: `[0x13, 0x37]` → `0x1337`.
 /// Trailing bytes are ignored, so it can be used with instruction input
-/// directly. The leading discriminator byte is *not* validated here.
+/// directly.
 /// Returns `InvalidInstructionData` if fewer than two bytes are provided.
-pub fn recover_partner_index(instruction_data: &[u8]) -> Result<u16, ProgramError> {
+pub fn recover_counterpart(instruction_data: &[u8]) -> Result<u16, ProgramError> {
     match instruction_data {
         [b1, b2, ..] => Ok(u16::from_be_bytes([*b1, *b2])),
         _ => Err(ProgramError::InvalidInstructionData),
@@ -56,7 +58,7 @@ mod tests {
     #[test]
     fn rejects_empty_payload() {
         assert_eq!(
-            recover_partner_index(&[]),
+            recover_counterpart(&[]),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -64,7 +66,7 @@ mod tests {
     #[test]
     fn rejects_too_short_payload() {
         assert_eq!(
-            recover_partner_index(&[42]),
+            recover_counterpart(&[42]),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -72,9 +74,9 @@ mod tests {
     #[test]
     fn ignores_trailing_bytes() {
         assert_eq!(
-            recover_partner_index(&[
-                0x13, // partner index
-                0x37, // partner index
+            recover_counterpart(&[
+                0x13, // counterpart index
+                0x37, // counterpart index
                 42,   // unused
             ]),
             Ok(0x1337),
