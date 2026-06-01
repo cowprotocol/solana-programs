@@ -81,6 +81,11 @@ pub fn process_begin_settle(
     let instructions = Instructions::try_from(input.instructions_sysvar_account)?;
     let current_index = instructions.load_current_index();
 
+    // Ordering: the counterpart `FinalizeSettle` must sit strictly after us.
+    if input.finalize_ix_index <= current_index {
+        return Err(SettlementError::MismatchingSettleCounterpart.into());
+    }
+
     // Reciprocity: the input index is a finalize_settle instruction and that
     // instruction points to the current one.
     validate_counterpart(
@@ -90,14 +95,6 @@ pub fn process_begin_settle(
         input.finalize_ix_index,
         SettlementInstruction::FinalizeSettle,
     )?;
-
-    // The checks so far are the same as in `process_finalize_settle`.
-    // The checks that follow are only performed for `process_begin_settle`.
-
-    // Ordering: the counterpart `FinalizeSettle` must sit strictly after us.
-    if input.finalize_ix_index <= current_index {
-        return Err(SettlementError::MismatchingSettleCounterpart.into());
-    }
 
     // Nesting check: no BeginSettle/FinalizeSettle of this program may appear
     // strictly between `current_index` and `finalize_ix_index`.
