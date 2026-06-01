@@ -4,7 +4,7 @@ use pinocchio::{
     error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 use settlement_interface::{
-    recover_discriminator, settle::recover_paired_index, SettlementError, SettlementInstruction,
+    recover_discriminator, settle::recover_counterpart, SettlementError, SettlementInstruction,
 };
 
 use crate::processor::InstructionInputParsing;
@@ -29,7 +29,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
         instruction_data: &[u8],
         accounts: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
-        let finalize_ix_index = recover_paired_index(instruction_data)?;
+        let finalize_ix_index = recover_counterpart(instruction_data)?;
         let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             finalize_ix_index,
@@ -56,7 +56,7 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
         instruction_data: &[u8],
         accounts: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
-        let begin_ix_index = recover_paired_index(instruction_data)?;
+        let begin_ix_index = recover_counterpart(instruction_data)?;
         let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             begin_ix_index,
@@ -81,7 +81,7 @@ pub fn process_begin_settle(
 
     // Reciprocity: the input index is a finalize_settle instruction and that
     // instruction points to the current one.
-    validate_pairing(
+    validate_counterpart(
         program_id,
         &instructions,
         current_index,
@@ -92,9 +92,9 @@ pub fn process_begin_settle(
     // The checks so far are the same as in `process_finalize_settle`.
     // The checks that follow are only performed for `process_begin_settle`.
 
-    // Ordering: the paired `FinalizeSettle` must sit strictly after us.
+    // Ordering: the counterpart `FinalizeSettle` must sit strictly after us.
     if input.finalize_ix_index <= current_index {
-        return Err(SettlementError::MismatchingSettlePair.into());
+        return Err(SettlementError::MismatchingSettleCounterpart.into());
     }
 
     // Nesting check: no BeginSettle/FinalizeSettle of this program may appear
@@ -119,7 +119,7 @@ pub fn process_begin_settle(
             ]
             .contains(&discriminator)
             {
-                return Err(SettlementError::MismatchingSettlePair.into());
+                return Err(SettlementError::MismatchingSettleCounterpart.into());
             }
         }
     }
@@ -137,7 +137,7 @@ pub fn process_finalize_settle(
 
     // Reciprocity: the input index is a begin_settle instruction and that
     // instruction points to the current one.
-    validate_pairing(
+    validate_counterpart(
         program_id,
         &instructions,
         instructions.load_current_index(),
@@ -146,31 +146,31 @@ pub fn process_finalize_settle(
     )
 }
 
-/// Load the paired instruction at `paired_index` and verify it belongs to
-/// `program_id`, carries `expected_discriminator`, and points back at the
-/// current instruction. Ordering (before/after) is the caller's
+/// Load the counterpart instruction at `counterpart_index` and verify it
+/// belongs to `program_id`, carries `expected_discriminator`, and points
+/// back at the current instruction. Ordering (before/after) is the caller's
 /// responsibility.
-#[must_use = "skipping the pairing check silently accepts an invalid settle pair"]
-fn validate_pairing<T: core::ops::Deref<Target = [u8]>>(
+#[must_use = "skipping the counterpart check silently accepts an invalid settle pair"]
+fn validate_counterpart<T: core::ops::Deref<Target = [u8]>>(
     program_id: &Address,
     instructions: &Instructions<T>,
     current_index: u16,
-    paired_index: u16,
+    counterpart_index: u16,
     expected_discriminator: SettlementInstruction,
 ) -> ProgramResult {
-    let paired_ix = instructions
-        .load_instruction_at(usize::from(paired_index))
-        .map_err(|_| SettlementError::MismatchingSettlePair)?;
-    if paired_ix.get_program_id() != program_id {
-        return Err(SettlementError::MismatchingSettlePair.into());
+    let counterpart_ix = instructions
+        .load_instruction_at(usize::from(counterpart_index))
+        .map_err(|_| SettlementError::MismatchingSettleCounterpart)?;
+    if counterpart_ix.get_program_id() != program_id {
+        return Err(SettlementError::MismatchingSettleCounterpart.into());
     }
-    let paired_ix_data = paired_ix.get_instruction_data();
-    let (their_discriminator, remaining_data) = recover_discriminator(paired_ix_data)
-        .map_err(|_| SettlementError::MismatchingSettlePair)?;
-    let their_paired_ix =
-        recover_paired_index(remaining_data).map_err(|_| SettlementError::MismatchingSettlePair)?;
-    if their_discriminator != expected_discriminator || their_paired_ix != current_index {
-        return Err(SettlementError::MismatchingSettlePair.into());
+    let counterpart_ix_data = counterpart_ix.get_instruction_data();
+    let (their_discriminator, remaining_data) = recover_discriminator(counterpart_ix_data)
+        .map_err(|_| SettlementError::MismatchingSettleCounterpart)?;
+    let their_counterpart_ix = recover_counterpart(remaining_data)
+        .map_err(|_| SettlementError::MismatchingSettleCounterpart)?;
+    if their_discriminator != expected_discriminator || their_counterpart_ix != current_index {
+        return Err(SettlementError::MismatchingSettleCounterpart.into());
     }
     Ok(())
 }

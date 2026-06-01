@@ -153,7 +153,7 @@ fn rejects_non_sysvar_account_at_position_zero() {
 /// Structurally-valid `[Init(1), Fin(0)]` shape, but the `Fin(0)` slot is
 /// filled with an instruction that has the same data shape as a begin/finalize
 /// settlement instruction but `init.get_program_id() != program_id`.
-fn rejects_paired_instruction_in_different_program() {
+fn rejects_counterpart_instruction_in_different_program() {
     let (mut svm, program_id, payer) = common::setup();
 
     let begin = begin_settle(&program_id, 1);
@@ -172,12 +172,12 @@ fn rejects_paired_instruction_in_different_program() {
     );
     let err = svm
         .send_transaction(tx)
-        .expect_err("expected cross-program paired instruction to fail");
+        .expect_err("expected cross-program counterpart instruction to fail");
     assert_eq!(
         err.err,
         TransactionError::InstructionError(
             expected_failing_instruction_index,
-            to_instruction_error(SettlementError::MismatchingSettlePair),
+            to_instruction_error(SettlementError::MismatchingSettleCounterpart),
         ),
         "expected MismatchingSettlePair at instruction {expected_failing_instruction_index}"
     );
