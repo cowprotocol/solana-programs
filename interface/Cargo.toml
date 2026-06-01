@@ -10,6 +10,7 @@ num_enum.workspace = true
 solana-instruction.workspace = true
 solana-program-error.workspace = true
 solana-pubkey.workspace = true
+solana-sdk-ids.workspace = true
 solana-sha256-hasher.workspace = true
 
 [dev-dependencies]

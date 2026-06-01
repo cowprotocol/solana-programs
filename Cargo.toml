@@ -20,7 +20,9 @@ solana-instruction = "3"
 solana-program-error = "3"
 solana-pubkey = "3"
 solana-sdk = "3"
+solana-sdk-ids = "3"
 solana-sha256-hasher = { version = "3", features = ["sha2"] }
+solana-system-interface = "3"
 
 [workspace.lints.clippy]
 # Promote arithmetic side effect lint to hard error.

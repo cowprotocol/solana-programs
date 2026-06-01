@@ -43,6 +43,36 @@ pub fn recover_discriminator(
     Ok((discriminator, &instruction_data[1..]))
 }
 
+/// Program-side errors surfaced by the settlement program.
+/// The discriminant value is the on-chain `ProgramError::Custom` code.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u32)]
+pub enum SettlementError {
+    /// `BeginSettle`/`FinalizeSettle` did not form a valid pair:
+    /// the counterpart index on one of the two instructions points at the wrong
+    /// instruction kind, the pointed data doesn't match, the ordering is
+    /// reversed, or another settlement pair appears nested inside this one.
+    FinalizeBeforeInitialize = 0,
+    BeginFinalizePairOverlap = 1,
+    MissingCounterpartInstruction = 2,
+    CounterpartIsExternal = 3,
+    InvalidCounterpartDiscriminator = 4,
+    InvalidCounterpartCounterpart = 5,
+    MismatchedCounterpartDiscriminator = 6,
+}
+
+impl From<SettlementError> for u32 {
+    fn from(e: SettlementError) -> Self {
+        e as u32
+    }
+}
+
+impl From<SettlementError> for solana_program_error::ProgramError {
+    fn from(e: SettlementError) -> Self {
+        Self::Custom(e.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
