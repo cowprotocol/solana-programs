@@ -179,6 +179,6 @@ fn rejects_counterpart_instruction_in_different_program() {
             expected_failing_instruction_index,
             to_instruction_error(SettlementError::MismatchingSettleCounterpart),
         ),
-        "expected MismatchingSettlePair at instruction {expected_failing_instruction_index}"
+        "expected MismatchingSettleCounterpart at instruction {expected_failing_instruction_index}"
     );
 }
