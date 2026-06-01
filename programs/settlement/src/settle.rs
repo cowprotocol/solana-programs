@@ -143,6 +143,10 @@ pub fn process_finalize_settle(
         input.begin_ix_index,
         SettlementInstruction::BeginSettle,
     )
+
+    // Some checks are carried out by `BeginSettle` and we don't repeat them
+    // under the assumption that the counterpart exists and, since it's a
+    // `BeginSettle`, it performs the checks.
 }
 
 /// Load the counterpart instruction at `counterpart_index` and verify it
