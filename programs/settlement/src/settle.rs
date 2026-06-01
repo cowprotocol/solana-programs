@@ -16,7 +16,7 @@ use crate::processor::InstructionInputParsing;
 /// that the discriminator matches the desired input.
 struct BeginSettleInput<'a> {
     finalize_ix_index: u16,
-    sysvar_account: &'a AccountView,
+    instructions_sysvar_account: &'a AccountView,
 }
 
 /// This implementation defines how instruction bytes and accounts are laid out
@@ -30,10 +30,11 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
         accounts: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
         let finalize_ix_index = recover_counterpart(instruction_data)?;
-        let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+        let instructions_sysvar_account =
+            accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             finalize_ix_index,
-            sysvar_account,
+            instructions_sysvar_account,
         })
     }
 }
@@ -46,7 +47,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
 /// that the discriminator matches the desired input.
 struct FinalizeSettleInput<'a> {
     begin_ix_index: u16,
-    sysvar_account: &'a AccountView,
+    instructions_sysvar_account: &'a AccountView,
 }
 
 impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
@@ -57,10 +58,11 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
         accounts: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
         let begin_ix_index = recover_counterpart(instruction_data)?;
-        let sysvar_account = accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+        let instructions_sysvar_account =
+            accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
         Ok(Self {
             begin_ix_index,
-            sysvar_account,
+            instructions_sysvar_account,
         })
     }
 }
@@ -72,11 +74,11 @@ pub fn process_begin_settle(
 ) -> ProgramResult {
     let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
-    // We use `sysvar_account` from the input but this could be any address
-    // since parsing doesn't validate the input. We rely on the fact that the
-    // Pinocchio library already checks that the input account is the expected
-    // one.
-    let instructions = Instructions::try_from(input.sysvar_account)?;
+    // We use `instructions_sysvar_account` from the input but this could be
+    // any address since parsing doesn't validate the input. We rely on the
+    // fact that the Pinocchio library already checks that the input account
+    // is the expected one.
+    let instructions = Instructions::try_from(input.instructions_sysvar_account)?;
     let current_index = instructions.load_current_index();
 
     // Reciprocity: the input index is a finalize_settle instruction and that
@@ -133,7 +135,7 @@ pub fn process_finalize_settle(
     instruction_data: &[u8],
 ) -> ProgramResult {
     let input = FinalizeSettleInput::parse(instruction_data, accounts)?;
-    let instructions = Instructions::try_from(input.sysvar_account)?;
+    let instructions = Instructions::try_from(input.instructions_sysvar_account)?;
 
     // Reciprocity: the input index is a begin_settle instruction and that
     // instruction points to the current one.
@@ -191,7 +193,7 @@ mod tests {
         ];
         let parsed = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(parsed.finalize_ix_index, 0x1337);
-        assert_eq!(parsed.sysvar_account.address(), &address);
+        assert_eq!(parsed.instructions_sysvar_account.address(), &address);
     }
 
     #[test]
@@ -205,7 +207,7 @@ mod tests {
         ];
         let parsed = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(parsed.begin_ix_index, 0x1337);
-        assert_eq!(parsed.sysvar_account.address(), &address);
+        assert_eq!(parsed.instructions_sysvar_account.address(), &address);
     }
 
     #[test]
@@ -261,7 +263,7 @@ mod tests {
         ];
         let parsed = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(parsed.finalize_ix_index, 0x1337);
-        assert_eq!(parsed.sysvar_account.address(), &first_address);
+        assert_eq!(parsed.instructions_sysvar_account.address(), &first_address);
     }
 
     #[test]
@@ -277,6 +279,6 @@ mod tests {
         ];
         let parsed = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(parsed.begin_ix_index, 0x1337);
-        assert_eq!(parsed.sysvar_account.address(), &first_address);
+        assert_eq!(parsed.instructions_sysvar_account.address(), &first_address);
     }
 }

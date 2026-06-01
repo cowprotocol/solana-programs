@@ -126,7 +126,7 @@ fn invalid_sequences() {
 /// should reject the substitution with `UnsupportedSysvar` and revert the
 /// transaction.
 #[test]
-fn rejects_non_sysvar_account_at_position_zero() {
+fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let (mut svm, program_id, payer) = common::setup();
 
     let mut begin = begin_settle(&program_id, 1);
