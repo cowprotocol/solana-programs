@@ -177,8 +177,8 @@ fn rejects_counterpart_instruction_in_different_program() {
         err.err,
         TransactionError::InstructionError(
             expected_failing_instruction_index,
-            to_instruction_error(SettlementError::MismatchingSettleCounterpart),
+            to_instruction_error(SettlementError::CounterpartIsExternal),
         ),
-        "expected MismatchingSettleCounterpart at instruction {expected_failing_instruction_index}"
+        "expected CounterpartIsExternal at instruction {expected_failing_instruction_index}"
     );
 }

@@ -83,7 +83,7 @@ pub fn process_begin_settle(
 
     // Ordering: the counterpart `FinalizeSettle` must sit strictly after us.
     if input.finalize_ix_index <= current_index {
-        return Err(SettlementError::MismatchingSettleCounterpart.into());
+        return Err(SettlementError::FinalizeBeforeInitialize.into());
     }
 
     // Reciprocity: the input index is a finalize_settle instruction and that
@@ -118,7 +118,7 @@ pub fn process_begin_settle(
             ]
             .contains(&discriminator)
             {
-                return Err(SettlementError::MismatchingSettleCounterpart.into());
+                return Err(SettlementError::BeginFinalizePairOverlap.into());
             }
         }
     }
@@ -163,17 +163,17 @@ fn validate_counterpart<T: core::ops::Deref<Target = [u8]>>(
 ) -> ProgramResult {
     let counterpart_ix = instructions
         .load_instruction_at(usize::from(counterpart_index))
-        .map_err(|_| SettlementError::MismatchingSettleCounterpart)?;
+        .map_err(|_| SettlementError::MissingCounterpartInstruction)?;
     if counterpart_ix.get_program_id() != program_id {
-        return Err(SettlementError::MismatchingSettleCounterpart.into());
+        return Err(SettlementError::CounterpartIsExternal.into());
     }
     let counterpart_ix_data = counterpart_ix.get_instruction_data();
     let (their_discriminator, remaining_data) = recover_discriminator(counterpart_ix_data)
-        .map_err(|_| SettlementError::MismatchingSettleCounterpart)?;
+        .map_err(|_| SettlementError::InvalidCounterpartDiscriminator)?;
     let their_counterpart_ix = recover_counterpart(remaining_data)
-        .map_err(|_| SettlementError::MismatchingSettleCounterpart)?;
+        .map_err(|_| SettlementError::InvalidCounterpartCounterpart)?;
     if their_discriminator != expected_discriminator || their_counterpart_ix != current_index {
-        return Err(SettlementError::MismatchingSettleCounterpart.into());
+        return Err(SettlementError::MismatchedCounterpartDiscriminator.into());
     }
     Ok(())
 }

@@ -52,7 +52,13 @@ pub enum SettlementError {
     /// the counterpart index on one of the two instructions points at the wrong
     /// instruction kind, the pointed data doesn't match, the ordering is
     /// reversed, or another settlement pair appears nested inside this one.
-    MismatchingSettleCounterpart = 0,
+    FinalizeBeforeInitialize = 0,
+    BeginFinalizePairOverlap = 1,
+    MissingCounterpartInstruction = 2,
+    CounterpartIsExternal = 3,
+    InvalidCounterpartDiscriminator = 4,
+    InvalidCounterpartCounterpart = 5,
+    MismatchedCounterpartDiscriminator = 6,
 }
 
 impl From<SettlementError> for u32 {
