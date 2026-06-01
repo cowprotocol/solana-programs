@@ -103,7 +103,7 @@ pub fn process_begin_settle(
         .expect("the finalize index is tested to be larger, no overflow can happen");
     for i in search_start..input.finalize_ix_index {
         let inner = instructions.load_instruction_at(usize::from(i))?;
-        // Nothing to see if the instruction belongs to a different program.
+        // Skip instructions belonging to a different program.
         if inner.get_program_id() != program_id {
             continue;
         }
