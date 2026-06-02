@@ -26,6 +26,7 @@ solana-system-interface = "3"
 solana-verify = "0.5"
 
 [workspace.metadata.cli]
+# Used to help solana-verify identify the correct build image.
 solana = "3.1.14"
 
 [workspace.lints.clippy]

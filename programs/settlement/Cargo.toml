@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
+# Required for `solana-verify` to identify (allegedly). See:
+# https://solana.com/docs/programs/verified-builds#prepare-project
 name = "cow_settlement"
 # Required for `cargo build-sbf` to emit a Solana shared object (.so). See:
 # https://solana.com/docs/programs/rust/program-structure
