@@ -32,4 +32,7 @@ build-verified:
     command -v solana-verify || cargo install solana-verify
     solana-verify build --library-name cow_settlement
 
+deploy programid keypair='~/.config/solana/id.json': build-verified
+    solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
+
 all: build test lint fmt-check
