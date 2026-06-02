@@ -44,3 +44,7 @@ pub fn fake_account(address: Address) -> AccountView {
         ..Default::default()
     })
 }
+
+pub fn fake_account_from_array(address_array: [u8; 32]) -> AccountView {
+    fake_account(Address::new_from_array(address_array))
+}

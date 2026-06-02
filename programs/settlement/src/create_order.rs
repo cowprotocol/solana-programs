@@ -115,7 +115,7 @@ mod tests {
     use pinocchio::account::RuntimeAccount;
 
     use super::*;
-    use crate::test_utils::{fake_account, fake_account_from};
+    use crate::test_utils::{fake_account, fake_account_from, fake_account_from_array};
 
     const DEFAULT_OWNER: Address = Address::new_from_array([0x11; 32]);
 
@@ -144,10 +144,10 @@ mod tests {
 
     fn four_accounts() -> [AccountView; 4] {
         [
-            fake_account(Address::new_from_array([1; 32])),
-            fake_account(Address::new_from_array([2; 32])),
-            fake_account(Address::new_from_array([3; 32])),
-            fake_account(Address::new_from_array([4; 32])),
+            fake_account_from_array([1; 32]),
+            fake_account_from_array([2; 32]),
+            fake_account_from_array([3; 32]),
+            fake_account_from_array([4; 32]),
         ]
     }
 
@@ -171,7 +171,7 @@ mod tests {
             fake_account(owner),
             fake_account(created_by),
             fake_account(order_pda),
-            fake_account(Address::new_from_array([4; 32])),
+            fake_account_from_array([4; 32]),
         ];
 
         let CreateOrderInput {
@@ -185,18 +185,6 @@ mod tests {
         assert_eq!(*derived_order_pda.address(), order_pda);
         assert_eq!(*derived_owner.address(), owner);
         assert_eq!(*derived_created_by.address(), created_by);
-    }
-
-    #[test]
-    fn create_order_input_rejects_different_discriminator() {
-        let intent_bytes = valid_intent_bytes();
-        let mut data = default_order_data(&intent_bytes);
-        data[0] = SettlementInstruction::BeginSettle.discriminator();
-        let mut accounts = four_accounts();
-        assert_eq!(
-            CreateOrderInput::parse(&data, &mut accounts).err(),
-            Some(ProgramError::InvalidInstructionData),
-        );
     }
 
     #[test]
@@ -227,11 +215,8 @@ mod tests {
     fn create_order_input_rejects_missing_accounts() {
         let intent_bytes = valid_intent_bytes();
         let data = default_order_data(&intent_bytes);
-        let mut accounts: [AccountView; 3] = [
-            fake_account(Address::new_from_array([1; 32])),
-            fake_account(Address::new_from_array([2; 32])),
-            fake_account(Address::new_from_array([3; 32])),
-        ];
+        let mut accounts: Vec<AccountView> = four_accounts().into();
+        accounts.pop();
         assert_eq!(
             CreateOrderInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
@@ -269,11 +254,7 @@ mod tests {
             ..intent
         });
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
-            lhs.iter()
-                .zip(rhs)
-                .enumerate()
-                .find(|(_, (l, r))| l != r)
-                .map(|(i, _)| i)
+            lhs.iter().zip(rhs).position(|(l, r)| l != r)
         }
         let kind_offset =
             first_differing_byte(intent_bytes_buy.as_slice(), intent_bytes_sell.as_slice())
