@@ -98,11 +98,11 @@ fn happy_path_creates_order_pda_with_expected_body() {
         "PDA body must match expected layout"
     );
 
-    // Rent-exempt sanity: the PDA must hold at least the rent minimum for
+    // Rent-exempt sanity: the PDA must hold exactly the rent minimum for
     // its size.
     let rent = svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE);
     assert!(
-        account.lamports >= rent,
+        account.lamports == rent,
         "PDA must be rent-exempt: {} < {}",
         account.lamports,
         rent,
