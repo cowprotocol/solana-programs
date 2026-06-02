@@ -1,7 +1,8 @@
 use litesvm::LiteSVM;
+use settlement_client::instructions::create_order;
 use settlement_client::settlement_interface::pda::order::ORDER_SEED;
 use settlement_client::settlement_interface::{
-    create_order::create_order,
+    create_order::create_order as create_order_ix,
     data::{
         intent::{EncodedOrderIntent, OrderIntent, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},
@@ -32,14 +33,8 @@ fn sample_intent() -> OrderIntent {
     }
 }
 
-fn encode_and_derive(
-    intent: &OrderIntent,
-    program_id: &Pubkey,
-) -> ([u8; EncodedOrderIntent::SIZE], Pubkey) {
-    let encoded = EncodedOrderIntent::from(intent);
-    let bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-    let (pda, _bump) = find_order_pda(program_id, &encoded.hash());
-    (bytes, pda)
+fn derive_order_pda(intent: &OrderIntent, program_id: &Pubkey) -> Pubkey {
+    find_order_pda(program_id, &intent.uid()).0
 }
 
 /// Sign `ix` with `fee_payer` as the transaction fee payer and
@@ -64,10 +59,10 @@ fn happy_path_creates_order_pda_with_expected_body() {
     let (mut svm, program_id, fee_payer) = common::setup();
 
     let intent = sample_intent();
-    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+    let pda = derive_order_pda(&intent, &program_id);
 
     // `fee_payer` pays for both rent and tx fees.
-    let ix = create_order(&program_id, &fee_payer.pubkey(), &pda, &encoded);
+    let ix = create_order(&program_id, &fee_payer.pubkey(), &intent);
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
@@ -117,7 +112,6 @@ fn happy_path_creates_order_pda_with_separate_rent_and_fee_payers() {
         .expect("airdrop to order payer should succeed");
 
     let intent = sample_intent();
-    let (encoded, pda) = encode_and_derive(&intent, &program_id);
 
     fn lamports(account: &Keypair, svm: &LiteSVM) -> u64 {
         svm.get_account(&account.pubkey())
@@ -128,7 +122,7 @@ fn happy_path_creates_order_pda_with_separate_rent_and_fee_payers() {
     let fee_payer_before = lamports(&fee_payer, &svm);
     let order_payer_before = lamports(&order_payer, &svm);
 
-    let ix = create_order(&program_id, &order_payer.pubkey(), &pda, &encoded);
+    let ix = create_order(&program_id, &order_payer.pubkey(), &intent);
     let tx = signed_tx(&svm, &fee_payer, &order_payer, ix);
     let receipt = svm
         .send_transaction(tx)
@@ -152,10 +146,13 @@ fn rejects_arbitrary_wrong_pda() {
     let (mut svm, program_id, fee_payer) = common::setup();
 
     let intent = sample_intent();
-    let (encoded, _canonical_pda) = encode_and_derive(&intent, &program_id);
+    let bytes: [u8; EncodedOrderIntent::SIZE] = (&EncodedOrderIntent::from(&intent)).into();
 
+    // Build the instruction with the lower-level interface builder so we can
+    // hand it a deliberately wrong address; the client helper would derive
+    // the canonical one.
     let wrong_pda = Pubkey::new_unique();
-    let ix = create_order(&program_id, &fee_payer.pubkey(), &wrong_pda, &encoded);
+    let ix = create_order_ix(&program_id, &fee_payer.pubkey(), &wrong_pda, &bytes);
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
 
     let err = svm
@@ -202,7 +199,7 @@ fn rejects_non_canonical_bump_pda() {
 
     assert_ne!(non_canonical_bump, canonical_bump);
 
-    let ix = create_order(&program_id, &fee_payer.pubkey(), &non_canonical_pda, &bytes);
+    let ix = create_order_ix(&program_id, &fee_payer.pubkey(), &non_canonical_pda, &bytes);
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     let err = svm
         .send_transaction(tx)
@@ -226,10 +223,9 @@ fn rejects_creating_same_pda_twice() {
     let (mut svm, program_id, fee_payer) = common::setup();
 
     let intent = sample_intent();
-    let (encoded, pda) = encode_and_derive(&intent, &program_id);
 
     // First creation populates the PDA.
-    let ix = create_order(&program_id, &fee_payer.pubkey(), &pda, &encoded);
+    let ix = create_order(&program_id, &fee_payer.pubkey(), &intent);
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     svm.send_transaction(tx)
         .expect("first create_order should succeed");
@@ -239,7 +235,7 @@ fn rejects_creating_same_pda_twice() {
     // duplicate PDA.
     svm.expire_blockhash();
 
-    let ix = create_order(&program_id, &fee_payer.pubkey(), &pda, &encoded);
+    let ix = create_order(&program_id, &fee_payer.pubkey(), &intent);
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     // Keep the compiled message's `account_keys` around so we can resolve
     // the `program_id_index` of the failing inner instruction below.
