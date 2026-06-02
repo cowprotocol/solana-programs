@@ -188,10 +188,8 @@ mod tests {
     fn create_order_input_rejects_missing_accounts() {
         let intent_bytes = valid_intent_bytes();
         let data = default_order_data(&intent_bytes);
-        let mut accounts: [AccountView; 2] = [
-            fake_account_from_array([1; 32]),
-            fake_account_from_array([2; 32]),
-        ];
+        let mut accounts: Vec<AccountView> = three_accounts().into();
+        accounts.pop();
         assert_eq!(
             CreateOrderInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
