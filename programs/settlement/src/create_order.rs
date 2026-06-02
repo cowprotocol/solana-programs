@@ -227,11 +227,7 @@ mod tests {
             ..intent
         });
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
-            lhs.iter()
-                .zip(rhs)
-                .enumerate()
-                .find(|(_, (l, r))| l != r)
-                .map(|(i, _)| i)
+            lhs.iter().zip(rhs).position(|(l, r)| l != r)
         }
         let kind_offset =
             first_differing_byte(intent_bytes_buy.as_slice(), intent_bytes_sell.as_slice())
