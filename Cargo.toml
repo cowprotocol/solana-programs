@@ -23,6 +23,10 @@ solana-sdk = "3"
 solana-sdk-ids = "3"
 solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
+solana-verify = "0.5"
+
+[workspace.metadata.cli]
+solana = "3.1.14"
 
 [workspace.lints.clippy]
 # Promote arithmetic side effect lint to hard error.

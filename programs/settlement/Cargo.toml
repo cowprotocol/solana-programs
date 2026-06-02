@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
+name = "cow_settlement"
 # Required for `cargo build-sbf` to emit a Solana shared object (.so). See:
 # https://solana.com/docs/programs/rust/program-structure
 crate-type = ["cdylib", "lib"]
@@ -17,6 +18,7 @@ litesvm.workspace = true
 settlement-client.workspace = true
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
+solana-verify.workspace = true
 
 [lints]
 workspace = true
