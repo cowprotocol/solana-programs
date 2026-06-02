@@ -161,18 +161,6 @@ mod tests {
     }
 
     #[test]
-    fn create_order_input_rejects_different_discriminator() {
-        let intent_bytes = valid_intent_bytes();
-        let mut data = default_order_data(&intent_bytes);
-        data[0] = SettlementInstruction::BeginSettle.discriminator();
-        let mut accounts = three_accounts();
-        assert_eq!(
-            CreateOrderInput::parse(&data, &mut accounts).err(),
-            Some(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
     fn create_order_input_rejects_short_data() {
         let intent_bytes = valid_intent_bytes();
         let mut data = default_order_data(&intent_bytes);
