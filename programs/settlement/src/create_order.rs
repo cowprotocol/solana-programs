@@ -101,7 +101,7 @@ mod tests {
     use settlement_interface::data::intent::{OrderIntent, OrderKind};
 
     use super::*;
-    use crate::test_utils::fake_account;
+    use crate::test_utils::{fake_account, fake_account_from_array};
 
     fn valid_intent_bytes() -> [u8; EncodedOrderIntent::SIZE] {
         (&EncodedOrderIntent::from(&OrderIntent {
@@ -127,9 +127,9 @@ mod tests {
 
     fn three_accounts() -> [AccountView; 3] {
         [
-            fake_account(Address::new_from_array([1; 32])),
-            fake_account(Address::new_from_array([2; 32])),
-            fake_account(Address::new_from_array([3; 32])),
+            fake_account_from_array([1; 32]),
+            fake_account_from_array([2; 32]),
+            fake_account_from_array([3; 32]),
         ]
     }
 
@@ -150,7 +150,7 @@ mod tests {
         let mut accounts = [
             fake_account(created_by),
             fake_account(order_pda),
-            fake_account(Address::new_from_array([3; 32])),
+            fake_account_from_array([3; 32]),
         ];
 
         let parsed = CreateOrderInput::parse(&data, &mut accounts).expect("parse should succeed");
@@ -201,8 +201,8 @@ mod tests {
         let intent_bytes = valid_intent_bytes();
         let data = default_order_data(&intent_bytes);
         let mut accounts: [AccountView; 2] = [
-            fake_account(Address::new_from_array([1; 32])),
-            fake_account(Address::new_from_array([2; 32])),
+            fake_account_from_array([1; 32]),
+            fake_account_from_array([2; 32]),
         ];
         assert_eq!(
             CreateOrderInput::parse(&data, &mut accounts).err(),
