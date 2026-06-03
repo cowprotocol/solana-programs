@@ -43,3 +43,9 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
 pub fn to_instruction_error(e: SettlementError) -> InstructionError {
     InstructionError::Custom(e.into())
 }
+
+/// Read the lamports balance of an account, or 0 if the account doesn't
+/// exist.
+pub fn lamports(svm: &LiteSVM, address: &Pubkey) -> u64 {
+    svm.get_account(address).map(|a| a.lamports).unwrap_or(0)
+}

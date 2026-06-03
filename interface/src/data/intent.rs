@@ -356,11 +356,7 @@ pub(in crate::data) mod tests {
     #[test]
     fn sanity_check_offsets() {
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
-            lhs.iter()
-                .zip(rhs)
-                .enumerate()
-                .find(|(_, (l, r))| l != r)
-                .map(|(i, _)| i)
+            lhs.iter().zip(rhs).position(|(l, r)| l != r)
         }
         let sell_false: EncodedOrderIntent = (&sample_intent(OrderKind::Sell, false)).into();
         let sell_true: EncodedOrderIntent = (&sample_intent(OrderKind::Sell, true)).into();
