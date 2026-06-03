@@ -8,7 +8,10 @@ use settlement_client::{
         Pubkey,
     },
 };
+use solana_program_pack::Pack;
+use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::{signature::Signer, transaction::Transaction};
+use spl_token::state::Account as SplTokenAccount;
 
 use super::Context;
 
@@ -88,11 +91,14 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
     )?);
 
     // Grant the settlement program close authority so it can reclaim rent after settlement.
-    prep_ixs.push(crate::instructions::set_close_authority(
-        &ctx.program_id,
-        &sell_token_account,
-        &payer.pubkey(),
-    )?);
+    // Skip if the owner no longer controls close authority (i.e. already delegated).
+    if owner_controls_close_authority(&rpc, &sell_token_account) {
+        prep_ixs.push(crate::instructions::set_close_authority(
+            &ctx.program_id,
+            &sell_token_account,
+            &payer.pubkey(),
+        )?);
+    }
 
     let intent = OrderIntent {
         owner: payer.pubkey(),
@@ -179,6 +185,24 @@ fn parse_amount(amount_str: &str, decimals: u8) -> anyhow::Result<u64> {
         .with_context(|| format!("invalid amount: {amount_str}"))?;
     let multiplier = 10u64.pow(u32::from(decimals));
     Ok((amount * multiplier as f64).round() as u64)
+}
+
+/// Returns `true` if the token account's close authority is still controlled by its owner
+/// (either unset, meaning the owner implicitly controls it, or explicitly equal to the owner).
+///
+/// Returns `true` for non-existent accounts (they will be created with owner control).
+fn owner_controls_close_authority(rpc: &RpcClient, token_account: &Pubkey) -> bool {
+    rpc.get_account(token_account)
+        .ok()
+        .and_then(|acc| SplTokenAccount::unpack(&acc.data).ok())
+        .map(|ta| {
+            // COption::None means the owner implicitly controls close authority.
+            // Use bytes comparison to avoid cross-version PartialEq ambiguity.
+            ta.close_authority
+                .map(|ca| ca.to_bytes() == ta.owner.to_bytes())
+                .unwrap_or(true)
+        })
+        .unwrap_or(true)
 }
 
 /// Returns the current unix timestamp plus `secs_from_now`, saturating at `u32::MAX`.
