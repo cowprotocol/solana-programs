@@ -1,5 +1,5 @@
 use litesvm::{types::FailedTransactionMetadata, LiteSVM};
-use settlement_client::settlement_interface::settle::{begin_settle, finalize_settle};
+use settlement_client::instructions::{begin_settle, finalize_settle};
 use settlement_client::settlement_interface::SettlementError;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction, InstructionError},

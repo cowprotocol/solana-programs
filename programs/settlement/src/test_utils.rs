@@ -39,3 +39,7 @@ pub fn fake_account(address: Address) -> AccountView {
     backing.data_len = 0;
     unsafe { AccountView::new_unchecked(backing as *mut RuntimeAccount) }
 }
+
+pub fn fake_account_from_array(address_array: [u8; 32]) -> AccountView {
+    fake_account(Address::new_from_array(address_array))
+}
