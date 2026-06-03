@@ -57,8 +57,7 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
     let payer = ctx.load_payer()?;
     let rpc = ctx.rpc();
 
-    let (kind, sell_tok, sell_amount_str, buy_tok, buy_amount_str) =
-        parse_syntax(&args.tokens)?;
+    let (kind, sell_tok, sell_amount_str, buy_tok, buy_amount_str) = parse_syntax(&args.tokens)?;
 
     let sell_resolved = crate::token::resolve(&rpc, &payer.pubkey(), sell_tok)?;
     let buy_resolved = crate::token::resolve(&rpc, &payer.pubkey(), buy_tok)?;
@@ -77,7 +76,10 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
         let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&payer.pubkey(), sell_amount)?;
         (wsol_ata, wrap_ixs)
     } else {
-        (args.sell_token_account.unwrap_or(sell_resolved.account), vec![])
+        (
+            args.sell_token_account.unwrap_or(sell_resolved.account),
+            vec![],
+        )
     };
 
     let buy_token_account = args.buy_token_account.unwrap_or(buy_resolved.account);
@@ -118,19 +120,16 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
     let (order_pda, _) = find_order_pda(&ctx.program_id, &uid);
 
     // owner == created_by: the payer both owns the order and funds the rent.
-    let create_order_ix =
-        create_order(&ctx.program_id, &payer.pubkey(), &payer.pubkey(), &intent);
+    let create_order_ix = create_order(&ctx.program_id, &payer.pubkey(), &payer.pubkey(), &intent);
 
     // Bundle preparation and order creation into a single transaction.
     let all_ixs: Vec<_> = prep_ixs.into_iter().chain([create_order_ix]).collect();
 
-    let blockhash = rpc.get_latest_blockhash().context("failed to fetch blockhash")?;
-    let tx = Transaction::new_signed_with_payer(
-        &all_ixs,
-        Some(&payer.pubkey()),
-        &[&payer],
-        blockhash,
-    );
+    let blockhash = rpc
+        .get_latest_blockhash()
+        .context("failed to fetch blockhash")?;
+    let tx =
+        Transaction::new_signed_with_payer(&all_ixs, Some(&payer.pubkey()), &[&payer], blockhash);
     let sig = rpc
         .send_and_confirm_transaction(&tx)
         .context("transaction failed")?;
@@ -143,10 +142,11 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Parse 2–4 positional tokens into `(kind, sell_tok, sell_amount, buy_tok, buy_amount)`.
-///
-/// Returns `Option<&str>` for the amounts: `None` means unspecified (caller uses 0).
-fn parse_syntax(tokens: &[String]) -> anyhow::Result<(OrderKind, &str, Option<&str>, &str, Option<&str>)> {
+/// `(kind, sell_tok, sell_amount, buy_tok, buy_amount)` — amounts are `None` when unspecified.
+type ParsedSyntax<'a> = (OrderKind, &'a str, Option<&'a str>, &'a str, Option<&'a str>);
+
+/// Parse 2–4 positional tokens into [`ParsedSyntax`].
+fn parse_syntax(tokens: &[String]) -> anyhow::Result<ParsedSyntax<'_>> {
     match tokens {
         // cow swap 1.0 USDC — buy 1.0 USDC (SOL implied as sell)
         [amount, buy_tok] if is_amount(amount) => {
@@ -164,7 +164,13 @@ fn parse_syntax(tokens: &[String]) -> anyhow::Result<(OrderKind, &str, Option<&s
         [sell_amount, sell_tok, buy_amount, buy_tok]
             if is_amount(sell_amount) && is_amount(buy_amount) =>
         {
-            Ok((OrderKind::Sell, sell_tok, Some(sell_amount), buy_tok, Some(buy_amount)))
+            Ok((
+                OrderKind::Sell,
+                sell_tok,
+                Some(sell_amount),
+                buy_tok,
+                Some(buy_amount),
+            ))
         }
         _ => anyhow::bail!(
             "cannot interpret {:?}; run `cow create-order --help` for usage",

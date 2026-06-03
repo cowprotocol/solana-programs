@@ -8,8 +8,8 @@ use settlement_client::settlement_interface::Pubkey;
 use solana_program_pack::Pack;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
-use spl_token_interface::state::{Account as TokenAccount, Mint};
 use spl_token_interface::native_mint;
+use spl_token_interface::state::{Account as TokenAccount, Mint};
 
 // TOKEN_2022_PROGRAM_ID is stable; replace with spl_token_2022::id() once that crate is added.
 const TOKEN_2022_PROGRAM_ID: &str = "TokenzQdBNbEquZMSWx5Qvq4AEJb5JMmjfLE5eTnFdyv7E";
@@ -22,9 +22,13 @@ struct KnownToken {
     decimals: u8,
 }
 
-static REGISTRY: &[(&str, KnownToken)] = &[
-    ("USDC", KnownToken { mint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", decimals: 6 }),
-];
+static REGISTRY: &[(&str, KnownToken)] = &[(
+    "USDC",
+    KnownToken {
+        mint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+        decimals: 6,
+    },
+)];
 
 pub struct ResolvedToken {
     /// SPL token account to use in the order (ATA if input was a mint).
@@ -50,17 +54,20 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
             &wsol_mint,
             &spl_token_interface::id(),
         );
-        return Ok(ResolvedToken { account: wsol_ata, decimals: native_mint::DECIMALS });
+        return Ok(ResolvedToken {
+            account: wsol_ata,
+            decimals: native_mint::DECIMALS,
+        });
     }
 
     if let Some((_, known)) = REGISTRY.iter().find(|(sym, _)| *sym == upper.as_str()) {
         let mint: Pubkey = known.mint.parse().expect("registry mint constant");
-        let ata = get_associated_token_address_with_program_id(
-            owner,
-            &mint,
-            &spl_token_interface::id(),
-        );
-        return Ok(ResolvedToken { account: ata, decimals: known.decimals });
+        let ata =
+            get_associated_token_address_with_program_id(owner, &mint, &spl_token_interface::id());
+        return Ok(ResolvedToken {
+            account: ata,
+            decimals: known.decimals,
+        });
     }
 
     if let Ok(pubkey) = token_str.parse::<Pubkey>() {
@@ -73,7 +80,11 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
     )
 }
 
-fn resolve_pubkey(rpc: &RpcClient, owner: &Pubkey, pubkey: &Pubkey) -> anyhow::Result<ResolvedToken> {
+fn resolve_pubkey(
+    rpc: &RpcClient,
+    owner: &Pubkey,
+    pubkey: &Pubkey,
+) -> anyhow::Result<ResolvedToken> {
     let account = rpc
         .get_account(pubkey)
         .with_context(|| format!("account {pubkey} not found on-chain"))?;

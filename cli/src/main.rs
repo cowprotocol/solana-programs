@@ -12,11 +12,21 @@ const DEFAULT_PROGRAM_ID: &str = "MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK";
 #[command(name = "cow", about = "CoW Protocol Solana dev/testing CLI")]
 struct Cli {
     /// Solana RPC endpoint
-    #[arg(long, global = true, env = "RPC_URL", default_value = "https://api.devnet.solana.com")]
+    #[arg(
+        long,
+        global = true,
+        env = "RPC_URL",
+        default_value = "https://api.devnet.solana.com"
+    )]
     rpc_url: String,
 
     /// Path to the payer keypair (JSON format as written by `solana-keygen`)
-    #[arg(long, global = true, env = "KEYPAIR", default_value = "~/.config/solana/id.json")]
+    #[arg(
+        long,
+        global = true,
+        env = "KEYPAIR",
+        default_value = "~/.config/solana/id.json"
+    )]
     keypair: String,
 
     /// Settlement program ID
