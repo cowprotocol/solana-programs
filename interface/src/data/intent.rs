@@ -104,15 +104,15 @@ pub struct EncodedOrderIntent([u8; Self::SIZE]);
 
 impl EncodedOrderIntent {
     // Per-field widths, derived from the `OrderIntent` field types.
-    const W_OWNER: usize = size_of::<Pubkey>();
-    const W_BUY_TOKEN: usize = size_of::<Pubkey>();
-    const W_SELL_TOKEN: usize = size_of::<Pubkey>();
-    const W_SELL_AMOUNT: usize = size_of::<u64>();
-    const W_BUY_AMOUNT: usize = size_of::<u64>();
-    const W_VALID_TO: usize = size_of::<u32>();
-    const W_KIND: usize = size_of::<OrderKind>();
-    const W_PARTIALLY_FILLABLE: usize = size_of::<bool>();
-    const W_APP_DATA: usize = size_of::<[u8; 32]>();
+    const WIDTH_OWNER: usize = size_of::<Pubkey>();
+    const WIDTH_BUY_TOKEN: usize = size_of::<Pubkey>();
+    const WIDTH_SELL_TOKEN: usize = size_of::<Pubkey>();
+    const WIDTH_SELL_AMOUNT: usize = size_of::<u64>();
+    const WIDTH_BUY_AMOUNT: usize = size_of::<u64>();
+    const WIDTH_VALID_TO: usize = size_of::<u32>();
+    const WIDTH_KIND: usize = size_of::<OrderKind>();
+    const WIDTH_PARTIALLY_FILLABLE: usize = size_of::<bool>();
+    const WIDTH_APP_DATA: usize = size_of::<[u8; 32]>();
 
     pub const SIZE: usize = 150;
 
@@ -162,15 +162,15 @@ impl From<&OrderIntent> for EncodedOrderIntent {
             app_data,
         ) = mut_array_refs![
             &mut out,
-            EncodedOrderIntent::W_OWNER,
-            EncodedOrderIntent::W_BUY_TOKEN,
-            EncodedOrderIntent::W_SELL_TOKEN,
-            EncodedOrderIntent::W_SELL_AMOUNT,
-            EncodedOrderIntent::W_BUY_AMOUNT,
-            EncodedOrderIntent::W_VALID_TO,
-            EncodedOrderIntent::W_KIND,
-            EncodedOrderIntent::W_PARTIALLY_FILLABLE,
-            EncodedOrderIntent::W_APP_DATA
+            EncodedOrderIntent::WIDTH_OWNER,
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
+            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
+            EncodedOrderIntent::WIDTH_VALID_TO,
+            EncodedOrderIntent::WIDTH_KIND,
+            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_APP_DATA
         ];
         *owner = intent.owner.to_bytes();
         *buy_token = intent.buy_token_account.to_bytes();
@@ -208,15 +208,15 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             app_data,
         ) = array_refs![
             bytes,
-            EncodedOrderIntent::W_OWNER,
-            EncodedOrderIntent::W_BUY_TOKEN,
-            EncodedOrderIntent::W_SELL_TOKEN,
-            EncodedOrderIntent::W_SELL_AMOUNT,
-            EncodedOrderIntent::W_BUY_AMOUNT,
-            EncodedOrderIntent::W_VALID_TO,
-            EncodedOrderIntent::W_KIND,
-            EncodedOrderIntent::W_PARTIALLY_FILLABLE,
-            EncodedOrderIntent::W_APP_DATA
+            EncodedOrderIntent::WIDTH_OWNER,
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
+            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
+            EncodedOrderIntent::WIDTH_VALID_TO,
+            EncodedOrderIntent::WIDTH_KIND,
+            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_APP_DATA
         ];
 
         Ok(OrderIntent {
@@ -299,34 +299,34 @@ pub(in crate::data) mod tests {
         // type, never the data.
         let intent = sample_intent(OrderKind::Sell, false);
 
-        assert_eq!(EncodedOrderIntent::W_OWNER, size_of_val(&intent.owner));
+        assert_eq!(EncodedOrderIntent::WIDTH_OWNER, size_of_val(&intent.owner));
         assert_eq!(
-            EncodedOrderIntent::W_BUY_TOKEN,
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
             size_of_val(&intent.buy_token_account)
         );
         assert_eq!(
-            EncodedOrderIntent::W_SELL_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_TOKEN,
             size_of_val(&intent.sell_token_account)
         );
         assert_eq!(
-            EncodedOrderIntent::W_SELL_AMOUNT,
+            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
             size_of_val(&intent.sell_amount)
         );
         assert_eq!(
-            EncodedOrderIntent::W_BUY_AMOUNT,
+            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
             size_of_val(&intent.buy_amount)
         );
         assert_eq!(
-            EncodedOrderIntent::W_VALID_TO,
+            EncodedOrderIntent::WIDTH_VALID_TO,
             size_of_val(&intent.valid_to)
         );
-        assert_eq!(EncodedOrderIntent::W_KIND, size_of_val(&intent.kind));
+        assert_eq!(EncodedOrderIntent::WIDTH_KIND, size_of_val(&intent.kind));
         assert_eq!(
-            EncodedOrderIntent::W_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
             size_of_val(&intent.partially_fillable)
         );
         assert_eq!(
-            EncodedOrderIntent::W_APP_DATA,
+            EncodedOrderIntent::WIDTH_APP_DATA,
             size_of_val(&intent.app_data)
         );
 
@@ -361,7 +361,7 @@ pub(in crate::data) mod tests {
     // Hardcoded but verified in a sanity-check test.
     pub(in crate::data) const KIND_OFFSET: usize = 116;
     pub(in crate::data) const PARTIALLY_FILLABLE_OFFSET: usize =
-        KIND_OFFSET + EncodedOrderIntent::W_KIND;
+        KIND_OFFSET + EncodedOrderIntent::WIDTH_KIND;
 
     #[test]
     fn sanity_check_offsets() {
