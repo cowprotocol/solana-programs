@@ -11,25 +11,37 @@ pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
 use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 
-/// Build a `CreateOrder` instruction for `created_by`/`order_pda`.
+/// Build a `CreateOrder` instruction.
 ///
 /// `intent_bytes` is the canonical byte encoding (see
 /// [`EncodedOrderIntent`]). `order_pda` must be the canonical PDA returned
 /// by [`crate::pda::order::find_order_pda`] for the same UID; the program
 /// derives the bump itself and rejects any other address.
 ///
+/// `owner` signs the instruction and must match the intent owner; this is
+/// what authenticates the order. It may be a normal user account or a PDA,
+/// the program does not check `is_on_curve`. A parent program that wants to
+/// create orders on behalf of its own PDA can `invoke_signed` into the
+/// settlement program using this instruction directly.
+///
 /// `created_by` funds the new order PDA's rent and is recorded as the
-/// `created_by` address in its body. It may be a normal user account or a
-/// PDA, the program does not check `is_on_curve`. A parent program that
-/// wants to create orders on behalf of its own PDA can `invoke_signed`
-/// into the settlement program using this instruction directly.
+/// `created_by` address in its body. Keeping it separate from `owner` lets
+/// the rent cost be delegated to another account, which is handy when
+/// `owner` is a PDA. `created_by` and `owner` may be the same account.
+///
+/// The order doesn't need to be executable for it to be created. For
+/// example, the sell token account doesn't need to belong to the user or
+/// be a TOKEN account in the first place. This is checked at execution
+/// time.
 ///
 /// Wire format: `[discriminator=2, ..150 intent bytes]`, 151 bytes.
-/// Required accounts: `[created_by (W,S), order_pda (W), system_program (R)]`.
-/// The third account needs to be available but doesn't need to be at that
-/// specific position in the instruction, unlike the other two.
+/// Required accounts:
+/// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
+/// The system program needs to be available but doesn't need to be at that
+/// specific position in the instruction, unlike the others.
 pub fn create_order(
     program_id: &Pubkey,
+    owner: &Pubkey,
     created_by: &Pubkey,
     order_pda: &Pubkey,
     intent_bytes: &[u8; EncodedOrderIntent::SIZE],
@@ -41,6 +53,7 @@ pub fn create_order(
     Instruction {
         program_id: *program_id,
         accounts: vec![
+            AccountMeta::new_readonly(*owner, true),
             AccountMeta::new(*created_by, true),
             AccountMeta::new(*order_pda, false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
@@ -56,11 +69,12 @@ mod tests {
     #[test]
     fn instruction_data_has_expected_layout() {
         let program_id = Pubkey::new_from_array([1; 32]);
-        let payer = Pubkey::new_from_array([2; 32]);
+        let owner = Pubkey::new_from_array([2; 32]);
+        let created_by = Pubkey::new_from_array([4; 32]);
         let order_pda = Pubkey::new_from_array([3; 32]);
         let intent_bytes = [0x42u8; EncodedOrderIntent::SIZE];
 
-        let ix = create_order(&program_id, &payer, &order_pda, &intent_bytes);
+        let ix = create_order(&program_id, &owner, &created_by, &order_pda, &intent_bytes);
 
         assert_eq!(ix.data.len(), 1 + EncodedOrderIntent::SIZE);
         assert_eq!(
@@ -73,26 +87,31 @@ mod tests {
     #[test]
     fn instruction_data_has_expected_accounts() {
         let program_id = Pubkey::new_from_array([1; 32]);
-        let payer = Pubkey::new_from_array([2; 32]);
+        let owner = Pubkey::new_from_array([2; 32]);
+        let created_by = Pubkey::new_from_array([4; 32]);
         let order_pda = Pubkey::new_from_array([3; 32]);
         let intent_bytes = [0u8; EncodedOrderIntent::SIZE];
 
-        let ix = create_order(&program_id, &payer, &order_pda, &intent_bytes);
+        let ix = create_order(&program_id, &owner, &created_by, &order_pda, &intent_bytes);
 
-        assert_eq!(ix.accounts.len(), 3);
-        // payer: writable, signer
-        assert_eq!(ix.accounts[0].pubkey, payer);
-        assert!(ix.accounts[0].is_writable);
+        assert_eq!(ix.accounts.len(), 4);
+        // owner: read-only, signer (authenticates the order; doesn't pay rent)
+        assert_eq!(ix.accounts[0].pubkey, owner);
+        assert!(!ix.accounts[0].is_writable);
         assert!(ix.accounts[0].is_signer);
-        // order_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(ix.accounts[1].pubkey, order_pda);
+        // created_by: writable, signer (funds the new PDA's rent)
+        assert_eq!(ix.accounts[1].pubkey, created_by);
         assert!(ix.accounts[1].is_writable);
-        assert!(!ix.accounts[1].is_signer);
+        assert!(ix.accounts[1].is_signer);
+        // order_pda: writable, not signer (the program signs via PDA seeds)
+        assert_eq!(ix.accounts[2].pubkey, order_pda);
+        assert!(ix.accounts[2].is_writable);
+        assert!(!ix.accounts[2].is_signer);
         // system program: read-only, not signer; the on-chain handler
         // doesn't dereference it but the runtime requires it in the
         // transaction's `account_keys` to dispatch the CreateAccount CPI.
-        assert_eq!(ix.accounts[2].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!ix.accounts[2].is_writable);
-        assert!(!ix.accounts[2].is_signer);
+        assert_eq!(ix.accounts[3].pubkey, SYSTEM_PROGRAM_ID);
+        assert!(!ix.accounts[3].is_writable);
+        assert!(!ix.accounts[3].is_signer);
     }
 }

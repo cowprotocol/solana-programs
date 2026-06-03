@@ -62,6 +62,9 @@ pub enum SettlementError {
     InvalidCounterpartDiscriminator = 4,
     InvalidCounterpartCounterpart = 5,
     MismatchedCounterpartDiscriminator = 6,
+    /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
+    /// owner.
+    OwnerMismatch = 7,
 }
 
 impl From<SettlementError> for u32 {
