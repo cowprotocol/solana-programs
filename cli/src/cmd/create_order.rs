@@ -143,7 +143,13 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
 }
 
 /// `(kind, sell_tok, sell_amount, buy_tok, buy_amount)` — amounts are `None` when unspecified.
-type ParsedSyntax<'a> = (OrderKind, &'a str, Option<&'a str>, &'a str, Option<&'a str>);
+type ParsedSyntax<'a> = (
+    OrderKind,
+    &'a str,
+    Option<&'a str>,
+    &'a str,
+    Option<&'a str>,
+);
 
 /// Parse 2–4 positional tokens into [`ParsedSyntax`].
 fn parse_syntax(tokens: &[String]) -> anyhow::Result<ParsedSyntax<'_>> {
