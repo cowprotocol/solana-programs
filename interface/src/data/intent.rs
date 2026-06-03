@@ -297,29 +297,38 @@ pub(in crate::data) mod tests {
 
         // Any `OrderIntent` works: `size_of_val` only consults the field
         // type, never the data.
-        let i = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(OrderKind::Sell, false);
 
-        assert_eq!(EncodedOrderIntent::W_OWNER, size_of_val(&i.owner));
+        assert_eq!(EncodedOrderIntent::W_OWNER, size_of_val(&intent.owner));
         assert_eq!(
             EncodedOrderIntent::W_BUY_TOKEN,
-            size_of_val(&i.buy_token_account)
+            size_of_val(&intent.buy_token_account)
         );
         assert_eq!(
             EncodedOrderIntent::W_SELL_TOKEN,
-            size_of_val(&i.sell_token_account)
+            size_of_val(&intent.sell_token_account)
         );
         assert_eq!(
             EncodedOrderIntent::W_SELL_AMOUNT,
-            size_of_val(&i.sell_amount)
+            size_of_val(&intent.sell_amount)
         );
-        assert_eq!(EncodedOrderIntent::W_BUY_AMOUNT, size_of_val(&i.buy_amount));
-        assert_eq!(EncodedOrderIntent::W_VALID_TO, size_of_val(&i.valid_to));
-        assert_eq!(EncodedOrderIntent::W_KIND, size_of_val(&i.kind));
+        assert_eq!(
+            EncodedOrderIntent::W_BUY_AMOUNT,
+            size_of_val(&intent.buy_amount)
+        );
+        assert_eq!(
+            EncodedOrderIntent::W_VALID_TO,
+            size_of_val(&intent.valid_to)
+        );
+        assert_eq!(EncodedOrderIntent::W_KIND, size_of_val(&intent.kind));
         assert_eq!(
             EncodedOrderIntent::W_PARTIALLY_FILLABLE,
-            size_of_val(&i.partially_fillable)
+            size_of_val(&intent.partially_fillable)
         );
-        assert_eq!(EncodedOrderIntent::W_APP_DATA, size_of_val(&i.app_data));
+        assert_eq!(
+            EncodedOrderIntent::W_APP_DATA,
+            size_of_val(&intent.app_data)
+        );
 
         assert_eq!(EncodedOrderIntent::SIZE, size_of::<EncodedOrderIntent>());
     }
