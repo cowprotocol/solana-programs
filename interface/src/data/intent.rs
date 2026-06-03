@@ -260,6 +260,8 @@ impl OrderIntent {
 
 #[cfg(test)]
 pub(in crate::data) mod tests {
+    use hex_literal::hex;
+
     use super::*;
 
     const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
@@ -401,11 +403,7 @@ pub(in crate::data) mod tests {
     #[test]
     fn uid_digest_regression() {
         let intent = sample_intent(OrderKind::Buy, true);
-        let expected: [u8; 32] = [
-            0x09, 0x1d, 0x7e, 0x19, 0x59, 0xac, 0x6f, 0x7a, 0x40, 0x0a, 0x91, 0xf1, 0xdc, 0xd9,
-            0xce, 0x43, 0x6f, 0x8f, 0x53, 0xe2, 0xb7, 0xa1, 0xd9, 0x68, 0xac, 0xb0, 0x8f, 0x79,
-            0xd3, 0xc1, 0x23, 0x1d,
-        ];
+        let expected = hex!("091d7e1959ac6f7a400a91f1dcd9ce436f8f53e2b7a1d968acb08f79d3c1231d");
         assert_eq!(intent.uid(), expected);
     }
 
