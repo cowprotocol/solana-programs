@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["client", "interface", "programs/settlement"]
+members = ["cli", "client", "interface", "programs/settlement"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,7 +8,12 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
+anyhow = "1"
 arrayref = "0.3"
+clap = { version = "4", features = ["derive", "env"] }
+solana-commitment-config = "3"
+solana-program-pack = "3"
+solana-rpc-client = "3"
 derive_more = { version = "1", features = ["deref"] }
 litesvm = "0.12.0"
 num_enum = "0.7"
