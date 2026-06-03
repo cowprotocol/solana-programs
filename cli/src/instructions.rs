@@ -9,7 +9,7 @@ use spl_token_interface::instruction::{self as token_ix, AuthorityType};
 /// Build instructions that wrap `amount` lamports into the payer's WSOL ATA.
 ///
 /// Returns in order: create ATA (idempotent), system transfer, sync_native.
-/// The caller should use the returned `wsol_ata` as `sell_token_account`.
+/// The caller should use the returned `wsol_ata` as the input token parameter for any following operations
 pub fn wrap_sol(payer: &Pubkey, amount: u64) -> anyhow::Result<(Pubkey, Vec<Instruction>)> {
     let wsol_mint: Pubkey = spl_token_interface::native_mint::id();
     let token_program: Pubkey = spl_token_interface::id();
@@ -31,9 +31,7 @@ pub fn wrap_sol(payer: &Pubkey, amount: u64) -> anyhow::Result<(Pubkey, Vec<Inst
     Ok((wsol_ata, vec![create_ata, transfer, sync]))
 }
 
-/// Build a `SetAuthority(CloseAccount)` instruction assigning the settlement-state
-/// PDA as the close authority on `token_account`, so the program can reclaim rent
-/// on behalf of the user after settlement.
+/// Build a `SetAuthority(CloseAccount)` instruction.
 pub fn set_close_authority(
     program_id: &Pubkey,
     token_account: &Pubkey,
@@ -53,7 +51,7 @@ pub fn set_close_authority(
 }
 
 /// Build an `Approve` instruction delegating `amount` tokens on `token_account`
-/// to the settlement-state PDA derived from `program_id`.
+/// to the PDA derived from `program_id`.
 pub fn approve(
     program_id: &Pubkey,
     token_account: &Pubkey,

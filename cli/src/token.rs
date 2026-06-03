@@ -1,4 +1,4 @@
-//! Token resolution: converts a user-supplied token string (alias, mint address,
+//! Token resolution helpers: converts a user-supplied token string (alias, mint address,
 //! or token-account address) into an SPL token account address and decimal count.
 //!
 //! Entry point: [`resolve`].
@@ -8,7 +8,7 @@ use settlement_client::settlement_interface::Pubkey;
 use solana_program_pack::Pack;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
-use spl_token::state::{Account as TokenAccount, Mint};
+use spl_token_interface::state::{Account as TokenAccount, Mint};
 use spl_token_interface::native_mint;
 
 // TOKEN_2022_PROGRAM_ID is stable; replace with spl_token_2022::id() once that crate is added.
@@ -82,14 +82,14 @@ fn resolve_pubkey(rpc: &RpcClient, owner: &Pubkey, pubkey: &Pubkey) -> anyhow::R
     let owner_str = account.owner.to_string();
     let is_token_2022 = owner_str == TOKEN_2022_PROGRAM_ID;
     anyhow::ensure!(
-        owner_str == spl_token::id().to_string() || is_token_2022,
+        owner_str == spl_token_interface::id().to_string() || is_token_2022,
         "{pubkey} is not owned by a token program (owner: {owner_str})"
     );
 
     let token_program: Pubkey = if is_token_2022 {
         TOKEN_2022_PROGRAM_ID.parse().expect("constant")
     } else {
-        spl_token::id()
+        spl_token_interface::id()
     };
 
     // Try unpacking as a token account first, then as a mint.

@@ -11,7 +11,7 @@ use settlement_client::{
 use solana_program_pack::Pack;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::{signature::Signer, transaction::Transaction};
-use spl_token::state::Account as SplTokenAccount;
+use spl_token_interface::state::Account as SplTokenAccount;
 
 use super::Context;
 
@@ -19,14 +19,14 @@ use super::Context;
 #[command(
     visible_alias = "swap",
     long_about = "\
-Create an on-chain order PDA. Supported positional forms:
+Create an on-chain order. Supported positional forms:
 
   cow create-order 1.0 SOL USDC        sell exactly 1.0 SOL, receive any USDC
   cow create-order SOL 1.0 USDC        buy  exactly 1.0 USDC, spend any SOL
   cow create-order 1.0 USDC            buy  exactly 1.0 USDC (SOL implied as sell)
   cow create-order 1.0 SOL 50.0 USDC   sell exactly 1.0 SOL, receive ≥ 50.0 USDC
 
-Tokens can be 'SOL'/'WSOL', a mint address, or a token-account address.
+Tokens can be a builtin token symbol (ex. SOL, WSOL, USDC), a mint address, or a token-account address.
 Decimals are fetched from the token's on-chain mint account.
 The unspecified side defaults to 0 (no price protection) until a quote API is integrated.
 Token accounts are derived from the mint automatically; override with the flags below."
@@ -92,6 +92,7 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
 
     // Grant the settlement program close authority so it can reclaim rent after settlement.
     // Skip if the owner no longer controls close authority (i.e. already delegated).
+    // (This isnt actually a feature in the settlement contract yet, but it might become)
     if owner_controls_close_authority(&rpc, &sell_token_account) {
         prep_ixs.push(crate::instructions::set_close_authority(
             &ctx.program_id,

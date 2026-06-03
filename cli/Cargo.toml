@@ -19,7 +19,6 @@ solana-sdk.workspace = true
 # v2 uses solana-pubkey v3 (same as the rest of the workspace); v3 uses solana-address which is incompatible.
 solana-system-interface = "2"
 spl-associated-token-account = { version = "8", features = ["no-entrypoint"] }
-spl-token = { version = "9", features = ["no-entrypoint"] }
 spl-token-interface = "2"
 
 [lints]
