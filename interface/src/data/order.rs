@@ -81,6 +81,32 @@ impl EncodedOrderAccount {
     pub const SIZE: usize = 199;
 }
 
+/// Writes the canonical [`EncodedOrderAccount`] encoding of the given fields
+/// into `buffer`. `encoded_intent` must be a canonical [`EncodedOrderIntent`]
+/// encoding: validating it is the caller's responsibility.
+pub fn write_account(
+    buffer: &mut [u8; EncodedOrderAccount::SIZE],
+    cancelled: bool,
+    amount_withdrawn: u64,
+    amount_received: u64,
+    created_by: &Pubkey,
+    encoded_intent: &[u8; EncodedOrderIntent::SIZE],
+) {
+    let (cancelled_slot, amount_withdrawn_slot, amount_received_slot, created_by_slot, intent_slot) = mut_array_refs![
+        buffer,
+        EncodedOrderAccount::W_CANCELLED,
+        EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
+        EncodedOrderAccount::W_AMOUNT_RECEIVED,
+        EncodedOrderAccount::W_CREATED_BY,
+        EncodedOrderAccount::W_INTENT
+    ];
+    *cancelled_slot = [cancelled as u8];
+    *amount_withdrawn_slot = amount_withdrawn.to_be_bytes();
+    *amount_received_slot = amount_received.to_be_bytes();
+    *created_by_slot = created_by.to_bytes();
+    *intent_slot = *encoded_intent;
+}
+
 impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
     fn from(encoded: EncodedOrderAccount) -> Self {
         encoded.0
@@ -90,19 +116,14 @@ impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
 impl From<OrderAccount> for EncodedOrderAccount {
     fn from(account: OrderAccount) -> Self {
         let mut out = [0u8; Self::SIZE];
-        let (cancelled, amount_withdrawn, amount_received, created_by, intent) = mut_array_refs![
+        write_account(
             &mut out,
-            EncodedOrderAccount::W_CANCELLED,
-            EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
-            EncodedOrderAccount::W_AMOUNT_RECEIVED,
-            EncodedOrderAccount::W_CREATED_BY,
-            EncodedOrderAccount::W_INTENT
-        ];
-        *cancelled = [account.cancelled as u8];
-        *amount_withdrawn = account.amount_withdrawn.to_be_bytes();
-        *amount_received = account.amount_received.to_be_bytes();
-        *created_by = account.created_by.to_bytes();
-        *intent = *EncodedOrderIntent::from(&account.intent);
+            account.cancelled,
+            account.amount_withdrawn,
+            account.amount_received,
+            &account.created_by,
+            &EncodedOrderIntent::from(&account.intent),
+        );
         Self(out)
     }
 }
@@ -216,11 +237,7 @@ mod tests {
     #[test]
     fn sanity_check_offsets() {
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
-            lhs.iter()
-                .zip(rhs)
-                .enumerate()
-                .find(|(_, (l, r))| l != r)
-                .map(|(i, _)| i)
+            lhs.iter().zip(rhs).position(|(l, r)| l != r)
         }
 
         let mut sample_account_base = sample_account(false);
@@ -277,6 +294,35 @@ mod tests {
         let err = OrderAccount::try_from(bytes)
             .expect_err("an invalid intent kind byte must propagate as a decode failure");
         assert_eq!(err, ProgramError::InvalidAccountData);
+    }
+
+    #[test]
+    fn direct_write_account_matches_order_account_decoding() {
+        let cancelled = true;
+        let amount_withdrawn = 1337;
+        let amount_received = 31337;
+        let intent = sample_intent(OrderKind::Sell, false);
+        let created_by = Pubkey::new_from_array([0x42u8; 32]);
+
+        let mut buffer = [0u8; EncodedOrderAccount::SIZE];
+        write_account(
+            &mut buffer,
+            cancelled,
+            amount_withdrawn,
+            amount_received,
+            &created_by,
+            &<[u8; EncodedOrderIntent::SIZE]>::from(&EncodedOrderIntent::from(&intent)),
+        );
+        let direct = EncodedOrderAccount(buffer);
+        let via_order_account = EncodedOrderAccount::from(OrderAccount {
+            cancelled,
+            amount_withdrawn,
+            amount_received,
+            created_by,
+            intent,
+        });
+
+        assert_eq!(direct, via_order_account);
     }
 
     // Property-based tests, non-deterministic.

@@ -27,7 +27,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
 
     fn parse_body(
         instruction_data: &[u8],
-        accounts: &'a [AccountView],
+        accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
         let finalize_ix_index = recover_counterpart(instruction_data)?;
         let instructions_sysvar_account =
@@ -55,7 +55,7 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
 
     fn parse_body(
         instruction_data: &[u8],
-        accounts: &'a [AccountView],
+        accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
         let begin_ix_index = recover_counterpart(instruction_data)?;
         let instructions_sysvar_account =
@@ -186,13 +186,13 @@ mod tests {
     #[test]
     fn begin_settle_input_parses_valid_input() {
         let address = Address::new_from_array([0x42u8; 32]);
-        let accounts = [fake_account(address)];
+        let mut accounts = [fake_account(address)];
         let data = [
             SettlementInstruction::BeginSettle.discriminator(),
             0x13,
             0x37,
         ];
-        let parsed = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
+        let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(parsed.finalize_ix_index, 0x1337);
         assert_eq!(parsed.instructions_sysvar_account.address(), &address);
     }
@@ -200,13 +200,14 @@ mod tests {
     #[test]
     fn finalize_settle_input_parses_valid_input() {
         let address = Address::new_from_array([0x42u8; 32]);
-        let accounts = [fake_account(address)];
+        let mut accounts = [fake_account(address)];
         let data = [
             SettlementInstruction::FinalizeSettle.discriminator(),
             0x13,
             0x37,
         ];
-        let parsed = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
+        let parsed =
+            FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(parsed.begin_ix_index, 0x1337);
         assert_eq!(parsed.instructions_sysvar_account.address(), &address);
     }
@@ -214,9 +215,9 @@ mod tests {
     #[test]
     fn begin_settle_input_rejects_different_discriminator() {
         let data = [SettlementInstruction::FinalizeSettle.discriminator(), 0, 0];
-        let accounts: &[AccountView] = &[];
+        let mut accounts: [AccountView; 0] = [];
         assert_eq!(
-            BeginSettleInput::parse(&data, accounts).err(),
+            BeginSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -224,9 +225,9 @@ mod tests {
     #[test]
     fn finalize_settle_input_rejects_different_discriminator() {
         let data = [SettlementInstruction::BeginSettle.discriminator(), 0, 0];
-        let accounts: &[AccountView] = &[];
+        let mut accounts: [AccountView; 0] = [];
         assert_eq!(
-            FinalizeSettleInput::parse(&data, accounts).err(),
+            FinalizeSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -234,9 +235,9 @@ mod tests {
     #[test]
     fn begin_settle_input_rejects_empty_accounts() {
         let data = [SettlementInstruction::BeginSettle.discriminator(), 0, 0];
-        let accounts: &[AccountView] = &[];
+        let mut accounts: [AccountView; 0] = [];
         assert_eq!(
-            BeginSettleInput::parse(&data, accounts).err(),
+            BeginSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -244,9 +245,9 @@ mod tests {
     #[test]
     fn finalize_settle_input_rejects_empty_accounts() {
         let data = [SettlementInstruction::FinalizeSettle.discriminator(), 0, 0];
-        let accounts: &[AccountView] = &[];
+        let mut accounts: [AccountView; 0] = [];
         assert_eq!(
-            FinalizeSettleInput::parse(&data, accounts).err(),
+            FinalizeSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -255,14 +256,14 @@ mod tests {
     fn begin_settle_input_ignores_extra_parameters() {
         let first_address = Address::new_from_array([1u8; 32]);
         let second_address = Address::new_from_array([2u8; 32]);
-        let accounts = [fake_account(first_address), fake_account(second_address)];
+        let mut accounts = [fake_account(first_address), fake_account(second_address)];
         let data = [
             SettlementInstruction::BeginSettle.discriminator(),
             0x13, // used
             0x37, // used
             42,   // extra
         ];
-        let parsed = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
+        let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(parsed.finalize_ix_index, 0x1337);
         assert_eq!(parsed.instructions_sysvar_account.address(), &first_address);
     }
@@ -271,14 +272,15 @@ mod tests {
     fn finalize_settle_input_ignores_extra_parameters() {
         let first_address = Address::new_from_array([1u8; 32]);
         let second_address = Address::new_from_array([2u8; 32]);
-        let accounts = [fake_account(first_address), fake_account(second_address)];
+        let mut accounts = [fake_account(first_address), fake_account(second_address)];
         let data = [
             SettlementInstruction::FinalizeSettle.discriminator(),
             0x13, // used
             0x37, // used
             42,   // extra
         ];
-        let parsed = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
+        let parsed =
+            FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(parsed.begin_ix_index, 0x1337);
         assert_eq!(parsed.instructions_sysvar_account.address(), &first_address);
     }

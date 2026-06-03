@@ -7,9 +7,9 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::SettlementInstruction;
-
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
+
+use crate::SettlementInstruction;
 
 pub fn begin_settle(program_id: &Pubkey, finalize_ix_index: u16) -> Instruction {
     Instruction {

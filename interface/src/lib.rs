@@ -6,7 +6,9 @@ pub use solana_pubkey::Pubkey;
 
 solana_pubkey::declare_id!("MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK");
 
+pub mod create_order;
 pub mod data;
+pub mod pda;
 pub mod settle;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
@@ -18,6 +20,7 @@ pub mod settle;
 pub enum SettlementInstruction {
     BeginSettle = 0,
     FinalizeSettle = 1,
+    CreateOrder = 2,
 }
 
 impl SettlementInstruction {
@@ -61,6 +64,9 @@ pub enum SettlementError {
     InvalidCounterpartDiscriminator = 4,
     InvalidCounterpartCounterpart = 5,
     MismatchedCounterpartDiscriminator = 6,
+    /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
+    /// owner.
+    OwnerMismatch = 7,
 }
 
 impl From<SettlementError> for u32 {
