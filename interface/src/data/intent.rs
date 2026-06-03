@@ -291,12 +291,9 @@ pub(in crate::data) mod tests {
         }
     }
 
-    // Pin each width to the size of the `OrderIntent` field it encodes. The
-    // widths summing to `SIZE` is enforced separately, at compile time, by the
-    // `array_refs!` / `mut_array_refs!` invocations in the codec.
     #[test]
     fn widths_match_field_sizes() {
-        use core::mem::size_of_val;
+        use core::mem::{size_of, size_of_val};
 
         // Any `OrderIntent` works: `size_of_val` only consults the field
         // type, never the data.
@@ -323,6 +320,8 @@ pub(in crate::data) mod tests {
             size_of_val(&i.partially_fillable)
         );
         assert_eq!(EncodedOrderIntent::W_APP_DATA, size_of_val(&i.app_data));
+
+        assert_eq!(EncodedOrderIntent::SIZE, size_of::<EncodedOrderIntent>());
     }
 
     #[test]
