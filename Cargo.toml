@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["client", "interface", "programs/settlement"]
+members = ["client", "interface", "programs/settlement", "programs/test-cpi-caller"]
 
 [workspace.package]
 version = "0.1.0"

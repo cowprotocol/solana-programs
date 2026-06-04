@@ -1,0 +1,13 @@
+[package]
+name = "test-cpi-caller"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+pinocchio = { workspace = true, features = ["cpi"] }
+
+[lints]
+workspace = true

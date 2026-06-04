@@ -5,6 +5,7 @@ default:
 # Build the on-chain settlement program (.so) for Solana.
 build-program:
     cargo build-sbf --manifest-path programs/settlement/Cargo.toml
+    cargo build-sbf --manifest-path programs/test-cpi-caller/Cargo.toml
 
 # Build everything: host-side workspace crates plus the on-chain program.
 build: build-program

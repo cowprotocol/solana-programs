@@ -65,6 +65,9 @@ pub enum SettlementError {
     /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
     /// owner.
     OwnerMismatch = 7,
+    /// `BeginSettle` or `FinalizeSettle` was invoked via CPI rather than as a
+    /// top-level transaction instruction.
+    CalledViaCpi = 8,
 }
 
 impl From<SettlementError> for u32 {

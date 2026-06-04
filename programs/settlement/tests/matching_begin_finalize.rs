@@ -1,6 +1,8 @@
 use litesvm::{types::FailedTransactionMetadata, LiteSVM};
 use settlement_client::instructions::{begin_settle, finalize_settle};
-use settlement_client::settlement_interface::SettlementError;
+use settlement_client::settlement_interface::{
+    settle::INSTRUCTIONS_SYSVAR_ID, SettlementError, SettlementInstruction,
+};
 use solana_sdk::{
     instruction::{AccountMeta, Instruction, InstructionError},
     pubkey::Pubkey,
@@ -180,5 +182,77 @@ fn rejects_counterpart_instruction_in_different_program() {
             to_instruction_error(SettlementError::CounterpartIsExternal),
         ),
         "expected CounterpartIsExternal at instruction {expected_failing_instruction_index}"
+    );
+}
+
+/// Build a transaction that uses the test CPI caller to invoke `begin_settle`
+/// via CPI.  The settlement program should reject it with `CalledViaCpi`.
+#[test]
+fn rejects_cpi_call_to_begin_settle() {
+    let (mut svm, settlement_id, cpi_caller_id, payer) = common::setup_with_cpi_caller();
+
+    // The CPI caller forwards its instruction data to `accounts[0]` (settlement)
+    // with `accounts[1..]` as the inner accounts.  begin_settle needs one account:
+    // the instructions sysvar.
+    let begin_settle_data = [
+        SettlementInstruction::BeginSettle.discriminator(),
+        0x00, 0x01, // finalize_ix_index = 1 (irrelevant, CPI guard fires first)
+    ];
+    let cpi_caller_ix = Instruction {
+        program_id: cpi_caller_id,
+        accounts: vec![
+            AccountMeta::new_readonly(settlement_id, false),
+            AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
+        ],
+        data: begin_settle_data.to_vec(),
+    };
+
+    let tx = Transaction::new_signed_with_payer(
+        &[cpi_caller_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("CPI call to begin_settle should be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, to_instruction_error(SettlementError::CalledViaCpi)),
+        "expected CalledViaCpi when begin_settle is called via CPI"
+    );
+}
+
+/// Same as `rejects_cpi_call_to_begin_settle` but for `finalize_settle`.
+#[test]
+fn rejects_cpi_call_to_finalize_settle() {
+    let (mut svm, settlement_id, cpi_caller_id, payer) = common::setup_with_cpi_caller();
+
+    let finalize_settle_data = [
+        SettlementInstruction::FinalizeSettle.discriminator(),
+        0x00, 0x00, // begin_ix_index = 0 (irrelevant, CPI guard fires first)
+    ];
+    let cpi_caller_ix = Instruction {
+        program_id: cpi_caller_id,
+        accounts: vec![
+            AccountMeta::new_readonly(settlement_id, false),
+            AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
+        ],
+        data: finalize_settle_data.to_vec(),
+    };
+
+    let tx = Transaction::new_signed_with_payer(
+        &[cpi_caller_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("CPI call to finalize_settle should be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, to_instruction_error(SettlementError::CalledViaCpi)),
+        "expected CalledViaCpi when finalize_settle is called via CPI"
     );
 }

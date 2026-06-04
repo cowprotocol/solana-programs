@@ -1,6 +1,7 @@
 //! On-chain CoW Protocol settlement program.
 
 mod create_order;
+mod cpi_guard;
 mod processor;
 mod settle;
 
