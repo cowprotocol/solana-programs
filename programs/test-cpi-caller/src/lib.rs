@@ -6,13 +6,13 @@
 //! accounts the inner program needs appear starting at `accounts[1]`.
 
 use core::{mem::MaybeUninit, slice::from_raw_parts};
+use pinocchio::error::ProgramError;
 use pinocchio::{
     cpi::{invoke_signed_unchecked, CpiAccount},
     entrypoint,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use pinocchio::error::ProgramError;
 
 entrypoint!(process_instruction);
 
@@ -29,7 +29,8 @@ pub fn process_instruction(
 
     let n = forwarded.len().min(MAX_FORWARDED_ACCOUNTS);
 
-    let mut ix_accounts = [const { MaybeUninit::<InstructionAccount>::uninit() }; MAX_FORWARDED_ACCOUNTS];
+    let mut ix_accounts =
+        [const { MaybeUninit::<InstructionAccount>::uninit() }; MAX_FORWARDED_ACCOUNTS];
     let mut cpi_accounts = [const { MaybeUninit::<CpiAccount>::uninit() }; MAX_FORWARDED_ACCOUNTS];
 
     for (i, account) in forwarded[..n].iter().enumerate() {

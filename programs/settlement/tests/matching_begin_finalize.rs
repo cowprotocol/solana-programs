@@ -196,7 +196,8 @@ fn rejects_cpi_call_to_begin_settle() {
     // the instructions sysvar.
     let begin_settle_data = [
         SettlementInstruction::BeginSettle.discriminator(),
-        0x00, 0x01, // finalize_ix_index = 1 (irrelevant, CPI guard fires first)
+        0x00,
+        0x01, // finalize_ix_index = 1 (irrelevant, CPI guard fires first)
     ];
     let cpi_caller_ix = Instruction {
         program_id: cpi_caller_id,
@@ -230,7 +231,8 @@ fn rejects_cpi_call_to_finalize_settle() {
 
     let finalize_settle_data = [
         SettlementInstruction::FinalizeSettle.discriminator(),
-        0x00, 0x00, // begin_ix_index = 0 (irrelevant, CPI guard fires first)
+        0x00,
+        0x00, // begin_ix_index = 0 (irrelevant, CPI guard fires first)
     ];
     let cpi_caller_ix = Instruction {
         program_id: cpi_caller_id,

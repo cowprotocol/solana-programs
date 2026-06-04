@@ -5,20 +5,6 @@ use pinocchio::{error::ProgramError, sysvars::instructions::Instructions, Addres
 /// The transaction-level stack height used by [`is_cpi_call`].
 const TRANSACTION_LEVEL_STACK_HEIGHT: u64 = 1;
 
-/// Return `true` if the current invocation is a CPI rather than a top-level
-/// transaction instruction.
-///
-/// The instructions sysvar stores only top-level instructions; CPI calls are
-/// never recorded there. Consequently, `load_current_index` always returns the
-/// index of the currently-executing *top-level* instruction — even when we are
-/// reached via CPI. Two independent tests are combined:
-///
-/// 1. **Program-ID mismatch**: if the instruction at `current_index` belongs to
-///    a different program, the top-level instruction is not ours, so we must
-///    have been invoked via CPI.
-/// 2. **Call-stack depth**: `sol_get_stack_height() > 1` is a belt-and-suspenders
-///    check for the same condition.
-///
 /// Modelled on the audited Solend flash-loan guard:
 /// <https://github.com/solendprotocol/solana-program-library/blob/mainnet/token-lending/program/src/processor.rs#L3447>
 pub fn is_cpi_call<T: core::ops::Deref<Target = [u8]>>(
@@ -76,7 +62,7 @@ mod tests {
         let other_program = [2u8; 32];
         let data = single_instruction_sysvar(other_program);
         let instructions = unsafe { Instructions::new_unchecked(data.as_slice()) };
-        assert_eq!(is_cpi_call(&our_program, 0, &instructions).unwrap(), true);
+        assert!(is_cpi_call(&our_program, 0, &instructions).unwrap());
     }
 
     #[test]
@@ -84,6 +70,6 @@ mod tests {
         let our_program = Address::new_from_array([1u8; 32]);
         let data = single_instruction_sysvar([1u8; 32]);
         let instructions = unsafe { Instructions::new_unchecked(data.as_slice()) };
-        assert_eq!(is_cpi_call(&our_program, 0, &instructions).unwrap(), false);
+        assert!(!is_cpi_call(&our_program, 0, &instructions).unwrap());
     }
 }
