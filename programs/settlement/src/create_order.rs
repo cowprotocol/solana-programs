@@ -1,21 +1,16 @@
 //! `CreateOrder` instruction handler.
 
-use pinocchio::{
-    cpi::{Seed, Signer},
-    error::ProgramError,
-    AccountView, Address, ProgramResult,
-};
-use pinocchio_system::instructions::CreateAccount;
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use settlement_interface::{
     data::{
         intent::EncodedOrderIntent,
         order::{self, EncodedOrderAccount},
     },
-    pda::order::{order_pda_seeds, order_pda_signer_seeds},
+    pda::order::order_pda_seeds,
     SettlementError, SettlementInstruction,
 };
 
-use crate::processor::InstructionInputParsing;
+use crate::processor::{create_canonical_pda, InstructionInputParsing};
 
 /// Parsed inputs of a `CreateOrder` instruction.
 struct CreateOrderInput<'a> {
@@ -78,25 +73,17 @@ pub fn process_create_order(
         return Err(SettlementError::OwnerMismatch.into());
     }
 
-    // We want to have a single order per uid, so we need to derive the bump
-    // here. The rest of the code can assume that if an account has data,
-    // then the bump is valid.
-    let (_, bump) = Address::find_program_address(&order_pda_seeds(&intent_uid), program_id);
-
-    let bump_seed = [bump];
-    let signer_seeds = order_pda_signer_seeds(&intent_uid, &bump_seed).map(Seed::from);
-    let signer = Signer::from(&signer_seeds[..]);
-
-    // Implicitly, this also checks that `order_pda.address()` matches the
-    // bump generated above without needing to directly compare addresses.
-    CreateAccount::with_minimum_balance(
+    // We want a single order per uid; `create_pda` derives the canonical bump
+    // and, by signing the creation with the order seeds, rejects any
+    // `order_pda` that isn't the canonical address. The rest of the code can
+    // assume that if an account has data, then the bump is valid.
+    create_canonical_pda(
+        program_id,
         created_by,
         order_pda,
         EncodedOrderAccount::SIZE as u64,
-        program_id,
-        None,
-    )?
-    .invoke_signed(&[signer])?;
+        order_pda_seeds(&intent_uid),
+    )?;
 
     // Note: `intent_bytes` were validated before and are known to represent a valid intent.
     let mut buffer = order_pda.try_borrow_mut()?;
@@ -138,8 +125,14 @@ mod tests {
         // We used this to test failure conditions where the actual addresses
         // don't matter.
         let zero = Address::new_from_array([0; 32]);
-        settlement_interface::create_order::create_order(&zero, &zero, &zero, &zero, intent_bytes)
-            .data
+        settlement_interface::instruction::create_order::create_order(
+            &zero,
+            &zero,
+            &zero,
+            &zero,
+            intent_bytes,
+        )
+        .data
     }
 
     fn four_accounts() -> [AccountView; 4] {
@@ -159,7 +152,7 @@ mod tests {
         let order_pda = Address::new_from_array([23; 32]);
         let intent_bytes = valid_intent_bytes();
 
-        let data = settlement_interface::create_order::create_order(
+        let data = settlement_interface::instruction::create_order::create_order(
             &program_id,
             &owner,
             &created_by,
