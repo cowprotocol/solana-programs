@@ -73,15 +73,16 @@ pub fn process_create_order(
         return Err(SettlementError::OwnerMismatch.into());
     }
 
-    // We want a single order per uid; `create_pda` derives the canonical bump
-    // and, by signing the creation with the order seeds, rejects any
-    // `order_pda` that isn't the canonical address. The rest of the code can
-    // assume that if an account has data, then the bump is valid.
+    // We want a single order per uid; `create_canonical_pda` derives the
+    // canonical bump and, by signing the creation with the order seeds, rejects
+    // any `order_pda` that isn't the canonical address. The rest of the code
+    // can assume that if an account has data, then the bump is valid.
     create_canonical_pda(
         program_id,
         created_by,
         order_pda,
         EncodedOrderAccount::SIZE as u64,
+        program_id,
         order_pda_seeds(&intent_uid),
     )?;
 

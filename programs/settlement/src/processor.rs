@@ -36,19 +36,26 @@ pub trait InstructionInputParsing<'a>: Sized {
     }
 }
 
-/// Create the program-owned account at the PDA `pda`, funded by `payer`.
+/// Create the account at the PDA `pda`, assigned to `owner` and funded by
+/// `payer`.
 ///
-/// `seeds` are the canonical PDA seeds *without* the bump and the canonical
-/// bump is derived and appended here. Signing `CreateAccount` with these seeds
-/// implicitly checks that `pda` is the canonical address: the runtime grants
-/// the PDA signature only for the address the seeds derive, so any other `pda`
-/// fails the CPI.
+/// `seeds` are the canonical PDA seeds *without* the bump; the canonical bump
+/// is derived under `program_id` and appended here. Signing `CreateAccount`
+/// with these seeds implicitly checks that `pda` is the canonical address: the
+/// runtime grants the PDA signature only for the address the seeds derive, so
+/// any other `pda` fails the CPI.
+///
+/// `owner` is the program the new account is assigned to. It is usually
+/// `program_id` (a program-owned PDA), but differs when the account must be
+/// owned by another program, as for example a buffer token account owned by the
+/// SPL Token program.
 #[must_use = "ignoring the output means processing continues without the PDA having been created"]
 pub fn create_canonical_pda<const N: usize>(
     program_id: &Address,
     payer: &AccountView,
     pda: &AccountView,
     space: u64,
+    owner: &Address,
     seeds: [&[u8]; N],
 ) -> ProgramResult {
     let (_, bump) = Address::find_program_address(&seeds, program_id);
@@ -67,7 +74,7 @@ pub fn create_canonical_pda<const N: usize>(
     signer_seeds.push(Seed::from(&bump[..]));
     let signer = Signer::from(&signer_seeds[..]);
 
-    CreateAccount::with_minimum_balance(payer, pda, space, program_id, None)?
+    CreateAccount::with_minimum_balance(payer, pda, space, owner, None)?
         .invoke_signed(&[signer])?;
     Ok(())
 }

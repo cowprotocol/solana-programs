@@ -39,7 +39,14 @@ pub fn process_initialize(
 ) -> ProgramResult {
     let InitializeInput { payer, state_pda } = InitializeInput::parse(instruction_data, accounts)?;
 
-    create_canonical_pda(program_id, payer, state_pda, 0, state_pda_seeds())?;
+    create_canonical_pda(
+        program_id,
+        payer,
+        state_pda,
+        0,
+        program_id,
+        state_pda_seeds(),
+    )?;
 
     Ok(())
 }

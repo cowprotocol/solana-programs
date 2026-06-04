@@ -1,8 +1,9 @@
 //! Settlement state PDA seed and address derivation.
 //!
 //! There is a single state PDA per settlement program, derived from the bare
-//! [`SETTLEMENT_SEED`]. It is the program's central account that stores the
-//! state used for solver authentication.
+//! [`SETTLEMENT_SEED`]. It is the program's central account: it manages solver
+//! authentication and holds the SPL token authority over every buffer account
+//! (see [`crate::pda::buffer`]).
 
 use solana_pubkey::Pubkey;
 

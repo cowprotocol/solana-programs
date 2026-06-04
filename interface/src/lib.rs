@@ -19,6 +19,7 @@ pub enum SettlementInstruction {
     FinalizeSettle = 1,
     CreateOrder = 2,
     Initialize = 3,
+    CreateBuffer = 4,
 }
 
 impl SettlementInstruction {
