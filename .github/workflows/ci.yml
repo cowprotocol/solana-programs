@@ -78,6 +78,8 @@ jobs:
             ./.crates2.json
           key: solana-verify-bin-${{ runner.os }}
 
+      - uses: ./.github/actions/setup-just
+
       - name: Verify build
         run: just build-verified
 
