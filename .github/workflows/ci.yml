@@ -71,7 +71,11 @@ jobs:
 
       - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ./bin
+          # cache the binary and helper files used by cargo to detect if installation is needed
+          path: |
+            ./bin
+            ./.crates.toml
+            ./.crates2.json
           key: solana-verify-bin-${{ runner.os }}
 
       - name: Verify build
