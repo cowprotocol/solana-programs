@@ -17,6 +17,7 @@ settlement-interface.workspace = true
 arrayref.workspace = true
 litesvm.workspace = true
 settlement-client.workspace = true
+settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
 

@@ -110,7 +110,7 @@ pub fn process_create_order(
 
 #[cfg(test)]
 mod tests {
-    use settlement_interface::data::intent::{OrderIntent, OrderKind};
+    use settlement_interface::data::intent::{fixtures::sample_intent, OrderIntent, OrderKind};
 
     use pinocchio::account::RuntimeAccount;
 
@@ -122,14 +122,7 @@ mod tests {
     fn valid_intent_bytes() -> [u8; EncodedOrderIntent::SIZE] {
         (&EncodedOrderIntent::from(&OrderIntent {
             owner: DEFAULT_OWNER,
-            buy_token_account: Address::new_from_array([0x22; 32]),
-            sell_token_account: Address::new_from_array([0x33; 32]),
-            sell_amount: 0x0123_4567_89ab_cdef,
-            buy_amount: 0xfedc_ba98_7654_3210,
-            valid_to: 0xdead_beef,
-            kind: OrderKind::Sell,
-            partially_fillable: true,
-            app_data: [0x44; 32],
+            ..sample_intent(OrderKind::Sell, true)
         }))
             .into()
     }

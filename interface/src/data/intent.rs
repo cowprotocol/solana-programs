@@ -258,24 +258,20 @@ impl OrderIntent {
     }
 }
 
-#[cfg(test)]
-pub(in crate::data) mod tests {
-    use super::*;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures {
+    use proptest::{prelude::*, strategy::Union};
 
-    const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
+    use super::{EncodedOrderIntent, OrderIntent, OrderKind, Pubkey};
 
-    // Full Cartesian product of `OrderKind × bool` for tests that need to
-    // exercise every shape an `OrderIntent` can take on these axes.
-    fn all_kind_and_fillable() -> impl Iterator<Item = (OrderKind, bool)> {
-        ALL_ORDER_KINDS
-            .into_iter()
-            .flat_map(|kind| core::iter::repeat(kind).zip([false, true]))
-    }
+    /// Every valid [`OrderKind`].
+    pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
 
-    // Hand-picked example used for both the roundtrip and the digest
-    // regression. Distinct pubkeys, non-zero amounts, `valid_to` with both
-    // halves set, recognizable `app_data` pattern.
-    pub(in crate::data) fn sample_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
+    // Hardcoded but verified in a sanity-check test.
+    pub const KIND_OFFSET: usize = 116;
+    pub const PARTIALLY_FILLABLE_OFFSET: usize = KIND_OFFSET + EncodedOrderIntent::W_KIND;
+
+    pub fn sample_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
         OrderIntent {
             owner: Pubkey::new_from_array([0x11; 32]),
             buy_token_account: Pubkey::new_from_array([0x22; 32]),
@@ -287,6 +283,55 @@ pub(in crate::data) mod tests {
             partially_fillable,
             app_data: [0x44; 32],
         }
+    }
+
+    /// Any valid [`OrderKind`].
+    pub fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
+        Union::new(ALL_ORDER_KINDS.map(Just))
+    }
+
+    /// Any valid [`OrderIntent`].
+    pub fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
+        (
+            any::<[u8; 32]>(),
+            any::<[u8; 32]>(),
+            any::<[u8; 32]>(),
+            any::<u64>(),
+            any::<u64>(),
+            any::<u32>(),
+            arb_order_kind(),
+            any::<bool>(),
+            any::<[u8; 32]>(),
+        )
+            .prop_map(
+                |(owner, buy_tok, sell_tok, sell_amount, buy_amount, valid_to, kind, pf, app)| {
+                    OrderIntent {
+                        owner: Pubkey::new_from_array(owner),
+                        buy_token_account: Pubkey::new_from_array(buy_tok),
+                        sell_token_account: Pubkey::new_from_array(sell_tok),
+                        sell_amount,
+                        buy_amount,
+                        valid_to,
+                        kind,
+                        partially_fillable: pf,
+                        app_data: app,
+                    }
+                },
+            )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET};
+    use super::*;
+
+    // Full Cartesian product of `OrderKind × bool` for tests that need to
+    // exercise every shape an `OrderIntent` can take on these axes.
+    fn all_kind_and_fillable() -> impl Iterator<Item = (OrderKind, bool)> {
+        fixtures::ALL_ORDER_KINDS
+            .into_iter()
+            .flat_map(|kind| core::iter::repeat(kind).zip([false, true]))
     }
 
     // Pin each width to the size of the `OrderIntent` field it encodes. The
@@ -347,11 +392,6 @@ pub(in crate::data) mod tests {
             assert_eq!(uid, encoded.hash());
         }
     }
-
-    // Hardcoded but verified in a sanity-check test.
-    pub(in crate::data) const KIND_OFFSET: usize = 116;
-    pub(in crate::data) const PARTIALLY_FILLABLE_OFFSET: usize =
-        KIND_OFFSET + EncodedOrderIntent::W_KIND;
 
     #[test]
     fn sanity_check_offsets() {
@@ -450,15 +490,13 @@ pub(in crate::data) mod tests {
     }
 
     // Property-based tests, non-deterministic.
-    pub(in crate::data) mod proptest {
-        use ::proptest::{prelude::*, strategy::Union, test_runner::TestCaseError};
+    mod proptest {
+        use ::proptest::{prelude::*, test_runner::TestCaseError};
 
+        use super::super::fixtures::{
+            arb_order_intent, arb_order_kind, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET,
+        };
         use super::*;
-
-        // Any valid `OrderKind`.
-        pub(in crate::data) fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
-            Union::new(ALL_ORDER_KINDS.map(Just))
-        }
 
         // Any byte not decoding to a valid order type.
         fn arb_bad_order_kind_byte() -> impl Strategy<Value = u8> {
@@ -468,46 +506,6 @@ pub(in crate::data) mod tests {
         // Any byte not decoding to a valid bool.
         fn arb_bad_bool_byte() -> impl Strategy<Value = u8> {
             2u8..=255
-        }
-
-        // Any valid `OrderIntent`.
-        pub(in crate::data) fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
-            (
-                any::<[u8; 32]>(),
-                any::<[u8; 32]>(),
-                any::<[u8; 32]>(),
-                any::<u64>(),
-                any::<u64>(),
-                any::<u32>(),
-                arb_order_kind(),
-                any::<bool>(),
-                any::<[u8; 32]>(),
-            )
-                .prop_map(
-                    |(
-                        owner,
-                        buy_tok,
-                        sell_tok,
-                        sell_amount,
-                        buy_amount,
-                        valid_to,
-                        kind,
-                        pf,
-                        app,
-                    )| {
-                        OrderIntent {
-                            owner: Pubkey::new_from_array(owner),
-                            buy_token_account: Pubkey::new_from_array(buy_tok),
-                            sell_token_account: Pubkey::new_from_array(sell_tok),
-                            sell_amount,
-                            buy_amount,
-                            valid_to,
-                            kind,
-                            partially_fillable: pf,
-                            app_data: app,
-                        }
-                    },
-                )
         }
 
         proptest! {
