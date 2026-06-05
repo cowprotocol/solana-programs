@@ -69,22 +69,22 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          # Cache the solana-verify binary alongside the normal cargo cache so
-          # the install step is a no-op on cache hits.
-          cache-directories: ~/.cargo/bin/solana-verify
+          # cache the binary and helper files used by cargo to detect if installation is needed
+          path: |
+            ./bin
+            ./.crates.toml
+            ./.crates2.json
+          key: solana-verify-bin-${{ runner.os }}
 
-      # solana-verify is declared as a workspace dev-dependency to pin its
-      # version in Cargo.lock. However, Cargo does not build binary targets
-      # from dependencies — only library targets — so an explicit install step
-      # is still required. The cache-directories setting above makes this a
-      # no-op on cache hits.
-      - name: Install solana-verify
-        run: command -v solana-verify || cargo install solana-verify
+      - uses: ./.github/actions/setup-just
 
       - name: Verify build
-        run: solana-verify build --library-name cow_settlement
+        run: |
+          set -o pipefail
+          just build-verified | tee /tmp/build-verified.log
+          tail -1 /tmp/build-verified.log >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload program artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
