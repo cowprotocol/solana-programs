@@ -29,7 +29,7 @@ fn program_can_be_invoked() {
         // Indices encode the BeginSettle/FinalizeSettle pair
         // `Begin` at 0 → finalize_ix=1, `Finalize` at 1 → begin_ix=0.
         &[
-            begin_settle(&program_id, 1),
+            begin_settle(&program_id, 1, &[]),
             finalize_settle(&program_id, 0),
         ],
         Some(&payer.pubkey()),

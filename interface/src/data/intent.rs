@@ -118,7 +118,7 @@ impl EncodedOrderIntent {
 
     /// Canonical hash of the bytes.
     pub fn hash(&self) -> [u8; 32] {
-        solana_sha256_hasher::hashv(&[self.as_slice()]).to_bytes()
+        hash_bytes(&self.0)
     }
 
     /// Decode raw bytes to an [`OrderIntent`] and compute the UID in one shot.
@@ -134,9 +134,13 @@ impl EncodedOrderIntent {
         // inputs that pass validation. Any normalization added to the `From`
         // or `TryFrom` impls later would break this and the UID would silently
         // diverge from `OrderIntent::uid()`.
-        let uid = solana_sha256_hasher::hashv(&[bytes.as_slice()]).to_bytes();
+        let uid = hash_bytes(bytes);
         Ok((intent, uid))
     }
+}
+
+pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> [u8; 32] {
+    solana_sha256_hasher::hashv(&[bytes.as_slice()]).to_bytes()
 }
 
 impl From<&EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {

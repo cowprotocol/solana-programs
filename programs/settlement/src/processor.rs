@@ -13,12 +13,12 @@ pub trait InstructionInputParsing<'a>: Sized {
     const DISCRIMINATOR: SettlementInstruction;
 
     fn parse_body(
-        instruction_data: &[u8],
+        instruction_data: &'a [u8],
         accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError>;
 
     fn parse(
-        instruction_data: &[u8],
+        instruction_data: &'a [u8],
         accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
         match recover_discriminator(instruction_data)? {
@@ -41,7 +41,7 @@ mod tests {
             const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
             fn parse_body(
-                _instruction_data: &[u8],
+                _instruction_data: &'a [u8],
                 _accounts: &'a mut [AccountView],
             ) -> Result<Self, ProgramError> {
                 Ok(Self {})

@@ -11,11 +11,14 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system.workspace = true
+pinocchio-token.workspace = true
 settlement-interface.workspace = true
 
 [dev-dependencies]
 arrayref.workspace = true
 litesvm.workspace = true
+litesvm-token.workspace = true
+proptest.workspace = true
 settlement-client.workspace = true
 settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-sdk.workspace = true
