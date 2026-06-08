@@ -76,7 +76,7 @@ jobs:
             ./bin
             ./.crates.toml
             ./.crates2.json
-          key: solana-verify-bin-${{ runner.os }}
+          key: solana-verify-bin-${{ hashFiles('.solana-verify-version.txt') }}-${{ runner.os }}
 
       - uses: ./.github/actions/setup-just
 
@@ -87,7 +87,7 @@ jobs:
           tail -1 /tmp/build-verified.log >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload program artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
         with:
           name: cow_settlement
           path: target/deploy/cow_settlement.so
