@@ -89,5 +89,5 @@ jobs:
       - name: Upload program artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
         with:
-          name: cow_settlement
+          name: cow_settlement.so
           path: target/deploy/cow_settlement.so
