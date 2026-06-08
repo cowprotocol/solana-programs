@@ -73,9 +73,7 @@ jobs:
         with:
           # cache the binary and helper files used by cargo to detect if installation is needed
           path: |
-            ./bin
-            ./.crates.toml
-            ./.crates2.json
+            ./.cargo-root/
           key: solana-verify-bin-${{ hashFiles('.solana-verify-version.txt') }}-${{ runner.os }}
 
       - uses: ./.github/actions/setup-just
@@ -87,7 +85,7 @@ jobs:
           echo "Reproducible build hash: $(tail -1 /tmp/build-verified.log)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload program artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cow_settlement.so
           path: target/deploy/cow_settlement.so
