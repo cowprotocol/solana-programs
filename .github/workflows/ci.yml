@@ -73,9 +73,7 @@ jobs:
         with:
           # cache the binary and helper files used by cargo to detect if installation is needed
           path: |
-            ./bin
-            ./.crates.toml
-            ./.crates2.json
+            ./.cargo-root/
           key: solana-verify-bin-${{ hashFiles('.solana-verify-version.txt') }}-${{ runner.os }}
 
       - uses: ./.github/actions/setup-just
