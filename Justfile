@@ -28,9 +28,9 @@ lint:
 
 # Build the settlement program using solana-verify's reproducible Docker build.
 # Installs solana-verify via cargo if not already present (same as CI).
-build-verified solana-verify-version='0.5.0':
-    cargo install solana-verify --version {{solana-verify-version}} --root .
-    ./bin/solana-verify build --library-name cow_settlement
+build-verified:
+    cargo install solana-verify --version $(cat .solana-verify-version.txt) --root {{justfile_directory()}}/.cargo-root
+    ./.cargo-root/bin/solana-verify build --library-name cow_settlement
 
 deploy programid keypair='~/.config/solana/id.json': build-verified
     solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
