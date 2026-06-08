@@ -84,7 +84,7 @@ jobs:
         run: |
           set -o pipefail
           just build-verified | tee /tmp/build-verified.log
-          tail -1 /tmp/build-verified.log >> "$GITHUB_STEP_SUMMARY"
+          echo "Reproducible build hash: $(tail -1 /tmp/build-verified.log)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload program artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v7.0.1
