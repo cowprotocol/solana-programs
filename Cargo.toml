@@ -25,6 +25,10 @@ solana-sdk-ids = "3"
 solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
 
+[workspace.metadata.cli]
+# Used to help solana-verify identify the correct build image.
+solana = "3.1.14"
+
 [workspace.lints.clippy]
 # Promote arithmetic side effect lint to hard error.
 # The settlement program (and related crates) need to do safe integer
