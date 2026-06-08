@@ -45,3 +45,11 @@ just build
 ```sh
 just test
 ```
+
+## How to build a verified (reproducible) build
+
+Requires [Docker](https://docs.docker.com/engine/install/).
+
+```sh
+just build-verified
+```

@@ -26,4 +26,10 @@ fmt-check:
 lint:
     cargo clippy --workspace --all-targets --all-features -- --deny=warnings
 
+# Build the settlement program using solana-verify's reproducible Docker build.
+# Installs solana-verify via cargo if not already present (same as CI).
+build-verified:
+    cargo install solana-verify --version $(cat .solana-verify-version.txt) --root .cargo-root/
+    ./.cargo-root/bin/solana-verify build --library-name cow_settlement
+
 all: build test lint fmt-check
