@@ -74,8 +74,7 @@ pub fn create_canonical_pda<const N: usize>(
     signer_seeds.push(Seed::from(&bump[..]));
     let signer = Signer::from(&signer_seeds[..]);
 
-    CreateAccount::with_minimum_balance(payer, pda, size, owner, None)?
-        .invoke_signed(&[signer])?;
+    CreateAccount::with_minimum_balance(payer, pda, size, owner, None)?.invoke_signed(&[signer])?;
     Ok(())
 }
 
