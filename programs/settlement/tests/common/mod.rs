@@ -19,7 +19,7 @@ use solana_sdk::{
 
 pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../target/deploy/settlement.so"
+    "/../../target/deploy/cow_settlement.so"
 );
 
 /// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
