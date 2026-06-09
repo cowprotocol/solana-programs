@@ -48,3 +48,8 @@ pub fn fake_account(address: Address) -> AccountView {
 pub fn fake_account_from_array(address_array: [u8; 32]) -> AccountView {
     fake_account(Address::new_from_array(address_array))
 }
+
+/// Build `N` fake accounts with sequential addresses (`[1; 32]`, `[2; 32]`, …).
+pub fn fake_sequential_accounts<const N: usize>() -> [AccountView; N] {
+    core::array::from_fn(|i| fake_account_from_array([(i as u8).wrapping_add(1); 32]))
+}
