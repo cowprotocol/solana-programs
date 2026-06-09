@@ -34,20 +34,22 @@ pub fn begin_settle(
     sell_token_accounts: &[Pubkey],
     bumps: &[u8],
 ) -> Instruction {
-    let orders = order_pdas.iter().zip(sell_token_accounts).zip(bumps);
-
-    let mut data = [
-        &[SettlementInstruction::BeginSettle.discriminator()],
+    let data = [
+        &[SettlementInstruction::BeginSettle.discriminator()][..],
         &finalize_ix_index.to_be_bytes()[..],
+        bumps,
     ]
     .concat();
 
-    let mut accounts = vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)];
-    for ((order_pda, sell_token_account), bump) in orders {
-        data.push(*bump);
-        accounts.push(AccountMeta::new_readonly(*order_pda, false));
-        accounts.push(AccountMeta::new_readonly(*sell_token_account, false));
-    }
+    let accounts = std::iter::once(INSTRUCTIONS_SYSVAR_ID)
+        .chain(
+            order_pdas
+                .iter()
+                .zip(sell_token_accounts)
+                .flat_map(|(order_pda, sell_token_account)| [*order_pda, *sell_token_account]),
+        )
+        .map(|pubkey| AccountMeta::new_readonly(pubkey, false))
+        .collect();
 
     Instruction {
         program_id: *program_id,
