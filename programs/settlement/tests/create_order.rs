@@ -228,7 +228,7 @@ fn rejects_non_canonical_bump_pda() {
         .rev()
         .find_map(|bump| {
             Pubkey::create_program_address(
-                &[SETTLEMENT_SEED, &uid, ORDER_SEED, &[bump]],
+                &[SETTLEMENT_SEED, uid.as_ref(), ORDER_SEED, &[bump]],
                 &program_id,
             )
             .ok()

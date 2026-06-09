@@ -19,6 +19,7 @@ use core::mem::size_of;
 
 use arrayref::{array_refs, mut_array_refs};
 use derive_more::Deref;
+use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
@@ -117,7 +118,7 @@ impl EncodedOrderIntent {
     pub const SIZE: usize = 150;
 
     /// Canonical hash of the bytes.
-    pub fn hash(&self) -> [u8; 32] {
+    pub fn hash(&self) -> Hash {
         hash_bytes(&self.0)
     }
 
@@ -125,9 +126,7 @@ impl EncodedOrderIntent {
     /// Returns [`ProgramError::InvalidInstructionData`] for an out-of-range
     /// `kind` or `partially_fillable` byte; every other byte combination
     /// decodes.
-    pub fn decode_and_hash(
-        bytes: &[u8; Self::SIZE],
-    ) -> Result<(OrderIntent, [u8; 32]), ProgramError> {
+    pub fn decode_and_hash(bytes: &[u8; Self::SIZE]) -> Result<(OrderIntent, Hash), ProgramError> {
         let intent = OrderIntent::try_from(bytes)?;
         // The UID is the SHA-256 of the input bytes. Hashing the input
         // (no re-encode) is correct because encode/decode is a bijection on
@@ -139,8 +138,8 @@ impl EncodedOrderIntent {
     }
 }
 
-pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> [u8; 32] {
-    solana_sha256_hasher::hashv(&[bytes.as_slice()]).to_bytes()
+pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
+    solana_sha256_hasher::hashv(&[bytes.as_slice()])
 }
 
 impl From<&EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
@@ -257,7 +256,7 @@ impl OrderIntent {
     /// SHA-256 of the canonical bytes. Doubles as the order UID and the
     /// middle seed of the order PDA. On SBF this compiles to a single
     /// `sol_sha256` syscall; off-target it goes through the `sha2` crate.
-    pub fn uid(&self) -> [u8; 32] {
+    pub fn uid(&self) -> Hash {
         EncodedOrderIntent::from(self).hash()
     }
 }
@@ -450,7 +449,7 @@ mod tests {
             0xce, 0x43, 0x6f, 0x8f, 0x53, 0xe2, 0xb7, 0xa1, 0xd9, 0x68, 0xac, 0xb0, 0x8f, 0x79,
             0xd3, 0xc1, 0x23, 0x1d,
         ];
-        assert_eq!(intent.uid(), expected);
+        assert_eq!(intent.uid(), Hash::from(expected));
     }
 
     #[test]

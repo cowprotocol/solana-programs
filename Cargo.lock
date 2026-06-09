@@ -1511,7 +1511,7 @@ dependencies = [
  "litesvm",
  "smallvec",
  "solana-account",
- "solana-address 2.6.0",
+ "solana-address 2.6.1",
  "solana-keypair",
  "solana-program-option",
  "solana-program-pack",
@@ -1792,7 +1792,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "825f59c8348e5c2d3fd56432ef927f5819542b3b05fae4f5b6869801113e775e"
 dependencies = [
  "solana-account-view",
- "solana-address 2.6.0",
+ "solana-address 2.6.1",
  "solana-instruction-view",
  "solana-program-error",
 ]
@@ -2228,6 +2228,7 @@ dependencies = [
  "derive_more",
  "num_enum",
  "proptest",
+ "solana-hash 3.1.0",
  "solana-instruction",
  "solana-program-error",
  "solana-pubkey 3.0.0",

@@ -22,6 +22,7 @@ use core::mem::size_of;
 
 use arrayref::{array_refs, mut_array_refs};
 use derive_more::Deref;
+use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
@@ -84,9 +85,7 @@ impl EncodedOrderAccount {
     /// shot, mirroring [`EncodedOrderIntent::decode_and_hash`]. Decoding
     /// validates the intent; returns [`ProgramError::InvalidAccountData`] on a
     /// decode error.
-    pub fn decode_and_hash(
-        bytes: &[u8; Self::SIZE],
-    ) -> Result<(OrderAccount, [u8; 32]), ProgramError> {
+    pub fn decode_and_hash(bytes: &[u8; Self::SIZE]) -> Result<(OrderAccount, Hash), ProgramError> {
         let order_account = OrderAccount::try_from(*bytes)?;
         // The order UID is the hash of the intent's canonical bytes. Decoding
         // succeeded, so the intent slot already holds those exact bytes: hash
