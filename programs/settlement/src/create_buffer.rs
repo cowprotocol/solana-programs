@@ -92,23 +92,17 @@ pub fn process_create_buffer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{fake_account, fake_account_from_array};
+    use crate::test_utils::{fake_account, fake_account_from_array, fake_sequential_accounts};
+
+    /// Number of accounts `CreateBuffer` expects: payer, buffer PDA, mint, token
+    /// program, and the system program.
+    const NUM_ACCOUNTS: usize = 5;
 
     // Only used for failing tests where the input is irrelevant.
     fn create_buffer_data() -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
         settlement_interface::instruction::create_buffer::create_buffer(&zero, &zero, &zero, &zero)
             .data
-    }
-
-    fn five_accounts() -> [AccountView; 5] {
-        [
-            fake_account_from_array([1; 32]),
-            fake_account_from_array([2; 32]),
-            fake_account_from_array([3; 32]),
-            fake_account_from_array([4; 32]),
-            fake_account_from_array([5; 32]),
-        ]
     }
 
     #[test]
@@ -152,7 +146,7 @@ mod tests {
     fn create_buffer_input_rejects_long_data() {
         let mut data = create_buffer_data();
         data.push(0); // trailing byte
-        let mut accounts = five_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
             CreateBufferInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
@@ -162,7 +156,7 @@ mod tests {
     #[test]
     fn create_buffer_input_rejects_missing_accounts() {
         let data = create_buffer_data();
-        let mut accounts: Vec<AccountView> = five_accounts().into();
+        let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
         accounts.pop();
         assert_eq!(
             CreateBufferInput::parse(&data, &mut accounts).err(),
@@ -178,7 +172,7 @@ mod tests {
     fn process_create_buffer_propagates_error() {
         let mut data = create_buffer_data();
         data.push(0); // make the data too long to trigger a parse error
-        let mut accounts = five_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
             process_create_buffer(&PROGRAM_ID, &mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
@@ -189,7 +183,7 @@ mod tests {
     fn process_create_buffer_rejects_wrong_token_program() {
         let data = create_buffer_data();
         // The fourth account (token program) is not the SPL Token program.
-        let mut accounts = five_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
             process_create_buffer(&PROGRAM_ID, &mut accounts, &data),
             Err(ProgramError::IncorrectProgramId),

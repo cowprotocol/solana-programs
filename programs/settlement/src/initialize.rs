@@ -54,20 +54,15 @@ pub fn process_initialize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::fake_account_from_array;
+    use crate::test_utils::{fake_account_from_array, fake_sequential_accounts};
+
+    /// Number of accounts `Initialize` expects: payer, state PDA, system program.
+    const NUM_ACCOUNTS: usize = 3;
 
     // Only used in failing tests, where actual data doesn't matter
     fn initialize_data() -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
         settlement_interface::instruction::initialize::initialize(&zero, &zero, &zero).data
-    }
-
-    fn three_accounts() -> [AccountView; 3] {
-        [
-            fake_account_from_array([1; 32]),
-            fake_account_from_array([2; 32]),
-            fake_account_from_array([3; 32]),
-        ]
     }
 
     #[test]
@@ -98,7 +93,7 @@ mod tests {
     fn initialize_input_rejects_long_data() {
         let mut data = initialize_data();
         data.push(0); // trailing byte
-        let mut accounts = three_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
             InitializeInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
@@ -108,7 +103,7 @@ mod tests {
     #[test]
     fn initialize_input_rejects_missing_accounts() {
         let data = initialize_data();
-        let mut accounts: Vec<AccountView> = three_accounts().into();
+        let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
         accounts.pop();
         assert_eq!(
             InitializeInput::parse(&data, &mut accounts).err(),
@@ -120,7 +115,7 @@ mod tests {
     fn process_initialize_propagates_parse_error() {
         let mut data = initialize_data();
         data.push(0); // make the data too long to trigger a parse error
-        let mut accounts = three_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
             process_initialize(&Address::new_unique(), &mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
