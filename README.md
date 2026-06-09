@@ -80,8 +80,6 @@ Pass the **program's public key (address)** as the first argument. The deployer 
 just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ./deployer-keypair.json
 ```
 
-The second argument defaults to `~/.config/solana/id.json` if omitted.
-
 ### Devnet example
 
 ```sh
