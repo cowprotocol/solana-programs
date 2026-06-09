@@ -14,8 +14,8 @@ use crate::SettlementInstruction;
 /// Build a `BeginSettle` instruction settling the orders described by the three
 /// parallel lists: `order_pdas[i]` is the canonical order PDA (see
 /// [`crate::pda::order`]), `sell_token_accounts[i]` its sell token account, and
-/// `bumps[i]` the canonical PDA bump. The three slices are expected to have the
-/// same length; the builder zips them and stops at the shortest.
+/// `bumps[i]` the canonical PDA bump. The three slices are assumed to have the
+/// same length but this is not enforced in the builder.
 ///
 /// Wire format:
 /// `[discriminator=0][finalize_ix_index: u16 BE][bump...]`, one `bump` byte per
