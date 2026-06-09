@@ -348,6 +348,18 @@ mod tests {
     }
 
     #[test]
+    fn decode_and_hash_catches_errors() {
+        let mut bytes: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(sample_account(false)).into();
+        // Corrupt the `cancelled` byte to an out-of-range value so the
+        // underlying `try_from` rejects it.
+        bytes[CANCELLED_OFFSET] = 0xff;
+        let err = EncodedOrderAccount::decode_and_hash(&bytes)
+            .expect_err("decode_and_hash must propagate the try_from error");
+        assert_eq!(err, ProgramError::InvalidAccountData);
+    }
+
+    #[test]
     fn direct_write_account_matches_order_account_decoding() {
         let cancelled = true;
         let amount_withdrawn = 1337;
