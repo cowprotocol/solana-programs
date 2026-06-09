@@ -497,10 +497,10 @@ mod tests {
     mod proptest {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
 
-        use super::super::fixtures::{
+        use super::*;
+        use crate::data::intent::fixtures::{
             arb_order_intent, arb_order_kind, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET,
         };
-        use super::*;
 
         // Any byte not decoding to a valid order type.
         fn arb_bad_order_kind_byte() -> impl Strategy<Value = u8> {
