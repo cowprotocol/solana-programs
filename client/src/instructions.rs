@@ -21,19 +21,22 @@ pub fn begin_settle(
     finalize_ix_index: u16,
     intents: &[OrderIntent],
 ) -> Instruction {
-    let mut orders: Vec<(Pubkey, Pubkey, u8)> = intents
+    // Sort by order uid — the program requires orders strictly increasing by
+    // uid (the order's content hash), not by the derived PDA address.
+    let mut orders = intents
         .iter()
         .map(|intent| {
-            let (order_pda, bump) = find_order_pda(program_id, &intent.uid());
-            (order_pda, intent.sell_token_account, bump)
+            let uid = intent.uid();
+            let (order_pda, bump) = find_order_pda(program_id, &uid);
+            (uid, order_pda, intent.sell_token_account, bump)
         })
-        .collect();
-    orders.sort_by_key(|(order_pda, _, _)| *order_pda);
+        .collect::<Vec<_>>();
+    orders.sort_by_key(|(uid, ..)| *uid);
 
     let mut order_pdas = Vec::with_capacity(orders.len());
     let mut sell_token_accounts = Vec::with_capacity(orders.len());
     let mut bumps = Vec::with_capacity(orders.len());
-    for (order_pda, sell_token_account, bump) in orders {
+    for (_uid, order_pda, sell_token_account, bump) in orders {
         order_pdas.push(order_pda);
         sell_token_accounts.push(sell_token_account);
         bumps.push(bump);

@@ -68,8 +68,7 @@ pub enum SettlementError {
     /// A `BeginSettle` order account doesn't sit at the canonical order PDA
     /// derived from the intent it stores and the supplied bump.
     OrderNotCanonical = 8,
-    /// `BeginSettle`'s order accounts aren't passed strictly increasing by
-    /// address.
+    /// `BeginSettle`'s orders aren't passed strictly increasing by order uid.
     OrdersNotStrictlyIncreasing = 9,
     /// A `BeginSettle` sell token account doesn't match the
     /// `sell_token_account` recorded in the order's intent.

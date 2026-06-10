@@ -24,9 +24,9 @@ use crate::SettlementInstruction;
 /// `[instructions_sysvar (R), (order_pda (R), sell_token_account (R))...]`, one
 //  pair of accounts per order.
 ///
-/// The program requires the order PDAs to be strictly increasing by address.
-/// The builder assumes the input already satisfies this: it emits the bumps and
-/// account metas in the order given, without reordering.
+/// The program requires the orders to be strictly increasing by order uid (the
+/// order's content hash). The builder assumes the input already satisfies this:
+/// it emits the bumps and account metas in the order given, without reordering.
 pub fn begin_settle(
     program_id: &Pubkey,
     finalize_ix_index: u16,

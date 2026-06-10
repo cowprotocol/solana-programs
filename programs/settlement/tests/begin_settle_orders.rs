@@ -270,7 +270,7 @@ fn rejects_duplicate_orders() {
 }
 
 #[test]
-fn rejects_orders_in_wrong_address_order() {
+fn rejects_orders_in_wrong_uid_order() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
@@ -280,11 +280,16 @@ fn rejects_orders_in_wrong_address_order() {
     let (first_pda, first_bump) = find_order_pda(&program_id, &first.uid());
     let (second_pda, second_bump) = find_order_pda(&program_id, &second.uid());
     let mut orders = [
-        (first_pda, first_bump, first.sell_token_account),
-        (second_pda, second_bump, second.sell_token_account),
+        (first.uid(), first_pda, first_bump, first.sell_token_account),
+        (
+            second.uid(),
+            second_pda,
+            second_bump,
+            second.sell_token_account,
+        ),
     ];
-    orders.sort_by_key(|(pda, _, _)| *pda);
-    let [(lo_pda, lo_bump, lo_token), (hi_pda, hi_bump, hi_token)] = orders;
+    orders.sort_by_key(|(uid, ..)| *uid);
+    let [(_, lo_pda, lo_bump, lo_token), (_, hi_pda, hi_bump, hi_token)] = orders;
 
     assert_settlement_error(
         send_settlement(

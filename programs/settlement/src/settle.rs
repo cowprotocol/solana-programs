@@ -207,9 +207,12 @@ fn validate_settled_orders<'a>(
     program_id: &Address,
     orders: impl Iterator<Item = SettledOrder<'a>>,
 ) -> ProgramResult {
-    // Orders must be passed strictly increasing by address; this rejects
-    // duplicates (settling the same order twice) without a separate scan.
-    let mut previous: Option<&Address> = None;
+    // Orders must be passed strictly increasing by order uid; this rejects
+    // duplicates (settling the same order twice) in a single pass. Ordering by
+    // uid — the order's content hash — rather than by PDA address keeps the
+    // requirement expressed in the identifier solvers already hold, instead of
+    // the derived on-chain PDA.
+    let mut previous = None;
 
     for SettledOrder {
         order_pda,
@@ -240,10 +243,10 @@ fn validate_settled_orders<'a>(
             return Err(SettlementError::OrderNotCanonical.into());
         }
 
-        if previous.is_some_and(|previous| order_pda.address() <= previous) {
+        if previous.as_ref().is_some_and(|previous| &uid <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
         }
-        previous = Some(order_pda.address());
+        previous = Some(uid);
 
         // The sell token account must be the one named in the intent, owned by
         // the intent owner: an order can only sell funds its own owner controls.
@@ -512,8 +515,8 @@ mod tests {
 
     proptest! {
         // The client's `begin_settle` builder derives each order's PDA from its
-        // intent, sorts the orders by PDA address, and lays out the accounts and
-        // bumps so that the on-chain parser recovers exactly those orders.
+        // intent, sorts the orders by uid, and lays out the accounts and bumps so
+        // that the on-chain parser recovers exactly those orders.
         #[test]
         fn client_begin_settle_derives_orders_from_intents(
             finalize_ix_index in any::<u16>(),
@@ -527,15 +530,16 @@ mod tests {
             );
 
             // Expected orders: each intent's canonical PDA paired with its sell
-            // token account and bump, sorted by PDA address (the builder's order).
-            let mut expected: Vec<(Pubkey, Pubkey, u8)> = intents
+            // token account and bump, sorted by uid (the builder's order).
+            let mut expected = intents
                 .iter()
                 .map(|intent| {
-                    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
-                    (order_pda, intent.sell_token_account, bump)
+                    let uid = intent.uid();
+                    let (order_pda, bump) = find_order_pda(&program_id, &uid);
+                    (uid, order_pda, intent.sell_token_account, bump)
                 })
-                .collect();
-            expected.sort_by_key(|(order_pda, _, _)| *order_pda);
+                .collect::<Vec<_>>();
+            expected.sort_by_key(|(uid, ..)| *uid);
 
 
             let mut accounts: Vec<AccountView> = ix
@@ -554,7 +558,7 @@ mod tests {
 
             let parsed_orders: Vec<_> = parsed.orders.collect();
             prop_assert_eq!(parsed_orders.len(), expected.len());
-            for (order, (order_pda, sell_token, bump)) in parsed_orders.iter().zip(&expected) {
+            for (order, (_uid, order_pda, sell_token, bump)) in parsed_orders.iter().zip(&expected) {
                 prop_assert!(address_matches_pubkey(order.order_pda.address(), order_pda));
                 prop_assert!(address_matches_pubkey(
                     order.sell_token_account.address(),
