@@ -22,6 +22,7 @@ arrayref.workspace = true
 litesvm.workspace = true
 litesvm-token.workspace = true
 settlement-client.workspace = true
+settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
 

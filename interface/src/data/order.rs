@@ -163,18 +163,22 @@ impl TryFrom<EncodedOrderAccount> for OrderAccount {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use core::mem::size_of;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures {
+    use proptest::prelude::*;
 
+    use super::{OrderAccount, Pubkey};
     use crate::data::intent::{
-        tests::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
+        fixtures::{arb_order_intent, sample_intent},
         OrderKind,
     };
 
-    use super::*;
+    // Hardcoded but verified in a sanity-check test.
+    pub const CANCELLED_OFFSET: usize = 0;
+    pub const INTENT_OFFSET: usize = 49;
 
-    fn sample_account(cancelled: bool) -> OrderAccount {
+    /// Hand-picked example order account wrapping [`sample_intent`].
+    pub fn sample_account(cancelled: bool) -> OrderAccount {
         OrderAccount {
             cancelled,
             amount_withdrawn: 0x0112_2334_4556_6778,
@@ -183,6 +187,38 @@ mod tests {
             intent: sample_intent(OrderKind::Sell, false),
         }
     }
+
+    /// Any valid [`OrderAccount`].
+    pub fn arb_order_account() -> impl Strategy<Value = OrderAccount> {
+        (
+            any::<bool>(),
+            any::<u64>(),
+            any::<u64>(),
+            any::<[u8; 32]>(),
+            arb_order_intent(),
+        )
+            .prop_map(
+                |(cancelled, amount_withdrawn, amount_received, created_by, intent)| OrderAccount {
+                    cancelled,
+                    amount_withdrawn,
+                    amount_received,
+                    created_by: Pubkey::new_from_array(created_by),
+                    intent,
+                },
+            )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::mem::size_of;
+
+    use super::fixtures::{sample_account, CANCELLED_OFFSET, INTENT_OFFSET};
+    use super::*;
+    use crate::data::intent::{
+        fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
+        OrderKind,
+    };
 
     // Pin each width to the size of the `OrderAccount` field it encodes. The
     // widths summing to `SIZE` is enforced separately, at compile time, by the
@@ -229,10 +265,6 @@ mod tests {
             assert_eq!(decoded, account);
         }
     }
-
-    // Hardcoded but verified in a sanity-check test.
-    const CANCELLED_OFFSET: usize = 0;
-    const INTENT_OFFSET: usize = 49;
 
     #[test]
     fn sanity_check_offsets() {
@@ -329,31 +361,8 @@ mod tests {
     mod proptest {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
 
-        use crate::data::intent::tests::proptest::{arb_order_intent, arb_order_kind};
-
         use super::*;
-
-        // Any valid `OrderAccount`.
-        fn arb_order_account() -> impl Strategy<Value = OrderAccount> {
-            (
-                any::<bool>(),
-                any::<u64>(),
-                any::<u64>(),
-                any::<[u8; 32]>(),
-                arb_order_intent(),
-            )
-                .prop_map(
-                    |(cancelled, amount_withdrawn, amount_received, created_by, intent)| {
-                        OrderAccount {
-                            cancelled,
-                            amount_withdrawn,
-                            amount_received,
-                            created_by: Pubkey::new_from_array(created_by),
-                            intent,
-                        }
-                    },
-                )
-        }
+        use crate::data::{intent::fixtures::arb_order_kind, order::fixtures::arb_order_account};
 
         proptest! {
             // For any `OrderAccount`, encode then decode returns the same

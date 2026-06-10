@@ -104,15 +104,15 @@ pub struct EncodedOrderIntent([u8; Self::SIZE]);
 
 impl EncodedOrderIntent {
     // Per-field widths, derived from the `OrderIntent` field types.
-    const W_OWNER: usize = size_of::<Pubkey>();
-    const W_BUY_TOKEN: usize = size_of::<Pubkey>();
-    const W_SELL_TOKEN: usize = size_of::<Pubkey>();
-    const W_SELL_AMOUNT: usize = size_of::<u64>();
-    const W_BUY_AMOUNT: usize = size_of::<u64>();
-    const W_VALID_TO: usize = size_of::<u32>();
-    const W_KIND: usize = size_of::<OrderKind>();
-    const W_PARTIALLY_FILLABLE: usize = size_of::<bool>();
-    const W_APP_DATA: usize = size_of::<[u8; 32]>();
+    const WIDTH_OWNER: usize = size_of::<Pubkey>();
+    const WIDTH_BUY_TOKEN: usize = size_of::<Pubkey>();
+    const WIDTH_SELL_TOKEN: usize = size_of::<Pubkey>();
+    const WIDTH_SELL_AMOUNT: usize = size_of::<u64>();
+    const WIDTH_BUY_AMOUNT: usize = size_of::<u64>();
+    const WIDTH_VALID_TO: usize = size_of::<u32>();
+    const WIDTH_KIND: usize = size_of::<OrderKind>();
+    const WIDTH_PARTIALLY_FILLABLE: usize = size_of::<bool>();
+    const WIDTH_APP_DATA: usize = size_of::<[u8; 32]>();
 
     pub const SIZE: usize = 150;
 
@@ -162,15 +162,15 @@ impl From<&OrderIntent> for EncodedOrderIntent {
             app_data,
         ) = mut_array_refs![
             &mut out,
-            EncodedOrderIntent::W_OWNER,
-            EncodedOrderIntent::W_BUY_TOKEN,
-            EncodedOrderIntent::W_SELL_TOKEN,
-            EncodedOrderIntent::W_SELL_AMOUNT,
-            EncodedOrderIntent::W_BUY_AMOUNT,
-            EncodedOrderIntent::W_VALID_TO,
-            EncodedOrderIntent::W_KIND,
-            EncodedOrderIntent::W_PARTIALLY_FILLABLE,
-            EncodedOrderIntent::W_APP_DATA
+            EncodedOrderIntent::WIDTH_OWNER,
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
+            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
+            EncodedOrderIntent::WIDTH_VALID_TO,
+            EncodedOrderIntent::WIDTH_KIND,
+            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_APP_DATA
         ];
         *owner = intent.owner.to_bytes();
         *buy_token = intent.buy_token_account.to_bytes();
@@ -208,15 +208,15 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             app_data,
         ) = array_refs![
             bytes,
-            EncodedOrderIntent::W_OWNER,
-            EncodedOrderIntent::W_BUY_TOKEN,
-            EncodedOrderIntent::W_SELL_TOKEN,
-            EncodedOrderIntent::W_SELL_AMOUNT,
-            EncodedOrderIntent::W_BUY_AMOUNT,
-            EncodedOrderIntent::W_VALID_TO,
-            EncodedOrderIntent::W_KIND,
-            EncodedOrderIntent::W_PARTIALLY_FILLABLE,
-            EncodedOrderIntent::W_APP_DATA
+            EncodedOrderIntent::WIDTH_OWNER,
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_TOKEN,
+            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
+            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
+            EncodedOrderIntent::WIDTH_VALID_TO,
+            EncodedOrderIntent::WIDTH_KIND,
+            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_APP_DATA
         ];
 
         Ok(OrderIntent {
@@ -258,24 +258,20 @@ impl OrderIntent {
     }
 }
 
-#[cfg(test)]
-pub(in crate::data) mod tests {
-    use super::*;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures {
+    use proptest::{prelude::*, strategy::Union};
 
-    const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
+    use super::{EncodedOrderIntent, OrderIntent, OrderKind, Pubkey};
 
-    // Full Cartesian product of `OrderKind × bool` for tests that need to
-    // exercise every shape an `OrderIntent` can take on these axes.
-    fn all_kind_and_fillable() -> impl Iterator<Item = (OrderKind, bool)> {
-        ALL_ORDER_KINDS
-            .into_iter()
-            .flat_map(|kind| core::iter::repeat(kind).zip([false, true]))
-    }
+    /// Every valid [`OrderKind`].
+    pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
 
-    // Hand-picked example used for both the roundtrip and the digest
-    // regression. Distinct pubkeys, non-zero amounts, `valid_to` with both
-    // halves set, recognizable `app_data` pattern.
-    pub(in crate::data) fn sample_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
+    // Hardcoded but verified in a sanity-check test.
+    pub const KIND_OFFSET: usize = 116;
+    pub const PARTIALLY_FILLABLE_OFFSET: usize = KIND_OFFSET + EncodedOrderIntent::WIDTH_KIND;
+
+    pub fn sample_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
         OrderIntent {
             owner: Pubkey::new_from_array([0x11; 32]),
             buy_token_account: Pubkey::new_from_array([0x22; 32]),
@@ -289,38 +285,100 @@ pub(in crate::data) mod tests {
         }
     }
 
+    /// Any valid [`OrderKind`].
+    pub fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
+        Union::new(ALL_ORDER_KINDS.map(Just))
+    }
+
+    /// Any valid [`OrderIntent`].
+    pub fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
+        (
+            any::<[u8; 32]>(),
+            any::<[u8; 32]>(),
+            any::<[u8; 32]>(),
+            any::<u64>(),
+            any::<u64>(),
+            any::<u32>(),
+            arb_order_kind(),
+            any::<bool>(),
+            any::<[u8; 32]>(),
+        )
+            .prop_map(
+                |(owner, buy_tok, sell_tok, sell_amount, buy_amount, valid_to, kind, pf, app)| {
+                    OrderIntent {
+                        owner: Pubkey::new_from_array(owner),
+                        buy_token_account: Pubkey::new_from_array(buy_tok),
+                        sell_token_account: Pubkey::new_from_array(sell_tok),
+                        sell_amount,
+                        buy_amount,
+                        valid_to,
+                        kind,
+                        partially_fillable: pf,
+                        app_data: app,
+                    }
+                },
+            )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use hex_literal::hex;
+
+    use super::fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET};
+    use super::*;
+
+    // Full Cartesian product of `OrderKind × bool` for tests that need to
+    // exercise every shape an `OrderIntent` can take on these axes.
+    fn all_kind_and_fillable() -> impl Iterator<Item = (OrderKind, bool)> {
+        fixtures::ALL_ORDER_KINDS
+            .into_iter()
+            .flat_map(|kind| core::iter::repeat(kind).zip([false, true]))
+    }
+
     // Pin each width to the size of the `OrderIntent` field it encodes. The
     // widths summing to `SIZE` is enforced separately, at compile time, by the
     // `array_refs!` / `mut_array_refs!` invocations in the codec.
     #[test]
     fn widths_match_field_sizes() {
-        use core::mem::size_of_val;
+        use core::mem::{size_of, size_of_val};
 
         // Any `OrderIntent` works: `size_of_val` only consults the field
         // type, never the data.
-        let i = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(OrderKind::Sell, false);
 
-        assert_eq!(EncodedOrderIntent::W_OWNER, size_of_val(&i.owner));
+        assert_eq!(EncodedOrderIntent::WIDTH_OWNER, size_of_val(&intent.owner));
         assert_eq!(
-            EncodedOrderIntent::W_BUY_TOKEN,
-            size_of_val(&i.buy_token_account)
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
+            size_of_val(&intent.buy_token_account)
         );
         assert_eq!(
-            EncodedOrderIntent::W_SELL_TOKEN,
-            size_of_val(&i.sell_token_account)
+            EncodedOrderIntent::WIDTH_SELL_TOKEN,
+            size_of_val(&intent.sell_token_account)
         );
         assert_eq!(
-            EncodedOrderIntent::W_SELL_AMOUNT,
-            size_of_val(&i.sell_amount)
+            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
+            size_of_val(&intent.sell_amount)
         );
-        assert_eq!(EncodedOrderIntent::W_BUY_AMOUNT, size_of_val(&i.buy_amount));
-        assert_eq!(EncodedOrderIntent::W_VALID_TO, size_of_val(&i.valid_to));
-        assert_eq!(EncodedOrderIntent::W_KIND, size_of_val(&i.kind));
         assert_eq!(
-            EncodedOrderIntent::W_PARTIALLY_FILLABLE,
-            size_of_val(&i.partially_fillable)
+            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
+            size_of_val(&intent.buy_amount)
         );
-        assert_eq!(EncodedOrderIntent::W_APP_DATA, size_of_val(&i.app_data));
+        assert_eq!(
+            EncodedOrderIntent::WIDTH_VALID_TO,
+            size_of_val(&intent.valid_to)
+        );
+        assert_eq!(EncodedOrderIntent::WIDTH_KIND, size_of_val(&intent.kind));
+        assert_eq!(
+            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            size_of_val(&intent.partially_fillable)
+        );
+        assert_eq!(
+            EncodedOrderIntent::WIDTH_APP_DATA,
+            size_of_val(&intent.app_data)
+        );
+
+        assert_eq!(EncodedOrderIntent::SIZE, size_of::<EncodedOrderIntent>());
     }
 
     #[test]
@@ -347,11 +405,6 @@ pub(in crate::data) mod tests {
             assert_eq!(uid, encoded.hash());
         }
     }
-
-    // Hardcoded but verified in a sanity-check test.
-    pub(in crate::data) const KIND_OFFSET: usize = 116;
-    pub(in crate::data) const PARTIALLY_FILLABLE_OFFSET: usize =
-        KIND_OFFSET + EncodedOrderIntent::W_KIND;
 
     #[test]
     fn sanity_check_offsets() {
@@ -401,11 +454,7 @@ pub(in crate::data) mod tests {
     #[test]
     fn uid_digest_regression() {
         let intent = sample_intent(OrderKind::Buy, true);
-        let expected: [u8; 32] = [
-            0x09, 0x1d, 0x7e, 0x19, 0x59, 0xac, 0x6f, 0x7a, 0x40, 0x0a, 0x91, 0xf1, 0xdc, 0xd9,
-            0xce, 0x43, 0x6f, 0x8f, 0x53, 0xe2, 0xb7, 0xa1, 0xd9, 0x68, 0xac, 0xb0, 0x8f, 0x79,
-            0xd3, 0xc1, 0x23, 0x1d,
-        ];
+        let expected = hex!("091d7e1959ac6f7a400a91f1dcd9ce436f8f53e2b7a1d968acb08f79d3c1231d");
         assert_eq!(intent.uid(), expected);
     }
 
@@ -450,15 +499,13 @@ pub(in crate::data) mod tests {
     }
 
     // Property-based tests, non-deterministic.
-    pub(in crate::data) mod proptest {
-        use ::proptest::{prelude::*, strategy::Union, test_runner::TestCaseError};
+    mod proptest {
+        use ::proptest::{prelude::*, test_runner::TestCaseError};
 
         use super::*;
-
-        // Any valid `OrderKind`.
-        pub(in crate::data) fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
-            Union::new(ALL_ORDER_KINDS.map(Just))
-        }
+        use crate::data::intent::fixtures::{
+            arb_order_intent, arb_order_kind, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET,
+        };
 
         // Any byte not decoding to a valid order type.
         fn arb_bad_order_kind_byte() -> impl Strategy<Value = u8> {
@@ -468,46 +515,6 @@ pub(in crate::data) mod tests {
         // Any byte not decoding to a valid bool.
         fn arb_bad_bool_byte() -> impl Strategy<Value = u8> {
             2u8..=255
-        }
-
-        // Any valid `OrderIntent`.
-        pub(in crate::data) fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
-            (
-                any::<[u8; 32]>(),
-                any::<[u8; 32]>(),
-                any::<[u8; 32]>(),
-                any::<u64>(),
-                any::<u64>(),
-                any::<u32>(),
-                arb_order_kind(),
-                any::<bool>(),
-                any::<[u8; 32]>(),
-            )
-                .prop_map(
-                    |(
-                        owner,
-                        buy_tok,
-                        sell_tok,
-                        sell_amount,
-                        buy_amount,
-                        valid_to,
-                        kind,
-                        pf,
-                        app,
-                    )| {
-                        OrderIntent {
-                            owner: Pubkey::new_from_array(owner),
-                            buy_token_account: Pubkey::new_from_array(buy_tok),
-                            sell_token_account: Pubkey::new_from_array(sell_tok),
-                            sell_amount,
-                            buy_amount,
-                            valid_to,
-                            kind,
-                            partially_fillable: pf,
-                            app_data: app,
-                        }
-                    },
-                )
         }
 
         proptest! {
