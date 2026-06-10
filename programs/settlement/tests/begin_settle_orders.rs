@@ -6,7 +6,8 @@
 //! order-list checks, which is what these tests exercise.
 
 use crate::common::{
-    assert_instruction_error, assert_settlement_error, create_account, setup, signed_tx, token,
+    assert_instruction_error, assert_settlement_error, create_account, set_unix_timestamp, setup,
+    signed_tx, token,
 };
 use litesvm::LiteSVM;
 use settlement_client::instructions::{begin_settle, create_order, finalize_settle};
@@ -20,6 +21,7 @@ use settlement_client::settlement_interface::{
     Instruction, SettlementError,
 };
 use solana_sdk::{
+    account::Account,
     instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -61,8 +63,20 @@ fn settleable_order(
     mint: &Pubkey,
     salt: u8,
 ) -> OrderIntent {
+    settleable_order_valid_to(svm, program_id, payer, mint, 0xdead_beef, salt)
+}
+
+fn settleable_order_valid_to(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    mint: &Pubkey,
+    valid_to: u32,
+    salt: u8,
+) -> OrderIntent {
     let sell_token = token::create_token_account(svm, payer, mint, &payer.pubkey());
-    let intent = sample_intent(payer.pubkey(), sell_token, salt);
+    let mut intent = sample_intent(payer.pubkey(), sell_token, salt);
+    intent.valid_to = valid_to;
     create_order_pda(svm, program_id, payer, &intent);
     intent
 }
@@ -301,4 +315,88 @@ fn rejects_orders_in_wrong_address_order() {
         ),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
+}
+
+#[test]
+fn rejects_cancelled_order() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    // There's no cancel instruction yet, and `CreateOrder` always writes an
+    // active order, so write the PDA directly with the `cancelled` flag set. The
+    // account still sits at the canonical PDA holding a matching intent, so it
+    // clears the provenance check and the cancelled flag is what trips the
+    // rejection.
+    let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
+    let intent = sample_intent(payer.pubkey(), sell_token, 0);
+    let (order_pda, _bump) = find_order_pda(&program_id, &intent.uid());
+
+    let data: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+        cancelled: true,
+        amount_withdrawn: 0,
+        amount_received: 0,
+        created_by: payer.pubkey(),
+        intent: intent.clone(),
+    })
+    .into();
+    svm.set_account(
+        order_pda,
+        Account {
+            lamports: svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE),
+            data: data.to_vec(),
+            owner: program_id,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .expect("placing a cancelled order at its canonical PDA should succeed");
+
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle(&program_id, 1, &[intent]),
+        ),
+        SettlementError::OrderCancelled,
+    );
+}
+
+#[test]
+fn rejects_expired_order() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let valid_to = 1_000_000;
+    let intent = settleable_order_valid_to(&mut svm, &program_id, &payer, &mint, valid_to, 0);
+    let after_expiration = i64::from(valid_to) + 1;
+    set_unix_timestamp(&mut svm, after_expiration);
+
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle(&program_id, 1, &[intent]),
+        ),
+        SettlementError::OrderExpired,
+    );
+}
+
+#[test]
+fn settles_order_at_exact_valid_to() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let valid_to = 1_000_000;
+    let intent = settleable_order_valid_to(&mut svm, &program_id, &payer, &mint, valid_to, 0);
+    set_unix_timestamp(&mut svm, i64::from(valid_to));
+
+    send_settlement(
+        &mut svm,
+        &program_id,
+        &payer,
+        begin_settle(&program_id, 1, &[intent]),
+    )
+    .expect("an order is still settleable at exactly valid_to");
 }
