@@ -13,8 +13,8 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 pinocchio = { workspace = true, features = ["cpi"] }
+pinocchio-associated-token-account.workspace = true
 pinocchio-system.workspace = true
-pinocchio-token.workspace = true
 settlement-interface.workspace = true
 
 [dev-dependencies]

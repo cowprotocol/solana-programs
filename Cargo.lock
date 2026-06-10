@@ -1776,6 +1776,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pinocchio-associated-token-account"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c552da2a965b33511ac54494e434e69be0ae12da1619a72594b76703c3dca211"
+dependencies = [
+ "solana-account-view",
+ "solana-address 2.6.1",
+ "solana-instruction-view",
+ "solana-program-error",
+]
+
+[[package]]
 name = "pinocchio-system"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1783,18 +1795,6 @@ checksum = "f3ae2ee67b42e2ac797dd88312da473c895660e270d8093e0ba2749b885b5778"
 dependencies = [
  "pinocchio",
  "solana-address 2.6.1",
-]
-
-[[package]]
-name = "pinocchio-token"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "825f59c8348e5c2d3fd56432ef927f5819542b3b05fae4f5b6869801113e775e"
-dependencies = [
- "solana-account-view",
- "solana-address 2.6.1",
- "solana-instruction-view",
- "solana-program-error",
 ]
 
 [[package]]
@@ -2204,8 +2204,8 @@ dependencies = [
  "litesvm",
  "litesvm-token",
  "pinocchio",
+ "pinocchio-associated-token-account",
  "pinocchio-system",
- "pinocchio-token",
  "settlement-client",
  "settlement-interface",
  "solana-sdk",
@@ -2233,6 +2233,7 @@ dependencies = [
  "solana-sdk-ids",
  "solana-sha256-hasher",
  "solana-system-interface 3.2.0",
+ "spl-associated-token-account-interface",
  "spl-token-interface",
 ]
 

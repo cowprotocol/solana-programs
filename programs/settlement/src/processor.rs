@@ -45,10 +45,9 @@ pub trait InstructionInputParsing<'a>: Sized {
 /// runtime grants the PDA signature only for the address the seeds derive, so
 /// any other `pda` fails the CPI.
 ///
-/// `owner` is the program the new account is assigned to. It is usually
-/// `program_id` (a program-owned PDA), but differs when the account must be
-/// owned by another program, as for example a buffer token account owned by the
-/// SPL Token program.
+/// `owner` is the program the new account is assigned to. For the settlement
+/// program's own PDAs this is `program_id`; the parameter is kept generic so the
+/// helper can assign a created account to a different program when needed.
 #[must_use = "ignoring the output means processing continues without the PDA having been created"]
 pub fn create_canonical_pda<const N: usize>(
     program_id: &Address,

@@ -7,11 +7,9 @@ use litesvm_token::{
 };
 use settlement_client::instructions::create_buffer;
 use settlement_client::settlement_interface::{
-    instruction::create_buffer::{create_buffer as create_buffer_ix, SPL_TOKEN_PROGRAM_ID},
-    pda::{
-        buffer::{buffer_pda_seeds, find_buffer_pda},
-        state::find_state_pda,
-    },
+    instruction::create_buffer::create_buffer as create_buffer_ix,
+    pda::{buffer::find_buffer_pda, state::find_state_pda},
+    SPL_TOKEN_PROGRAM_ID,
 };
 use solana_sdk::{
     instruction::InstructionError, program_pack::Pack, pubkey::Pubkey, signature::Signer,
@@ -24,7 +22,7 @@ mod common;
 fn happy_path_creates_initialized_buffer_token_account() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
-    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
+    let buffer_pda = find_buffer_pda(&program_id, &mint);
     let (state_pda, _) = find_state_pda(&program_id);
 
     let ix = create_buffer(&program_id, &payer.pubkey(), &mint);
@@ -91,7 +89,8 @@ fn happy_path_creates_native_token_buffer() {
     // wrapped-SOL account. Since we fund exactly the rent-exempt minimum, the
     // wrapped balance starts at zero.
     let (mut svm, program_id, payer) = common::setup();
-    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &native_mint::ID);
+    common::token::seed_native_mint(&mut svm);
+    let buffer_pda = find_buffer_pda(&program_id, &native_mint::ID);
 
     let ix = create_buffer(&program_id, &payer.pubkey(), &native_mint::ID);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -119,38 +118,40 @@ fn happy_path_creates_native_token_buffer() {
 fn rejects_arbitrary_wrong_buffer_pda() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
+    let (state_pda, _) = find_state_pda(&program_id);
 
+    // A buffer address that isn't the state PDA's ATA for the mint. The ATA
+    // program re-derives the expected address and rejects the mismatch.
     let wrong_pda = Pubkey::new_unique();
-    let ix = create_buffer_ix(&program_id, &payer.pubkey(), &wrong_pda, &mint);
+    let ix = create_buffer_ix(&program_id, &payer.pubkey(), &wrong_pda, &state_pda, &mint);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
-    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
-}
-
-#[test]
-fn rejects_non_canonical_bump_pda() {
-    let (mut svm, program_id, payer) = common::setup();
-    let mint = common::token::create_mint(&mut svm, &payer);
-
-    // A buffer derivation that is valid for the seeds but not the canonical
-    // address the program signs for.
-    let (_bump, non_canonical_pda) =
-        common::pda::find_noncanonical_pda(&program_id, buffer_pda_seeds(mint.as_array()));
-
-    let ix = create_buffer_ix(&program_id, &payer.pubkey(), &non_canonical_pda, &mint);
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &non_canonical_pda);
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("a non-ATA buffer address must be rejected");
+    assert!(
+        matches!(
+            err.err,
+            TransactionError::InstructionError(0, InstructionError::InvalidSeeds)
+        ),
+        "expected instruction 0 to fail with InvalidSeeds, got {:?}",
+        err.err,
+    );
+    assert!(
+        svm.get_account(&wrong_pda).is_none(),
+        "rejected buffer must not have been created"
+    );
 }
 
 #[test]
 fn rejects_non_spl_token_program() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
-    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
+    let buffer_pda = find_buffer_pda(&program_id, &mint);
 
     // Swap the token-program account for an arbitrary key.
     let mut ix = create_buffer(&program_id, &payer.pubkey(), &mint);
-    let token_program_index = 3;
+    let token_program_index = 5;
     assert_eq!(
         ix.accounts[token_program_index].pubkey, SPL_TOKEN_PROGRAM_ID,
         "sanity: should replace token program"
@@ -179,13 +180,14 @@ fn rejects_non_spl_token_program() {
 fn rejects_invalid_mint() {
     let (mut svm, program_id, payer) = common::setup();
 
-    // An account that isn't an initialized SPL mint. The handler derives the
-    // buffer PDA from it and delegates mint validation to InitializeAccount3,
-    // which rejects it: a non-mint account isn't owned by the token program, so
-    // the CPI fails with IncorrectProgramId after the buffer was allocated,
-    // reverting the whole instruction.
+    // An account that isn't an initialized SPL mint. Mint validation is
+    // delegated down the CPI chain: the Associated Token Account program reads
+    // the mint to size the account, and the token program ultimately requires a
+    // token-program-owned mint. A non-mint account isn't token-program-owned, so
+    // the CPI fails with IncorrectProgramId and the whole instruction reverts —
+    // the buffer is never created.
     let not_a_mint = Pubkey::new_unique();
-    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &not_a_mint);
+    let buffer_pda = find_buffer_pda(&program_id, &not_a_mint);
 
     let ix = create_buffer(&program_id, &payer.pubkey(), &not_a_mint);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -193,8 +195,6 @@ fn rejects_invalid_mint() {
     let err = svm
         .send_transaction(tx)
         .expect_err("a non-mint account must be rejected");
-    // Expected failing line:
-    // https://github.com/solana-program/token/blob/7ed1aa8d9eb6d54c0084a9e8475c56a0a868b5bd/program/src/processor.rs#L115
     assert!(
         matches!(
             err.err,
@@ -223,5 +223,18 @@ fn rejects_creating_same_buffer_twice() {
 
     let ix = create_buffer(&program_id, &payer.pubkey(), &mint);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::pda::assert_rejected_as_existing(&mut svm, tx);
+    // The Associated Token Account program's (non-idempotent) `Create` requires
+    // the target to still be system-owned; the existing buffer is already owned
+    // by the token program, so it rejects the second creation with IllegalOwner.
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("recreating an existing buffer must be rejected");
+    assert!(
+        matches!(
+            err.err,
+            TransactionError::InstructionError(0, InstructionError::IllegalOwner)
+        ),
+        "expected instruction 0 to fail with IllegalOwner, got {:?}",
+        err.err,
+    );
 }

@@ -34,11 +34,13 @@ pub fn create_order(
 }
 
 pub fn create_buffer(program_id: &Pubkey, payer: &Pubkey, mint: &Pubkey) -> Instruction {
-    let (buffer_pda, _bump) = find_buffer_pda(program_id, mint);
+    let buffer_pda = find_buffer_pda(program_id, mint);
+    let (state_pda, _bump) = find_state_pda(program_id);
     settlement_interface::instruction::create_buffer::create_buffer(
         program_id,
         payer,
         &buffer_pda,
+        &state_pda,
         mint,
     )
 }

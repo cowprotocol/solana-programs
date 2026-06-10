@@ -8,6 +8,14 @@ pub mod data;
 pub mod instruction;
 pub mod pda;
 
+/// The legacy SPL Token program. Buffers are token accounts owned by this
+/// program.
+pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
+
+/// The Associated Token Account program. Each buffer is the settlement state
+/// PDA's associated token account for a mint, created through this program.
+pub use spl_associated_token_account_interface::program::ID as ASSOCIATED_TOKEN_PROGRAM_ID;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
 #[num_enum(error_type(

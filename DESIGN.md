@@ -19,7 +19,7 @@ Buffer accounts are token accounts that hold funds on behalf of the settlement c
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to collect user funds, send out funds to the user, and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
-Corresponding PDAs are generated using seed `["settlement", token, "buffer"]`.
+Each buffer is the [associated token account](https://solana.com/docs/tokens/basics/associated-token-account) of the settlement state PDA for that token: its address is derived from the state PDA, the token program, and the token mint. There is exactly one buffer per token, and the state PDA is its token authority — the same account users delegate to. Buffers are created through the standard Associated Token Account program, so any standard wallet or explorer resolves them automatically.
 
 Differences with Ethereum:
 

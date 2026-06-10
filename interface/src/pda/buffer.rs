@@ -1,33 +1,26 @@
-//! Buffer PDA seed and address derivation.
+//! Buffer address derivation.
 //!
-//! Each buffer is a per-token SPL token account that holds funds on behalf
-//! of the settlement program. It lives at a PDA keyed by the token mint, so
-//! there is exactly one buffer address per token.
+//! Each buffer is a per-token SPL token account that holds funds on behalf of
+//! the settlement program. A buffer is the [associated token account][ata] of
+//! the settlement state PDA (see [`crate::pda::state`]) for a given mint, so
+//! there is exactly one buffer address per token and the state PDA — the single
+//! authority over every buffer — is its SPL `owner` (token authority).
 //!
-//! The token account stored at this address is initialized by the
-//! `CreateBuffer` instruction; its SPL `owner` (token authority) is the
-//! settlement state PDA (see [`crate::pda::state`]), the single authority
-//! controlling every buffer.
+//! The token account at this address is created through the standard
+//! Associated Token Account program by the `CreateBuffer` instruction.
+//!
+//! [ata]: https://solana.com/docs/tokens/basics/associated-token-account
 
 use solana_pubkey::Pubkey;
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 
-use crate::pda::SETTLEMENT_SEED;
+use crate::{pda::state::find_state_pda, SPL_TOKEN_PROGRAM_ID};
 
-/// Trailing seed identifying the buffer PDAs.
-pub const BUFFER_SEED: &[u8] = b"buffer";
-
-/// Canonical seed components for the buffer PDA holding the token `mint`.
-///
-/// `mint` is the raw 32-byte token mint address, so the same helper serves
-/// both the off-chain builder and the on-chain handler (which holds the mint
-/// as an `Address`).
-pub fn buffer_pda_seeds(mint: &[u8; 32]) -> [&[u8]; 3] {
-    [SETTLEMENT_SEED, mint, BUFFER_SEED]
-}
-
-/// Derive the canonical buffer PDA address (and bump) for the token `mint`.
-pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&buffer_pda_seeds(mint.as_array()), program_id)
+/// Derive the buffer address for the token `mint`: the settlement state PDA's
+/// associated token account for that mint under the legacy SPL Token program.
+pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {
+    let (state_pda, _) = find_state_pda(program_id);
+    get_associated_token_address_with_program_id(&state_pda, mint, &SPL_TOKEN_PROGRAM_ID)
 }
 
 #[cfg(test)]
@@ -35,12 +28,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn find_buffer_pda_uses_canonical_seeds() {
-        let token = Pubkey::new_unique();
+    fn find_buffer_pda_is_state_pda_ata() {
+        let program_id = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let (state_pda, _) = find_state_pda(&program_id);
 
-        crate::pda::tests::assert_canonical_bump(
-            |program_id| find_buffer_pda(program_id, &token),
-            buffer_pda_seeds(token.as_array()),
+        assert_eq!(
+            find_buffer_pda(&program_id, &mint),
+            get_associated_token_address_with_program_id(&state_pda, &mint, &SPL_TOKEN_PROGRAM_ID),
+            "buffer must be the state PDA's ATA for the mint",
         );
     }
 
@@ -58,8 +54,8 @@ mod tests {
             ) {
                 prop_assume!(token1 != token2);
                 let program_id = Pubkey::new_from_array(program_id);
-                let (pda1, _) = find_buffer_pda(&program_id, &Pubkey::new_from_array(token1));
-                let (pda2, _) = find_buffer_pda(&program_id, &Pubkey::new_from_array(token2));
+                let pda1 = find_buffer_pda(&program_id, &Pubkey::new_from_array(token1));
+                let pda2 = find_buffer_pda(&program_id, &Pubkey::new_from_array(token2));
                 prop_assert_ne!(pda1, pda2);
             }
         }
