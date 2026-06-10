@@ -10,6 +10,7 @@ edition = "2021"
 [workspace.dependencies]
 arrayref = "0.3"
 derive_more = { version = "1", features = ["deref"] }
+hex-literal = "1"
 litesvm = "0.12.0"
 num_enum = "0.7"
 pinocchio = "0.11.1"
