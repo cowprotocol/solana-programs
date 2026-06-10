@@ -7,6 +7,7 @@ edition.workspace = true
 arrayref.workspace = true
 derive_more.workspace = true
 num_enum.workspace = true
+proptest = { workspace = true, optional = true }
 solana-instruction.workspace = true
 solana-program-error.workspace = true
 solana-pubkey = { workspace = true, features = ["curve25519"] }
@@ -17,6 +18,12 @@ solana-system-interface.workspace = true
 [dev-dependencies]
 hex-literal.workspace = true
 proptest.workspace = true
+
+[features]
+# Exposes the test fixtures and proptest strategies under `data::*::fixtures` so
+# other crates can build and fuzz against sample intents and order accounts.
+# Enabled here by `cfg(test)` for this crate's own tests.
+test-fixtures = ["dep:proptest"]
 
 [lints]
 workspace = true
