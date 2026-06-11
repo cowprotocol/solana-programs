@@ -15,8 +15,8 @@ use settlement_client::settlement_interface::{
         intent::{OrderIntent, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},
     },
+    instruction::settle::begin_settle as raw_begin_settle,
     pda::order::find_order_pda,
-    settle::begin_settle as raw_begin_settle,
     Instruction, SettlementError,
 };
 use solana_sdk::{

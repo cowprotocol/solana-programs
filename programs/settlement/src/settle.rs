@@ -7,8 +7,9 @@ use pinocchio::{
 };
 use pinocchio_token::state::Account as TokenAccount;
 use settlement_interface::{
-    data::order::EncodedOrderAccount, pda::order::order_pda_signer_seeds, recover_discriminator,
-    settle::recover_counterpart, Pubkey, SettlementError, SettlementInstruction,
+    data::order::EncodedOrderAccount, instruction::settle::recover_counterpart,
+    pda::order::order_pda_signer_seeds, recover_discriminator, Pubkey, SettlementError,
+    SettlementInstruction,
 };
 
 use crate::processor::InstructionInputParsing;
@@ -324,8 +325,8 @@ mod tests {
     use crate::test_utils::{fake_account, fake_account_from_array};
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use settlement_interface::{
-        data::intent::fixtures::arb_order_intent, pda::order::find_order_pda,
-        settle::INSTRUCTIONS_SYSVAR_ID,
+        data::intent::fixtures::arb_order_intent, instruction::settle::INSTRUCTIONS_SYSVAR_ID,
+        pda::order::find_order_pda,
     };
 
     #[test]
