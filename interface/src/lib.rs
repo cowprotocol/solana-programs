@@ -6,10 +6,9 @@ pub use solana_pubkey::Pubkey;
 
 solana_pubkey::declare_id!("MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK");
 
-pub mod create_order;
 pub mod data;
+pub mod instruction;
 pub mod pda;
-pub mod settle;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
@@ -21,6 +20,7 @@ pub enum SettlementInstruction {
     BeginSettle = 0,
     FinalizeSettle = 1,
     CreateOrder = 2,
+    Initialize = 3,
 }
 
 impl SettlementInstruction {

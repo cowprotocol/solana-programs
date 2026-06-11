@@ -1,23 +1,19 @@
-use litesvm::LiteSVM;
-use settlement_client::settlement_interface::pda::order::ORDER_SEED;
 use settlement_client::settlement_interface::{
-    create_order::create_order,
     data::{
         intent::{fixtures, EncodedOrderIntent, OrderIntent, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},
     },
-    pda::{order::find_order_pda, SETTLEMENT_SEED},
+    instruction::create_order::create_order,
+    pda::order::{find_order_pda, order_pda_seeds},
     SettlementError,
 };
-use solana_sdk::instruction::{Instruction, InstructionError};
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::{Transaction, TransactionError},
 };
-use solana_system_interface::error::SystemError;
 
-use crate::common::to_instruction_error;
+use crate::common::{signed_tx, to_instruction_error};
 
 mod common;
 
@@ -36,18 +32,6 @@ fn encode_and_derive(
     let bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
     let (pda, _bump) = find_order_pda(program_id, &encoded.hash());
     (bytes, pda)
-}
-
-/// Sign `ix` with `fee_payer` as the transaction fee payer and
-/// `owner` as the keypair filling the `owner` slot. Tests pass
-/// two distinct keypairs to keep these roles independent.
-fn signed_tx(svm: &LiteSVM, fee_payer: &Keypair, owner: &Keypair, ix: Instruction) -> Transaction {
-    Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&fee_payer.pubkey()),
-        &[fee_payer, owner],
-        svm.latest_blockhash(),
-    )
 }
 
 #[test]
@@ -194,21 +178,7 @@ fn rejects_arbitrary_wrong_pda() {
     );
     let tx = signed_tx(&svm, &owner, &owner, ix);
 
-    let err = svm
-        .send_transaction(tx)
-        .expect_err("wrong PDA must be rejected");
-    assert!(
-        matches!(
-            err.err,
-            TransactionError::InstructionError(0, InstructionError::PrivilegeEscalation)
-        ),
-        "expected instruction 0 to fail, got {:?}",
-        err.err,
-    );
-    assert!(
-        svm.get_account(&wrong_pda).is_none(),
-        "wrong PDA must not have been created"
-    );
+    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
 }
 
 #[test]
@@ -219,24 +189,9 @@ fn rejects_non_canonical_bump_pda() {
     let encoded = EncodedOrderIntent::from(&intent);
     let bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
     let uid = encoded.hash();
-    let (_canonical_pda, canonical_bump) = find_order_pda(&program_id, &uid);
 
-    // Walk bumps below canonical until we find one that also yields an
-    // off-curve point. That's a legitimate PDA for the program's seeds, but
-    // not the canonical one.
-    let (non_canonical_bump, non_canonical_pda) = (0..canonical_bump)
-        .rev()
-        .find_map(|bump| {
-            Pubkey::create_program_address(
-                &[SETTLEMENT_SEED, &uid, ORDER_SEED, &[bump]],
-                &program_id,
-            )
-            .ok()
-            .map(|addr| (bump, addr))
-        })
-        .expect("sample intent must have a non-canonical off-curve bump");
-
-    assert_ne!(non_canonical_bump, canonical_bump);
+    let (_bump, non_canonical_pda) =
+        common::pda::find_noncanonical_pda(&program_id, order_pda_seeds(&uid));
 
     let ix = create_order(
         &program_id,
@@ -246,21 +201,7 @@ fn rejects_non_canonical_bump_pda() {
         &bytes,
     );
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    let err = svm
-        .send_transaction(tx)
-        .expect_err("non-canonical-bump PDA must be rejected");
-    assert!(
-        matches!(
-            err.err,
-            TransactionError::InstructionError(0, InstructionError::PrivilegeEscalation)
-        ),
-        "expected instruction 0 to fail, got {:?}",
-        err.err,
-    );
-    assert!(
-        svm.get_account(&non_canonical_pda).is_none(),
-        "non-canonical-bump PDA must not have been created"
-    );
+    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &non_canonical_pda);
 }
 
 #[test]
@@ -285,9 +226,6 @@ fn rejects_creating_same_pda_twice() {
     svm.send_transaction(tx)
         .expect("first create_order should succeed");
 
-    // The two transactions are otherwise identical; expire the blockhash so
-    // the second isn't rejected as a duplicate signature instead of a
-    // duplicate PDA.
     svm.expire_blockhash();
 
     // For good measure, we change `created_by` to stress that the input
@@ -300,32 +238,7 @@ fn rejects_creating_same_pda_twice() {
         &encoded,
     );
     let tx = signed_tx(&svm, &another_fee_payer, &fee_payer, ix);
-    // Keep the compiled message's `account_keys` around so we can resolve
-    // the `program_id_index` of the failing inner instruction below.
-    let account_keys = tx.message.account_keys.clone();
-    let err = svm
-        .send_transaction(tx)
-        .expect_err("recreating an existing PDA must be rejected");
-
-    let expected = TransactionError::InstructionError(
-        0,
-        InstructionError::Custom(SystemError::AccountAlreadyInUse as u32),
-    );
-    assert_eq!(err.err, expected);
-
-    // The check above is a bit misleading: the u32 that's returned there
-    // is `0`, so this could be by chance a custom error from the current
-    // program (`Custom(0)`). Here we do an extra sanity check that the
-    // system program has indeed been called.
-    let instruction_index = 0;
-    let last_cpi = err.meta.inner_instructions[instruction_index]
-        .last()
-        .expect("system-program CPI should be available");
-    let failing_program = account_keys[last_cpi.instruction.program_id_index as usize];
-    assert_eq!(
-        failing_program,
-        settlement_interface::create_order::SYSTEM_PROGRAM_ID
-    );
+    common::pda::assert_rejected_as_existing(&mut svm, tx);
 }
 
 #[test]
