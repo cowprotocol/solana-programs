@@ -5,12 +5,16 @@
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
+pub mod pda;
+
 use litesvm::LiteSVM;
 use settlement_client::settlement_interface::SettlementError;
+use settlement_interface::Instruction;
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
+    transaction::Transaction,
 };
 
 pub const PROGRAM_SO: &str = concat!(
@@ -48,4 +52,21 @@ pub fn to_instruction_error(e: SettlementError) -> InstructionError {
 /// exist.
 pub fn lamports(svm: &LiteSVM, address: &Pubkey) -> u64 {
     svm.get_account(address).map(|a| a.lamports).unwrap_or(0)
+}
+
+/// Sign `ix` with `fee_payer` as the transaction fee payer and
+/// `owner` as the keypair filling the `owner` slot. Tests pass
+/// two distinct keypairs to keep these roles independent.
+pub fn signed_tx(
+    svm: &LiteSVM,
+    fee_payer: &Keypair,
+    owner: &Keypair,
+    ix: Instruction,
+) -> Transaction {
+    Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&fee_payer.pubkey()),
+        &[fee_payer, owner],
+        svm.latest_blockhash(),
+    )
 }

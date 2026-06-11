@@ -1,21 +1,16 @@
 //! `CreateOrder` instruction handler.
 
-use pinocchio::{
-    cpi::{Seed, Signer},
-    error::ProgramError,
-    AccountView, Address, ProgramResult,
-};
-use pinocchio_system::instructions::CreateAccount;
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use settlement_interface::{
     data::{
         intent::EncodedOrderIntent,
         order::{self, EncodedOrderAccount},
     },
-    pda::order::{order_pda_seeds, order_pda_signer_seeds},
+    pda::order::order_pda_seeds,
     SettlementError, SettlementInstruction,
 };
 
-use crate::processor::InstructionInputParsing;
+use crate::processor::{create_canonical_pda, InstructionInputParsing};
 
 /// Parsed inputs of a `CreateOrder` instruction.
 struct CreateOrderInput<'a> {
@@ -78,25 +73,17 @@ pub fn process_create_order(
         return Err(SettlementError::OwnerMismatch.into());
     }
 
-    // We want to have a single order per uid, so we need to derive the bump
-    // here. The rest of the code can assume that if an account has data,
-    // then the bump is valid.
-    let (_, bump) = Address::find_program_address(&order_pda_seeds(&intent_uid), program_id);
-
-    let bump_seed = [bump];
-    let signer_seeds = order_pda_signer_seeds(&intent_uid, &bump_seed).map(Seed::from);
-    let signer = Signer::from(&signer_seeds[..]);
-
-    // Implicitly, this also checks that `order_pda.address()` matches the
-    // bump generated above without needing to directly compare addresses.
-    CreateAccount::with_minimum_balance(
+    // We want a single order per uid; `create_canonical_pda` derives the
+    // canonical bump and, by signing the creation with the order seeds, rejects
+    // any `order_pda` that isn't the canonical address. The rest of the code
+    // can assume that if an account has data, then the bump is valid.
+    create_canonical_pda(
+        program_id,
         created_by,
         order_pda,
         EncodedOrderAccount::SIZE as u64,
-        program_id,
-        None,
-    )?
-    .invoke_signed(&[signer])?;
+        order_pda_seeds(&intent_uid),
+    )?;
 
     // Note: `intent_bytes` were validated before and are known to represent a valid intent.
     let mut buffer = order_pda.try_borrow_mut()?;
@@ -115,9 +102,15 @@ mod tests {
     use pinocchio::account::RuntimeAccount;
 
     use super::*;
-    use crate::test_utils::{fake_account, fake_account_from, fake_account_from_array};
+    use crate::test_utils::{
+        fake_account, fake_account_from, fake_account_from_array, fake_sequential_accounts,
+    };
 
     const DEFAULT_OWNER: Address = Address::new_from_array([0x11; 32]);
+
+    /// Number of accounts `CreateOrder` expects: owner, created_by, order PDA,
+    /// and the system program.
+    const NUM_ACCOUNTS: usize = 4;
 
     fn valid_intent_bytes() -> [u8; EncodedOrderIntent::SIZE] {
         (&EncodedOrderIntent::from(&OrderIntent {
@@ -131,17 +124,14 @@ mod tests {
         // We used this to test failure conditions where the actual addresses
         // don't matter.
         let zero = Address::new_from_array([0; 32]);
-        settlement_interface::create_order::create_order(&zero, &zero, &zero, &zero, intent_bytes)
-            .data
-    }
-
-    fn four_accounts() -> [AccountView; 4] {
-        [
-            fake_account_from_array([1; 32]),
-            fake_account_from_array([2; 32]),
-            fake_account_from_array([3; 32]),
-            fake_account_from_array([4; 32]),
-        ]
+        settlement_interface::instruction::create_order::create_order(
+            &zero,
+            &zero,
+            &zero,
+            &zero,
+            intent_bytes,
+        )
+        .data
     }
 
     #[test]
@@ -152,7 +142,7 @@ mod tests {
         let order_pda = Address::new_from_array([23; 32]);
         let intent_bytes = valid_intent_bytes();
 
-        let data = settlement_interface::create_order::create_order(
+        let data = settlement_interface::instruction::create_order::create_order(
             &program_id,
             &owner,
             &created_by,
@@ -185,7 +175,7 @@ mod tests {
         let intent_bytes = valid_intent_bytes();
         let mut data = default_order_data(&intent_bytes);
         data.pop();
-        let mut accounts = four_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
             CreateOrderInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
@@ -197,7 +187,7 @@ mod tests {
         let intent_bytes = valid_intent_bytes();
         let mut data = default_order_data(&intent_bytes);
         data.push(0); // trailing byte
-        let mut accounts = four_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
             CreateOrderInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
@@ -208,7 +198,7 @@ mod tests {
     fn create_order_input_rejects_missing_accounts() {
         let intent_bytes = valid_intent_bytes();
         let data = default_order_data(&intent_bytes);
-        let mut accounts: Vec<AccountView> = four_accounts().into();
+        let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
         accounts.pop();
         assert_eq!(
             CreateOrderInput::parse(&data, &mut accounts).err(),
@@ -227,7 +217,7 @@ mod tests {
         let mut data = default_order_data(&intent_bytes);
         // We generate a parse error by having less bytes than necessary.
         data.pop();
-        let mut accounts = four_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
 
         assert_eq!(
             process_create_order(&PROGRAM_ID, &mut accounts, &data),
@@ -258,7 +248,7 @@ mod tests {
         intent_bytes[kind_offset] = 0x42;
 
         let data = default_order_data(&intent_bytes);
-        let mut accounts = four_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
 
         assert_eq!(
             process_create_order(&PROGRAM_ID, &mut accounts, &data),
@@ -275,7 +265,7 @@ mod tests {
         // Test setup: owner is not a signer.
         assert!(!owner_account.is_signer());
 
-        let mut accounts = four_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         accounts[0] = owner_account;
 
         assert_eq!(
@@ -297,7 +287,7 @@ mod tests {
         // Test setup: owner doesn't match.
         assert_ne!(owner_runtime_account.address, DEFAULT_OWNER);
 
-        let mut accounts = four_accounts();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         accounts[0] = fake_account_from(owner_runtime_account);
 
         assert_eq!(

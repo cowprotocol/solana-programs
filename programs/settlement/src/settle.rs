@@ -4,7 +4,8 @@ use pinocchio::{
     error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 use settlement_interface::{
-    recover_discriminator, settle::recover_counterpart, SettlementError, SettlementInstruction,
+    instruction::settle::recover_counterpart, recover_discriminator, SettlementError,
+    SettlementInstruction,
 };
 
 use crate::processor::InstructionInputParsing;

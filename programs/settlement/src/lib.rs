@@ -1,6 +1,7 @@
 //! On-chain CoW Protocol settlement program.
 
 mod create_order;
+mod initialize;
 mod processor;
 mod settle;
 
@@ -8,6 +9,7 @@ mod settle;
 mod test_utils;
 
 use create_order::process_create_order;
+use initialize::process_initialize;
 use pinocchio::{entrypoint, AccountView, Address, ProgramResult};
 use settle::{process_begin_settle, process_finalize_settle};
 use settlement_interface::{recover_discriminator, SettlementInstruction};
@@ -29,6 +31,9 @@ pub fn process_instruction(
         }
         SettlementInstruction::CreateOrder => {
             process_create_order(program_id, accounts, instruction_data)
+        }
+        SettlementInstruction::Initialize => {
+            process_initialize(program_id, accounts, instruction_data)
         }
     }
 }
