@@ -41,7 +41,7 @@ pub fn process_initialize(
 
     // There are no explicit account guards here: `create_canonical_pda` rejects
     // any `state_pda`  other than the address those seeds derive and guards
-    // re-init., `CreateAccount` itself assigns.
+    // re-init.
     // The system program is invoked by its fixed address, so the account in that
     // system program is invoked by its slot is never referenced directly.
 
