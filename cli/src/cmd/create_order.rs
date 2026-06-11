@@ -1,5 +1,5 @@
 use anyhow::Context as _;
-use clap::Parser;
+use clap::{Args as ClapArgs, Parser};
 use settlement_client::{
     instructions::create_order,
     settlement_interface::{
@@ -15,49 +15,149 @@ use spl_token_interface::state::Account as SplTokenAccount;
 
 use super::Context;
 
-#[derive(Parser)]
-#[command(
-    visible_alias = "swap",
-    long_about = "\
-Create an on-chain order. Supported positional forms:
-
-  cow create-order 1.0 SOL USDC        sell exactly 1.0 SOL, receive any USDC
-  cow create-order SOL 1.0 USDC        buy  exactly 1.0 USDC, spend any SOL
-  cow create-order 1.0 USDC            buy  exactly 1.0 USDC (SOL implied as sell)
-  cow create-order 1.0 SOL 50.0 USDC   sell exactly 1.0 SOL, receive ≥ 50.0 USDC
-
-Tokens can be a builtin token symbol (ex. SOL, WSOL, USDC), a mint address, or a token-account address.
-Decimals are fetched from the token's on-chain mint account.
-The unspecified side defaults to 0 (no price protection) until a quote API is integrated.
-Token accounts are derived from the mint automatically; override with the flags below."
-)]
-pub struct Args {
-    /// 2–4 positional tokens describing the swap (see above)
-    #[arg(num_args = 2..=4)]
-    pub tokens: Vec<String>,
-
+#[derive(ClapArgs)]
+struct CommonArgs {
     /// Override the resolved sell-side SPL token account (default: payer's WSOL ATA for SOL)
     #[arg(long)]
-    pub sell_token_account: Option<Pubkey>,
+    sell_token_account: Option<Pubkey>,
 
     /// Override the resolved buy-side SPL token account (default: payer's ATA for the buy token)
     #[arg(long)]
-    pub buy_token_account: Option<Pubkey>,
+    buy_token_account: Option<Pubkey>,
 
     /// Unix timestamp after which the order expires (defaults to 5 minutes from now)
     #[arg(long, default_value_t = valid_to_in(300))]
-    pub valid_to: u32,
+    valid_to: u32,
 
     /// Allow partial fills across multiple settlements
     #[arg(long)]
-    pub partially_fillable: bool,
+    partially_fillable: bool,
 }
 
-pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
+#[derive(Parser)]
+#[command(
+    long_about = "\
+Sell a token for another. Supported forms:
+
+  cow sell 1.0 SOL for USDC        sell exactly 1.0 SOL, receive any USDC
+  cow sell 1.0 SOL for 50.0 USDC   sell exactly 1.0 SOL, receive ≥ 50.0 USDC
+  cow sell 1.0 USDC                sell 1.0 SOL into USDC (SOL implied as sell token)
+
+Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address."
+)]
+pub struct SellArgs {
+    /// Amount to sell (e.g. 1.0)
+    amount: String,
+
+    /// Remaining tokens — see above for all supported forms
+    #[arg(num_args = 1..=4)]
+    tokens: Vec<String>,
+
+    #[command(flatten)]
+    common: CommonArgs,
+}
+
+#[derive(Parser)]
+#[command(
+    long_about = "\
+Buy a token using another. Supported forms:
+
+  cow buy 1.0 SOL with USDC        buy exactly 1.0 SOL, spending any USDC
+  cow buy 1.0 USDC                 buy 1.0 USDC, selling SOL (implied)
+
+Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address."
+)]
+pub struct BuyArgs {
+    /// Amount to buy (e.g. 1.0)
+    amount: String,
+
+    /// Remaining tokens — see above for all supported forms
+    #[arg(num_args = 1..=3)]
+    tokens: Vec<String>,
+
+    #[command(flatten)]
+    common: CommonArgs,
+}
+
+pub fn run_sell(ctx: Context, args: SellArgs) -> anyhow::Result<()> {
+    let SellArgs { amount, tokens, common } = args;
+    let parsed = parse_sell(&amount, &tokens)?;
+    execute(ctx, parsed, common)
+}
+
+pub fn run_buy(ctx: Context, args: BuyArgs) -> anyhow::Result<()> {
+    let BuyArgs { amount, tokens, common } = args;
+    let parsed = parse_buy(&amount, &tokens)?;
+    execute(ctx, parsed, common)
+}
+
+/// `(kind, sell_tok, sell_amount, buy_tok, buy_amount)` — amounts are `None` when unspecified.
+type ParsedSyntax<'a> = (
+    OrderKind,
+    &'a str,
+    Option<&'a str>,
+    &'a str,
+    Option<&'a str>,
+);
+
+/// Parse sell syntax, stripping the optional `for` keyword.
+///
+///   sell 1.0 USDC                → sell 1.0 SOL (implied), get USDC
+///   sell 1.0 SOL [for] USDC      → sell 1.0 SOL, get USDC
+///   sell 1.0 SOL [for] 50.0 USDC → sell 1.0 SOL, get ≥ 50.0 USDC
+fn parse_sell<'a>(amount: &'a str, tokens: &'a [String]) -> anyhow::Result<ParsedSyntax<'a>> {
+    let t: Vec<&str> = tokens
+        .iter()
+        .filter(|s| !s.eq_ignore_ascii_case("for"))
+        .map(String::as_str)
+        .collect();
+    match t.as_slice() {
+        // sell 1.0 USDC — sell 1.0 SOL into USDC (SOL implied)
+        [buy_tok] => Ok((OrderKind::Sell, "SOL", Some(amount), buy_tok, None)),
+        // sell 1.0 SOL [for] USDC — sell 1.0 SOL, get USDC
+        [sell_tok, buy_tok] => Ok((OrderKind::Sell, sell_tok, Some(amount), buy_tok, None)),
+        // sell 1.0 SOL [for] 50.0 USDC — sell with minimum buy amount
+        [sell_tok, buy_amount, buy_tok] if is_amount(buy_amount) => Ok((
+            OrderKind::Sell,
+            sell_tok,
+            Some(amount),
+            buy_tok,
+            Some(buy_amount),
+        )),
+        _ => anyhow::bail!(
+            "cannot interpret {:?}; run `cow sell --help` for usage",
+            tokens
+        ),
+    }
+}
+
+/// Parse buy syntax, stripping the optional `with` keyword.
+///
+///   buy 1.0 USDC            → buy 1.0 USDC, sell SOL (implied)
+///   buy 1.0 SOL [with] USDC → buy 1.0 SOL, sell USDC
+fn parse_buy<'a>(amount: &'a str, tokens: &'a [String]) -> anyhow::Result<ParsedSyntax<'a>> {
+    let t: Vec<&str> = tokens
+        .iter()
+        .filter(|s| !s.eq_ignore_ascii_case("with"))
+        .map(String::as_str)
+        .collect();
+    match t.as_slice() {
+        // buy 1.0 USDC — buy 1.0 USDC, sell SOL implied
+        [buy_tok] => Ok((OrderKind::Buy, "SOL", None, buy_tok, Some(amount))),
+        // buy 1.0 SOL [with] USDC — buy 1.0 SOL, sell USDC
+        [buy_tok, sell_tok] => Ok((OrderKind::Buy, sell_tok, None, buy_tok, Some(amount))),
+        _ => anyhow::bail!(
+            "cannot interpret {:?}; run `cow buy --help` for usage",
+            tokens
+        ),
+    }
+}
+
+fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow::Result<()> {
+    let (kind, sell_tok, sell_amount_str, buy_tok, buy_amount_str) = parsed;
+
     let payer = ctx.load_payer()?;
     let rpc = ctx.rpc();
-
-    let (kind, sell_tok, sell_amount_str, buy_tok, buy_amount_str) = parse_syntax(&args.tokens)?;
 
     let sell_resolved = crate::token::resolve(&rpc, &payer.pubkey(), sell_tok)?;
     let buy_resolved = crate::token::resolve(&rpc, &payer.pubkey(), buy_tok)?;
@@ -77,12 +177,12 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
         (wsol_ata, wrap_ixs)
     } else {
         (
-            args.sell_token_account.unwrap_or(sell_resolved.account),
+            common.sell_token_account.unwrap_or(sell_resolved.account),
             vec![],
         )
     };
 
-    let buy_token_account = args.buy_token_account.unwrap_or(buy_resolved.account);
+    let buy_token_account = common.buy_token_account.unwrap_or(buy_resolved.account);
 
     // Approve the settlement program to pull sell tokens on our behalf.
     prep_ixs.push(crate::instructions::approve(
@@ -109,9 +209,9 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
         buy_token_account,
         sell_amount,
         buy_amount,
-        valid_to: args.valid_to,
+        valid_to: common.valid_to,
         kind,
-        partially_fillable: args.partially_fillable,
+        partially_fillable: common.partially_fillable,
         app_data: [0u8; 32],
     };
 
@@ -142,50 +242,6 @@ pub fn run(ctx: Context, args: Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `(kind, sell_tok, sell_amount, buy_tok, buy_amount)` — amounts are `None` when unspecified.
-type ParsedSyntax<'a> = (
-    OrderKind,
-    &'a str,
-    Option<&'a str>,
-    &'a str,
-    Option<&'a str>,
-);
-
-/// Parse 2–4 positional tokens into [`ParsedSyntax`].
-fn parse_syntax(tokens: &[String]) -> anyhow::Result<ParsedSyntax<'_>> {
-    match tokens {
-        // cow swap 1.0 USDC — buy 1.0 USDC (SOL implied as sell)
-        [amount, buy_tok] if is_amount(amount) => {
-            Ok((OrderKind::Buy, "SOL", None, buy_tok, Some(amount)))
-        }
-        // cow swap 1.0 SOL USDC — sell exactly 1.0 SOL
-        [amount, sell_tok, buy_tok] if is_amount(amount) => {
-            Ok((OrderKind::Sell, sell_tok, Some(amount), buy_tok, None))
-        }
-        // cow swap SOL 1.0 USDC — buy exactly 1.0 USDC
-        [sell_tok, amount, buy_tok] if is_amount(amount) => {
-            Ok((OrderKind::Buy, sell_tok, None, buy_tok, Some(amount)))
-        }
-        // cow swap 1.0 SOL 50.0 USDC — sell 1.0 SOL, receive ≥ 50.0 USDC
-        [sell_amount, sell_tok, buy_amount, buy_tok]
-            if is_amount(sell_amount) && is_amount(buy_amount) =>
-        {
-            Ok((
-                OrderKind::Sell,
-                sell_tok,
-                Some(sell_amount),
-                buy_tok,
-                Some(buy_amount),
-            ))
-        }
-        _ => anyhow::bail!(
-            "cannot interpret {:?}; run `cow create-order --help` for usage",
-            tokens
-        ),
-    }
-}
-
-/// Returns `true` if `s` looks like a decimal number rather than a token identifier.
 fn is_amount(s: &str) -> bool {
     s.parse::<f64>().is_ok()
 }

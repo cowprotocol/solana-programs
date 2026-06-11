@@ -39,8 +39,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Create an on-chain order PDA
-    CreateOrder(cmd::create_order::Args),
+    /// Sell a token for another (e.g. `cow sell 1.0 SOL for USDC`)
+    Sell(cmd::create_order::SellArgs),
+    /// Buy a token using another (e.g. `cow buy 1.0 SOL with USDC`)
+    Buy(cmd::create_order::BuyArgs),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -51,6 +53,7 @@ fn main() -> anyhow::Result<()> {
         program_id: cli.program_id,
     };
     match cli.command {
-        Commands::CreateOrder(args) => cmd::create_order::run(ctx, args),
+        Commands::Sell(args) => cmd::create_order::run_sell(ctx, args),
+        Commands::Buy(args) => cmd::create_order::run_buy(ctx, args),
     }
 }
