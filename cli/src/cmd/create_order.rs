@@ -11,10 +11,10 @@ use settlement_client::{
 use solana_program_pack::Pack;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::{signature::Signer, transaction::Transaction};
-use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token_interface::state::Account as SplTokenAccount;
 
 use super::Context;
+use crate::token::verify_ata_ownership;
 
 #[derive(ClapArgs)]
 struct CommonArgs {
@@ -38,15 +38,25 @@ struct CommonArgs {
 #[derive(Parser)]
 #[command(
     long_about = "\
-Sell a token for another. Supported forms:
+Sell exactly N token for another. Supported forms:
 
-  cow sell 1.0 SOL for USDC        sell exactly 1.0 SOL, receive any USDC
-  cow sell 1.0 SOL for 50.0 USDC   sell exactly 1.0 SOL, receive ≥ 50.0 USDC
-  cow sell 1.0 USDC                sell 1.0 SOL into USDC (SOL implied as sell token)
+  cow sell 1.0 SOL USDC        sell exactly 1.0 SOL, receive any USDC
+  cow sell 1.0 SOL 50.0 USDC   sell exactly 1.0 SOL, receive ≥ 50.0 USDC
+  cow sell 1.0 USDC            sell 1.0 SOL into USDC (SOL implied as sell token)
 
 Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address."
 )]
-pub struct SellArgs {
+#[command(
+    long_about = "\
+Buy exactly N token using another. Supported forms:
+
+  cow buy 1.0 SOL 100.0 USDC       buy exactly 1.0 SOL, spend at most 100.0 USDC
+  cow buy 1.0 SOL USDC             buy exactly 1.0 SOL, spending any USDC
+  cow buy 1.0 USDC                 buy 1.0 USDC, selling any amount of SOL (implied)
+
+Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address."
+)]
+pub struct BuyOrSellArgs {
     /// Amount to sell (e.g. 1.0)
     amount: String,
 
@@ -57,42 +67,21 @@ pub struct SellArgs {
     #[command(flatten)]
     common: CommonArgs,
 }
-
-#[derive(Parser)]
-#[command(
-    long_about = "\
-Buy a token using another. Supported forms:
-
-  cow buy 1.0 SOL with USDC        buy exactly 1.0 SOL, spending any USDC
-  cow buy 1.0 USDC                 buy 1.0 USDC, selling SOL (implied)
-
-Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address."
-)]
-pub struct BuyArgs {
-    /// Amount to buy (e.g. 1.0)
-    amount: String,
-
-    /// Remaining tokens — see above for all supported forms
-    #[arg(num_args = 1..=3)]
-    tokens: Vec<String>,
-
-    #[command(flatten)]
-    common: CommonArgs,
-}
-
-pub fn run_sell(ctx: Context, args: SellArgs) -> anyhow::Result<()> {
-    let SellArgs { amount, tokens, common } = args;
-    let parsed = parse_sell(&amount, &tokens)?;
+pub fn run_sell(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
+    let BuyOrSellArgs { amount, tokens, common } = args;
+    let parsed = parse(OrderKind::Sell, &amount, &tokens)?;
     execute(ctx, parsed, common)
 }
 
-pub fn run_buy(ctx: Context, args: BuyArgs) -> anyhow::Result<()> {
-    let BuyArgs { amount, tokens, common } = args;
-    let parsed = parse_buy(&amount, &tokens)?;
+pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
+    let BuyOrSellArgs { amount, tokens, common } = args;
+    let parsed = parse(OrderKind::Buy, &amount, &tokens)?;
     execute(ctx, parsed, common)
 }
 
-/// `(kind, sell_tok, sell_amount, buy_tok, buy_amount)` — amounts are `None` when unspecified.
+/// `(kind, a_tok, a_amount, b_tok, b_amount)` — amounts are `None` when unspecified.
+/// If kind = OrderKind::Sell, then `a_tok` and `a_amount` is the sold token
+/// If kind = OrderKind::Buy, then `b_tok` and `b_amount` is the sold token
 type ParsedSyntax<'a> = (
     OrderKind,
     &'a str,
@@ -101,28 +90,20 @@ type ParsedSyntax<'a> = (
     Option<&'a str>,
 );
 
-/// Parse sell syntax, stripping the optional `for` keyword.
-///
-///   sell 1.0 USDC                → sell 1.0 SOL (implied), get USDC
-///   sell 1.0 SOL [for] USDC      → sell 1.0 SOL, get USDC
-///   sell 1.0 SOL [for] 50.0 USDC → sell 1.0 SOL, get ≥ 50.0 USDC
-fn parse_sell<'a>(amount: &'a str, tokens: &'a [String]) -> anyhow::Result<ParsedSyntax<'a>> {
+fn parse<'a>(kind: OrderKind, amount: &'a str, tokens: &'a [String]) -> anyhow::Result<ParsedSyntax<'a>> {
     let t: Vec<&str> = tokens
         .iter()
         .filter(|s| !s.eq_ignore_ascii_case("for"))
         .map(String::as_str)
         .collect();
     match t.as_slice() {
-        // sell 1.0 USDC — sell 1.0 SOL into USDC (SOL implied)
-        [buy_tok] => Ok((OrderKind::Sell, "SOL", Some(amount), buy_tok, None)),
-        // sell 1.0 SOL [for] USDC — sell 1.0 SOL, get USDC
-        [sell_tok, buy_tok] => Ok((OrderKind::Sell, sell_tok, Some(amount), buy_tok, None)),
-        // sell 1.0 SOL [for] 50.0 USDC — sell with minimum buy amount
-        [sell_tok, buy_amount, buy_tok] if is_amount(buy_amount) => Ok((
-            OrderKind::Sell,
-            sell_tok,
+        [tok] => Ok((kind, "SOL", Some(amount), tok, None)),
+        [a_tok, b_tok] => Ok((kind, a_tok, Some(amount), b_tok, None)),
+        [a_tok, buy_amount, b_tok] if is_amount(buy_amount) => Ok((
+            kind,
+            a_tok,
             Some(amount),
-            buy_tok,
+            b_tok,
             Some(buy_amount),
         )),
         _ => anyhow::bail!(
@@ -132,30 +113,14 @@ fn parse_sell<'a>(amount: &'a str, tokens: &'a [String]) -> anyhow::Result<Parse
     }
 }
 
-/// Parse buy syntax, stripping the optional `with` keyword.
-///
-///   buy 1.0 USDC            → buy 1.0 USDC, sell SOL (implied)
-///   buy 1.0 SOL [with] USDC → buy 1.0 SOL, sell USDC
-fn parse_buy<'a>(amount: &'a str, tokens: &'a [String]) -> anyhow::Result<ParsedSyntax<'a>> {
-    let t: Vec<&str> = tokens
-        .iter()
-        .filter(|s| !s.eq_ignore_ascii_case("with"))
-        .map(String::as_str)
-        .collect();
-    match t.as_slice() {
-        // buy 1.0 USDC — buy 1.0 USDC, sell SOL implied
-        [buy_tok] => Ok((OrderKind::Buy, "SOL", None, buy_tok, Some(amount))),
-        // buy 1.0 SOL [with] USDC — buy 1.0 SOL, sell USDC
-        [buy_tok, sell_tok] => Ok((OrderKind::Buy, sell_tok, None, buy_tok, Some(amount))),
-        _ => anyhow::bail!(
-            "cannot interpret {:?}; run `cow buy --help` for usage",
-            tokens
-        ),
-    }
-}
-
 fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow::Result<()> {
-    let (kind, sell_tok, sell_amount_str, buy_tok, buy_amount_str) = parsed;
+    let (kind, mut sell_tok, mut sell_amount_str, mut buy_tok, mut buy_amount_str) = parsed;
+
+    // if buying the token, the parsing comes reversed
+    if kind == OrderKind::Buy {
+        (sell_tok, buy_tok) = (buy_tok, sell_tok);
+        (sell_amount_str, buy_amount_str) = (buy_amount_str, sell_amount_str);
+    }
 
     let payer = ctx.load_payer()?;
     let rpc = ctx.rpc();
@@ -163,20 +128,16 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     let sell_resolved = crate::token::resolve(&rpc, &payer.pubkey(), sell_tok)?;
     let buy_resolved = crate::token::resolve(&rpc, &payer.pubkey(), buy_tok)?;
 
-    let sell_amount = sell_amount_str
-        .map(|s| parse_amount(s, sell_resolved.decimals))
-        .transpose()?
-        .unwrap_or(0);
-    let buy_amount = buy_amount_str
-        .map(|s| parse_amount(s, buy_resolved.decimals))
-        .transpose()?
-        .unwrap_or(0);
+    let sell_amount = parse_amount(sell_amount_str.unwrap_or("0"), sell_resolved.decimals)?;
+    let buy_amount = parse_amount(buy_amount_str.unwrap_or("0"), buy_resolved.decimals)?;
 
     // If the sell token is SOL, wrap it into the payer's WSOL ATA first.
     let (sell_token_account, mut prep_ixs) = if sell_tok.eq_ignore_ascii_case("sol") {
         let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&payer.pubkey(), sell_amount)?;
         (wsol_ata, wrap_ixs)
     } else {
+        // We are selling from an ATA--either we have to resolve it from the mint, or the user gave
+        // it to us and we should validate
         let account = if let Some(explicit) = common.sell_token_account {
             verify_ata_ownership(&rpc, &explicit, &payer.pubkey())?;
             explicit
@@ -258,36 +219,6 @@ fn parse_amount(amount_str: &str, decimals: u8) -> anyhow::Result<u64> {
         .with_context(|| format!("invalid amount: {amount_str}"))?;
     let multiplier = 10u64.pow(u32::from(decimals));
     Ok((amount * multiplier as f64).round() as u64)
-}
-
-/// Errors if `token_account` is an ATA whose owner is not `expected_owner`.
-///
-/// Non-ATA accounts and accounts that don't exist on-chain are silently skipped — the
-/// on-chain program will reject a misowned account at settlement time anyway.
-fn verify_ata_ownership(
-    rpc: &RpcClient,
-    token_account: &Pubkey,
-    expected_owner: &Pubkey,
-) -> anyhow::Result<()> {
-    let Some(raw) = rpc.get_account(token_account).ok() else {
-        return Ok(());
-    };
-    let Ok(ta) = SplTokenAccount::unpack(&raw.data) else {
-        return Ok(());
-    };
-    let expected_ata = get_associated_token_address_with_program_id(
-        &ta.owner,
-        &ta.mint,
-        &spl_token_interface::id(),
-    );
-    if expected_ata == *token_account && ta.owner.to_bytes() != expected_owner.to_bytes() {
-        anyhow::bail!(
-            "sell_token_account {token_account} is an ATA belonging to {}, not the signer {}",
-            ta.owner,
-            expected_owner,
-        );
-    }
-    Ok(())
 }
 
 /// Returns `true` if the token account's close authority is still controlled by its owner

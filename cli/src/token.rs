@@ -7,7 +7,7 @@ use anyhow::Context as _;
 use settlement_client::settlement_interface::Pubkey;
 use solana_program_pack::Pack;
 use solana_rpc_client::rpc_client::RpcClient;
-use spl_associated_token_account::get_associated_token_address_with_program_id;
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use spl_token_interface::native_mint;
 use spl_token_interface::state::{Account as TokenAccount, Mint};
 
@@ -19,6 +19,8 @@ struct KnownToken {
     decimals: u8,
 }
 
+// Temporary registry mapping token symbols to mint addresess. Intended to be replaced in the
+// future with something more robust.
 static REGISTRY: &[(&str, KnownToken)] = &[(
     "USDC",
     KnownToken {
@@ -118,4 +120,34 @@ fn fetch_mint_decimals(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<u8> {
     Ok(Mint::unpack(&data)
         .with_context(|| format!("failed to unpack mint {mint}"))?
         .decimals)
+}
+
+/// Errors if `token_account` is an ATA whose owner is not `expected_owner`.
+///
+/// Non-ATA accounts and accounts that don't exist on-chain are silently skipped — the
+/// on-chain program will reject a misowned account at settlement time anyway.
+pub fn verify_ata_ownership(
+    rpc: &RpcClient,
+    token_account: &Pubkey,
+    expected_owner: &Pubkey,
+) -> anyhow::Result<()> {
+    let Some(raw) = rpc.get_account(token_account).ok() else {
+        return Ok(());
+    };
+    let Ok(ta) = TokenAccount::unpack(&raw.data) else {
+        return Ok(());
+    };
+    let expected_ata = get_associated_token_address_with_program_id(
+        &ta.owner,
+        &ta.mint,
+        &spl_token_interface::id(),
+    );
+    if expected_ata == *token_account && ta.owner.to_bytes() != expected_owner.to_bytes() {
+        anyhow::bail!(
+            "sell_token_account {token_account} is an ATA belonging to {}, not the signer {}",
+            ta.owner,
+            expected_owner,
+        );
+    }
+    Ok(())
 }
