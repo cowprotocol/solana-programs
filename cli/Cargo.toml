@@ -16,10 +16,9 @@ solana-instruction.workspace = true
 solana-program-pack.workspace = true
 solana-rpc-client.workspace = true
 solana-sdk.workspace = true
-# v2 uses solana-pubkey v3 (same as the rest of the workspace); v3 uses solana-address which is incompatible.
-solana-system-interface = "2"
-spl-associated-token-account = { version = "8", features = ["no-entrypoint"] }
-spl-token-interface = "2"
+solana-system-interface = { workspace = true, features = ["bincode"] }
+spl-associated-token-account.workspace = true
+spl-token-interface.workspace = true
 
 [lints]
 workspace = true
