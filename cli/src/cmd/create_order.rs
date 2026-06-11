@@ -36,26 +36,22 @@ struct CommonArgs {
 }
 
 #[derive(Parser)]
-#[command(
-    long_about = "\
+#[command(long_about = "\
 Sell exactly N token for another. Supported forms:
 
   cow sell 1.0 SOL USDC        sell exactly 1.0 SOL, receive any USDC
   cow sell 1.0 SOL 50.0 USDC   sell exactly 1.0 SOL, receive ≥ 50.0 USDC
   cow sell 1.0 USDC            sell 1.0 SOL into USDC (SOL implied as sell token)
 
-Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address."
-)]
-#[command(
-    long_about = "\
+Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address.")]
+#[command(long_about = "\
 Buy exactly N token using another. Supported forms:
 
   cow buy 1.0 SOL 100.0 USDC       buy exactly 1.0 SOL, spend at most 100.0 USDC
   cow buy 1.0 SOL USDC             buy exactly 1.0 SOL, spending any USDC
   cow buy 1.0 USDC                 buy 1.0 USDC, selling any amount of SOL (implied)
 
-Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address."
-)]
+Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address.")]
 pub struct BuyOrSellArgs {
     /// Amount to sell (e.g. 1.0)
     amount: String,
@@ -68,13 +64,21 @@ pub struct BuyOrSellArgs {
     common: CommonArgs,
 }
 pub fn run_sell(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
-    let BuyOrSellArgs { amount, tokens, common } = args;
+    let BuyOrSellArgs {
+        amount,
+        tokens,
+        common,
+    } = args;
     let parsed = parse(OrderKind::Sell, &amount, &tokens)?;
     execute(ctx, parsed, common)
 }
 
 pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
-    let BuyOrSellArgs { amount, tokens, common } = args;
+    let BuyOrSellArgs {
+        amount,
+        tokens,
+        common,
+    } = args;
     let parsed = parse(OrderKind::Buy, &amount, &tokens)?;
     execute(ctx, parsed, common)
 }
@@ -90,7 +94,11 @@ type ParsedSyntax<'a> = (
     Option<&'a str>,
 );
 
-fn parse<'a>(kind: OrderKind, amount: &'a str, tokens: &'a [String]) -> anyhow::Result<ParsedSyntax<'a>> {
+fn parse<'a>(
+    kind: OrderKind,
+    amount: &'a str,
+    tokens: &'a [String],
+) -> anyhow::Result<ParsedSyntax<'a>> {
     let t: Vec<&str> = tokens
         .iter()
         .filter(|s| !s.eq_ignore_ascii_case("for"))
@@ -99,13 +107,9 @@ fn parse<'a>(kind: OrderKind, amount: &'a str, tokens: &'a [String]) -> anyhow::
     match t.as_slice() {
         [tok] => Ok((kind, "SOL", Some(amount), tok, None)),
         [a_tok, b_tok] => Ok((kind, a_tok, Some(amount), b_tok, None)),
-        [a_tok, buy_amount, b_tok] if is_amount(buy_amount) => Ok((
-            kind,
-            a_tok,
-            Some(amount),
-            b_tok,
-            Some(buy_amount),
-        )),
+        [a_tok, buy_amount, b_tok] if is_amount(buy_amount) => {
+            Ok((kind, a_tok, Some(amount), b_tok, Some(buy_amount)))
+        }
         _ => anyhow::bail!(
             "cannot interpret {:?}; run `cow sell --help` for usage",
             tokens
