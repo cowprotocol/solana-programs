@@ -11,6 +11,7 @@ use settlement_client::{
 use solana_program_pack::Pack;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::{signature::Signer, transaction::Transaction};
+use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token_interface::state::Account as SplTokenAccount;
 
 use super::Context;
@@ -176,10 +177,13 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
         let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&payer.pubkey(), sell_amount)?;
         (wsol_ata, wrap_ixs)
     } else {
-        (
-            common.sell_token_account.unwrap_or(sell_resolved.account),
-            vec![],
-        )
+        let account = if let Some(explicit) = common.sell_token_account {
+            verify_ata_ownership(&rpc, &explicit, &payer.pubkey())?;
+            explicit
+        } else {
+            sell_resolved.account
+        };
+        (account, vec![])
     };
 
     let buy_token_account = common.buy_token_account.unwrap_or(buy_resolved.account);
@@ -254,6 +258,36 @@ fn parse_amount(amount_str: &str, decimals: u8) -> anyhow::Result<u64> {
         .with_context(|| format!("invalid amount: {amount_str}"))?;
     let multiplier = 10u64.pow(u32::from(decimals));
     Ok((amount * multiplier as f64).round() as u64)
+}
+
+/// Errors if `token_account` is an ATA whose owner is not `expected_owner`.
+///
+/// Non-ATA accounts and accounts that don't exist on-chain are silently skipped — the
+/// on-chain program will reject a misowned account at settlement time anyway.
+fn verify_ata_ownership(
+    rpc: &RpcClient,
+    token_account: &Pubkey,
+    expected_owner: &Pubkey,
+) -> anyhow::Result<()> {
+    let Some(raw) = rpc.get_account(token_account).ok() else {
+        return Ok(());
+    };
+    let Ok(ta) = SplTokenAccount::unpack(&raw.data) else {
+        return Ok(());
+    };
+    let expected_ata = get_associated_token_address_with_program_id(
+        &ta.owner,
+        &ta.mint,
+        &spl_token_interface::id(),
+    );
+    if expected_ata == *token_account && ta.owner.to_bytes() != expected_owner.to_bytes() {
+        anyhow::bail!(
+            "sell_token_account {token_account} is an ATA belonging to {}, not the signer {}",
+            ta.owner,
+            expected_owner,
+        );
+    }
+    Ok(())
 }
 
 /// Returns `true` if the token account's close authority is still controlled by its owner
