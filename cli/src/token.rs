@@ -11,9 +11,6 @@ use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token_interface::native_mint;
 use spl_token_interface::state::{Account as TokenAccount, Mint};
 
-// TOKEN_2022_PROGRAM_ID is stable; replace with spl_token_2022::id() once that crate is added.
-const TOKEN_2022_PROGRAM_ID: &str = "TokenzQdBNbEquZMSWx5Qvq4AEJb5JMmjfLE5eTnFdyv7E";
-
 /// Inline registry of recognised token symbols.
 /// Avoids an RPC round-trip for well-known mints whose decimals are fixed.
 /// Replace with a proper on-chain registry or quote-API lookup when available.
@@ -89,21 +86,12 @@ fn resolve_pubkey(
         .get_account(pubkey)
         .with_context(|| format!("account {pubkey} not found on-chain"))?;
 
-    // String comparison keeps us safe across any Pubkey version in the dep tree.
     let owner_str = account.owner.to_string();
-    let is_token_2022 = owner_str == TOKEN_2022_PROGRAM_ID;
     anyhow::ensure!(
-        owner_str == spl_token_interface::id().to_string() || is_token_2022,
-        "{pubkey} is not owned by a token program (owner: {owner_str})"
+        owner_str == spl_token_interface::id().to_string(),
+        "{pubkey} is not owned by the token program (owner: {owner_str})"
     );
 
-    let token_program: Pubkey = if is_token_2022 {
-        TOKEN_2022_PROGRAM_ID.parse().expect("constant")
-    } else {
-        spl_token_interface::id()
-    };
-
-    // Try unpacking as a token account first, then as a mint.
     if let Ok(token_account) = TokenAccount::unpack(&account.data) {
         Ok(ResolvedToken {
             account: *pubkey,
@@ -111,7 +99,7 @@ fn resolve_pubkey(
         })
     } else if let Ok(mint) = Mint::unpack(&account.data) {
         Ok(ResolvedToken {
-            account: get_associated_token_address_with_program_id(owner, pubkey, &token_program),
+            account: get_associated_token_address_with_program_id(owner, pubkey, &account.owner),
             decimals: mint.decimals,
         })
     } else {
