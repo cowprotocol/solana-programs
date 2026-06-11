@@ -39,6 +39,12 @@ pub fn process_initialize(
 ) -> ProgramResult {
     let InitializeInput { payer, state_pda } = InitializeInput::parse(instruction_data, accounts)?;
 
+    // There are no explicit account guards here: `create_canonical_pda` rejects
+    // any `state_pda`  other than the address those seeds derive and guards
+    // re-init., `CreateAccount` itself assigns.
+    // The system program is invoked by its fixed address, so the account in that
+    // system program is invoked by its slot is never referenced directly.
+
     create_canonical_pda(program_id, payer, state_pda, 0, state_pda_seeds())?;
 
     Ok(())
