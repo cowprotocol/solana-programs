@@ -2,7 +2,10 @@ use settlement_client::instructions::initialize;
 use settlement_client::settlement_interface::{
     instruction::initialize::initialize as initialize_ix, pda::state::find_state_pda,
 };
-use solana_sdk::{pubkey::Pubkey, signature::Signer};
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+};
 
 mod common;
 
@@ -31,6 +34,30 @@ fn happy_path_initializes_empty_state_pda() {
         account.lamports, rent,
         "state PDA must hold exactly the rent minimum: {} != {}",
         account.lamports, rent,
+    );
+}
+
+#[test]
+fn funding_payer_can_differ_from_fee_payer() {
+    let (mut svm, program_id, fee_payer) = common::setup();
+    let (_, _bump) = find_state_pda(&program_id);
+
+    let funder = Keypair::new();
+    let funder_airdrop = 1_000_000_000;
+    svm.airdrop(&funder.pubkey(), funder_airdrop)
+        .expect("airdrop to funder should succeed");
+
+    let ix = initialize(&program_id, &funder.pubkey());
+    let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
+    svm.send_transaction(tx).expect("initialize should succeed");
+
+    // The rent came out of the funder, not the fee payer: the funder paid no
+    // transaction fee, so its balance dropped by exactly the PDA rent.
+    let rent = svm.minimum_balance_for_rent_exemption(0);
+    assert_eq!(
+        common::lamports(&svm, &funder.pubkey()),
+        funder_airdrop - rent,
+        "funder should have paid exactly the PDA rent",
     );
 }
 
