@@ -5,9 +5,9 @@ use litesvm_token::{
         state::{Account as TokenAccount, AccountState},
     },
 };
-use settlement_client::instructions::create_buffer;
+use settlement_client::instructions::create_buffers;
 use settlement_client::settlement_interface::{
-    instruction::create_buffer::{create_buffer as create_buffer_ix, SPL_TOKEN_PROGRAM_ID},
+    instruction::create_buffer::{create_buffers as create_buffers_ix, SPL_TOKEN_PROGRAM_ID},
     pda::{
         buffer::{buffer_pda_seeds, find_buffer_pda},
         state::find_state_pda,
@@ -30,7 +30,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
     let (state_pda, _) = find_state_pda(&program_id);
 
-    let ix = create_buffer(&program_id, &payer.pubkey(), &mint);
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[mint]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx)
         .expect("create_buffer should succeed");
@@ -93,7 +93,7 @@ fn buffer_can_receive_tokens() {
     let mint = common::token::create_mint(&mut svm, &payer);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
 
-    let ix = create_buffer(&program_id, &payer.pubkey(), &mint);
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[mint]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx)
         .expect("create_buffer should succeed");
@@ -127,7 +127,7 @@ fn happy_path_creates_native_token_buffer() {
     let (mut svm, program_id, payer) = common::setup();
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &native_mint::ID);
 
-    let ix = create_buffer(&program_id, &payer.pubkey(), &native_mint::ID);
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[native_mint::ID]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx)
         .expect("create_buffer for the native mint should succeed");
@@ -150,12 +150,75 @@ fn happy_path_creates_native_token_buffer() {
 }
 
 #[test]
+fn happy_path_creates_multiple_buffers_in_one_instruction() {
+    let (mut svm, program_id, payer) = common::setup();
+    let (state_pda, _) = find_state_pda(&program_id);
+
+    let mints: Vec<Pubkey> = (0..3)
+        .map(|_| common::token::create_mint(&mut svm, &payer))
+        .collect();
+
+    let ix = create_buffers(&program_id, &payer.pubkey(), &mints);
+    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    svm.send_transaction(tx)
+        .expect("create_buffers should create every buffer at once");
+
+    for mint in &mints {
+        let (buffer_pda, _bump) = find_buffer_pda(&program_id, mint);
+        let account = svm
+            .get_account(&buffer_pda)
+            .expect("each buffer PDA should exist after create_buffers");
+        assert_eq!(
+            account.owner, SPL_TOKEN_PROGRAM_ID,
+            "each buffer must be owned by the SPL Token program"
+        );
+        assert_eq!(
+            account.data.len(),
+            TokenAccount::LEN,
+            "each buffer must be sized to a token account",
+        );
+        common::assert_rent_exempt(&svm, &account);
+
+        let token_account = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
+            .expect("each buffer must be an initialized token account");
+        assert_eq!(token_account.mint, *mint, "buffer must track its mint");
+        assert_eq!(
+            token_account.owner, state_pda,
+            "each buffer authority must be the settlement state PDA"
+        );
+        assert_eq!(
+            token_account.state,
+            AccountState::Initialized,
+            "each buffer must be an initialized token account"
+        );
+    }
+}
+
+#[test]
+fn no_buffers_is_a_no_op() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    let balance_before = common::lamports(&svm, &payer.pubkey());
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[]);
+    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    svm.send_transaction(tx)
+        .expect("creating zero buffers should succeed as a no-op");
+
+    let spent = balance_before - common::lamports(&svm, &payer.pubkey());
+    assert!(
+        spent <= 5_000,
+        "a no-op must charge at most the transaction fee, not rent, \
+         but the payer lost {spent} lamports",
+    );
+}
+
+#[test]
 fn rejects_arbitrary_wrong_buffer_pda() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
 
     let wrong_pda = Pubkey::new_unique();
-    let ix = create_buffer_ix(&program_id, &payer.pubkey(), &wrong_pda, &mint);
+    let ix = create_buffers_ix(&program_id, &payer.pubkey(), &[(wrong_pda, mint)]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
@@ -171,7 +234,7 @@ fn rejects_non_canonical_bump_pda() {
     let (_bump, non_canonical_pda) =
         common::pda::find_noncanonical_pda(&program_id, buffer_pda_seeds(mint.as_array()));
 
-    let ix = create_buffer_ix(&program_id, &payer.pubkey(), &non_canonical_pda, &mint);
+    let ix = create_buffers_ix(&program_id, &payer.pubkey(), &[(non_canonical_pda, mint)]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &non_canonical_pda);
 }
@@ -183,8 +246,8 @@ fn rejects_non_spl_token_program() {
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
 
     // Swap the token-program account for an arbitrary key.
-    let mut ix = create_buffer(&program_id, &payer.pubkey(), &mint);
-    let token_program_index = 3;
+    let mut ix = create_buffers(&program_id, &payer.pubkey(), &[mint]);
+    let token_program_index = 1;
     assert_eq!(
         ix.accounts[token_program_index].pubkey, SPL_TOKEN_PROGRAM_ID,
         "sanity: should replace token program"
@@ -221,7 +284,7 @@ fn rejects_invalid_mint() {
     let not_a_mint = Pubkey::new_unique();
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &not_a_mint);
 
-    let ix = create_buffer(&program_id, &payer.pubkey(), &not_a_mint);
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[not_a_mint]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
     let err = svm
@@ -248,14 +311,60 @@ fn rejects_creating_same_buffer_twice() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
 
-    let ix = create_buffer(&program_id, &payer.pubkey(), &mint);
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[mint]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx)
         .expect("first create_buffer should succeed");
 
     svm.expire_blockhash();
 
-    let ix = create_buffer(&program_id, &payer.pubkey(), &mint);
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[mint]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     common::pda::assert_rejected_as_existing(&mut svm, tx);
+}
+
+#[test]
+fn one_failing_buffer_reverts_the_whole_batch() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    // Pre-create a buffer for `existing`.
+    let existing = common::token::create_mint(&mut svm, &payer);
+    let fresh = common::token::create_mint(&mut svm, &payer);
+
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[existing]);
+    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    svm.send_transaction(tx)
+        .expect("creating the first buffer should succeed");
+
+    // Batch the fresh mint *before* the already-existing one: the fresh buffer
+    // would be allocated first, then the existing one fails. Because the
+    // instruction is atomic, the whole batch reverts and the fresh buffer must
+    // not survive.
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[fresh, existing]);
+    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    common::pda::assert_rejected_as_existing(&mut svm, tx);
+
+    let (fresh_buffer, _bump) = find_buffer_pda(&program_id, &fresh);
+    assert!(
+        svm.get_account(&fresh_buffer).is_none(),
+        "the fresh buffer must be rolled back when a later buffer in the batch fails"
+    );
+}
+
+#[test]
+fn rejects_same_mint_twice_in_one_instruction() {
+    let (mut svm, program_id, payer) = common::setup();
+    let mint = common::token::create_mint(&mut svm, &payer);
+
+    // Both pairs derive the same buffer PDA: the first creates it, the second
+    // tries to recreate the now-existing account and fails, reverting the batch.
+    let ix = create_buffers(&program_id, &payer.pubkey(), &[mint, mint]);
+    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    common::pda::assert_rejected_as_existing(&mut svm, tx);
+
+    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "the buffer must not be created in a batch that creates it twice"
+    );
 }

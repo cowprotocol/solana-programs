@@ -33,14 +33,12 @@ pub fn create_order(
     )
 }
 
-pub fn create_buffer(program_id: &Pubkey, payer: &Pubkey, mint: &Pubkey) -> Instruction {
-    let (buffer_pda, _bump) = find_buffer_pda(program_id, mint);
-    settlement_interface::instruction::create_buffer::create_buffer(
-        program_id,
-        payer,
-        &buffer_pda,
-        mint,
-    )
+pub fn create_buffers(program_id: &Pubkey, payer: &Pubkey, mints: &[Pubkey]) -> Instruction {
+    let buffers: Vec<(Pubkey, Pubkey)> = mints
+        .iter()
+        .map(|mint| (find_buffer_pda(program_id, mint).0, *mint))
+        .collect();
+    settlement_interface::instruction::create_buffer::create_buffers(program_id, payer, &buffers)
 }
 
 pub fn initialize(program_id: &Pubkey, payer: &Pubkey) -> Instruction {
