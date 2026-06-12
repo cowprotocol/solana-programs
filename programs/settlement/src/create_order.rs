@@ -10,7 +10,7 @@ use settlement_interface::{
     SettlementError, SettlementInstruction,
 };
 
-use crate::processor::{create_canonical_pda, InstructionInputParsing};
+use crate::processor::{CanonicalPda, InstructionInputParsing};
 
 /// Parsed inputs of a `CreateOrder` instruction.
 struct CreateOrderInput<'a> {
@@ -77,14 +77,15 @@ pub fn process_create_order(
     // canonical bump and, by signing the creation with the order seeds, rejects
     // any `order_pda` that isn't the canonical address. The rest of the code
     // can assume that if an account has data, then the bump is valid.
-    create_canonical_pda(
+    CanonicalPda {
         program_id,
-        created_by,
-        order_pda,
-        EncodedOrderAccount::SIZE as u64,
-        program_id,
-        order_pda_seeds(&intent_uid),
-    )?;
+        payer: created_by,
+        pda: order_pda,
+        size: EncodedOrderAccount::SIZE as u64,
+        owner: program_id,
+        seeds: order_pda_seeds(&intent_uid),
+    }
+    .create()?;
 
     // Note: `intent_bytes` were validated before and are known to represent a valid intent.
     let mut buffer = order_pda.try_borrow_mut()?;

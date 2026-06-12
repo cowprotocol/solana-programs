@@ -8,7 +8,7 @@ use settlement_interface::{
     SettlementInstruction,
 };
 
-use crate::processor::{create_canonical_pda, InstructionInputParsing};
+use crate::processor::{CanonicalPda, InstructionInputParsing};
 
 /// Parsed inputs of a `CreateBuffer` instruction.
 struct CreateBufferInput<'a> {
@@ -72,14 +72,15 @@ pub fn process_create_buffer(
     // token-program-owned mint (and special-cases the native mint), so a check
     // of our own would be redundant.
     let mint_key = mint.address().as_array();
-    create_canonical_pda(
+    CanonicalPda {
         program_id,
         payer,
-        buffer_pda,
-        TokenAccount::LEN as u64,
-        &SPL_TOKEN_PROGRAM_ID,
-        buffer_pda_seeds(mint_key),
-    )?;
+        pda: buffer_pda,
+        size: TokenAccount::LEN as u64,
+        owner: &SPL_TOKEN_PROGRAM_ID,
+        seeds: buffer_pda_seeds(mint_key),
+    }
+    .create()?;
 
     // The buffer's token authority is the settlement state PDA, the single
     // authority over every buffer.
