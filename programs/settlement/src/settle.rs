@@ -517,8 +517,8 @@ mod tests {
 
     proptest! {
         // The client's `begin_settle` builder derives each order's PDA from its
-        // intent, sorts the orders by PDA address, and lays out the accounts and
-        // bumps so that the on-chain parser recovers exactly those orders.
+        // intent and forwards to the interface builder so that the on-chain
+        // parser recovers exactly those orders.
         #[test]
         fn client_begin_settle_derives_orders_from_intents(
             finalize_ix_index in any::<u16>(),

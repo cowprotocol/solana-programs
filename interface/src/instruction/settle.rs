@@ -25,8 +25,9 @@ use crate::SettlementInstruction;
 //  pair of accounts per order.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
-/// The builder assumes the input already satisfies this: it emits the bumps and
-/// account metas in the order given, without reordering.
+/// This builder establishes that ordering for the caller: it sorts the orders by
+/// PDA address (carrying each order's sell token account and bump along) before
+/// emitting them.
 pub fn begin_settle(
     program_id: &Pubkey,
     finalize_ix_index: u16,
@@ -34,19 +35,21 @@ pub fn begin_settle(
     sell_token_accounts: &[Pubkey],
     bumps: &[u8],
 ) -> Instruction {
-    let data = [
-        &[SettlementInstruction::BeginSettle.discriminator()][..],
-        &finalize_ix_index.to_be_bytes()[..],
-        bumps,
-    ]
-    .concat();
+    // Sort the three parallel lists together by order PDA address via a shared
+    // permutation, so each order keeps its own sell token account and bump.
+    let mut order: Vec<usize> = (0..order_pdas.len()).collect();
+    order.sort_by_key(|&i| order_pdas[i]);
+
+    let data = std::iter::once(SettlementInstruction::BeginSettle.discriminator())
+        .chain(finalize_ix_index.to_be_bytes())
+        .chain(order.iter().map(|&i| bumps[i]))
+        .collect();
 
     let accounts = std::iter::once(INSTRUCTIONS_SYSVAR_ID)
         .chain(
-            order_pdas
+            order
                 .iter()
-                .zip(sell_token_accounts)
-                .flat_map(|(order_pda, sell_token_account)| [*order_pda, *sell_token_account]),
+                .flat_map(|&i| [order_pdas[i], sell_token_accounts[i]]),
         )
         .map(|pubkey| AccountMeta::new_readonly(pubkey, false))
         .collect();
@@ -137,24 +140,25 @@ mod tests {
     }
 
     #[test]
-    fn begin_settle_emits_unsorted_orders() {
+    fn begin_settle_sorts_orders_by_pda() {
         let program_id = Pubkey::new_unique();
-        // Two orders, sorted in the wrong way. Bad sorting stresses that the
-        // instruction builder doesn't validate the input.
-        let low_order_pda = Pubkey::new_from_array([0xb; 32]);
-        let low_sell_token_account = Pubkey::new_from_array([0xbb; 32]);
-        let low_bump = 0xbb;
-        let high_order_pda = Pubkey::new_from_array([0xa; 32]);
-        let high_sell_token_account = Pubkey::new_from_array([0xaa; 32]);
+        // Two orders supplied in descending PDA order. All the other parameters
+        // are chosen to sort in the opposite order.
+        let high_order_pda = Pubkey::new_from_array([0xbb; 32]);
+        let high_sell_token_account = Pubkey::new_from_array([0xa0; 32]);
         let high_bump = 0xaa;
+        let low_order_pda = Pubkey::new_from_array([0xaa; 32]);
+        let low_sell_token_account = Pubkey::new_from_array([0xb0; 32]);
+        let low_bump = 0xbb;
         let ix = begin_settle(
             &program_id,
             0x1337,
-            &[low_order_pda, high_order_pda],
-            &[low_sell_token_account, high_sell_token_account],
-            &[low_bump, high_bump],
+            &[high_order_pda, low_order_pda],
+            &[high_sell_token_account, low_sell_token_account],
+            &[high_bump, low_bump],
         );
 
+        // Bumps follow the sorted order: the low PDA's bump comes first.
         assert_eq!(
             ix.data,
             [
