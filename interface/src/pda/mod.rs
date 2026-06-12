@@ -3,6 +3,7 @@
 //! Every PDA shares the [`SETTLEMENT_SEED`] prefix; each submodule defines
 //! the additional seeds and the derivation helper for one kind of PDA.
 
+pub mod buffer;
 pub mod order;
 pub mod state;
 

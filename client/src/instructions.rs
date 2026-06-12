@@ -7,7 +7,7 @@
 
 use settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
-    pda::{order::find_order_pda, state::find_state_pda},
+    pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
 
@@ -62,6 +62,16 @@ pub fn create_order(
         created_by,
         &order_pda,
         &intent_bytes,
+    )
+}
+
+pub fn create_buffer(program_id: &Pubkey, payer: &Pubkey, mint: &Pubkey) -> Instruction {
+    let (buffer_pda, _bump) = find_buffer_pda(program_id, mint);
+    settlement_interface::instruction::create_buffer::create_buffer(
+        program_id,
+        payer,
+        &buffer_pda,
+        mint,
     )
 }
 
