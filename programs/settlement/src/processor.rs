@@ -74,6 +74,37 @@ pub fn create_canonical_pda<const N: usize>(
     Ok(())
 }
 
+/// The stack depth at which a transaction-level call executes.
+const TRANSACTION_LEVEL_STACK_HEIGHT: u64 = 1;
+
+/// Modelled on the audited Solend flash-loan guard:
+/// <https://github.com/solendprotocol/solana-program-library/blob/mainnet/token-lending/program/src/processor.rs#L3447>
+pub fn is_cpi_call<T: core::ops::Deref<Target = [u8]>>(
+    program_id: &Address,
+    current_index: u16,
+    instructions: &Instructions<T>,
+) -> Result<bool, ProgramError> {
+    let current_ixn = instructions.load_instruction_at(usize::from(current_index))?;
+    if current_ixn.get_program_id() != program_id {
+        return Ok(true);
+    }
+    if get_stack_height() > TRANSACTION_LEVEL_STACK_HEIGHT {
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+fn get_stack_height() -> u64 {
+    unsafe { pinocchio::syscalls::sol_get_stack_height() }
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+fn get_stack_height() -> u64 {
+    TRANSACTION_LEVEL_STACK_HEIGHT
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,34 +169,4 @@ mod tests {
         let instructions = unsafe { Instructions::new_unchecked(data.as_slice()) };
         assert!(!is_cpi_call(&our_program, 0, &instructions).unwrap());
     }
-}
-
-/// The stack depth at which a transaction-level call executes.
-const TRANSACTION_LEVEL_STACK_HEIGHT: u64 = 1;
-
-/// Modelled on the audited Solend flash-loan guard:
-/// <https://github.com/solendprotocol/solana-program-library/blob/mainnet/token-lending/program/src/processor.rs#L3447>
-pub fn is_cpi_call<T: core::ops::Deref<Target = [u8]>>(
-    program_id: &Address,
-    current_index: u16,
-    instructions: &Instructions<T>,
-) -> Result<bool, ProgramError> {
-    let current_ixn = instructions.load_instruction_at(usize::from(current_index))?;
-    if current_ixn.get_program_id() != program_id {
-        return Ok(true);
-    }
-    if get_stack_height() > TRANSACTION_LEVEL_STACK_HEIGHT {
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-fn get_stack_height() -> u64 {
-    unsafe { pinocchio::syscalls::sol_get_stack_height() }
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-fn get_stack_height() -> u64 {
-    TRANSACTION_LEVEL_STACK_HEIGHT
 }
