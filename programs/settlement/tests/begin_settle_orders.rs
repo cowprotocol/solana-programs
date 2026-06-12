@@ -54,31 +54,49 @@ fn create_order_pda(svm: &mut LiteSVM, program_id: &Pubkey, owner: &Keypair, int
         .expect("create_order should succeed");
 }
 
-/// Mint a valid order on-chain, distinct per `salt`, selling from a fresh token
-/// account owned by `payer`, and return its intent.
-fn settleable_order(
-    svm: &mut LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    mint: &Pubkey,
-    salt: u8,
-) -> OrderIntent {
-    settleable_order_valid_to(svm, program_id, payer, mint, 0xdead_beef, salt)
+/// Builder that mints a valid settleable order on-chain and returns its intent.
+/// If nothing else is specified, It uses default parameters to build the order.
+/// Individula parameters can be changed before building the order.
+struct SettleableOrder<'a> {
+    svm: &'a mut LiteSVM,
+    program_id: &'a Pubkey,
+    payer: &'a Keypair,
+    intent: OrderIntent,
 }
 
-fn settleable_order_valid_to(
-    svm: &mut LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    mint: &Pubkey,
-    valid_to: u32,
-    salt: u8,
-) -> OrderIntent {
-    let sell_token = token::create_token_account(svm, payer, mint, &payer.pubkey());
-    let mut intent = sample_intent(payer.pubkey(), sell_token, salt);
-    intent.valid_to = valid_to;
-    create_order_pda(svm, program_id, payer, &intent);
-    intent
+impl<'a> SettleableOrder<'a> {
+    fn new(
+        svm: &'a mut LiteSVM,
+        program_id: &'a Pubkey,
+        payer: &'a Keypair,
+        mint: &'a Pubkey,
+    ) -> Self {
+        let sell_token = token::create_token_account(svm, payer, mint, &payer.pubkey());
+        let intent = sample_intent(payer.pubkey(), sell_token, 0);
+        Self {
+            svm,
+            program_id,
+            payer,
+            intent,
+        }
+    }
+
+    /// Make this order distinct from its siblings: `salt` is folded into
+    /// `app_data` so each value hashes to a different UID (and order PDA).
+    fn salt(mut self, salt: u8) -> Self {
+        self.intent.app_data = [salt; 32];
+        self
+    }
+
+    fn valid_to(mut self, valid_to: u32) -> Self {
+        self.intent.valid_to = valid_to;
+        self
+    }
+
+    fn build(self) -> OrderIntent {
+        create_order_pda(self.svm, self.program_id, self.payer, &self.intent);
+        self.intent
+    }
 }
 
 /// Send `[begin, finalize_settle(..)]` signed by `payer`, where `begin` is a
@@ -104,7 +122,7 @@ fn settles_a_single_order() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
     send_settlement(
         &mut svm,
         &program_id,
@@ -121,7 +139,11 @@ fn settles_multiple_orders() {
 
     let mut intents = Vec::new();
     for salt in 0..3u8 {
-        intents.push(settleable_order(&mut svm, &program_id, &payer, &mint, salt));
+        intents.push(
+            SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+                .salt(salt)
+                .build(),
+        );
     }
 
     send_settlement(
@@ -138,7 +160,7 @@ fn rejects_wrong_bump() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     assert_settlement_error(
         send_settlement(
@@ -212,7 +234,7 @@ fn rejects_sell_token_account_mismatch() {
     let mint = token::create_mint(&mut svm, &payer);
 
     // Supply a different token account than the one the order's intent names.
-    let intent = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     let wrong_sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
     assert_settlement_error(
@@ -271,7 +293,7 @@ fn rejects_duplicate_orders() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
     assert_settlement_error(
         send_settlement(
             &mut svm,
@@ -288,8 +310,12 @@ fn rejects_orders_in_wrong_address_order() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let first = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
-    let second = settleable_order(&mut svm, &program_id, &payer, &mint, 1);
+    let first = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+        .salt(0)
+        .build();
+    let second = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+        .salt(1)
+        .build();
 
     let (first_pda, first_bump) = find_order_pda(&program_id, &first.uid());
     let (second_pda, second_bump) = find_order_pda(&program_id, &second.uid());
@@ -380,7 +406,9 @@ fn rejects_expired_order() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let valid_to = 1_000_000;
-    let intent = settleable_order_valid_to(&mut svm, &program_id, &payer, &mint, valid_to, 0);
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+        .valid_to(valid_to)
+        .build();
     let after_expiration = i64::from(valid_to) + 1;
     set_unix_timestamp(&mut svm, after_expiration);
 
@@ -401,7 +429,9 @@ fn settles_order_at_exact_valid_to() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let valid_to = 1_000_000;
-    let intent = settleable_order_valid_to(&mut svm, &program_id, &payer, &mint, valid_to, 0);
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+        .valid_to(valid_to)
+        .build();
     set_unix_timestamp(&mut svm, i64::from(valid_to));
 
     send_settlement(
