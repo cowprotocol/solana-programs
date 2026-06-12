@@ -6,11 +6,13 @@
 )]
 
 pub mod pda;
+pub mod token;
 
 use litesvm::LiteSVM;
 use settlement_client::settlement_interface::SettlementError;
 use settlement_interface::Instruction;
 use solana_sdk::{
+    account::Account,
     instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -52,6 +54,17 @@ pub fn to_instruction_error(e: SettlementError) -> InstructionError {
 /// exist.
 pub fn lamports(svm: &LiteSVM, address: &Pubkey) -> u64 {
     svm.get_account(address).map(|a| a.lamports).unwrap_or(0)
+}
+
+/// Assert that `account` holds exactly the rent-exempt minimum for its current
+/// data size. The size is taken from `account.data` rather than passed in, so
+/// the check can't drift from the account it's checking.
+pub fn assert_rent_exempt(svm: &LiteSVM, account: &Account) {
+    let rent = svm.minimum_balance_for_rent_exemption(account.data.len());
+    assert_eq!(
+        account.lamports, rent,
+        "account must hold exactly its rent-exempt minimum",
+    );
 }
 
 /// Sign `ix` with `fee_payer` as the transaction fee payer and
