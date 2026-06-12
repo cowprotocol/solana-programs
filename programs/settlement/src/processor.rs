@@ -4,8 +4,8 @@ use pinocchio::{
     address::MAX_SEEDS,
     cpi::{Seed, Signer},
     error::ProgramError,
-    AccountView, Address, ProgramResult,
     sysvars::instructions::Instructions,
+    AccountView, Address, ProgramResult,
 };
 
 use pinocchio_system::instructions::CreateAccount;
@@ -103,7 +103,6 @@ fn get_stack_height() -> u64 {
 fn get_stack_height() -> u64 {
     TRANSACTION_LEVEL_STACK_HEIGHT
 }
-
 
 #[cfg(test)]
 mod tests {

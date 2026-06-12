@@ -8,7 +8,7 @@ use settlement_interface::{
     SettlementInstruction,
 };
 
-use crate::processor::{InstructionInputParsing, is_cpi_call};
+use crate::processor::{is_cpi_call, InstructionInputParsing};
 
 /// Parsed inputs of a `BeginSettle` instruction.
 ///
