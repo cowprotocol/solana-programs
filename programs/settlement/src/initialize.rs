@@ -3,7 +3,7 @@
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use settlement_interface::{pda::state::state_pda_seeds, SettlementInstruction};
 
-use crate::processor::{create_canonical_pda, InstructionInputParsing};
+use crate::processor::{CanonicalPda, InstructionInputParsing};
 
 /// Parsed inputs of an `Initialize` instruction.
 struct InitializeInput<'a> {
@@ -41,11 +41,19 @@ pub fn process_initialize(
 
     // There are no explicit account guards here: `create_canonical_pda` rejects
     // any `state_pda`  other than the address those seeds derive and guards
-    // re-init., `CreateAccount` itself assigns.
+    // against re-init.
     // The system program is invoked by its fixed address, so the account in that
     // system program is invoked by its slot is never referenced directly.
 
-    create_canonical_pda(program_id, payer, state_pda, 0, state_pda_seeds())?;
+    CanonicalPda {
+        program_id,
+        payer,
+        pda: state_pda,
+        size: 0,
+        owner: program_id,
+        seeds: state_pda_seeds(),
+    }
+    .create()?;
 
     Ok(())
 }

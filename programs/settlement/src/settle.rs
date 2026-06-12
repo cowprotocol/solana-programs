@@ -25,7 +25,7 @@ struct SettledOrder<'a> {
 
 /// Struct storing account and bumps from parsing the input of BeginSettle.
 /// We want parsing to provide the data in an ergonomic format. This struct
-/// implements `Iterator`, which returns all available information for each
+/// implements `IntoIterator`, yielding all available information for each
 /// order without further parsing steps. The parsing step that created this
 /// struct guarantees that there aren't missing elements or that they are
 /// assigned incorrectly.
@@ -34,19 +34,23 @@ struct SettledOrders<'a> {
     bumps: &'a [u8],
 }
 
-impl<'a> Iterator for SettledOrders<'a> {
+impl<'a> IntoIterator for SettledOrders<'a> {
     type Item = SettledOrder<'a>;
+    type IntoIter = std::iter::Map<
+        std::iter::Zip<std::slice::Iter<'a, [AccountView; 2]>, std::slice::Iter<'a, u8>>,
+        fn((&'a [AccountView; 2], &'a u8)) -> SettledOrder<'a>,
+    >;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let ([order_pda, sell_token_account], accounts) = self.accounts.split_first()?;
-        let (&bump, bumps) = self.bumps.split_first()?;
-        self.accounts = accounts;
-        self.bumps = bumps;
-        Some(SettledOrder {
-            order_pda,
-            sell_token_account,
-            bump,
-        })
+    fn into_iter(self) -> Self::IntoIter {
+        // A non-capturing closure coerced to a function pointer so the iterator
+        // type stays nameable in `IntoIter` above.
+        let pair_to_order: fn((&'a [AccountView; 2], &'a u8)) -> SettledOrder<'a> =
+            |([order_pda, sell_token_account], &bump)| SettledOrder {
+                order_pda,
+                sell_token_account,
+                bump,
+            };
+        self.accounts.iter().zip(self.bumps).map(pair_to_order)
     }
 }
 
@@ -208,7 +212,7 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
 /// that its sell token account is the one the order's owner controls.
 fn validate_settled_orders<'a>(
     program_id: &Address,
-    orders: impl Iterator<Item = SettledOrder<'a>>,
+    orders: impl IntoIterator<Item = SettledOrder<'a>>,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
@@ -237,9 +241,8 @@ fn validate_settled_orders<'a>(
 
         // Only at this point we can validate that the PDA is indeed a valid
         // order PDA by seeing its address matches the computed one.
-        let bump_seed = [bump];
         let derived =
-            Address::create_program_address(&order_pda_signer_seeds(&uid, &bump_seed), program_id)
+            Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
                 .map_err(|_| SettlementError::OrderNotCanonical)?;
         if &derived != order_pda.address() {
             return Err(SettlementError::OrderNotCanonical.into());
@@ -357,7 +360,7 @@ mod tests {
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &address);
-        assert_eq!(orders.count(), 0);
+        assert_eq!(orders.into_iter().count(), 0);
     }
 
     #[test]
@@ -436,11 +439,12 @@ mod tests {
         let BeginSettleInput {
             finalize_ix_index,
             instructions_sysvar_account,
-            mut orders,
+            orders,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
 
+        let mut orders = orders.into_iter();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
@@ -474,7 +478,7 @@ mod tests {
         }
 
         let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        let orders: Vec<_> = parsed.orders.collect();
+        let orders: Vec<_> = parsed.orders.into_iter().collect();
 
         assert_eq!(orders.len(), ORDER_COUNT);
         for (order, (order_pda, sell_token, bump)) in orders.iter().zip(&expected) {
@@ -525,8 +529,8 @@ mod tests {
 
     proptest! {
         // The client's `begin_settle` builder derives each order's PDA from its
-        // intent, sorts the orders by PDA address, and lays out the accounts and
-        // bumps so that the on-chain parser recovers exactly those orders.
+        // intent and forwards to the interface builder so that the on-chain
+        // parser recovers exactly those orders.
         #[test]
         fn client_begin_settle_derives_orders_from_intents(
             finalize_ix_index in any::<u16>(),
@@ -565,7 +569,7 @@ mod tests {
                 &INSTRUCTIONS_SYSVAR_ID,
             ));
 
-            let parsed_orders: Vec<_> = parsed.orders.collect();
+            let parsed_orders: Vec<_> = parsed.orders.into_iter().collect();
             prop_assert_eq!(parsed_orders.len(), expected.len());
             for (order, (order_pda, sell_token, bump)) in parsed_orders.iter().zip(&expected) {
                 prop_assert!(address_matches_pubkey(order.order_pda.address(), order_pda));

@@ -16,9 +16,9 @@ use settlement_client::settlement_interface::{
         intent::{OrderIntent, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},
     },
-    instruction::settle::begin_settle as raw_begin_settle,
+    instruction::settle::{begin_settle as begin_settle_from_pdas, INSTRUCTIONS_SYSVAR_ID},
     pda::order::find_order_pda,
-    Instruction, SettlementError,
+    AccountMeta, Instruction, SettlementError, SettlementInstruction,
 };
 use solana_sdk::{
     account::Account,
@@ -145,7 +145,7 @@ fn rejects_wrong_bump() {
             &mut svm,
             &program_id,
             &payer,
-            raw_begin_settle(
+            begin_settle_from_pdas(
                 &program_id,
                 1,
                 &[order_pda],
@@ -180,7 +180,7 @@ fn rejects_fabricated_program_owned_account() {
             &mut svm,
             &program_id,
             &payer,
-            raw_begin_settle(&program_id, 1, &[fake_order], &[sell_token], &[255]),
+            begin_settle_from_pdas(&program_id, 1, &[fake_order], &[sell_token], &[255]),
         ),
         SettlementError::OrderNotCanonical,
     );
@@ -200,7 +200,7 @@ fn rejects_non_order_account_in_order_slot() {
             &mut svm,
             &program_id,
             &payer,
-            raw_begin_settle(&program_id, 1, &[sell_token], &[sell_token], &[255]),
+            begin_settle_from_pdas(&program_id, 1, &[sell_token], &[sell_token], &[255]),
         ),
         InstructionError::InvalidAccountData,
     );
@@ -220,7 +220,7 @@ fn rejects_sell_token_account_mismatch() {
             &mut svm,
             &program_id,
             &payer,
-            raw_begin_settle(&program_id, 1, &[order_pda], &[wrong_sell_token], &[bump]),
+            begin_settle_from_pdas(&program_id, 1, &[order_pda], &[wrong_sell_token], &[bump]),
         ),
         SettlementError::SellTokenAccountMismatch,
     );
@@ -293,25 +293,37 @@ fn rejects_orders_in_wrong_address_order() {
 
     let (first_pda, first_bump) = find_order_pda(&program_id, &first.uid());
     let (second_pda, second_bump) = find_order_pda(&program_id, &second.uid());
+
+    // Lay out the two distinct orders strictly decreasing by PDA address, which
+    // the program rejects. The builder would sort them, so build by hand:
+    // data is `[discriminator, finalize_ix_index (BE), bump-per-order...]` and
+    // accounts are `[instructions_sysvar, (order_pda, sell_token_account)...]`.
     let mut orders = [
-        (first_pda, first_bump, first.sell_token_account),
-        (second_pda, second_bump, second.sell_token_account),
+        (first_pda, first.sell_token_account, first_bump),
+        (second_pda, second.sell_token_account, second_bump),
     ];
-    orders.sort_by_key(|(pda, _, _)| *pda);
-    let [(lo_pda, lo_bump, lo_token), (hi_pda, hi_bump, hi_token)] = orders;
+    orders.sort_by_key(|&(pda, _, _)| std::cmp::Reverse(pda));
+
+    let mut data = vec![SettlementInstruction::BeginSettle.discriminator()];
+    data.extend_from_slice(&1u16.to_be_bytes());
+    data.extend(orders.iter().map(|&(_, _, bump)| bump));
+
+    let mut accounts = vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)];
+    for (order_pda, sell_token_account, _) in orders {
+        accounts.push(AccountMeta::new_readonly(order_pda, false));
+        accounts.push(AccountMeta::new_readonly(sell_token_account, false));
+    }
 
     assert_settlement_error(
         send_settlement(
             &mut svm,
             &program_id,
             &payer,
-            raw_begin_settle(
-                &program_id,
-                1,
-                &[hi_pda, lo_pda],
-                &[hi_token, lo_token],
-                &[hi_bump, lo_bump],
-            ),
+            Instruction {
+                program_id,
+                accounts,
+                data,
+            },
         ),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
