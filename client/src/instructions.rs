@@ -7,13 +7,13 @@
 
 use settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
-    pda::order::find_order_pda,
+    pda::{order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
 
 // Reexport the instruction builders that don't change from the interface.
 // We want the client to provide all instruction builders.
-pub use settlement_interface::settle::finalize_settle;
+pub use settlement_interface::instruction::settle::finalize_settle;
 
 /// Build a `BeginSettle` instruction settling the specified orders.
 pub fn begin_settle(
@@ -38,7 +38,7 @@ pub fn begin_settle(
         sell_token_accounts.push(sell_token_account);
         bumps.push(bump);
     }
-    settlement_interface::settle::begin_settle(
+    settlement_interface::instruction::settle::begin_settle(
         program_id,
         finalize_ix_index,
         &order_pdas,
@@ -56,11 +56,16 @@ pub fn create_order(
     let encoded = EncodedOrderIntent::from(intent);
     let (order_pda, _bump) = find_order_pda(program_id, &encoded.hash());
     let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-    settlement_interface::create_order::create_order(
+    settlement_interface::instruction::create_order::create_order(
         program_id,
         owner,
         created_by,
         &order_pda,
         &intent_bytes,
     )
+}
+
+pub fn initialize(program_id: &Pubkey, payer: &Pubkey) -> Instruction {
+    let (state_pda, _bump) = find_state_pda(program_id);
+    settlement_interface::instruction::initialize::initialize(program_id, payer, &state_pda)
 }
