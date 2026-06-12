@@ -10,6 +10,7 @@ edition = "2021"
 [workspace.dependencies]
 arrayref = "0.3"
 derive_more = { version = "1", features = ["deref"] }
+hex-literal = "1"
 litesvm = "0.12.0"
 num_enum = "0.7"
 pinocchio = "0.11.1"
@@ -24,6 +25,10 @@ solana-sdk = "3"
 solana-sdk-ids = "3"
 solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
+
+[workspace.metadata.cli]
+# Used to help solana-verify identify the correct build image.
+solana = "3.1.14"
 
 [workspace.lints.clippy]
 # Promote arithmetic side effect lint to hard error.

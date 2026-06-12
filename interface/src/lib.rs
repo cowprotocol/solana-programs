@@ -4,10 +4,11 @@ pub use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
-pub mod create_order;
+solana_pubkey::declare_id!("MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK");
+
 pub mod data;
+pub mod instruction;
 pub mod pda;
-pub mod settle;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
@@ -19,6 +20,7 @@ pub enum SettlementInstruction {
     BeginSettle = 0,
     FinalizeSettle = 1,
     CreateOrder = 2,
+    Initialize = 3,
 }
 
 impl SettlementInstruction {

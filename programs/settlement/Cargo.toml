@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
+# Required for `solana-verify` to identify (allegedly). See:
+# https://solana.com/docs/programs/verified-builds#prepare-project
+name = "cow_settlement"
 # Required for `cargo build-sbf` to emit a Solana shared object (.so). See:
 # https://solana.com/docs/programs/rust/program-structure
 crate-type = ["cdylib", "lib"]
@@ -17,6 +20,7 @@ settlement-interface.workspace = true
 arrayref.workspace = true
 litesvm.workspace = true
 settlement-client.workspace = true
+settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
 
