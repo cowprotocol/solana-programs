@@ -237,9 +237,8 @@ fn validate_settled_orders<'a>(
 
         // Only at this point we can validate that the PDA is indeed a valid
         // order PDA by seeing its address matches the computed one.
-        let bump_seed = [bump];
         let derived =
-            Address::create_program_address(&order_pda_signer_seeds(&uid, &bump_seed), program_id)
+            Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
                 .map_err(|_| SettlementError::OrderNotCanonical)?;
         if &derived != order_pda.address() {
             return Err(SettlementError::OrderNotCanonical.into());
