@@ -5,6 +5,9 @@ default:
 # Build the on-chain settlement program (.so) for Solana.
 build-program:
     cargo build-sbf --manifest-path programs/settlement/Cargo.toml
+
+# Build supplementary test programs (.so)
+build-test-programs:
     cargo build-sbf --manifest-path programs/test/cpi-caller/Cargo.toml
 
 # Build everything: host-side workspace crates plus the on-chain program.
@@ -12,7 +15,7 @@ build: build-program
     cargo build
 
 # Run the test suite (builds the program first so the .so exists).
-test: build-program
+test: build-program build-test-programs
     cargo test
 
 # Format the source code.
@@ -32,7 +35,6 @@ lint:
 build-verified:
     cargo install solana-verify --version $(cat .solana-verify-version.txt) --root .cargo-root/
     ./.cargo-root/bin/solana-verify build --library-name cow_settlement
-    ./.cargo-root/bin/solana-verify build --library-name test_cpi_caller
 
 deploy programid keypair: build-verified
     solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
