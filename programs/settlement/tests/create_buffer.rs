@@ -14,7 +14,10 @@ use settlement_client::settlement_interface::{
     },
 };
 use solana_sdk::{
-    instruction::InstructionError, program_pack::Pack, pubkey::Pubkey, signature::Signer,
+    instruction::InstructionError,
+    program_pack::Pack,
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
     transaction::TransactionError,
 };
 
@@ -81,6 +84,37 @@ fn happy_path_creates_initialized_buffer_token_account() {
     assert!(
         close_authority.is_none(),
         "a fresh buffer must have no close authority"
+    );
+}
+
+#[test]
+fn buffer_can_receive_tokens() {
+    let (mut svm, program_id, payer) = common::setup();
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
+
+    let ix = create_buffer(&program_id, &payer.pubkey(), &mint);
+    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    svm.send_transaction(tx)
+        .expect("create_buffer should succeed");
+
+    // Fund a sender by minting into its own token account, then have the sender
+    // transfer those tokens into the buffer.
+    let sender = Keypair::new();
+    svm.airdrop(&sender.pubkey(), 1_000_000_000)
+        .expect("airdrop to sender should succeed");
+    let sender_account =
+        common::token::create_token_account(&mut svm, &sender, &sender.pubkey(), &mint);
+
+    let amount = 1_000;
+    common::token::mint_to(&mut svm, &payer, &mint, &sender_account, amount);
+    common::token::transfer(&mut svm, &sender, &mint, &buffer_pda, amount);
+
+    let token_account = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
+        .expect("buffer must be an initialized token account");
+    assert_eq!(
+        token_account.amount, amount,
+        "buffer must hold the tokens transferred to it"
     );
 }
 
