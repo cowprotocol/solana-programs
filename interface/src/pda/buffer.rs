@@ -16,7 +16,8 @@ use crate::pda::SETTLEMENT_SEED;
 /// Trailing seed identifying the buffer PDAs.
 pub const BUFFER_SEED: &[u8] = b"buffer";
 
-/// Canonical seed components for the buffer PDA holding the token `mint`.
+/// Canonical seed components for the buffer PDA holding the specified `mint`
+/// token.
 ///
 /// `mint` is the raw 32-byte token mint address, so the same helper serves
 /// both the off-chain builder and the on-chain handler (which holds the mint
