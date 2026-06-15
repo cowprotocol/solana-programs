@@ -12,9 +12,11 @@ arrayref = "0.3"
 derive_more = { version = "1", features = ["deref"] }
 hex-literal = "1"
 litesvm = "0.12.0"
+litesvm-token = "0.12.0"
 num_enum = "0.7"
 pinocchio = "0.11.1"
 pinocchio-system = "0.6"
+pinocchio-token = "0.6"
 proptest = "1"
 settlement-client = { path = "client" }
 settlement-interface = { path = "interface" }
@@ -25,6 +27,7 @@ solana-sdk = "3"
 solana-sdk-ids = "3"
 solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
+spl-token-interface = "2"
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.
