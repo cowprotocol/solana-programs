@@ -79,19 +79,8 @@ const TRANSACTION_LEVEL_STACK_HEIGHT: u64 = 1;
 
 /// Modelled on the audited Solend flash-loan guard:
 /// <https://github.com/solendprotocol/solana-program-library/blob/mainnet/token-lending/program/src/processor.rs#L3447>
-pub fn is_cpi_call<T: core::ops::Deref<Target = [u8]>>(
-    program_id: &Address,
-    current_index: u16,
-    instructions: &Instructions<T>,
-) -> Result<bool, ProgramError> {
-    let current_ixn = instructions.load_instruction_at(usize::from(current_index))?;
-    if current_ixn.get_program_id() != program_id {
-        return Ok(true);
-    }
-    if get_stack_height() > TRANSACTION_LEVEL_STACK_HEIGHT {
-        return Ok(true);
-    }
-    Ok(false)
+pub fn is_cpi_call() -> bool {
+    get_stack_height() > TRANSACTION_LEVEL_STACK_HEIGHT
 }
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
