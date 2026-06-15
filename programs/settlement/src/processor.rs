@@ -77,8 +77,6 @@ pub fn create_canonical_pda<const N: usize>(
 /// The stack depth at which a transaction-level call executes.
 const TRANSACTION_LEVEL_STACK_HEIGHT: u64 = 1;
 
-/// Modelled on the audited Solend flash-loan guard:
-/// <https://github.com/solendprotocol/solana-program-library/blob/mainnet/token-lending/program/src/processor.rs#L3447>
 pub fn is_cpi_call() -> bool {
     get_stack_height() > TRANSACTION_LEVEL_STACK_HEIGHT
 }
