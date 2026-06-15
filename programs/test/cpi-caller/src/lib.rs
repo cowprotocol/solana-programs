@@ -5,10 +5,9 @@
 //! build a transaction that calls this program, and any instruction data /
 //! accounts the inner program needs appear starting at `accounts[1]`.
 
-use core::{mem::MaybeUninit, slice::from_raw_parts};
 use pinocchio::error::ProgramError;
 use pinocchio::{
-    cpi::{invoke_signed_unchecked, CpiAccount},
+    cpi::invoke_signed_with_slice,
     entrypoint,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,

@@ -10,7 +10,7 @@ use pinocchio::{
 use pinocchio_system::instructions::CreateAccount;
 use settlement_interface::{recover_discriminator, SettlementInstruction};
 
-use solana_instruction::{TRANSACTION_LEVEL_STACK_HEIGHT, syscalls::get_stack_height};
+use solana_instruction::{syscalls::get_stack_height, TRANSACTION_LEVEL_STACK_HEIGHT};
 
 /// Shared components for parsing generic instruction input.
 ///
