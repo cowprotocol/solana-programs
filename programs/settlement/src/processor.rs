@@ -107,26 +107,6 @@ mod tests {
         );
     }
 
-    /// Build raw bytes for a one-instruction sysvar where the single instruction
-    /// at index 0 has the given `program_id` and no accounts or data.
-    fn single_instruction_sysvar(program_id: [u8; 32]) -> Vec<u8> {
-        // Layout (see pinocchio `Instructions` source):
-        //   [0..2]   num_instructions = 1  (LE u16)
-        //   [2..4]   offset of ix[0]  = 4  (LE u16, points past this header)
-        //   [4..6]   ix[0] num_accounts = 0
-        //   [6..38]  ix[0] program_id
-        //   [38..40] ix[0] data_len = 0
-        //   [40..42] current_index = 0     (LE u16, always last 2 bytes)
-        let mut data = Vec::with_capacity(42);
-        data.extend_from_slice(&1u16.to_le_bytes());
-        data.extend_from_slice(&4u16.to_le_bytes());
-        data.extend_from_slice(&0u16.to_le_bytes());
-        data.extend_from_slice(&program_id);
-        data.extend_from_slice(&0u16.to_le_bytes());
-        data.extend_from_slice(&0u16.to_le_bytes());
-        data
-    }
-
     #[test]
     fn allows_top_level_call() {
         assert!(!is_cpi_call());
