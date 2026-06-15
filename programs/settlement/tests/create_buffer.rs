@@ -104,7 +104,7 @@ fn buffer_can_receive_tokens() {
     svm.airdrop(&sender.pubkey(), 1_000_000_000)
         .expect("airdrop to sender should succeed");
     let sender_account =
-        common::token::create_token_account(&mut svm, &sender, &sender.pubkey(), &mint);
+        common::token::create_associated_token_account(&mut svm, &sender, &mint, &sender.pubkey());
 
     let amount = 1_000;
     common::token::mint_to(&mut svm, &payer, &mint, &sender_account, amount);

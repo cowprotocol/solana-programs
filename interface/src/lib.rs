@@ -68,6 +68,24 @@ pub enum SettlementError {
     /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
     /// owner.
     OwnerMismatch = 7,
+    /// A `BeginSettle` order account doesn't sit at the canonical order PDA
+    /// derived from the intent it stores and the supplied bump.
+    OrderNotCanonical = 8,
+    /// `BeginSettle`'s order accounts aren't passed strictly increasing by
+    /// address.
+    OrdersNotStrictlyIncreasing = 9,
+    /// A `BeginSettle` sell token account doesn't match the
+    /// `sell_token_account` recorded in the order's intent.
+    SellTokenAccountMismatch = 10,
+    /// A `BeginSettle` sell token account isn't a valid SPL token account
+    /// (wrong data length or not owned by the token program).
+    SellTokenAccountInvalid = 11,
+    /// A `BeginSettle` sell token account's SPL owner isn't the order's intent
+    /// owner.
+    SellTokenOwnerMismatch = 12,
+    /// `BeginSettle`'s order accounts don't form exactly one
+    /// `(order_pda, sell_token_account)` pair per order bump.
+    AccountCountNotMatchingBumps = 13,
 }
 
 impl From<SettlementError> for u32 {
