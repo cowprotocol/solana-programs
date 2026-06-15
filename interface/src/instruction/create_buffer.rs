@@ -27,7 +27,7 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 /// Wire format: `[discriminator]`, 1 byte. The tokens are implied by the
 /// `mint` accounts, so no further data is needed.
 /// Required accounts:
-/// `[payer (W,S), token_program (R), system_program (R), (buffer_pda (W), mint (R))...]`.
+/// `[payer (W,S), system_program (R), token_program (R), (buffer_pda (W), mint (R))...]`.
 /// The three shared accounts come first and are read positionally; the
 /// per-buffer pairs follow. The system program only has to be present so the
 /// `CreateAccount` CPI can dispatch; it isn't read by index.
@@ -38,8 +38,8 @@ pub fn create_buffers(
 ) -> Instruction {
     let mut accounts = vec![
         AccountMeta::new(*payer, true),
-        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
         AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
     ];
     for (buffer_pda, mint) in buffers {
         accounts.push(AccountMeta::new(*buffer_pda, false));
@@ -82,12 +82,12 @@ mod tests {
         assert_eq!(ix.accounts[0].pubkey, payer);
         assert!(ix.accounts[0].is_writable);
         assert!(ix.accounts[0].is_signer);
-        // token program: read-only
-        assert_eq!(ix.accounts[1].pubkey, SPL_TOKEN_PROGRAM_ID);
+        // system program: read-only
+        assert_eq!(ix.accounts[1].pubkey, SYSTEM_PROGRAM_ID);
         assert!(!ix.accounts[1].is_writable);
         assert!(!ix.accounts[1].is_signer);
-        // system program: read-only
-        assert_eq!(ix.accounts[2].pubkey, SYSTEM_PROGRAM_ID);
+        // token program: read-only
+        assert_eq!(ix.accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
         assert!(!ix.accounts[2].is_writable);
         assert!(!ix.accounts[2].is_signer);
         // buffer_pda: writable, not signer (the program signs via PDA seeds)

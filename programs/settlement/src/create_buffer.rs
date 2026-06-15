@@ -28,12 +28,12 @@ impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
         }
-        // Accounts: [payer (W,S), token_program (R), system_program (R),
+        // Accounts: [payer (W,S), system_program (R), token_program (R),
         // (buffer_pda (W), mint (R))...]. The three shared accounts come first;
         // the per-buffer pairs follow, one pair per buffer. The system program
         // needs to be present for the `CreateAccount` CPI but isn't dereferenced
         // here.
-        let [payer, token_program, _system, rest @ ..] = accounts else {
+        let [payer, _system, token_program, rest @ ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
         // Group the trailing accounts into `[buffer_pda, mint]` pairs. Each
@@ -125,8 +125,8 @@ mod tests {
     fn create_buffer_input_parses_valid_input() {
         let program_id: Address = Address::new_from_array([1; 32]);
         let payer: Address = Address::new_from_array([2; 32]);
-        let token_program = Address::new_from_array([3; 32]);
         let system_program = fake_account_from_array([4; 32]);
+        let token_program = Address::new_from_array([3; 32]);
         let buffer_pda = Address::new_from_array([5; 32]);
         let mint = Address::new_from_array([6; 32]);
 
@@ -138,8 +138,8 @@ mod tests {
         .data;
         let mut accounts = [
             fake_account(payer),
-            fake_account(token_program),
             system_program,
+            fake_account(token_program),
             fake_account(buffer_pda),
             fake_account(mint),
         ];
@@ -175,8 +175,8 @@ mod tests {
         .data;
         let mut accounts = [
             fake_account(payer),
-            fake_account(token_program),
             fake_account_from_array([4; 32]),
+            fake_account(token_program),
             fake_account(buffer_a),
             fake_account(mint_a),
             fake_account(buffer_b),
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn process_create_buffer_rejects_wrong_token_program() {
         let data = create_buffer_data();
-        // The second account (token program) is not the SPL Token program.
+        // The third account (token program) is not the SPL Token program.
         let mut accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
         assert_eq!(
             process_create_buffer(&PROGRAM_ID, &mut accounts, &data),

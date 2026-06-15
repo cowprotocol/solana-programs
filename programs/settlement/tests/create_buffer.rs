@@ -247,7 +247,7 @@ fn rejects_non_spl_token_program() {
 
     // Swap the token-program account for an arbitrary key.
     let mut ix = create_buffers(&program_id, &payer.pubkey(), &[mint]);
-    let token_program_index = 1;
+    let token_program_index = 2;
     assert_eq!(
         ix.accounts[token_program_index].pubkey, SPL_TOKEN_PROGRAM_ID,
         "sanity: should replace token program"
