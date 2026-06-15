@@ -189,7 +189,8 @@ fn rejects_counterpart_instruction_in_different_program() {
 /// via CPI.  The settlement program should reject it with `CalledViaCpi`.
 #[test]
 fn rejects_cpi_call_to_begin_settle() {
-    let (mut svm, settlement_id, cpi_caller_id, payer) = common::setup_with_cpi_caller();
+    let (mut svm, settlement_id, payer) = common::setup();
+    let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
     // The CPI caller forwards its instruction data to `accounts[0]` (settlement)
     // with `accounts[1..]` as the inner accounts.  begin_settle needs one account:
@@ -227,7 +228,8 @@ fn rejects_cpi_call_to_begin_settle() {
 /// Same as `rejects_cpi_call_to_begin_settle` but for `finalize_settle`.
 #[test]
 fn rejects_cpi_call_to_finalize_settle() {
-    let (mut svm, settlement_id, cpi_caller_id, payer) = common::setup_with_cpi_caller();
+    let (mut svm, settlement_id, payer) = common::setup();
+    let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
     let finalize_settle_data = [
         SettlementInstruction::FinalizeSettle.discriminator(),

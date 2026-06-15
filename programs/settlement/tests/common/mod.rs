@@ -27,16 +27,6 @@ pub const CPI_CALLER_SO: &str = concat!(
     "/../../target/deploy/test_cpi_caller.so"
 );
 
-/// Spin up a `LiteSVM`, deploy both `settlement.so` and `test_cpi_caller.so`,
-/// and airdrop a payer keypair.  Returns `(svm, settlement_id, cpi_caller_id, payer)`.
-pub fn setup_with_cpi_caller() -> (LiteSVM, Pubkey, Pubkey, Keypair) {
-    let (mut svm, settlement_id, payer) = setup();
-    let cpi_caller_id = Pubkey::new_unique();
-    svm.add_program_from_file(cpi_caller_id, CPI_CALLER_SO)
-        .expect("test-cpi-caller .so not found, run `just build-program` first");
-    (svm, settlement_id, cpi_caller_id, payer)
-}
-
 /// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
 /// generated program ID, and airdrop a payer keypair.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
@@ -50,6 +40,14 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
         .expect("airdrop to payer should succeed");
 
     (svm, program_id, payer)
+}
+
+/// Adds CPI caller test helper to the given SVM
+pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
+    let cpi_caller_id = Pubkey::new_unique();
+    svm.add_program_from_file(cpi_caller_id, CPI_CALLER_SO)
+        .expect("test-cpi-caller .so not found, run `just build-program` first");
+    cpi_caller_id
 }
 
 /// Wrap a `SettlementError` in the runtime-side `InstructionError::Custom`
