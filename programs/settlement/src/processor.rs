@@ -4,12 +4,13 @@ use pinocchio::{
     address::MAX_SEEDS,
     cpi::{Seed, Signer},
     error::ProgramError,
-    sysvars::instructions::Instructions,
     AccountView, Address, ProgramResult,
 };
 
 use pinocchio_system::instructions::CreateAccount;
 use settlement_interface::{recover_discriminator, SettlementInstruction};
+
+use solana_instruction::{TRANSACTION_LEVEL_STACK_HEIGHT, syscalls::get_stack_height};
 
 /// Shared components for parsing generic instruction input.
 ///
@@ -74,21 +75,8 @@ pub fn create_canonical_pda<const N: usize>(
     Ok(())
 }
 
-/// The stack depth at which a transaction-level call executes.
-const TRANSACTION_LEVEL_STACK_HEIGHT: u64 = 1;
-
 pub fn is_cpi_call() -> bool {
     get_stack_height() > TRANSACTION_LEVEL_STACK_HEIGHT
-}
-
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-fn get_stack_height() -> u64 {
-    unsafe { pinocchio::syscalls::sol_get_stack_height() }
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-fn get_stack_height() -> u64 {
-    TRANSACTION_LEVEL_STACK_HEIGHT
 }
 
 #[cfg(test)]
@@ -140,19 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn detects_cpi_via_program_id_mismatch() {
-        let our_program = Address::new_from_array([1u8; 32]);
-        let other_program = [2u8; 32];
-        let data = single_instruction_sysvar(other_program);
-        let instructions = unsafe { Instructions::new_unchecked(data.as_slice()) };
-        assert!(is_cpi_call(&our_program, 0, &instructions).unwrap());
-    }
-
-    #[test]
     fn allows_top_level_call() {
-        let our_program = Address::new_from_array([1u8; 32]);
-        let data = single_instruction_sysvar([1u8; 32]);
-        let instructions = unsafe { Instructions::new_unchecked(data.as_slice()) };
-        assert!(!is_cpi_call(&our_program, 0, &instructions).unwrap());
+        assert!(!is_cpi_call());
     }
 }

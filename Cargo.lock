@@ -2178,6 +2178,7 @@ dependencies = [
  "pinocchio-system",
  "settlement-client",
  "settlement-interface",
+ "solana-instruction",
  "solana-sdk",
  "solana-system-interface 3.2.0",
 ]

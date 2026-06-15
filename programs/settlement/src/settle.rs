@@ -82,7 +82,7 @@ pub fn process_begin_settle(
     let instructions = Instructions::try_from(input.instructions_sysvar_account)?;
     let current_index = instructions.load_current_index();
 
-    if is_cpi_call(program_id, current_index, &instructions)? {
+    if is_cpi_call() {
         return Err(SettlementError::CalledViaCpi.into());
     }
 
@@ -140,7 +140,7 @@ pub fn process_finalize_settle(
     let instructions = Instructions::try_from(input.instructions_sysvar_account)?;
     let current_index = instructions.load_current_index();
 
-    if is_cpi_call(program_id, current_index, &instructions)? {
+    if is_cpi_call() {
         return Err(SettlementError::CalledViaCpi.into());
     }
 
