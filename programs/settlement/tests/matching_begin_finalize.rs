@@ -1,8 +1,6 @@
 use litesvm::{types::FailedTransactionMetadata, LiteSVM};
 use settlement_client::instructions::{begin_settle, finalize_settle};
-use settlement_client::settlement_interface::{
-    instruction::settle::INSTRUCTIONS_SYSVAR_ID, SettlementError, SettlementInstruction,
-};
+use settlement_client::settlement_interface::SettlementError;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction, InstructionError},
     pubkey::Pubkey,
@@ -185,6 +183,21 @@ fn rejects_counterpart_instruction_in_different_program() {
     );
 }
 
+/// Wrap a settlement `Instruction` as a call through the test CPI caller.
+///
+/// The CPI caller treats `accounts[0]` as the target program and `accounts[1..]`
+/// as the accounts to forward, so `ix.program_id` becomes the first account and
+/// `ix.accounts` are appended after it.
+fn as_cpi_call(cpi_caller_id: Pubkey, ix: Instruction) -> Instruction {
+    let mut accounts = vec![AccountMeta::new_readonly(ix.program_id, false)];
+    accounts.extend(ix.accounts);
+    Instruction {
+        program_id: cpi_caller_id,
+        accounts,
+        data: ix.data,
+    }
+}
+
 /// Build a transaction that uses the test CPI caller to invoke `begin_settle`
 /// via CPI.  The settlement program should reject it with `CalledViaCpi`.
 #[test]
@@ -192,22 +205,7 @@ fn rejects_cpi_call_to_begin_settle() {
     let (mut svm, settlement_id, payer) = common::setup();
     let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
-    // The CPI caller forwards its instruction data to `accounts[0]` (settlement)
-    // with `accounts[1..]` as the inner accounts.  begin_settle needs one account:
-    // the instructions sysvar.
-    let begin_settle_data = [
-        SettlementInstruction::BeginSettle.discriminator(),
-        0x00,
-        0x01, // finalize_ix_index = 1 (irrelevant, CPI guard fires first)
-    ];
-    let cpi_caller_ix = Instruction {
-        program_id: cpi_caller_id,
-        accounts: vec![
-            AccountMeta::new_readonly(settlement_id, false),
-            AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
-        ],
-        data: begin_settle_data.to_vec(),
-    };
+    let cpi_caller_ix = as_cpi_call(cpi_caller_id, begin_settle(&settlement_id, 1));
 
     let tx = Transaction::new_signed_with_payer(
         &[cpi_caller_ix],
@@ -231,19 +229,7 @@ fn rejects_cpi_call_to_finalize_settle() {
     let (mut svm, settlement_id, payer) = common::setup();
     let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
-    let finalize_settle_data = [
-        SettlementInstruction::FinalizeSettle.discriminator(),
-        0x00,
-        0x00, // begin_ix_index = 0 (irrelevant, CPI guard fires first)
-    ];
-    let cpi_caller_ix = Instruction {
-        program_id: cpi_caller_id,
-        accounts: vec![
-            AccountMeta::new_readonly(settlement_id, false),
-            AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
-        ],
-        data: finalize_settle_data.to_vec(),
-    };
+    let cpi_caller_ix = as_cpi_call(cpi_caller_id, finalize_settle(&settlement_id, 0));
 
     let tx = Transaction::new_signed_with_payer(
         &[cpi_caller_ix],
