@@ -8,51 +8,75 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
+pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 
 use crate::SettlementInstruction;
 
-/// Build a `BeginSettle` instruction settling the orders described by the three
-/// parallel lists: `order_pdas[i]` is the canonical order PDA (see
-/// [`crate::pda::order`]), `sell_token_accounts[i]` its sell token account, and
-/// `bumps[i]` the canonical PDA bump. The three slices are assumed to have the
-/// same length but this is not enforced in the builder.
+/// Build a `BeginSettle` instruction settling the orders described by the
+/// parallel lists:
+/// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
+/// - `sell_token_accounts[i]` its sell token account of the order,
+/// - `bumps[i]` is the canonical PDA bump
+/// - `pulls[i]` the list of `(destination, amount)` transfers to perform from
+///   that order's sell token account to each destination.
 ///
-/// Wire format:
-/// `[discriminator=0][finalize_ix_index: u16 BE][bump...]`, one `bump` byte per
-/// order.
+/// The slices are assumed to have the same length but this is not enforced in
+/// the builder.
+///
+/// Wire format (grouped, with `n` orders and `T` total transfers):
+/// `[discriminator=0][finalize_ix_index: u16 BE][n: u8][bump×n][transfer_count×n]
+/// [amount: u64 BE ×T]`.
 /// Accounts:
-/// `[instructions_sysvar (R), (order_pda (R), sell_token_account (R))...]`, one
-//  pair of accounts per order.
+/// `[instructions_sysvar (R), state_pda (R), token_program (R)]` followed, per
+/// order, by `[order_pda (R), sell_token_account (W), destination (W)...]`.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
 /// This builder establishes that ordering for the caller: it sorts the orders by
-/// PDA address (carrying each order's sell token account and bump along) before
-/// emitting them.
+/// PDA address, carrying each order's sell token account, bump, transfer count,
+/// amounts, and destination metas before emitting them.
 pub fn begin_settle(
     program_id: &Pubkey,
+    state_pda: &Pubkey,
     finalize_ix_index: u16,
     order_pdas: &[Pubkey],
     sell_token_accounts: &[Pubkey],
     bumps: &[u8],
+    pulls: &[&[(Pubkey, u64)]],
 ) -> Instruction {
-    // Sort the three parallel lists together by order PDA address via a shared
-    // permutation, so each order keeps its own sell token account and bump.
+    // Sort the parallel lists together by order PDA address via a shared
+    // permutation, so each order keeps its own sell token account, bump, and
+    // pulls (transfer count, amounts, and destination metas).
     let mut order: Vec<usize> = (0..order_pdas.len()).collect();
     order.sort_by_key(|&i| order_pdas[i]);
 
-    let data = std::iter::once(SettlementInstruction::BeginSettle.discriminator())
-        .chain(finalize_ix_index.to_be_bytes())
-        .chain(order.iter().map(|&i| bumps[i]))
+    let counts: Vec<u8> = order.iter().map(|&i| pulls[i].len() as u8).collect();
+    let amounts: Vec<u8> = order
+        .iter()
+        .flat_map(|&i| pulls[i].iter())
+        .flat_map(|(_, amount)| amount.to_be_bytes())
         .collect();
+    let data = [
+        &[SettlementInstruction::BeginSettle.discriminator()][..],
+        &finalize_ix_index.to_be_bytes()[..],
+        &[order_pdas.len() as u8][..],
+        &order.iter().map(|&i| bumps[i]).collect::<Vec<u8>>()[..],
+        &counts[..],
+        &amounts[..],
+    ]
+    .concat();
 
-    let accounts = std::iter::once(INSTRUCTIONS_SYSVAR_ID)
-        .chain(
-            order
-                .iter()
-                .flat_map(|&i| [order_pdas[i], sell_token_accounts[i]]),
-        )
-        .map(|pubkey| AccountMeta::new_readonly(pubkey, false))
-        .collect();
+    let mut accounts = vec![
+        AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
+        AccountMeta::new_readonly(*state_pda, false),
+        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
+    ];
+    for &i in &order {
+        accounts.push(AccountMeta::new_readonly(order_pdas[i], false));
+        accounts.push(AccountMeta::new(sell_token_accounts[i], false));
+        for (destination, _) in pulls[i] {
+            accounts.push(AccountMeta::new(*destination, false));
+        }
+    }
 
     Instruction {
         program_id: *program_id,
@@ -121,27 +145,38 @@ mod tests {
     }
 
     #[test]
-    fn expected_encoding_begin_settle() {
+    fn expected_encoding_begin_settle_no_orders() {
         let program_id = Pubkey::new_unique();
-        let ix = begin_settle(&program_id, 0x1337, &[], &[], &[]);
+        let state_pda = Pubkey::new_unique();
+        let Instruction {
+            program_id: ix_program_id,
+            accounts,
+            data,
+        } = begin_settle(&program_id, &state_pda, 0x1337, &[], &[], &[], &[]);
+        assert_eq!(ix_program_id, program_id);
         assert_eq!(
-            ix.data,
+            data,
             [
                 SettlementInstruction::BeginSettle.discriminator(),
                 0x13,
-                0x37
+                0x37,
+                0, // order count
             ]
         );
-        // No orders: only the instructions sysvar is referenced.
-        assert_eq!(ix.accounts.len(), 1);
-        assert_eq!(ix.accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
-        assert!(!ix.accounts[0].is_writable);
-        assert!(!ix.accounts[0].is_signer);
+        // No orders: the three fixed accounts (sysvar, state PDA, token program).
+        assert_eq!(accounts.len(), 3);
+        assert_eq!(accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
+        assert_eq!(accounts[1].pubkey, state_pda);
+        assert_eq!(accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
+        assert!(accounts
+            .iter()
+            .all(|meta| !meta.is_writable && !meta.is_signer));
     }
 
     #[test]
     fn begin_settle_sorts_orders_by_pda() {
         let program_id = Pubkey::new_unique();
+        let state_pda = Pubkey::new_unique();
         // Two orders supplied in descending PDA order. All the other parameters
         // are chosen to sort in the opposite order.
         let high_order_pda = Pubkey::new_from_array([0xbb; 32]);
@@ -152,10 +187,12 @@ mod tests {
         let low_bump = 0xbb;
         let ix = begin_settle(
             &program_id,
+            &state_pda,
             0x1337,
             &[high_order_pda, low_order_pda],
             &[high_sell_token_account, low_sell_token_account],
             &[high_bump, low_bump],
+            &[&[], &[]],
         );
 
         // Bumps follow the sorted order: the low PDA's bump comes first.
@@ -165,13 +202,21 @@ mod tests {
                 SettlementInstruction::BeginSettle.discriminator(),
                 0x13,
                 0x37,
+                // order count
+                2,
+                // bumps
                 low_bump,
                 high_bump,
+                // transfer counts (both zero)
+                0,
+                0,
             ],
         );
 
         let expected: Vec<Pubkey> = vec![
             INSTRUCTIONS_SYSVAR_ID,
+            state_pda,
+            SPL_TOKEN_PROGRAM_ID,
             low_order_pda,
             low_sell_token_account,
             high_order_pda,
@@ -179,10 +224,79 @@ mod tests {
         ];
         let actual: Vec<Pubkey> = ix.accounts.iter().map(|meta| meta.pubkey).collect();
         assert_eq!(actual, expected);
-        assert!(ix
+    }
+
+    #[test]
+    fn begin_settle_encodes_grouped_transfers() {
+        let program_id = Pubkey::new_unique();
+        let state_pda = Pubkey::new_unique();
+        let order_a = Pubkey::new_from_array([0x01; 32]);
+        let sell_a = Pubkey::new_from_array([0x02; 32]);
+        let order_b = Pubkey::new_from_array([0x03; 32]);
+        let sell_b = Pubkey::new_from_array([0x04; 32]);
+        let dest_a0 = Pubkey::new_from_array([0x05; 32]);
+        let dest_a1 = Pubkey::new_from_array([0x06; 32]);
+        let dest_b0 = Pubkey::new_from_array([0x07; 32]);
+
+        // Order A has two transfers, order B has one.
+        let ix = begin_settle(
+            &program_id,
+            &state_pda,
+            0x1337,
+            &[order_a, order_b],
+            &[sell_a, sell_b],
+            &[0xa1, 0xb1],
+            &[
+                &[(dest_a0, 0x0102), (dest_a1, 0x0304)],
+                &[(dest_b0, 0x0506)],
+            ],
+        );
+
+        assert_eq!(
+            ix.data,
+            [
+                &[
+                    SettlementInstruction::BeginSettle.discriminator(),
+                    0x13,
+                    0x37,
+                    2, // order count
+                ][..],
+                &[0xa1, 0xb1][..], // bumps
+                &[2, 1][..],       // counts
+                // amounts
+                &0x0102u64.to_be_bytes()[..],
+                &0x0304u64.to_be_bytes()[..],
+                &0x0506u64.to_be_bytes()[..],
+            ]
+            .concat(),
+        );
+
+        let actual: Vec<Pubkey> = ix.accounts.iter().map(|meta| meta.pubkey).collect();
+        assert_eq!(
+            actual,
+            vec![
+                INSTRUCTIONS_SYSVAR_ID,
+                state_pda,
+                SPL_TOKEN_PROGRAM_ID,
+                order_a,
+                sell_a,
+                dest_a0,
+                dest_a1,
+                order_b,
+                sell_b,
+                dest_b0,
+            ],
+        );
+        // The fixed accounts and the order PDAs are read-only; sell and
+        // destination accounts are writable for the transfer.
+        let writable: Vec<Pubkey> = ix
             .accounts
             .iter()
-            .all(|meta| !meta.is_writable && !meta.is_signer));
+            .filter(|meta| meta.is_writable)
+            .map(|meta| meta.pubkey)
+            .collect();
+        assert_eq!(writable, vec![sell_a, dest_a0, dest_a1, sell_b, dest_b0]);
+        assert!(ix.accounts.iter().all(|meta| !meta.is_signer));
     }
 
     #[test]

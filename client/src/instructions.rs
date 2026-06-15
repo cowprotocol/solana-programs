@@ -15,28 +15,40 @@ use settlement_interface::{
 // We want the client to provide all instruction builders.
 pub use settlement_interface::instruction::settle::finalize_settle;
 
-/// Build a `BeginSettle` instruction settling the specified orders. The orders
-/// may be supplied in any order; the interface builder sorts them by PDA address.
+/// An order to settle together with the funds to pull from it: `intent`
+/// identifies the order and `pulls` lists the `(destination, amount)` transfers
+/// to make from its sell token account.
+pub struct SettledOrder<'a> {
+    pub intent: &'a OrderIntent,
+    pub pulls: &'a [(Pubkey, u64)],
+}
+
+/// Build a `BeginSettle` instruction settling the given orders.
 pub fn begin_settle(
     program_id: &Pubkey,
     finalize_ix_index: u16,
-    intents: &[OrderIntent],
+    orders: &[SettledOrder],
 ) -> Instruction {
-    let mut order_pdas = Vec::with_capacity(intents.len());
-    let mut sell_token_accounts = Vec::with_capacity(intents.len());
-    let mut bumps = Vec::with_capacity(intents.len());
-    for intent in intents {
-        let (order_pda, bump) = find_order_pda(program_id, &intent.uid());
+    let mut order_pdas = Vec::with_capacity(orders.len());
+    let mut sell_token_accounts = Vec::with_capacity(orders.len());
+    let mut bumps = Vec::with_capacity(orders.len());
+    let mut pull_lists: Vec<&[(Pubkey, u64)]> = Vec::with_capacity(orders.len());
+    for order in orders {
+        let (order_pda, bump) = find_order_pda(program_id, &order.intent.uid());
         order_pdas.push(order_pda);
-        sell_token_accounts.push(intent.sell_token_account);
+        sell_token_accounts.push(order.intent.sell_token_account);
         bumps.push(bump);
+        pull_lists.push(order.pulls);
     }
+    let (state_pda, _bump) = find_state_pda(program_id);
     settlement_interface::instruction::settle::begin_settle(
         program_id,
+        &state_pda,
         finalize_ix_index,
         &order_pdas,
         &sell_token_accounts,
         &bumps,
+        &pull_lists,
     )
 }
 
