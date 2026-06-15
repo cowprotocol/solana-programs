@@ -15,8 +15,6 @@ use pinocchio::{
 
 entrypoint!(process_instruction);
 
-const MAX_FORWARDED_ACCOUNTS: usize = 16;
-
 pub fn process_instruction(
     _program_id: &Address,
     accounts: &mut [AccountView],
