@@ -13,7 +13,32 @@ use settlement_interface::{
 
 // Reexport the instruction builders that don't change from the interface.
 // We want the client to provide all instruction builders.
-pub use settlement_interface::instruction::settle::{begin_settle, finalize_settle};
+pub use settlement_interface::instruction::settle::finalize_settle;
+
+/// Build a `BeginSettle` instruction settling the specified orders. The orders
+/// may be supplied in any order; the interface builder sorts them by PDA address.
+pub fn begin_settle(
+    program_id: &Pubkey,
+    finalize_ix_index: u16,
+    intents: &[OrderIntent],
+) -> Instruction {
+    let mut order_pdas = Vec::with_capacity(intents.len());
+    let mut sell_token_accounts = Vec::with_capacity(intents.len());
+    let mut bumps = Vec::with_capacity(intents.len());
+    for intent in intents {
+        let (order_pda, bump) = find_order_pda(program_id, &intent.uid());
+        order_pdas.push(order_pda);
+        sell_token_accounts.push(intent.sell_token_account);
+        bumps.push(bump);
+    }
+    settlement_interface::instruction::settle::begin_settle(
+        program_id,
+        finalize_ix_index,
+        &order_pdas,
+        &sell_token_accounts,
+        &bumps,
+    )
+}
 
 pub fn create_order(
     program_id: &Pubkey,

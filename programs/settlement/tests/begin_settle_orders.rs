@@ -1,0 +1,316 @@
+//! Integration tests for the settled-orders list carried by `BeginSettle`.
+//!
+//! Each settlement transaction here is the minimal `[BeginSettle, FinalizeSettle]`
+//! pair (begin at index 0 pointing to finalize at index 1, and vice versa) so
+//! that the begin/finalize pairing always validates and execution reaches the
+//! order-list checks, which is what these tests exercise.
+
+use crate::common::{
+    assert_instruction_error, assert_settlement_error, create_account, setup, signed_tx, token,
+};
+use litesvm::LiteSVM;
+use settlement_client::instructions::{begin_settle, create_order, finalize_settle};
+use settlement_client::settlement_interface::{
+    data::{
+        intent::{OrderIntent, OrderKind},
+        order::{EncodedOrderAccount, OrderAccount},
+    },
+    instruction::settle::{begin_settle as begin_settle_from_pdas, INSTRUCTIONS_SYSVAR_ID},
+    pda::order::find_order_pda,
+    AccountMeta, Instruction, SettlementError, SettlementInstruction,
+};
+use solana_sdk::{
+    instruction::InstructionError,
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    transaction::{Transaction, TransactionError},
+};
+
+mod common;
+
+fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> OrderIntent {
+    OrderIntent {
+        owner,
+        buy_token_account: Pubkey::new_from_array([0x22; 32]),
+        sell_token_account,
+        sell_amount: 1_000_000,
+        buy_amount: 2_000_000,
+        valid_to: 0xdead_beef,
+        kind: OrderKind::Sell,
+        partially_fillable: true,
+        // `salt` is folded into `app_data` so callers can mint several orders that
+        // hash to different UIDs (and therefore different order PDAs).
+        app_data: [salt; 32],
+    }
+}
+
+/// Create `intent`'s order PDA on-chain, signed and paid for by `owner`.
+fn create_order_pda(svm: &mut LiteSVM, program_id: &Pubkey, owner: &Keypair, intent: &OrderIntent) {
+    let ix = create_order(program_id, &owner.pubkey(), &owner.pubkey(), intent);
+    let tx = signed_tx(svm, owner, owner, ix);
+    svm.send_transaction(tx)
+        .expect("create_order should succeed");
+}
+
+/// Mint a valid order on-chain, distinct per `salt`, selling from a fresh token
+/// account owned by `payer`, and return its intent.
+fn settleable_order(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    mint: &Pubkey,
+    salt: u8,
+) -> OrderIntent {
+    let sell_token = token::create_token_account(svm, payer, mint, &payer.pubkey());
+    let intent = sample_intent(payer.pubkey(), sell_token, salt);
+    create_order_pda(svm, program_id, payer, &intent);
+    intent
+}
+
+/// Send `[begin, finalize_settle(..)]` signed by `payer`, where `begin` is a
+/// pre-built `BeginSettle` instruction.
+fn send_settlement(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    begin: Instruction,
+) -> Result<(), TransactionError> {
+    let finalize = finalize_settle(program_id, 0);
+    let tx = Transaction::new_signed_with_payer(
+        &[begin, finalize],
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    );
+    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
+}
+
+#[test]
+fn settles_a_single_order() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    send_settlement(
+        &mut svm,
+        &program_id,
+        &payer,
+        begin_settle(&program_id, 1, &[intent]),
+    )
+    .expect("settlement should succeed");
+}
+
+#[test]
+fn settles_multiple_orders() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let mut intents = Vec::new();
+    for salt in 0..3u8 {
+        intents.push(settleable_order(&mut svm, &program_id, &payer, &mint, salt));
+    }
+
+    send_settlement(
+        &mut svm,
+        &program_id,
+        &payer,
+        begin_settle(&program_id, 1, &intents),
+    )
+    .expect("multi-order settlement should succeed");
+}
+
+#[test]
+fn rejects_wrong_bump() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle_from_pdas(
+                &program_id,
+                1,
+                &[order_pda],
+                &[intent.sell_token_account],
+                &[bump ^ 0x01],
+            ),
+        ),
+        SettlementError::OrderNotCanonical,
+    );
+}
+
+#[test]
+fn rejects_fabricated_program_owned_account() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
+    let body: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+        cancelled: false,
+        amount_withdrawn: 0,
+        amount_received: 0,
+        created_by: payer.pubkey(),
+        intent: sample_intent(payer.pubkey(), sell_token, 0),
+    })
+    .into();
+    // A program-owned account holding a valid order body, but sitting at an
+    // address that isn't the canonical order PDA.
+    let fake_order = create_account(&mut svm, &program_id, &body);
+
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle_from_pdas(&program_id, 1, &[fake_order], &[sell_token], &[255]),
+        ),
+        SettlementError::OrderNotCanonical,
+    );
+}
+
+#[test]
+fn rejects_non_order_account_in_order_slot() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
+
+    // Put a token account in the order slot. Its 165-byte data can't decode as a
+    // 199-byte order body, so it's rejected before the canonical-address check.
+    assert_instruction_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle_from_pdas(&program_id, 1, &[sell_token], &[sell_token], &[255]),
+        ),
+        InstructionError::InvalidAccountData,
+    );
+}
+
+#[test]
+fn rejects_sell_token_account_mismatch() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    // Supply a different token account than the one the order's intent names.
+    let intent = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
+    let wrong_sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle_from_pdas(&program_id, 1, &[order_pda], &[wrong_sell_token], &[bump]),
+        ),
+        SettlementError::SellTokenAccountMismatch,
+    );
+}
+
+#[test]
+fn rejects_sell_token_owner_mismatch() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let other_owner = Pubkey::new_unique();
+    let sell_token = token::create_token_account(&mut svm, &payer, &mint, &other_owner);
+    let intent = sample_intent(payer.pubkey(), sell_token, 1);
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
+
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle(&program_id, 1, &[intent]),
+        ),
+        SettlementError::SellTokenOwnerMismatch,
+    );
+}
+
+#[test]
+fn rejects_non_token_sell_account() {
+    let (mut svm, program_id, payer) = setup();
+
+    let non_token = Pubkey::new_unique();
+    let intent = sample_intent(payer.pubkey(), non_token, 1);
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
+
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle(&program_id, 1, &[intent]),
+        ),
+        SettlementError::SellTokenAccountInvalid,
+    );
+}
+
+#[test]
+fn rejects_duplicate_orders() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            begin_settle(&program_id, 1, &[intent.clone(), intent]),
+        ),
+        SettlementError::OrdersNotStrictlyIncreasing,
+    );
+}
+
+#[test]
+fn rejects_orders_in_wrong_address_order() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let first = settleable_order(&mut svm, &program_id, &payer, &mint, 0);
+    let second = settleable_order(&mut svm, &program_id, &payer, &mint, 1);
+
+    let (first_pda, first_bump) = find_order_pda(&program_id, &first.uid());
+    let (second_pda, second_bump) = find_order_pda(&program_id, &second.uid());
+
+    // Lay out the two distinct orders strictly decreasing by PDA address, which
+    // the program rejects. The builder would sort them, so build by hand:
+    // data is `[discriminator, finalize_ix_index (BE), bump-per-order...]` and
+    // accounts are `[instructions_sysvar, (order_pda, sell_token_account)...]`.
+    let mut orders = [
+        (first_pda, first.sell_token_account, first_bump),
+        (second_pda, second.sell_token_account, second_bump),
+    ];
+    orders.sort_by_key(|&(pda, _, _)| std::cmp::Reverse(pda));
+
+    let mut data = vec![SettlementInstruction::BeginSettle.discriminator()];
+    data.extend_from_slice(&1u16.to_be_bytes());
+    data.extend(orders.iter().map(|&(_, _, bump)| bump));
+
+    let mut accounts = vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)];
+    for (order_pda, sell_token_account, _) in orders {
+        accounts.push(AccountMeta::new_readonly(order_pda, false));
+        accounts.push(AccountMeta::new_readonly(sell_token_account, false));
+    }
+
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            Instruction {
+                program_id,
+                accounts,
+                data,
+            },
+        ),
+        SettlementError::OrdersNotStrictlyIncreasing,
+    );
+}
