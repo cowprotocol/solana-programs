@@ -27,32 +27,14 @@ pub fn process_instruction(
         .split_first()
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
 
-    let n = forwarded.len().min(MAX_FORWARDED_ACCOUNTS);
-
-    let mut ix_accounts =
-        [const { MaybeUninit::<InstructionAccount>::uninit() }; MAX_FORWARDED_ACCOUNTS];
-    let mut cpi_accounts = [const { MaybeUninit::<CpiAccount>::uninit() }; MAX_FORWARDED_ACCOUNTS];
-
-    for (i, account) in forwarded[..n].iter().enumerate() {
-        ix_accounts[i].write(InstructionAccount::from(account));
-        CpiAccount::init_from_account_view(account, &mut cpi_accounts[i]);
-    }
+    let ix_accounts: Vec<InstructionAccount> =
+        forwarded.iter().map(InstructionAccount::from).collect();
 
     let instruction = InstructionView {
         program_id: program.address(),
-        // SAFETY: ix_accounts[..n] was fully initialized in the loop above.
-        accounts: unsafe { from_raw_parts(ix_accounts.as_ptr() as _, n) },
+        accounts: ix_accounts.as_slice(),
         data: instruction_data,
     };
 
-    // SAFETY: cpi_accounts[..n] was fully initialized in the loop above.
-    unsafe {
-        invoke_signed_unchecked(
-            &instruction,
-            from_raw_parts(cpi_accounts.as_ptr() as _, n),
-            &[],
-        )
-    };
-
-    Ok(())
+    invoke_signed_with_slice(&instruction, forwarded, &[])
 }
