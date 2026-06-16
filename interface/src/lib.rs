@@ -96,6 +96,9 @@ pub enum SettlementError {
     /// The transfer counts in `BeginSettle` don't sum to the number of transfer
     /// amounts, so destinations and amounts can't be paired up exactly.
     TransferCountMismatch = 16,
+    /// `BeginSettle`'s state account isn't the canonical settlement state PDA,
+    /// which must sign the pulls as the user's token delegate.
+    StateAccountMismatch = 17,
 }
 
 impl From<SettlementError> for u32 {

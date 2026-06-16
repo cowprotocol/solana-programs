@@ -523,33 +523,40 @@ fn settles_order_at_exact_valid_to() {
 }
 
 #[test]
-fn settles_an_order_with_a_pull() {
+fn pulls_funds_to_destination() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let sell_token = intent.sell_token_account;
+    let initial_amount = 42_000_000;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
     let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
 
-    // No funds move yet: this checks that a settlement carrying a pull parses and
-    // is accepted. The pull itself is exercised once the execution step lands.
+    let amount = 2_000_000;
     settle(
         &mut svm,
         &program_id,
         &payer,
         &[SettledOrder {
             intent: &intent,
-            pulls: &[(destination, 400_000)],
+            pulls: &[(destination, amount)],
         }],
     )
-    .expect("a settlement carrying a pull should parse and succeed");
+    .expect("a pull within the approved delegation should succeed");
+
+    assert_eq!(token::balance(&svm, &destination), amount);
+    assert_eq!(token::balance(&svm, &sell_token), initial_amount - amount);
 }
 
 #[test]
-fn settles_an_order_with_multiple_pulls() {
+fn pulls_to_multiple_destinations() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let sell_token = intent.sell_token_account;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 1_000_000);
     let dest0 = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
     let dest1 = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
 
@@ -562,7 +569,213 @@ fn settles_an_order_with_multiple_pulls() {
             pulls: &[(dest0, 300_000), (dest1, 100_000)],
         }],
     )
-    .expect("a settlement carrying multiple pulls should parse and succeed");
+    .expect("multiple pulls from one order should succeed");
+
+    assert_eq!(token::balance(&svm, &dest0), 300_000);
+    assert_eq!(token::balance(&svm, &dest1), 100_000);
+    assert_eq!(token::balance(&svm, &sell_token), 1_000_000 - 400_000);
+}
+
+#[test]
+fn pulls_from_multiple_orders() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    // Two distinct orders, each selling from its own token account.
+    let first = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+        .salt(0)
+        .build();
+    let second = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+        .salt(1)
+        .build();
+    let initial_amount_first = 1_337_000;
+    let initial_amount_second = 31_337_000;
+    token::fund_and_delegate(
+        &mut svm,
+        &program_id,
+        &payer,
+        &first.sell_token_account,
+        initial_amount_first,
+    );
+    token::fund_and_delegate(
+        &mut svm,
+        &program_id,
+        &payer,
+        &second.sell_token_account,
+        initial_amount_second,
+    );
+    let dest_first = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+    let dest_second = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+
+    let pulled_first = 42_000;
+    let pulled_second = 67_000;
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[
+            SettledOrder {
+                intent: &first,
+                pulls: &[(dest_first, pulled_first)],
+            },
+            SettledOrder {
+                intent: &second,
+                pulls: &[(dest_second, pulled_second)],
+            },
+        ],
+    )
+    .expect("pulls from several orders should succeed");
+
+    assert_eq!(token::balance(&svm, &dest_first), pulled_first);
+    assert_eq!(token::balance(&svm, &dest_second), pulled_second);
+    assert_eq!(
+        token::balance(&svm, &first.sell_token_account),
+        initial_amount_first - pulled_first
+    );
+    assert_eq!(
+        token::balance(&svm, &second.sell_token_account),
+        initial_amount_second - pulled_second
+    );
+}
+
+#[test]
+fn zero_pulls_moves_nothing() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let sell_token = intent.sell_token_account;
+    let initial_amount = 42_000_000;
+    token::mint_to(&mut svm, &payer, &mint, &sell_token, initial_amount);
+
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[SettledOrder {
+            intent: &intent,
+            pulls: &[],
+        }],
+    )
+    .expect("settling without pulling should succeed");
+
+    assert_eq!(token::balance(&svm, &sell_token), initial_amount);
+}
+
+#[test]
+fn rejects_wrong_state_pda() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
+    let not_the_state_pda = Pubkey::new_unique();
+
+    assert_settlement_error(
+        send_settlement(
+            &mut svm,
+            &program_id,
+            &payer,
+            raw_begin_settle(
+                &program_id,
+                &not_the_state_pda,
+                1,
+                &[order_pda],
+                &[intent.sell_token_account],
+                &[bump],
+                &no_pulls(1),
+            ),
+        ),
+        SettlementError::StateAccountMismatch,
+    );
+}
+
+#[test]
+fn rejects_wrong_token_program() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+
+    // The builder always fills in the SPL Token program, so we swap the
+    // token-program account out afterwards.
+    let mut begin = begin_settle(
+        &program_id,
+        1,
+        &[SettledOrder {
+            intent: &intent,
+            pulls: &[],
+        }],
+    );
+    let token_account_index = 2;
+    begin.accounts[token_account_index] = AccountMeta::new_readonly(Pubkey::new_unique(), false);
+
+    assert_instruction_error(
+        send_settlement(&mut svm, &program_id, &payer, begin),
+        InstructionError::IncorrectProgramId,
+    );
+}
+
+#[test]
+fn rejects_pull_without_delegation() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let sell_token = intent.sell_token_account;
+    // Funds are present but the state PDA was never approved as a delegate.
+    token::mint_to(&mut svm, &payer, &mint, &sell_token, 1_000_000);
+    let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+
+    let result = settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[SettledOrder {
+            intent: &intent,
+            pulls: &[(destination, 100_000)],
+        }],
+    );
+    assert!(
+        result.is_err(),
+        "pulling without an approved delegation must fail"
+    );
+}
+
+#[test]
+fn rejects_pull_exceeding_delegation() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let sell_token = intent.sell_token_account;
+    // Funded generously, but the state PDA is delegated only 100_000.
+    let initial_amount = 42_000_000;
+    token::mint_to(&mut svm, &payer, &mint, &sell_token, initial_amount);
+    token::delegate(
+        &mut svm,
+        &payer,
+        &sell_token,
+        &find_state_pda(&program_id).0,
+        100_000,
+    );
+    let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+
+    let result = settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[SettledOrder {
+            intent: &intent,
+            pulls: &[(destination, 200_000)],
+        }],
+    );
+    assert!(
+        result.is_err(),
+        "a pull exceeding the approved delegation must fail"
+    );
+    assert_eq!(token::balance(&svm, &sell_token), initial_amount);
+    assert_eq!(token::balance(&svm, &destination), 0);
 }
 
 #[test]

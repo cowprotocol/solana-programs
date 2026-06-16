@@ -4,15 +4,17 @@ use core::{iter::Zip, slice::Iter};
 use std::ops::Deref;
 
 use pinocchio::{
+    cpi::{Seed, Signer},
     error::ProgramError,
     sysvars::{clock::Clock, instructions::Instructions, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use pinocchio_token::state::Account as TokenAccount;
+use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
-    data::order::EncodedOrderAccount, instruction::settle::recover_counterpart,
-    pda::order::order_pda_signer_seeds, recover_discriminator, Pubkey, SettlementError,
-    SettlementInstruction,
+    data::order::EncodedOrderAccount,
+    instruction::{create_buffer::SPL_TOKEN_PROGRAM_ID, settle::recover_counterpart},
+    pda::{order::order_pda_signer_seeds, state::state_pda_seeds},
+    recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
 };
 
 use crate::processor::InstructionInputParsing;
@@ -27,7 +29,6 @@ struct SettledOrder<'a> {
     order_pda: &'a AccountView,
     sell_token_account: &'a AccountView,
     bump: u8,
-    #[allow(dead_code, reason = "consumed by the future pull-execution step")]
     transfers: OrderTransfers<'a>,
 }
 
@@ -119,6 +120,8 @@ impl<'a> Iterator for SettledOrdersIter<'a> {
 struct BeginSettleInput<'a> {
     finalize_ix_index: u16,
     instructions_sysvar_account: &'a AccountView,
+    state_pda_account: &'a AccountView,
+    token_program_account: &'a AccountView,
     orders: SettledOrders<'a>,
 }
 
@@ -134,10 +137,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
     ) -> Result<Self, ProgramError> {
         let (finalize_ix_index, body) = recover_counterpart(instruction_data)?;
 
-        // The state PDA and token-program slots are reserved for the future pull
-        // step; they're consumed here to keep the wire format stable but not yet
-        // used.
-        let [instructions_sysvar_account, _state_pda, _token_program, order_accounts @ ..] =
+        let [instructions_sysvar_account, state_pda_account, token_program_account, order_accounts @ ..] =
             accounts
         else {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -185,6 +185,8 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
         Ok(Self {
             finalize_ix_index,
             instructions_sysvar_account,
+            state_pda_account,
+            token_program_account,
             orders: SettledOrders {
                 accounts: order_accounts,
                 bumps,
@@ -254,7 +256,12 @@ pub fn process_begin_settle(
         input.finalize_ix_index,
     )?;
 
-    validate_settled_orders(program_id, input.orders)?;
+    pull_funds(
+        program_id,
+        input.token_program_account,
+        input.state_pda_account,
+        input.orders,
+    )?;
 
     Ok(())
 }
@@ -301,73 +308,129 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
     Ok(())
 }
 
-/// For each order, this checks that the order account was created by this
-/// program, that it is still settleable (neither cancelled nor expired), and
-/// that its sell token account is the one the order's owner controls.
-fn validate_settled_orders<'a>(
+/// Validate each order and pull user funds.
+/// Only the legacy SPL Token program is accepted and the supplied state
+/// account must be the canonical state PDA (which is in turn also the delegate
+/// the user approved) since it signs each transfer. Orders are processed one at
+/// a time by [`process_pull`] and must be passed strictly increasing by address;
+/// this rejects duplicates (settling the same order twice) without a separate
+/// scan.
+#[must_use = "skipping the return value may lead to a partial settlement execution"]
+fn pull_funds<'a>(
     program_id: &Address,
+    token_program_account: &AccountView,
+    state_pda_account: &AccountView,
     orders: impl IntoIterator<Item = SettledOrder<'a>>,
 ) -> ProgramResult {
+    if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+
+    // Funds are pulled with the state PDA's delegation, so it must be the signer.
+    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
+    if state_pda_account.address() != &state_pda {
+        return Err(SettlementError::StateAccountMismatch.into());
+    }
+
+    let [seed] = state_pda_seeds();
+    let state_bump = [state_bump];
+    let signer_seeds = [Seed::from(seed), Seed::from(&state_bump[..])];
+    let signer = Signer::from(&signer_seeds[..]);
+
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
     let mut previous: Option<&Address> = None;
 
     let now = Clock::get()?.unix_timestamp;
 
-    for SettledOrder {
-        order_pda,
-        sell_token_account,
-        bump,
-        ..
-    } in orders
-    {
-        // Decode the order body. Reading is safe regardless of who owns the
-        // account; the canonical-address check below is what proves provenance.
-        // The borrow is released at the end of this block, before any other
-        // account is touched.
-        let (cancelled, intent, uid) = {
-            let data = order_pda.try_borrow()?;
-            let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
-                .try_into()
-                .map_err(|_| ProgramError::InvalidAccountData)?;
-            let (account, uid) = EncodedOrderAccount::decode_and_hash(bytes)?;
-            (account.cancelled, account.intent, uid)
-        };
-
-        // Only at this point we can validate that the PDA is indeed a valid
-        // order PDA by seeing its address matches the computed one.
-        let derived =
-            Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
-                .map_err(|_| SettlementError::OrderNotCanonical)?;
-        if &derived != order_pda.address() {
-            return Err(SettlementError::OrderNotCanonical.into());
-        }
-
+    for order in orders {
+        let order_pda = order.order_pda;
         if previous.is_some_and(|previous| order_pda.address() <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
         }
         previous = Some(order_pda.address());
 
-        if cancelled {
-            return Err(SettlementError::OrderCancelled.into());
-        }
+        process_order(program_id, order, now, state_pda_account, &signer)?;
+    }
 
-        if now > i64::from(intent.valid_to) {
-            return Err(SettlementError::OrderExpired.into());
-        }
+    Ok(())
+}
 
-        // The sell token account must be the one named in the intent, owned by
-        // the intent owner: an order can only sell funds its own owner controls.
-        if !address_matches_pubkey(sell_token_account.address(), &intent.sell_token_account) {
-            return Err(SettlementError::SellTokenAccountMismatch.into());
-        }
-        // `from_account_view` confirms this is a real SPL token account (right
-        // length, owned by the token program) before we read its owner.
+/// Validate a singe order and process its pulls.
+/// This checks that the order is valid and settleable. Once the order passes
+/// those checks, its pulls are executed.
+#[must_use = "skipping the return value may lead to funds not being pulled but accounted for in the order"]
+fn process_order(
+    program_id: &Address,
+    order: SettledOrder<'_>,
+    now: i64,
+    state_account: &AccountView,
+    signer: &Signer,
+) -> ProgramResult {
+    let SettledOrder {
+        order_pda,
+        sell_token_account,
+        bump,
+        transfers,
+    } = order;
+
+    // Decode the order body. Reading is safe regardless of who owns the
+    // account; the canonical-address check below is what proves provenance.
+    // The borrow is released at the end of this block, before any other
+    // account is touched.
+    let (cancelled, intent, uid) = {
+        let data = order_pda.try_borrow()?;
+        let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
+            .try_into()
+            .map_err(|_| ProgramError::InvalidAccountData)?;
+        let (account, uid) = EncodedOrderAccount::decode_and_hash(bytes)?;
+        (account.cancelled, account.intent, uid)
+    };
+
+    // Only at this point we can validate that the PDA is indeed a valid
+    // order PDA by seeing its address matches the computed one.
+    let derived =
+        Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
+            .map_err(|_| SettlementError::OrderNotCanonical)?;
+    if &derived != order_pda.address() {
+        return Err(SettlementError::OrderNotCanonical.into());
+    }
+
+    if cancelled {
+        return Err(SettlementError::OrderCancelled.into());
+    }
+
+    if now > i64::from(intent.valid_to) {
+        return Err(SettlementError::OrderExpired.into());
+    }
+
+    // The sell token account must be the one named in the intent, owned by
+    // the intent owner: an order can only sell funds its own owner controls.
+    if !address_matches_pubkey(sell_token_account.address(), &intent.sell_token_account) {
+        return Err(SettlementError::SellTokenAccountMismatch.into());
+    }
+    {
+        // `from_account_view` confirms this is a real SPL token account
+        // (right length, owned by the token program) before we read its
+        // owner. The borrow it holds is released at the end of this block,
+        // before the transfers below touch the same account.
         let token_account = TokenAccount::from_account_view(sell_token_account)
             .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
         if !address_matches_pubkey(token_account.owner(), &intent.owner) {
             return Err(SettlementError::SellTokenOwnerMismatch.into());
         }
+    }
+
+    // Pull the configured amounts out of the sell token account. The state
+    // PDA is the SPL delegate, so it signs each transfer via `signer`.
+    for (destination, amount) in transfers {
+        Transfer::new(
+            sell_token_account,
+            destination,
+            state_account,
+            u64::from_be_bytes(*amount),
+        )
+        .invoke_signed(core::slice::from_ref(signer))?;
     }
 
     Ok(())
@@ -464,10 +527,14 @@ mod tests {
             finalize_ix_index,
             instructions_sysvar_account,
             orders,
+            token_program_account,
+            state_pda_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(orders.into_iter().count(), 0);
+        assert_eq!(token_program_account.address(), &token_program);
+        assert_eq!(state_pda_account.address(), &state);
     }
 
     #[test]
@@ -553,9 +620,13 @@ mod tests {
             finalize_ix_index,
             instructions_sysvar_account,
             orders,
+            state_pda_account,
+            token_program_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
+        assert_eq!(token_program_account.address(), &token_program);
+        assert_eq!(state_pda_account.address(), &state);
 
         let mut orders = orders.into_iter();
         let order = orders.next().expect("one settled order");
