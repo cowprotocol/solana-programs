@@ -34,21 +34,32 @@ struct SettledOrders<'a> {
 
 impl<'a> IntoIterator for SettledOrders<'a> {
     type Item = SettledOrder<'a>;
-    type IntoIter = std::iter::Map<
-        std::iter::Zip<std::slice::Iter<'a, [AccountView; 2]>, std::slice::Iter<'a, u8>>,
-        fn((&'a [AccountView; 2], &'a u8)) -> SettledOrder<'a>,
-    >;
+    type IntoIter = SettledOrdersIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        // A non-capturing closure coerced to a function pointer so the iterator
-        // type stays nameable in `IntoIter` above.
-        let pair_to_order: fn((&'a [AccountView; 2], &'a u8)) -> SettledOrder<'a> =
-            |([order_pda, sell_token_account], &bump)| SettledOrder {
-                order_pda,
-                sell_token_account,
-                bump,
-            };
-        self.accounts.iter().zip(self.bumps).map(pair_to_order)
+        SettledOrdersIter {
+            accounts: self.accounts.iter(),
+            bumps: self.bumps.iter(),
+        }
+    }
+}
+
+struct SettledOrdersIter<'a> {
+    accounts: std::slice::Iter<'a, [AccountView; 2]>,
+    bumps: std::slice::Iter<'a, u8>,
+}
+
+impl<'a> Iterator for SettledOrdersIter<'a> {
+    type Item = SettledOrder<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let [order_pda, sell_token_account] = self.accounts.next()?;
+        let &bump = self.bumps.next()?;
+        Some(SettledOrder {
+            order_pda,
+            sell_token_account,
+            bump,
+        })
     }
 }
 
