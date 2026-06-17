@@ -56,18 +56,7 @@ impl<'a> IntoIterator for SettledOrders<'a> {
     type IntoIter = SettledOrdersIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        let SettledOrders {
-            accounts,
-            bumps,
-            counts,
-            amounts,
-        } = self;
-        SettledOrdersIter {
-            accounts,
-            bumps,
-            counts,
-            amounts,
-        }
+        SettledOrdersIter(self)
     }
 }
 
@@ -75,32 +64,33 @@ impl<'a> IntoIterator for SettledOrders<'a> {
 /// consuming the parsed slices in lockstep: each step takes one bump and transfer
 /// count, then the order PDA, sell token account, and `count` destinations and
 /// amounts.
-struct SettledOrdersIter<'a> {
-    accounts: &'a [AccountView],
-    bumps: &'a [u8],
-    counts: &'a [u8],
-    amounts: &'a [[u8; 8]],
-}
+///
+/// It's a separate type just because implementing Iterator on the original
+/// struct would cause the side effects of mutating the original struct when
+/// iterating over it.
+struct SettledOrdersIter<'a>(SettledOrders<'a>);
 
 impl<'a> Iterator for SettledOrdersIter<'a> {
     type Item = SettledOrder<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (&bump, bumps) = self.bumps.split_first()?;
-        let (&count, counts) = self.counts.split_first()?;
+        let orders = &mut self.0;
+
+        let (&bump, bumps) = orders.bumps.split_first()?;
+        let (&count, counts) = orders.counts.split_first()?;
         let count = usize::from(count);
 
-        let (order_pda, rest) = self.accounts.split_first()?;
+        let (order_pda, rest) = orders.accounts.split_first()?;
         let (sell_token_account, rest) = rest.split_first()?;
         // `parse_body` validated that `count` destinations and amounts remain,
         // so neither split can panic.
         let (destinations, rest) = rest.split_at(count);
-        let (amounts, remaining_amounts) = self.amounts.split_at(count);
+        let (amounts, remaining_amounts) = orders.amounts.split_at(count);
 
-        self.accounts = rest;
-        self.bumps = bumps;
-        self.counts = counts;
-        self.amounts = remaining_amounts;
+        orders.accounts = rest;
+        orders.bumps = bumps;
+        orders.counts = counts;
+        orders.amounts = remaining_amounts;
         Some(SettledOrder {
             order_pda,
             sell_token_account,
