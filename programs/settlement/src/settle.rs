@@ -82,10 +82,13 @@ impl<'a> Iterator for SettledOrdersIter<'a> {
 
         let (order_pda, rest) = orders.accounts.split_first()?;
         let (sell_token_account, rest) = rest.split_first()?;
-        // `parse_body` validated that `count` destinations and amounts remain,
-        // so neither split can panic.
-        let (destinations, rest) = rest.split_at(count);
-        let (amounts, remaining_amounts) = orders.amounts.split_at(count);
+        let (destinations, rest) = rest
+            .split_at_checked(count)
+            .expect("parse_body guarantees `count` destinations remain");
+        let (amounts, remaining_amounts) = orders
+            .amounts
+            .split_at_checked(count)
+            .expect("parse_body guarantees `count` amounts remain");
 
         orders.accounts = rest;
         orders.bumps = bumps;
