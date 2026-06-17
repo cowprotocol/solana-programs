@@ -19,6 +19,7 @@ use core::mem::size_of;
 
 use arrayref::{array_refs, mut_array_refs};
 use derive_more::Deref;
+use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
@@ -117,26 +118,28 @@ impl EncodedOrderIntent {
     pub const SIZE: usize = 150;
 
     /// Canonical hash of the bytes.
-    pub fn hash(&self) -> [u8; 32] {
-        solana_sha256_hasher::hashv(&[self.as_slice()]).to_bytes()
+    pub fn hash(&self) -> Hash {
+        hash_bytes(&self.0)
     }
 
     /// Decode raw bytes to an [`OrderIntent`] and compute the UID in one shot.
     /// Returns [`ProgramError::InvalidInstructionData`] for an out-of-range
     /// `kind` or `partially_fillable` byte; every other byte combination
     /// decodes.
-    pub fn decode_and_hash(
-        bytes: &[u8; Self::SIZE],
-    ) -> Result<(OrderIntent, [u8; 32]), ProgramError> {
+    pub fn decode_and_hash(bytes: &[u8; Self::SIZE]) -> Result<(OrderIntent, Hash), ProgramError> {
         let intent = OrderIntent::try_from(bytes)?;
         // The UID is the SHA-256 of the input bytes. Hashing the input
         // (no re-encode) is correct because encode/decode is a bijection on
         // inputs that pass validation. Any normalization added to the `From`
         // or `TryFrom` impls later would break this and the UID would silently
         // diverge from `OrderIntent::uid()`.
-        let uid = solana_sha256_hasher::hashv(&[bytes.as_slice()]).to_bytes();
+        let uid = hash_bytes(bytes);
         Ok((intent, uid))
     }
+}
+
+pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
+    solana_sha256_hasher::hashv(&[bytes.as_slice()])
 }
 
 impl From<&EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
@@ -253,7 +256,7 @@ impl OrderIntent {
     /// SHA-256 of the canonical bytes. Doubles as the order UID and the
     /// middle seed of the order PDA. On SBF this compiles to a single
     /// `sol_sha256` syscall; off-target it goes through the `sha2` crate.
-    pub fn uid(&self) -> [u8; 32] {
+    pub fn uid(&self) -> Hash {
         EncodedOrderIntent::from(self).hash()
     }
 }
@@ -455,7 +458,7 @@ mod tests {
     fn uid_digest_regression() {
         let intent = sample_intent(OrderKind::Buy, true);
         let expected = hex!("091d7e1959ac6f7a400a91f1dcd9ce436f8f53e2b7a1d968acb08f79d3c1231d");
-        assert_eq!(intent.uid(), expected);
+        assert_eq!(intent.uid(), Hash::from(expected));
     }
 
     #[test]

@@ -12,6 +12,7 @@
 //! For every valid [`crate::data::intent::OrderIntent`], there exists only
 //! a single valid PDA representing that intent.
 
+use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 
 use crate::pda::SETTLEMENT_SEED;
@@ -20,15 +21,25 @@ use crate::pda::SETTLEMENT_SEED;
 pub const ORDER_SEED: &[u8] = b"order";
 
 /// Canonical seed components for the order PDA at `uid`.
-pub fn order_pda_seeds(uid: &[u8; 32]) -> [&[u8]; 3] {
-    [SETTLEMENT_SEED, uid, ORDER_SEED]
+pub fn order_pda_seeds(uid: &Hash) -> [&[u8]; 3] {
+    [SETTLEMENT_SEED, uid.as_ref(), ORDER_SEED]
+}
+
+/// Canonical seeds for signing as the order PDA at `uid` with `bump`. The
+/// on-chain `CreateOrder` handler uses this to construct the CPI signer.
+/// By design, order PDAs can be created only if it uses the canonical bump.
+/// Calling this function with another bump could lead to a theoretically
+/// valid PDA that however cannot and should not be instantiated.
+pub fn order_pda_signer_seeds<'a>(uid: &'a Hash, bump: &'a [u8; 1]) -> [&'a [u8]; 4] {
+    let [s0, s1, s2] = order_pda_seeds(uid);
+    [s0, s1, s2, bump]
 }
 
 /// Derive the canonical order PDA address (and bump) for `uid`.
 ///
 /// `uid` is the unique identifier of an intent. See
 /// [`crate::data::intent::OrderIntent::uid`].
-pub fn find_order_pda(program_id: &Pubkey, uid: &[u8; 32]) -> (Pubkey, u8) {
+pub fn find_order_pda(program_id: &Pubkey, uid: &Hash) -> (Pubkey, u8) {
     Pubkey::find_program_address(&order_pda_seeds(uid), program_id)
 }
 
@@ -38,7 +49,7 @@ mod tests {
 
     #[test]
     fn find_order_pda_uses_canonical_seeds() {
-        let uid = *Pubkey::new_unique().as_array();
+        let uid = Hash::new_from_array(*Pubkey::new_unique().as_array());
 
         crate::pda::tests::assert_canonical_bump(
             |program_id| find_order_pda(program_id, &uid),
@@ -60,8 +71,8 @@ mod tests {
             ) {
                 prop_assume!(uid1 != uid2);
                 let program_id = Pubkey::new_from_array(program_id);
-                let (pda1, _) = find_order_pda(&program_id, &uid1);
-                let (pda2, _) = find_order_pda(&program_id, &uid2);
+                let (pda1, _) = find_order_pda(&program_id, &Hash::new_from_array(uid1));
+                let (pda2, _) = find_order_pda(&program_id, &Hash::new_from_array(uid2));
                 prop_assert_ne!(pda1, pda2);
             }
         }

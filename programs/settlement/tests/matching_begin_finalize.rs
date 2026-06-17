@@ -35,7 +35,7 @@ fn run_sequence(
     let instructions: Vec<Instruction> = sequence
         .iter()
         .map(|spec| match spec {
-            AbstractInstruction::Init(idx) => begin_settle(program_id, *idx),
+            AbstractInstruction::Init(idx) => begin_settle(program_id, *idx, &[]),
             AbstractInstruction::Fin(idx) => finalize_settle(program_id, *idx),
             // 0-lamport self-transfer: a side-effect-free instruction that
             // (unlike Compute Budget) Solana allows to appear multiple times
@@ -129,7 +129,7 @@ fn invalid_sequences() {
 fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let (mut svm, program_id, payer) = common::setup();
 
-    let mut begin = begin_settle(&program_id, 1);
+    let mut begin = begin_settle(&program_id, 1, &[]);
     begin.accounts[0] = AccountMeta::new_readonly(payer.pubkey(), false);
     let finalize = finalize_settle(&program_id, 0);
 
@@ -156,7 +156,7 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
 fn rejects_counterpart_instruction_in_different_program() {
     let (mut svm, program_id, payer) = common::setup();
 
-    let begin = begin_settle(&program_id, 1);
+    let begin = begin_settle(&program_id, 1, &[]);
     // We build a transaction that looks like a valid finalize_settle but
     // calling a different program. It doesn't really matter what program
     // we use here because execution isn't expected to reach this point.

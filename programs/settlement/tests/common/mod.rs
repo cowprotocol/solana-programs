@@ -16,7 +16,7 @@ use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::Transaction,
+    transaction::{Transaction, TransactionError},
 };
 
 pub const PROGRAM_SO: &str = concat!(
@@ -61,6 +61,34 @@ pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
 /// explicit.
 pub fn to_instruction_error(e: SettlementError) -> InstructionError {
     InstructionError::Custom(e.into())
+}
+
+pub fn assert_instruction_error(result: Result<(), TransactionError>, expected: InstructionError) {
+    assert_eq!(result, Err(TransactionError::InstructionError(0, expected)));
+}
+pub fn assert_settlement_error(result: Result<(), TransactionError>, expected: SettlementError) {
+    assert_instruction_error(result, to_instruction_error(expected));
+}
+
+/// Place a fresh, rent-exempt account holding `data` and owned by `owner` at a
+/// new address, and return it. Lets a test populate an arbitrary account (e.g.
+/// program-owned, with a crafted body or a deliberately wrong size or owner)
+/// directly, bypassing the runtime.
+pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey {
+    let address = Pubkey::new_unique();
+    let lamports = svm.minimum_balance_for_rent_exemption(data.len());
+    svm.set_account(
+        address,
+        Account {
+            lamports,
+            data: data.to_vec(),
+            owner: *owner,
+            executable: false,
+            rent_epoch: 0,
+        },
+    )
+    .expect("set_account should succeed");
+    address
 }
 
 /// Read the lamports balance of an account, or 0 if the account doesn't

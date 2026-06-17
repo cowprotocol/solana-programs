@@ -11,15 +11,53 @@ pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
 use crate::SettlementInstruction;
 
-pub fn begin_settle(program_id: &Pubkey, finalize_ix_index: u16) -> Instruction {
+/// Build a `BeginSettle` instruction settling the orders described by the three
+/// parallel lists: `order_pdas[i]` is the canonical order PDA (see
+/// [`crate::pda::order`]), `sell_token_accounts[i]` its sell token account, and
+/// `bumps[i]` the canonical PDA bump. The three slices are assumed to have the
+/// same length but this is not enforced in the builder.
+///
+/// Wire format:
+/// `[discriminator=0][finalize_ix_index: u16 BE][bump...]`, one `bump` byte per
+/// order.
+/// Accounts:
+/// `[instructions_sysvar (R), (order_pda (R), sell_token_account (R))...]`, one
+//  pair of accounts per order.
+///
+/// The program requires the order PDAs to be strictly increasing by address.
+/// This builder establishes that ordering for the caller: it sorts the orders by
+/// PDA address (carrying each order's sell token account and bump along) before
+/// emitting them.
+pub fn begin_settle(
+    program_id: &Pubkey,
+    finalize_ix_index: u16,
+    order_pdas: &[Pubkey],
+    sell_token_accounts: &[Pubkey],
+    bumps: &[u8],
+) -> Instruction {
+    // Sort the three parallel lists together by order PDA address via a shared
+    // permutation, so each order keeps its own sell token account and bump.
+    let mut order: Vec<usize> = (0..order_pdas.len()).collect();
+    order.sort_by_key(|&i| order_pdas[i]);
+
+    let data = std::iter::once(SettlementInstruction::BeginSettle.discriminator())
+        .chain(finalize_ix_index.to_be_bytes())
+        .chain(order.iter().map(|&i| bumps[i]))
+        .collect();
+
+    let accounts = std::iter::once(INSTRUCTIONS_SYSVAR_ID)
+        .chain(
+            order
+                .iter()
+                .flat_map(|&i| [order_pdas[i], sell_token_accounts[i]]),
+        )
+        .map(|pubkey| AccountMeta::new_readonly(pubkey, false))
+        .collect();
+
     Instruction {
         program_id: *program_id,
-        accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
-        data: [
-            &[SettlementInstruction::BeginSettle.discriminator()],
-            &finalize_ix_index.to_be_bytes()[..],
-        ]
-        .concat(),
+        accounts,
+        data,
     }
 }
 
@@ -36,17 +74,16 @@ pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u16) -> Instruction 
 }
 
 /// Reads the first two bytes of a byte slice (instruction data) and
-/// interprets them as a big-endian u16.
+/// interprets them as a big-endian u16, returning it together with the
+/// remaining bytes to parse.
 /// It's meant to be used for BeginSettle and FinalizeSettle to extract the
 /// counterpart index, that is, the index linking that instruction to the
 /// opposite instruction which is encoded as the first
 /// 2 bytes of the instruction data: `[0x13, 0x37]` → `0x1337`.
-/// Trailing bytes are ignored, so it can be used with instruction input
-/// directly.
 /// Returns `InvalidInstructionData` if fewer than two bytes are provided.
-pub fn recover_counterpart(instruction_data: &[u8]) -> Result<u16, ProgramError> {
+pub fn recover_counterpart(instruction_data: &[u8]) -> Result<(u16, &[u8]), ProgramError> {
     match instruction_data {
-        [b1, b2, ..] => Ok(u16::from_be_bytes([*b1, *b2])),
+        [b1, b2, rest @ ..] => Ok((u16::from_be_bytes([*b1, *b2]), rest)),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
@@ -72,21 +109,21 @@ mod tests {
     }
 
     #[test]
-    fn ignores_trailing_bytes() {
+    fn returns_trailing_bytes() {
         assert_eq!(
             recover_counterpart(&[
                 0x13, // counterpart index
                 0x37, // counterpart index
-                42,   // unused
+                42,   // trailing
             ]),
-            Ok(0x1337),
+            Ok((0x1337, [42].as_slice())),
         );
     }
 
     #[test]
     fn expected_encoding_begin_settle() {
         let program_id = Pubkey::new_unique();
-        let ix = begin_settle(&program_id, 0x1337);
+        let ix = begin_settle(&program_id, 0x1337, &[], &[], &[]);
         assert_eq!(
             ix.data,
             [
@@ -95,6 +132,57 @@ mod tests {
                 0x37
             ]
         );
+        // No orders: only the instructions sysvar is referenced.
+        assert_eq!(ix.accounts.len(), 1);
+        assert_eq!(ix.accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
+        assert!(!ix.accounts[0].is_writable);
+        assert!(!ix.accounts[0].is_signer);
+    }
+
+    #[test]
+    fn begin_settle_sorts_orders_by_pda() {
+        let program_id = Pubkey::new_unique();
+        // Two orders supplied in descending PDA order. All the other parameters
+        // are chosen to sort in the opposite order.
+        let high_order_pda = Pubkey::new_from_array([0xbb; 32]);
+        let high_sell_token_account = Pubkey::new_from_array([0xa0; 32]);
+        let high_bump = 0xaa;
+        let low_order_pda = Pubkey::new_from_array([0xaa; 32]);
+        let low_sell_token_account = Pubkey::new_from_array([0xb0; 32]);
+        let low_bump = 0xbb;
+        let ix = begin_settle(
+            &program_id,
+            0x1337,
+            &[high_order_pda, low_order_pda],
+            &[high_sell_token_account, low_sell_token_account],
+            &[high_bump, low_bump],
+        );
+
+        // Bumps follow the sorted order: the low PDA's bump comes first.
+        assert_eq!(
+            ix.data,
+            [
+                SettlementInstruction::BeginSettle.discriminator(),
+                0x13,
+                0x37,
+                low_bump,
+                high_bump,
+            ],
+        );
+
+        let expected: Vec<Pubkey> = vec![
+            INSTRUCTIONS_SYSVAR_ID,
+            low_order_pda,
+            low_sell_token_account,
+            high_order_pda,
+            high_sell_token_account,
+        ];
+        let actual: Vec<Pubkey> = ix.accounts.iter().map(|meta| meta.pubkey).collect();
+        assert_eq!(actual, expected);
+        assert!(ix
+            .accounts
+            .iter()
+            .all(|meta| !meta.is_writable && !meta.is_signer));
     }
 
     #[test]
@@ -109,5 +197,11 @@ mod tests {
                 0x37
             ]
         );
+
+        // Only the instructions sysvar is referenced.
+        assert_eq!(ix.accounts.len(), 1);
+        assert_eq!(ix.accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
+        assert!(!ix.accounts[0].is_writable);
+        assert!(!ix.accounts[0].is_signer);
     }
 }

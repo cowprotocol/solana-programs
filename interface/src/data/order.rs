@@ -22,10 +22,11 @@ use core::mem::size_of;
 
 use arrayref::{array_refs, mut_array_refs};
 use derive_more::Deref;
+use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::data::intent::{EncodedOrderIntent, OrderIntent};
+use crate::data::intent::{self, EncodedOrderIntent, OrderIntent};
 
 /// Idiomatic representation of an order PDA's body.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,6 +80,24 @@ impl EncodedOrderAccount {
     const W_INTENT: usize = EncodedOrderIntent::SIZE;
 
     pub const SIZE: usize = 199;
+
+    /// Decode the account body and compute the embedded intent's UID in one
+    /// shot, mirroring [`EncodedOrderIntent::decode_and_hash`]. Decoding
+    /// validates the intent; returns [`ProgramError::InvalidAccountData`] on a
+    /// decode error.
+    pub fn decode_and_hash(bytes: &[u8; Self::SIZE]) -> Result<(OrderAccount, Hash), ProgramError> {
+        let order_account = OrderAccount::try_from(*bytes)?;
+        // The order UID is the hash of the intent's canonical bytes. Decoding
+        // succeeded, so the intent slot already holds those exact bytes: hash
+        // them in place rather than using `intent.uid()` to avoid re-encoding.
+        let (_, raw_intent) = array_refs![
+            bytes,
+            EncodedOrderAccount::SIZE - EncodedOrderAccount::W_INTENT,
+            EncodedOrderAccount::W_INTENT
+        ];
+        let intent_uid = intent::hash_bytes(raw_intent);
+        Ok((order_account, intent_uid))
+    }
 }
 
 /// Writes the canonical [`EncodedOrderAccount`] encoding of the given fields
@@ -329,6 +348,18 @@ mod tests {
     }
 
     #[test]
+    fn decode_and_hash_catches_errors() {
+        let mut bytes: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(sample_account(false)).into();
+        // Corrupt the `cancelled` byte to an out-of-range value so the
+        // underlying `try_from` rejects it.
+        bytes[CANCELLED_OFFSET] = 0xff;
+        let err = EncodedOrderAccount::decode_and_hash(&bytes)
+            .expect_err("decode_and_hash must propagate the try_from error");
+        assert_eq!(err, ProgramError::InvalidAccountData);
+    }
+
+    #[test]
     fn direct_write_account_matches_order_account_decoding() {
         let cancelled = true;
         let amount_withdrawn = 1337;
@@ -391,6 +422,15 @@ mod tests {
                 let account = OrderAccount::try_from(bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(*EncodedOrderAccount::from(account), bytes);
+            }
+
+            #[test]
+            fn consistent_decode_and_hash(account in arb_order_account()) {
+                let encoded = EncodedOrderAccount::from(account.clone());
+                let (decoded, hash) = EncodedOrderAccount::decode_and_hash(&encoded)
+                    .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
+                prop_assert_eq!(hash, account.intent.uid());
+                prop_assert_eq!(decoded, account);
             }
         }
     }

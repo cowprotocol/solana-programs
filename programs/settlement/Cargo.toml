@@ -22,6 +22,7 @@ solana-instruction = { workspace = true, features = ["syscalls"] }
 arrayref.workspace = true
 litesvm.workspace = true
 litesvm-token.workspace = true
+proptest.workspace = true
 settlement-client.workspace = true
 settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-sdk.workspace = true

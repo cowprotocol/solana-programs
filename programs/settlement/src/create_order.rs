@@ -24,7 +24,7 @@ impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateOrder;
 
     fn parse_body(
-        instruction_data: &[u8],
+        instruction_data: &'a [u8],
         accounts: &'a mut [AccountView],
     ) -> Result<Self, ProgramError> {
         // Body (discriminator already stripped): exactly the 150 intent bytes.
