@@ -3,7 +3,9 @@
 use std::ops::Deref;
 
 use pinocchio::{
-    error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
+    error::ProgramError,
+    sysvars::{clock::Clock, instructions::Instructions, Sysvar},
+    AccountView, Address, ProgramResult,
 };
 use pinocchio_token::state::Account as TokenAccount;
 use settlement_interface::{
@@ -210,8 +212,8 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
 }
 
 /// For each order, this checks that the order account was created by this
-/// program and that its sell token account is the one the order's owner
-/// controls.
+/// program, that it is still settleable (neither cancelled nor expired), and
+/// that its sell token account is the one the order's owner controls.
 fn validate_settled_orders<'a>(
     program_id: &Address,
     orders: impl IntoIterator<Item = SettledOrder<'a>>,
@@ -219,6 +221,8 @@ fn validate_settled_orders<'a>(
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
     let mut previous: Option<&Address> = None;
+
+    let now = Clock::get()?.unix_timestamp;
 
     for SettledOrder {
         order_pda,
@@ -230,13 +234,13 @@ fn validate_settled_orders<'a>(
         // account; the canonical-address check below is what proves provenance.
         // The borrow is released at the end of this block, before any other
         // account is touched.
-        let (intent, uid) = {
+        let (cancelled, intent, uid) = {
             let data = order_pda.try_borrow()?;
             let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
                 .try_into()
                 .map_err(|_| ProgramError::InvalidAccountData)?;
             let (account, uid) = EncodedOrderAccount::decode_and_hash(bytes)?;
-            (account.intent, uid)
+            (account.cancelled, account.intent, uid)
         };
 
         // Only at this point we can validate that the PDA is indeed a valid
@@ -252,6 +256,14 @@ fn validate_settled_orders<'a>(
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
         }
         previous = Some(order_pda.address());
+
+        if cancelled {
+            return Err(SettlementError::OrderCancelled.into());
+        }
+
+        if now > i64::from(intent.valid_to) {
+            return Err(SettlementError::OrderExpired.into());
+        }
 
         // The sell token account must be the one named in the intent, owned by
         // the intent owner: an order can only sell funds its own owner controls.

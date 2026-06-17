@@ -13,6 +13,7 @@ use settlement_client::settlement_interface::SettlementError;
 use settlement_interface::Instruction;
 use solana_sdk::{
     account::Account,
+    clock::Clock,
     instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -89,6 +90,12 @@ pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey 
     )
     .expect("set_account should succeed");
     address
+}
+
+pub fn set_unix_timestamp(svm: &mut LiteSVM, unix_timestamp: i64) {
+    let mut clock = svm.get_sysvar::<Clock>();
+    clock.unix_timestamp = unix_timestamp;
+    svm.set_sysvar::<Clock>(&clock);
 }
 
 /// Read the lamports balance of an account, or 0 if the account doesn't
