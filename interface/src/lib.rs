@@ -86,6 +86,9 @@ pub enum SettlementError {
     /// `BeginSettle`'s order accounts don't form exactly one
     /// `(order_pda, sell_token_account)` pair per order bump.
     AccountCountNotMatchingBumps = 13,
+    /// `BeginSettle` or `FinalizeSettle` was invoked via CPI rather than as a
+    /// top-level transaction instruction.
+    CalledViaCpi = 14,
 }
 
 impl From<SettlementError> for u32 {
