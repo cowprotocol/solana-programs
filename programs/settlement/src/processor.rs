@@ -122,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn allows_top_level_call() {
+    fn is_cpi_false_outside_solana_lib() {
         assert!(!is_cpi_call());
     }
 }
