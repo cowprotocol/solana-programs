@@ -145,11 +145,6 @@ pub fn process_begin_settle(
     let instructions = Instructions::try_from(input.instructions_sysvar_account)?;
     let current_index = instructions.load_current_index();
 
-    // Ordering: the counterpart `FinalizeSettle` must sit strictly after us.
-    if input.finalize_ix_index <= current_index {
-        return Err(SettlementError::FinalizeBeforeInitialize.into());
-    }
-
     // Reciprocity: the input index is a finalize_settle instruction and that
     // instruction points to the current one.
     validate_counterpart(
