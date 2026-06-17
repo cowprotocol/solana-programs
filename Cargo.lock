@@ -2215,6 +2215,7 @@ dependencies = [
  "proptest",
  "settlement-client",
  "settlement-interface",
+ "solana-instruction",
  "solana-sdk",
  "solana-system-interface 3.2.0",
 ]
@@ -4016,6 +4017,13 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys",
+]
+
+[[package]]
+name = "test-cpi-caller"
+version = "0.1.0"
+dependencies = [
+ "pinocchio",
 ]
 
 [[package]]

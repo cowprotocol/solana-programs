@@ -6,12 +6,16 @@ default:
 build-program:
     cargo build-sbf --manifest-path programs/settlement/Cargo.toml
 
+# Build supplementary test programs (.so)
+build-test-programs:
+    cargo build-sbf --manifest-path programs/test/cpi-caller/Cargo.toml
+
 # Build everything: host-side workspace crates plus the on-chain program.
 build: build-program
     cargo build
 
 # Run the test suite (builds the program first so the .so exists).
-test: build-program
+test: build-program build-test-programs
     cargo test
 
 # Format the source code.

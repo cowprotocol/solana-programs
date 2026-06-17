@@ -86,12 +86,15 @@ pub enum SettlementError {
     /// `BeginSettle`'s order accounts don't form exactly one
     /// `(order_pda, sell_token_account)` pair per order bump.
     AccountCountNotMatchingBumps = 13,
+    /// `BeginSettle` or `FinalizeSettle` was invoked via CPI rather than as a
+    /// top-level transaction instruction.
+    CalledViaCpi = 14,
     /// A `BeginSettle` order has been cancelled by its owner and can no longer
     /// be settled.
-    OrderCancelled = 14,
+    OrderCancelled = 15,
     /// A `BeginSettle` order's `valid_to` lies in the past: the order has
     /// expired and can no longer be settled.
-    OrderExpired = 15,
+    OrderExpired = 16,
 }
 
 impl From<SettlementError> for u32 {

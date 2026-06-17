@@ -16,6 +16,7 @@ pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system.workspace = true
 pinocchio-token.workspace = true
 settlement-interface.workspace = true
+solana-instruction = { workspace = true, features = ["syscalls"] }
 
 [dev-dependencies]
 arrayref.workspace = true
