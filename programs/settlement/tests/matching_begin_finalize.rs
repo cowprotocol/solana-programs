@@ -205,7 +205,7 @@ fn rejects_cpi_call_to_begin_settle() {
     let (mut svm, settlement_id, payer) = common::setup();
     let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
-    let cpi_caller_ix = as_cpi_call(cpi_caller_id, begin_settle(&settlement_id, 1));
+    let cpi_caller_ix = as_cpi_call(cpi_caller_id, begin_settle(&settlement_id, 1, &[]));
 
     let tx = Transaction::new_signed_with_payer(
         &[cpi_caller_ix],
