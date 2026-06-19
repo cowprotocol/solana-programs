@@ -717,14 +717,17 @@ fn rejects_wrong_token_program() {
 }
 
 #[test]
-fn rejects_pull_without_delegation() {
+fn rejects_pull_delegated_to_incorrect_address() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let amount = 100_000;
     let sell_token = intent.sell_token_account;
-    // Funds are present but the state PDA was never approved as a delegate.
+    // Funds are present but some account other than the state PDA was
+    // approved as a delegate.
     token::mint_to(&mut svm, &payer, &mint, &sell_token, 1_000_000);
+    token::delegate(&mut svm, &payer, &sell_token, &Pubkey::new_unique(), amount);
     let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
 
     let result = settle(
@@ -733,7 +736,7 @@ fn rejects_pull_without_delegation() {
         &payer,
         &[SettledOrder {
             intent: &intent,
-            pulls: &[(destination, 100_000)],
+            pulls: &[(destination, amount)],
         }],
     );
     assert!(
