@@ -10,46 +10,22 @@ use settlement_interface::{
 
 use crate::processor::{CanonicalPda, InstructionInputParsing};
 
-/// The accounts needed to create a buffer. This struct is mostly used to make
-/// sure `[AccountView; 2]` is decoded correctly.
-struct CreateBufferEntry<'a> {
-    buffer_pda: &'a AccountView,
-    mint: &'a AccountView,
+struct CreateBufferEntry {
+    buffer_pda: AccountView,
+    mint: AccountView,
 }
 
-impl<'a> From<&'a [AccountView; 2]> for CreateBufferEntry<'a> {
-    fn from([buffer_pda, mint]: &'a [AccountView; 2]) -> Self {
-        Self { buffer_pda, mint }
-    }
-}
-
-/// The trailing accounts of a `CreateBuffer` instruction, grouped into
-/// `[buffer_pda, mint]` pairs, one per buffer to create. Iterating yields a
-/// named [`CreateBufferEntry`] per pair.
-///
-/// This is a new type only because `IntoIterator` can't be implemented on a
-/// bare `&[[AccountView; 2]]`.
-struct CreateBufferEntries<'a>(&'a [[AccountView; 2]]);
-
-impl<'a> IntoIterator for CreateBufferEntries<'a> {
-    type Item = CreateBufferEntry<'a>;
-    type IntoIter = core::iter::Map<
-        core::slice::Iter<'a, [AccountView; 2]>,
-        fn(&'a [AccountView; 2]) -> CreateBufferEntry<'a>,
-    >;
-
-    fn into_iter(self) -> Self::IntoIter {
-        // Bind as a `fn` pointer so the iterator's type matches `IntoIter`.
-        let into_entry: fn(&'a [AccountView; 2]) -> CreateBufferEntry<'a> = CreateBufferEntry::from;
-        self.0.iter().map(into_entry)
-    }
+/// Read one slice element into a [`CreateBufferEntry`].                                                                                                                     
+fn read_buffer_entry(&[buffer_pda, mint]: &[AccountView; 2]) -> CreateBufferEntry {
+    CreateBufferEntry { buffer_pda, mint }
 }
 
 /// Parsed inputs of a `CreateBuffer` instruction.
 struct CreateBufferInput<'a> {
     payer: &'a AccountView,
     token_program: &'a AccountView,
-    buffers: CreateBufferEntries<'a>,
+    /// One `[buffer_pda, mint]` pair per buffer to create.
+    buffers: &'a [[AccountView; 2]],
 }
 
 impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
@@ -82,7 +58,7 @@ impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
         Ok(Self {
             payer,
             token_program,
-            buffers: CreateBufferEntries(buffers),
+            buffers,
         })
     }
 }
@@ -109,7 +85,7 @@ pub fn process_create_buffer(
     // authority over every buffer. Derive it once for all buffers.
     let (state_pda, _) = Address::find_program_address(&state_pda_seeds(), program_id);
 
-    for CreateBufferEntry { buffer_pda, mint } in buffers {
+    for CreateBufferEntry { buffer_pda, mint } in buffers.iter().map(read_buffer_entry) {
         // One buffer per token. `CanonicalPda::create` derives the canonical
         // bump and, by signing the allocation with the buffer seeds, rejects
         // any `buffer_pda` that isn't the canonical address. The buffer is a
@@ -123,14 +99,14 @@ pub fn process_create_buffer(
         CanonicalPda {
             program_id,
             payer,
-            pda: buffer_pda,
+            pda: &buffer_pda,
             size: TokenAccount::LEN as u64,
             owner: &SPL_TOKEN_PROGRAM_ID,
             seeds: buffer_pda_seeds(mint_key),
         }
         .create()?;
 
-        InitializeAccount3::new(buffer_pda, mint, &state_pda).invoke()?;
+        InitializeAccount3::new(&buffer_pda, &mint, &state_pda).invoke()?;
     }
 
     Ok(())
@@ -186,11 +162,9 @@ mod tests {
 
         assert_eq!(*parsed_payer.address(), payer);
         assert_eq!(*parsed_token_program.address(), token_program);
-        let mut entries = buffers.into_iter();
-        let entry = entries.next().expect("one buffer is one (pda, mint) pair");
-        assert_eq!(*entry.buffer_pda.address(), buffer_pda);
-        assert_eq!(*entry.mint.address(), mint);
-        assert!(entries.next().is_none(), "exactly one buffer");
+        assert_eq!(buffers.len(), 1, "one buffer is one (pda, mint) pair");
+        assert_eq!(*buffers[0][0].address(), buffer_pda);
+        assert_eq!(*buffers[0][1].address(), mint);
     }
 
     #[test]
@@ -222,14 +196,14 @@ mod tests {
         let CreateBufferInput { buffers, .. } =
             CreateBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        let mut entries = buffers.into_iter();
-        let entry_a = entries.next().expect("first entry");
-        assert_eq!(*entry_a.buffer_pda.address(), buffer_a);
-        assert_eq!(*entry_a.mint.address(), mint_a);
-        let entry_b = entries.next().expect("second entry");
-        assert_eq!(*entry_b.buffer_pda.address(), buffer_b);
-        assert_eq!(*entry_b.mint.address(), mint_b);
-        assert!(entries.next().is_none(), "exactly two buffers");
+        assert_eq!(
+            buffers[0].each_ref().map(|a| *a.address()),
+            [buffer_a, mint_a]
+        );
+        assert_eq!(
+            buffers[1].each_ref().map(|a| *a.address()),
+            [buffer_b, mint_b]
+        );
     }
 
     #[test]
@@ -239,10 +213,7 @@ mod tests {
         let mut accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
         let CreateBufferInput { buffers, .. } =
             CreateBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
-        assert!(
-            buffers.into_iter().next().is_none(),
-            "zero pairs is an empty buffer list"
-        );
+        assert!(buffers.is_empty(), "zero pairs is an empty buffer list");
     }
 
     #[test]
