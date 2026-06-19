@@ -269,7 +269,7 @@ pub fn process_begin_settle(
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
 /// `BeginSettle`/`FinalizeSettle` of this program may appear strictly between
 /// `current_index` and `finalize_ix_index`. The bounds themselves are excluded.
-#[must_use = "skipping the nesting check silently accepts overlapping settle pairs"]
+#[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
     program_id: &Address,
     instructions: &Instructions<T>,
@@ -315,7 +315,7 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
 /// a time by [`process_pull`] and must be passed strictly increasing by address;
 /// this rejects duplicates (settling the same order twice) without a separate
 /// scan.
-#[must_use = "skipping the return value may lead to a partial settlement execution"]
+#[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn pull_funds<'a>(
     program_id: &Address,
     token_program_account: &AccountView,
@@ -359,7 +359,7 @@ fn pull_funds<'a>(
 /// Validate a singe order and process its pulls.
 /// This checks that the order is valid and settleable. Once the order passes
 /// those checks, its pulls are executed.
-#[must_use = "skipping the return value may lead to funds not being pulled but accounted for in the order"]
+#[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order(
     program_id: &Address,
     order: SettledOrder<'_>,
@@ -467,7 +467,7 @@ pub fn process_finalize_settle(
 /// belongs to `program_id`, carries `expected_discriminator`, and points
 /// back at the current instruction. Ordering (before/after) is the caller's
 /// responsibility.
-#[must_use = "skipping the counterpart check silently accepts an invalid settle pair"]
+#[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn validate_counterpart<T: Deref<Target = [u8]>>(
     program_id: &Address,
     instructions: &Instructions<T>,
