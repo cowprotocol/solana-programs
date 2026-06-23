@@ -457,11 +457,11 @@ mod tests {
             fake_account(token_program),
         ];
         let data = [
-            SettlementInstruction::BeginSettle.discriminator(),
-            0x13, // finalize index hi
-            0x37, // finalize index lo
-            0x00, // order count
-        ];
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0x13, 0x37][..], // finalize index
+            &[0x00][..],       // order count
+        ]
+        .concat();
         let BeginSettleInput {
             finalize_ix_index,
             instructions_sysvar_account,
@@ -477,10 +477,10 @@ mod tests {
         let address = Address::new_from_array([0x42u8; 32]);
         let mut accounts = [fake_account(address)];
         let data = [
-            SettlementInstruction::FinalizeSettle.discriminator(),
-            0x13,
-            0x37,
-        ];
+            &[SettlementInstruction::FinalizeSettle.discriminator()][..],
+            &[0x13, 0x37][..], // begin index
+        ]
+        .concat();
         let FinalizeSettleInput {
             begin_ix_index,
             instructions_sysvar_account,
@@ -491,7 +491,11 @@ mod tests {
 
     #[test]
     fn begin_settle_input_rejects_different_discriminator() {
-        let data = [SettlementInstruction::FinalizeSettle.discriminator(), 0, 0];
+        let data = [
+            &[SettlementInstruction::FinalizeSettle.discriminator()][..],
+            &[0, 0][..], // finalize index
+        ]
+        .concat();
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
@@ -501,7 +505,11 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_rejects_different_discriminator() {
-        let data = [SettlementInstruction::BeginSettle.discriminator(), 0, 0];
+        let data = [
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0, 0][..], // begin index
+        ]
+        .concat();
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             FinalizeSettleInput::parse(&data, &mut accounts).err(),
@@ -511,7 +519,11 @@ mod tests {
 
     #[test]
     fn begin_settle_input_rejects_empty_accounts() {
-        let data = [SettlementInstruction::BeginSettle.discriminator(), 0, 0];
+        let data = [
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0, 0][..], // finalize index
+        ]
+        .concat();
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
@@ -521,7 +533,11 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_rejects_empty_accounts() {
-        let data = [SettlementInstruction::FinalizeSettle.discriminator(), 0, 0];
+        let data = [
+            &[SettlementInstruction::FinalizeSettle.discriminator()][..],
+            &[0, 0][..], // begin index
+        ]
+        .concat();
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             FinalizeSettleInput::parse(&data, &mut accounts).err(),
@@ -544,13 +560,13 @@ mod tests {
             fake_account(sell_token),
         ];
         let data = [
-            SettlementInstruction::BeginSettle.discriminator(),
-            0x13, // finalize index hi
-            0x37, // finalize index lo
-            0x01, // order count
-            0xab, // one order's bump
-            0x00, // that order's transfer count
-        ];
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0x13, 0x37][..], // finalize index
+            &[0x01][..],       // order count
+            &[0xab][..],       // one order's bump
+            &[0x00][..],       // that order's transfer count
+        ]
+        .concat();
         let BeginSettleInput {
             finalize_ix_index,
             instructions_sysvar_account,
@@ -587,14 +603,11 @@ mod tests {
             fake_account(dest1),
         ];
         let data = [
-            &[
-                SettlementInstruction::BeginSettle.discriminator(),
-                0x13,
-                0x37,
-            ][..],
-            &[0x01][..], // order count
-            &[0xab][..], // bump
-            &[0x02][..], // transfer count
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0x13, 0x37][..], // finalize index
+            &[0x01][..],       // order count
+            &[0xab][..],       // bump
+            &[0x02][..],       // transfer count
             &0x1122u64.to_be_bytes()[..],
             &0x3344u64.to_be_bytes()[..],
         ]
@@ -644,12 +657,9 @@ mod tests {
         // Grouped data: discriminator, finalize index, order count, all bumps,
         // then all transfer counts (every order has zero transfers).
         let data = [
-            &[
-                SettlementInstruction::BeginSettle.discriminator(),
-                0x13,
-                0x37,
-                ORDER_COUNT as u8, // order count
-            ][..],
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0x13, 0x37][..],        // finalize index
+            &[ORDER_COUNT as u8][..], // order count
             &bumps[..],
             &[0u8; ORDER_COUNT][..],
         ]
@@ -675,13 +685,13 @@ mod tests {
         // doesn't match the `2n + T` the body implies.
         let mut accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 1 }>();
         let data = [
-            SettlementInstruction::BeginSettle.discriminator(),
-            0,
-            0,
-            0x01, // order count
-            0xab, // the order's bump
-            0x00, // the order's transfer count
-        ];
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0, 0][..], // finalize index
+            &[0x01][..], // order count
+            &[0xab][..], // the order's bump
+            &[0x00][..], // the order's transfer count
+        ]
+        .concat();
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
             Some(SettlementError::AccountCountNotMatchingOrderCount.into()),
@@ -695,7 +705,8 @@ mod tests {
         // transfer-count byte claims only one.
         let mut accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 4 }>();
         let data = [
-            &[SettlementInstruction::BeginSettle.discriminator(), 0, 0][..],
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0, 0][..], // finalize index
             &[0x01][..], // order count
             &[0xab][..], // bump
             &[0x01][..], // count says one, but two amounts/destinations exist
@@ -714,7 +725,11 @@ mod tests {
         // The body carries the finalize index but no order-count byte, so the
         // pull layout can't even begin to be parsed.
         let mut accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
-        let data = [SettlementInstruction::BeginSettle.discriminator(), 0, 0];
+        let data = [
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0, 0][..], // finalize index
+        ]
+        .concat();
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
@@ -727,12 +742,12 @@ mod tests {
         // the bumps can't be split off.
         let mut accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
         let data = [
-            SettlementInstruction::BeginSettle.discriminator(),
-            0,
-            0,
-            0x02, // order count: two orders...
-            0xab, // ...but only one bump byte
-        ];
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0, 0][..], // finalize index
+            &[0x02][..], // order count: two orders...
+            &[0xab][..], // ...but only one bump byte
+        ]
+        .concat();
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
@@ -745,12 +760,12 @@ mod tests {
         // counts can't be split off.
         let mut accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
         let data = [
-            SettlementInstruction::BeginSettle.discriminator(),
-            0,
-            0,
-            0x01, // order count
-            0xab, // the order's bump, with no transfer count after it
-        ];
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0, 0][..], // finalize index
+            &[0x01][..], // order count
+            &[0xab][..], // the order's bump, with no transfer count after it
+        ]
+        .concat();
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
@@ -763,7 +778,8 @@ mod tests {
         // whole `u64` amount.
         let mut accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
         let data = [
-            &[SettlementInstruction::BeginSettle.discriminator(), 0, 0][..],
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &[0, 0][..],                   // finalize index
             &[0x01][..],                   // order count
             &[0xab][..],                   // bump
             &[0x00][..],                   // transfer count
@@ -782,11 +798,11 @@ mod tests {
         let second_address = Address::new_from_array([2u8; 32]);
         let mut accounts = [fake_account(first_address), fake_account(second_address)];
         let data = [
-            SettlementInstruction::FinalizeSettle.discriminator(),
-            0x13, // used
-            0x37, // used
-            42,   // extra
-        ];
+            &[SettlementInstruction::FinalizeSettle.discriminator()][..],
+            &[0x13, 0x37][..], // begin index
+            &[42][..],         // extra
+        ]
+        .concat();
         let FinalizeSettleInput {
             begin_ix_index,
             instructions_sysvar_account,
