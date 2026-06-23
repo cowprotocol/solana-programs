@@ -180,9 +180,11 @@ mod tests {
         assert_eq!(accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
         assert_eq!(accounts[1].pubkey, state_pda);
         assert_eq!(accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
+        // They are all generic accounts that don't play an active role in the
+        // transaction.
         assert!(accounts
             .iter()
-            .all(|meta| !meta.is_writable && !meta.is_signer));
+            .all(|account| !account.is_writable && !account.is_signer));
     }
 
     #[test]
