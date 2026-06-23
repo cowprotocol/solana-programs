@@ -238,6 +238,19 @@ mod tests {
         ];
         let actual: Vec<Pubkey> = ix.accounts.iter().map(|meta| meta.pubkey).collect();
         assert_eq!(actual, expected);
+        // The fixed accounts and the order PDAs are read-only; only the sell
+        // token accounts are writable, following the sorted order.
+        let writable: Vec<Pubkey> = ix
+            .accounts
+            .iter()
+            .filter(|meta| meta.is_writable)
+            .map(|meta| meta.pubkey)
+            .collect();
+        assert_eq!(
+            writable,
+            vec![low_sell_token_account, high_sell_token_account],
+        );
+        assert!(ix.accounts.iter().all(|meta| !meta.is_signer));
     }
 
     #[test]
@@ -294,22 +307,20 @@ mod tests {
             .concat(),
         );
 
+        let expected: Vec<Pubkey> = vec![
+            INSTRUCTIONS_SYSVAR_ID,
+            state_pda,
+            SPL_TOKEN_PROGRAM_ID,
+            order_a,
+            sell_a,
+            dest_a0,
+            dest_a1,
+            order_b,
+            sell_b,
+            dest_b0,
+        ];
         let actual: Vec<Pubkey> = ix.accounts.iter().map(|meta| meta.pubkey).collect();
-        assert_eq!(
-            actual,
-            vec![
-                INSTRUCTIONS_SYSVAR_ID,
-                state_pda,
-                SPL_TOKEN_PROGRAM_ID,
-                order_a,
-                sell_a,
-                dest_a0,
-                dest_a1,
-                order_b,
-                sell_b,
-                dest_b0,
-            ],
-        );
+        assert_eq!(actual, expected);
         // The fixed accounts and the order PDAs are read-only; sell and
         // destination accounts are writable for the transfer.
         let writable: Vec<Pubkey> = ix
