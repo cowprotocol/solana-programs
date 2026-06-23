@@ -42,7 +42,7 @@ struct SettledOrder<'a> {
 struct SettledOrders<'a> {
     /// Remaining order accounts, laid out per order as
     /// `[order_pda, sell_token_account, destination...]`.
-    accounts: &'a [AccountView],
+    order_accounts: &'a [AccountView],
     bumps: &'a [u8],
     /// One transfer count per remaining order, parallel to `bumps`.
     counts: &'a [u8],
@@ -80,7 +80,7 @@ impl<'a> Iterator for SettledOrdersIter<'a> {
         let (&count, counts) = orders.counts.split_first()?;
         let count = usize::from(count);
 
-        let (order_pda, rest) = orders.accounts.split_first()?;
+        let (order_pda, rest) = orders.order_accounts.split_first()?;
         let (sell_token_account, rest) = rest.split_first()?;
         let (destinations, rest) = rest
             .split_at_checked(count)
@@ -90,7 +90,7 @@ impl<'a> Iterator for SettledOrdersIter<'a> {
             .split_at_checked(count)
             .expect("parse_body guarantees `count` amounts remain");
 
-        orders.accounts = rest;
+        orders.order_accounts = rest;
         orders.bumps = bumps;
         orders.counts = counts;
         orders.amounts = remaining_amounts;
@@ -179,7 +179,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
             finalize_ix_index,
             instructions_sysvar_account,
             orders: SettledOrders {
-                accounts: order_accounts,
+                order_accounts,
                 bumps,
                 counts,
                 amounts,
