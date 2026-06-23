@@ -74,13 +74,18 @@ pub fn begin_settle(
     ]
     .concat();
 
+    // Read-only accounts for instruction introspection, settlement state, and
+    // the SPL token program.
     let mut accounts = vec![
         AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
         AccountMeta::new_readonly(*state_pda, false),
         AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
     ];
     for &i in &order {
+        // Read-only account for the order.
         accounts.push(AccountMeta::new_readonly(order_pdas[i], false));
+        // Writable accounts settling the order: its sell token account and the
+        // recipient of each transfer.
         accounts.push(AccountMeta::new(sell_token_accounts[i], false));
         for pull in pulls[i] {
             accounts.push(AccountMeta::new(pull.destination, false));
