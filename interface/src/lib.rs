@@ -87,18 +87,21 @@ pub enum SettlementError {
     /// instruction data expects: `n` orders each contribute an order PDA and a
     /// sell token account, plus one destination account per transfer.
     AccountCountNotMatchingOrderCount = 13,
+    /// `BeginSettle` or `FinalizeSettle` was invoked via CPI rather than as a
+    /// top-level transaction instruction.
+    CalledViaCpi = 14,
     /// A `BeginSettle` order has been cancelled by its owner and can no longer
     /// be settled.
-    OrderCancelled = 14,
+    OrderCancelled = 15,
     /// A `BeginSettle` order's `valid_to` lies in the past: the order has
     /// expired and can no longer be settled.
-    OrderExpired = 15,
+    OrderExpired = 16,
     /// The transfer counts in `BeginSettle` don't sum to the number of transfer
     /// amounts, so destinations and amounts can't be paired up exactly.
-    TransferCountMismatch = 16,
+    TransferCountMismatch = 17,
     /// `BeginSettle`'s state account isn't the canonical settlement state PDA,
     /// which must sign the pulls as the user's token delegate.
-    StateAccountMismatch = 17,
+    StateAccountMismatch = 18,
 }
 
 impl From<SettlementError> for u32 {

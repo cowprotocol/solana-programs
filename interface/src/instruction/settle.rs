@@ -115,6 +115,7 @@ pub fn recover_counterpart(instruction_data: &[u8]) -> Result<(u16, &[u8]), Prog
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hex_literal::hex;
 
     #[test]
     fn rejects_empty_payload() {
@@ -135,11 +136,13 @@ mod tests {
     #[test]
     fn returns_trailing_bytes() {
         assert_eq!(
-            recover_counterpart(&[
-                0x13, // counterpart index
-                0x37, // counterpart index
-                42,   // trailing
-            ]),
+            recover_counterpart(
+                &[
+                    &hex!("1337")[..], // counterpart index
+                    &[42][..],         // trailing
+                ]
+                .concat()
+            ),
             Ok((0x1337, [42].as_slice())),
         );
     }
@@ -157,11 +160,11 @@ mod tests {
         assert_eq!(
             data,
             [
-                SettlementInstruction::BeginSettle.discriminator(),
-                0x13,
-                0x37,
-                0, // order count
+                &[SettlementInstruction::BeginSettle.discriminator()][..],
+                &hex!("1337")[..], // counterpart index
+                &[0][..],          // order count
             ]
+            .concat(),
         );
         // No orders: the three fixed accounts (sysvar, state PDA, token program).
         assert_eq!(accounts.len(), 3);
@@ -199,18 +202,13 @@ mod tests {
         assert_eq!(
             ix.data,
             [
-                SettlementInstruction::BeginSettle.discriminator(),
-                0x13,
-                0x37,
-                // order count
-                2,
-                // bumps
-                low_bump,
-                high_bump,
-                // transfer counts (both zero)
-                0,
-                0,
-            ],
+                &[SettlementInstruction::BeginSettle.discriminator()][..],
+                &hex!("1337")[..],          // counterpart index
+                &[2][..],                   // order count
+                &[low_bump, high_bump][..], // bumps
+                &[0, 0][..],                // transfer counts (both zero)
+            ]
+            .concat(),
         );
 
         let expected: Vec<Pubkey> = vec![
@@ -255,18 +253,15 @@ mod tests {
         assert_eq!(
             ix.data,
             [
-                &[
-                    SettlementInstruction::BeginSettle.discriminator(),
-                    0x13,
-                    0x37,
-                    2, // order count
-                ][..],
+                &[SettlementInstruction::BeginSettle.discriminator()][..],
+                &hex!("1337")[..], // counterpart index
+                &[2][..],          // order count
                 &[0xa1, 0xb1][..], // bumps
                 &[2, 1][..],       // counts
                 // amounts
-                &0x0102u64.to_be_bytes()[..],
-                &0x0304u64.to_be_bytes()[..],
-                &0x0506u64.to_be_bytes()[..],
+                &hex!("0000000000000102")[..],
+                &hex!("0000000000000304")[..],
+                &hex!("0000000000000506")[..],
             ]
             .concat(),
         );
@@ -306,10 +301,10 @@ mod tests {
         assert_eq!(
             ix.data,
             [
-                SettlementInstruction::FinalizeSettle.discriminator(),
-                0x13,
-                0x37
+                &[SettlementInstruction::FinalizeSettle.discriminator()][..],
+                &hex!("1337")[..], // counterpart index
             ]
+            .concat(),
         );
 
         // Only the instructions sysvar is referenced.

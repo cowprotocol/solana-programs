@@ -6,8 +6,11 @@ use pinocchio::{
     error::ProgramError,
     AccountView, Address, ProgramResult,
 };
+
 use pinocchio_system::instructions::CreateAccount;
 use settlement_interface::{recover_discriminator, SettlementInstruction};
+
+use solana_instruction::{syscalls::get_stack_height, TRANSACTION_LEVEL_STACK_HEIGHT};
 
 /// Shared components for parsing generic instruction input.
 ///
@@ -86,6 +89,10 @@ impl<const N: usize> CanonicalPda<'_, N> {
     }
 }
 
+pub fn is_cpi_call() -> bool {
+    get_stack_height() > TRANSACTION_LEVEL_STACK_HEIGHT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +119,10 @@ mod tests {
             TestInputParsing::parse(&data, &mut []).err(),
             Some(ProgramError::InvalidInstructionData),
         );
+    }
+
+    #[test]
+    fn is_cpi_false_outside_solana_lib() {
+        assert!(!is_cpi_call());
     }
 }
