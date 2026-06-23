@@ -10,7 +10,9 @@ use crate::common::{
     signed_tx, token,
 };
 use litesvm::LiteSVM;
-use settlement_client::instructions::{begin_settle, create_order, finalize_settle, SettledOrder};
+use settlement_client::instructions::{
+    begin_settle, create_order, finalize_settle, Pull, SettledOrder,
+};
 use settlement_client::settlement_interface::{
     data::{
         intent::{OrderIntent, OrderKind},
@@ -34,7 +36,7 @@ mod common;
 
 /// A list of empty transfer lists, one per order. Used for settling `n` orders
 /// without pulling any funds.
-fn no_pulls(n: usize) -> Vec<&'static [(Pubkey, u64)]> {
+fn no_pulls(n: usize) -> Vec<&'static [Pull]> {
     vec![&[]; n]
 }
 
@@ -538,7 +540,10 @@ fn settles_an_order_with_a_pull() {
         &payer,
         &[SettledOrder {
             intent: &intent,
-            pulls: &[(destination, 400_000)],
+            pulls: &[Pull {
+                destination,
+                amount: 400_000,
+            }],
         }],
     )
     .expect("a settlement carrying a pull should parse and succeed");
@@ -559,7 +564,16 @@ fn settles_an_order_with_multiple_pulls() {
         &payer,
         &[SettledOrder {
             intent: &intent,
-            pulls: &[(dest0, 300_000), (dest1, 100_000)],
+            pulls: &[
+                Pull {
+                    destination: dest0,
+                    amount: 300_000,
+                },
+                Pull {
+                    destination: dest1,
+                    amount: 100_000,
+                },
+            ],
         }],
     )
     .expect("a settlement carrying multiple pulls should parse and succeed");

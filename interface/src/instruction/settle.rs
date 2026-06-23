@@ -12,13 +12,22 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 
 use crate::SettlementInstruction;
 
+/// A single transfer made when settling an order: `amount` tokens sent from the
+/// order's sell token account to `destination`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Pull {
+    pub destination: Pubkey,
+    pub amount: u64,
+}
+
 /// Build a `BeginSettle` instruction settling the orders described by the
 /// parallel lists:
 /// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
 /// - `sell_token_accounts[i]` its sell token account of the order,
 /// - `bumps[i]` is the canonical PDA bump
-/// - `pulls[i]` the list of `(destination, amount)` transfers to perform from
-///   that order's sell token account to each destination.
+/// - `pulls[i]` the list of [`Pull`]s to perform from that order's sell token
+///   account, each sending an amount from the `i`-th order sell token account
+///   to a destination.
 ///
 /// The slices are assumed to have the same length but this is not enforced in
 /// the builder.
@@ -41,7 +50,7 @@ pub fn begin_settle(
     order_pdas: &[Pubkey],
     sell_token_accounts: &[Pubkey],
     bumps: &[u8],
-    pulls: &[&[(Pubkey, u64)]],
+    pulls: &[&[Pull]],
 ) -> Instruction {
     // Sort the parallel lists together by order PDA address via a shared
     // permutation, so each order keeps its own sell token account, bump, and
@@ -53,7 +62,7 @@ pub fn begin_settle(
     let amounts: Vec<u8> = order
         .iter()
         .flat_map(|&i| pulls[i].iter())
-        .flat_map(|(_, amount)| amount.to_be_bytes())
+        .flat_map(|pull| pull.amount.to_be_bytes())
         .collect();
     let data = [
         &[SettlementInstruction::BeginSettle.discriminator()][..],
@@ -73,8 +82,8 @@ pub fn begin_settle(
     for &i in &order {
         accounts.push(AccountMeta::new_readonly(order_pdas[i], false));
         accounts.push(AccountMeta::new(sell_token_accounts[i], false));
-        for (destination, _) in pulls[i] {
-            accounts.push(AccountMeta::new(*destination, false));
+        for pull in pulls[i] {
+            accounts.push(AccountMeta::new(pull.destination, false));
         }
     }
 
@@ -245,8 +254,20 @@ mod tests {
             &[sell_a, sell_b],
             &[0xa1, 0xb1],
             &[
-                &[(dest_a0, 0x0102), (dest_a1, 0x0304)],
-                &[(dest_b0, 0x0506)],
+                &[
+                    Pull {
+                        destination: dest_a0,
+                        amount: 0x0102,
+                    },
+                    Pull {
+                        destination: dest_a1,
+                        amount: 0x0304,
+                    },
+                ],
+                &[Pull {
+                    destination: dest_b0,
+                    amount: 0x0506,
+                }],
             ],
         );
 
