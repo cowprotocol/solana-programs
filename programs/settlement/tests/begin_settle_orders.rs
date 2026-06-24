@@ -10,7 +10,9 @@ use crate::common::{
     signed_tx, token,
 };
 use litesvm::LiteSVM;
-use settlement_client::instructions::{begin_settle, create_order, finalize_settle, SettledOrder};
+use settlement_client::instructions::{
+    begin_settle, create_order, finalize_settle, Pull, SettledOrder,
+};
 use settlement_client::settlement_interface::{
     data::{
         intent::{OrderIntent, OrderKind},
@@ -34,7 +36,7 @@ mod common;
 
 /// A list of empty transfer lists, one per order. Used for settling `n` orders
 /// without pulling any funds.
-fn no_pulls(n: usize) -> Vec<&'static [(Pubkey, u64)]> {
+fn no_pulls(n: usize) -> Vec<&'static [Pull]> {
     vec![&[]; n]
 }
 
@@ -153,8 +155,8 @@ fn settle_raw(
         &find_state_pda(program_id).0,
         1,
         order_pdas,
-        sell_token_accounts,
         bumps,
+        sell_token_accounts,
         &no_pulls(bumps.len()),
     );
     send_settlement(svm, program_id, payer, begin)
@@ -540,7 +542,10 @@ fn pulls_funds_to_destination() {
         &payer,
         &[SettledOrder {
             intent: &intent,
-            pulls: &[(destination, amount)],
+            pulls: &[Pull {
+                destination,
+                amount,
+            }],
         }],
     )
     .expect("a pull within the approved delegation should succeed");
@@ -566,7 +571,16 @@ fn pulls_to_multiple_destinations() {
         &payer,
         &[SettledOrder {
             intent: &intent,
-            pulls: &[(dest0, 300_000), (dest1, 100_000)],
+            pulls: &[
+                Pull {
+                    destination: dest0,
+                    amount: 300_000,
+                },
+                Pull {
+                    destination: dest1,
+                    amount: 100_000,
+                },
+            ],
         }],
     )
     .expect("multiple pulls from one order should succeed");
@@ -616,11 +630,17 @@ fn pulls_from_multiple_orders() {
         &[
             SettledOrder {
                 intent: &first,
-                pulls: &[(dest_first, pulled_first)],
+                pulls: &[Pull {
+                    destination: dest_first,
+                    amount: pulled_first,
+                }],
             },
             SettledOrder {
                 intent: &second,
-                pulls: &[(dest_second, pulled_second)],
+                pulls: &[Pull {
+                    destination: dest_second,
+                    amount: pulled_second,
+                }],
             },
         ],
     )
@@ -681,8 +701,8 @@ fn rejects_wrong_state_pda() {
                 &not_the_state_pda,
                 1,
                 &[order_pda],
-                &[intent.sell_token_account],
                 &[bump],
+                &[intent.sell_token_account],
                 &no_pulls(1),
             ),
         ),
@@ -736,7 +756,10 @@ fn rejects_pull_delegated_to_incorrect_address() {
         &payer,
         &[SettledOrder {
             intent: &intent,
-            pulls: &[(destination, amount)],
+            pulls: &[Pull {
+                destination,
+                amount,
+            }],
         }],
     );
     assert!(
@@ -770,7 +793,10 @@ fn rejects_pull_exceeding_delegation() {
         &payer,
         &[SettledOrder {
             intent: &intent,
-            pulls: &[(destination, 200_000)],
+            pulls: &[Pull {
+                destination,
+                amount: 200_000,
+            }],
         }],
     );
     assert!(
