@@ -155,8 +155,8 @@ fn settle_raw(
         &find_state_pda(program_id).0,
         1,
         order_pdas,
-        sell_token_accounts,
         bumps,
+        sell_token_accounts,
         &no_pulls(bumps.len()),
     );
     send_settlement(svm, program_id, payer, begin)

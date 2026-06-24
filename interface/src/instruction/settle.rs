@@ -23,8 +23,8 @@ pub struct Pull {
 /// Build a `BeginSettle` instruction settling the orders described by the
 /// parallel lists:
 /// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
+/// - `order_pda_bumps[i]` is the bump of the canonical order PDA
 /// - `sell_token_accounts[i]` its sell token account of the order,
-/// - `bumps[i]` is the canonical PDA bump
 /// - `pulls[i]` the list of [`Pull`]s to perform from that order's sell token
 ///   account, each sending an amount from the `i`-th order sell token account
 ///   to a destination.
@@ -48,8 +48,8 @@ pub fn begin_settle(
     state_pda: &Pubkey,
     finalize_ix_index: u16,
     order_pdas: &[Pubkey],
+    order_pda_bumps: &[u8],
     sell_token_accounts: &[Pubkey],
-    bumps: &[u8],
     pulls: &[&[Pull]],
 ) -> Instruction {
     // Sort the parallel lists together by order PDA address via a shared
@@ -68,7 +68,10 @@ pub fn begin_settle(
         &[SettlementInstruction::BeginSettle.discriminator()][..],
         &finalize_ix_index.to_be_bytes()[..],
         &[order_pdas.len() as u8][..],
-        &order.iter().map(|&i| bumps[i]).collect::<Vec<u8>>()[..],
+        &order
+            .iter()
+            .map(|&i| order_pda_bumps[i])
+            .collect::<Vec<u8>>()[..],
         &counts[..],
         &amounts[..],
     ]
@@ -209,8 +212,8 @@ mod tests {
             &state_pda,
             0x1337,
             &[high_order_pda, low_order_pda],
-            &[high_sell_token_account, low_sell_token_account],
             &[high_bump, low_bump],
+            &[high_sell_token_account, low_sell_token_account],
             &[&[], &[]],
         );
 
@@ -271,8 +274,8 @@ mod tests {
             &state_pda,
             0x1337,
             &[order_a, order_b],
-            &[sell_a, sell_b],
             &[0xa1, 0xb1],
+            &[sell_a, sell_b],
             &[
                 &[
                     Pull {

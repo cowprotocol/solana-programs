@@ -46,8 +46,8 @@ pub fn begin_settle(
         &state_pda,
         finalize_ix_index,
         &order_pdas,
-        &sell_token_accounts,
         &bumps,
+        &sell_token_accounts,
         &pull_lists,
     )
 }
