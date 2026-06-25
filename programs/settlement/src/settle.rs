@@ -141,9 +141,7 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
         // is the number of 8-byte amounts. Too few bytes for the order count, the
         // bumps, or the counts, or a trailing amount that isn't a whole `u64`,
         // means the data can't be parsed into the pull layout at all.
-        let [order_count, body @ ..] = body else {
-            return Err(ProgramError::InvalidInstructionData);
-        };
+        let (&order_count, body) = body.split_first().ok_or(ProgramError::InvalidInstructionData)?;
         let order_count = usize::from(*order_count);
         let (bumps, body) = body
             .split_at_checked(order_count)
