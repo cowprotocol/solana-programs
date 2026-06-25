@@ -47,7 +47,10 @@ struct SettledOrders<'a> {
 
 impl<'a> SettledOrders<'a> {
     /// Returns an iterator yielding one [`SettledOrder`] per step.
-    #[allow(clippy::arithmetic_side_effects, reason = "offsets are bounded by tx limits")]
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "offsets are bounded by tx limits"
+    )]
     fn iter(&self) -> impl Iterator<Item = SettledOrder<'a>> + '_ {
         let order_count = self.bumps.len();
         let mut i = 0usize;
