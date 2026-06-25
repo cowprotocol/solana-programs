@@ -15,6 +15,7 @@ use settlement_client::settlement_interface::{
 };
 use solana_sdk::{
     instruction::InstructionError,
+    program_error::ProgramError,
     program_pack::Pack,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -195,20 +196,24 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
 }
 
 #[test]
-fn no_buffers_is_a_no_op() {
+fn rejects_no_buffers() {
     let (mut svm, program_id, payer) = common::setup();
 
-    let balance_before = common::lamports(&svm, &payer.pubkey());
     let ix = create_buffers(&program_id, &payer.pubkey(), &[]);
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
-        .expect("creating zero buffers should succeed as a no-op");
 
-    let spent = balance_before - common::lamports(&svm, &payer.pubkey());
-    assert!(
-        spent <= 5_000,
-        "a no-op must charge at most the transaction fee, not rent, \
-         but the payer lost {spent} lamports",
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("an instruction that creates no buffers must be rejected");
+    let TransactionError::InstructionError(0, ix_err) = err.err else {
+        panic!("expected instruction 0 to fail, got {:?}", err.err);
+    };
+    // Compare against the non-deprecated `ProgramError` variant the program
+    // returns; naming the `InstructionError` variant directly would touch a
+    // deprecated alias.
+    assert_eq!(
+        ProgramError::try_from(ix_err),
+        Ok(ProgramError::NotEnoughAccountKeys),
     );
 }
 

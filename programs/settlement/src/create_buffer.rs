@@ -48,10 +48,11 @@ impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
         };
         // Group the trailing accounts into `[buffer_pda, mint]` pairs. Each
         // buffer needs both, so a stray odd account left over is a malformed
-        // instruction. Zero pairs is a valid no-op.
+        // instruction. There must be at least one pair: an instruction that
+        // creates no buffers is rejected as a likely encoding issue.
         let rest: &'a [AccountView] = rest;
         let (buffers, remainder) = rest.as_chunks::<2>();
-        if !remainder.is_empty() {
+        if !remainder.is_empty() || buffers.is_empty() {
             return Err(ProgramError::NotEnoughAccountKeys);
         }
 
@@ -207,13 +208,15 @@ mod tests {
     }
 
     #[test]
-    fn create_buffer_input_parses_zero_buffers_as_no_op() {
+    fn create_buffer_input_rejects_zero_buffers() {
         let data = vec![SettlementInstruction::CreateBuffer.discriminator()];
         // Only the three shared accounts, no (pda, mint) pairs.
         let mut accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
-        let CreateBufferInput { buffers, .. } =
-            CreateBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
-        assert!(buffers.is_empty(), "zero pairs is an empty buffer list");
+        assert_eq!(
+            CreateBufferInput::parse(&data, &mut accounts).err(),
+            Some(ProgramError::NotEnoughAccountKeys),
+            "an instruction that creates no buffers is rejected",
+        );
     }
 
     #[test]
@@ -265,8 +268,10 @@ mod tests {
     #[test]
     fn process_create_buffer_rejects_wrong_token_program() {
         let data = create_buffer_data();
-        // The third account (token program) is not the SPL Token program.
-        let mut accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
+        // The three shared accounts plus one (buffer_pda, mint) pair so parsing
+        // succeeds and reaches the token-program check. The third account (token
+        // program) is not the SPL Token program.
+        let mut accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + 2 }>();
         assert_eq!(
             process_create_buffer(&PROGRAM_ID, &mut accounts, &data),
             Err(ProgramError::IncorrectProgramId),
