@@ -145,16 +145,15 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
             .split_first()
             .ok_or(ProgramError::InvalidInstructionData)?;
         let order_count = usize::from(order_count);
-        let (bumps, body) = body
-            .split_at_checked(order_count)
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        let (counts, amount_bytes) = body
-            .split_at_checked(order_count)
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        let (amounts, amounts_remainder) = amount_bytes.as_chunks::<8>();
-        if !amounts_remainder.is_empty() {
+        let take = |s: &'a [u8]| {
+            s.split_at_checked(order_count)
+                .ok_or(ProgramError::InvalidInstructionData)
+        };
+        let (bumps, body) = take(body)?;
+        let (counts, amount_bytes) = take(body)?;
+        let (amounts, []) = amount_bytes.as_chunks::<8>() else {
             return Err(ProgramError::InvalidInstructionData);
-        }
+        };
         let transfer_count = amounts.len();
 
         // Each order contributes its order PDA, sell token account, and one
