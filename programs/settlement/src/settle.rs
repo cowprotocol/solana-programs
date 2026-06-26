@@ -392,6 +392,7 @@ fn process_order(
     if !address_matches_pubkey(sell_token_account.address(), &intent.sell_token_account) {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
+    // Assert the order intent owner matches that of the sell token account.
     {
         // `from_account_view` confirms this is a real SPL token account
         // (right length, owned by the token program) before we read its
