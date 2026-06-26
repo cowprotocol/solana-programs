@@ -1,6 +1,5 @@
 //! `BeginSettle`/`FinalizeSettle` instruction handlers.
 
-use core::{iter::Zip, slice::Iter};
 use std::ops::Deref;
 
 use pinocchio::{
@@ -19,87 +18,70 @@ use settlement_interface::{
 
 use crate::processor::{is_cpi_call, InstructionInputParsing};
 
-/// A settled order's pulls: each destination account paired with the amount
-/// (big-endian `u64`) to send to it.
-type OrderTransfers<'a> = Zip<Iter<'a, AccountView>, Iter<'a, [u8; 8]>>;
-
 /// A single settled order, resulted from parsing `BeginSettle`, together with
 /// the funds to pull from its sell token account.
 struct SettledOrder<'a> {
     order_pda: &'a AccountView,
     sell_token_account: &'a AccountView,
     bump: u8,
-    transfers: OrderTransfers<'a>,
+    /// Destination accounts for this order's transfers.
+    destinations: &'a [AccountView],
+    /// Transfer amounts (big-endian `u64`), one per destination.
+    amounts: &'a [[u8; 8]],
 }
 
 /// Struct storing accounts, bumps, transfer counts, and amounts from parsing the
-/// input of BeginSettle. We want parsing to provide the data in an ergonomic
-/// format. This struct implements `IntoIterator`, yielding all available
-/// information for each order without further parsing steps. The parsing step
-/// that created this struct guarantees that there aren't missing elements or
-/// that they are assigned incorrectly: in particular it is validated that each
-/// order's `count` destinations and amounts are present, so the splits below
-/// never run short.
+/// input of BeginSettle. The parsing step that created this struct guarantees
+/// that there aren't missing elements or that they are assigned incorrectly.
 struct SettledOrders<'a> {
-    /// Remaining order accounts, laid out per order as
+    /// Order accounts, laid out per order as
     /// `[order_pda, sell_token_account, destination...]`.
     order_accounts: &'a [AccountView],
     bumps: &'a [u8],
-    /// One transfer count per remaining order, parallel to `bumps`.
+    /// One transfer count per order, parallel to `bumps`.
     counts: &'a [u8],
-    /// Remaining transfer amounts (big-endian `u64`), shared across orders and
+    /// Transfer amounts (big-endian `u64`), shared across orders and
     /// handed out `count` at a time.
     amounts: &'a [[u8; 8]],
 }
 
-impl<'a> IntoIterator for SettledOrders<'a> {
-    type Item = SettledOrder<'a>;
-    type IntoIter = SettledOrdersIter<'a>;
+impl<'a> SettledOrders<'a> {
+    /// Returns an iterator yielding one [`SettledOrder`] per step.
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "offsets are bounded by tx limits"
+    )]
+    fn iter(&self) -> impl Iterator<Item = SettledOrder<'a>> + '_ {
+        let order_count = self.bumps.len();
+        let mut i = 0usize;
+        let mut account_offset = 0usize;
+        let mut amount_offset = 0usize;
+        std::iter::from_fn(move || {
+            if i >= order_count {
+                return None;
+            }
+            let bump = self.bumps[i];
+            let count = usize::from(self.counts[i]);
+            i += 1;
 
-    fn into_iter(self) -> Self::IntoIter {
-        SettledOrdersIter(self)
-    }
-}
+            let order_pda = &self.order_accounts[account_offset];
+            let sell_token_account = &self.order_accounts[account_offset + 1];
+            let dest_start = account_offset + 2;
+            let dest_end = dest_start + count;
+            let destinations = &self.order_accounts[dest_start..dest_end];
+            account_offset = dest_end;
 
-/// Iterator over [`SettledOrders`], handing out one [`SettledOrder`] per step by
-/// consuming the parsed slices in lockstep: each step takes one bump and transfer
-/// count, then the order PDA, sell token account, and `count` destinations and
-/// amounts.
-///
-/// It's a separate type just because implementing Iterator on the original
-/// struct would cause the side effects of mutating the original struct when
-/// iterating over it.
-struct SettledOrdersIter<'a>(SettledOrders<'a>);
+            let amount_end = amount_offset + count;
+            let amounts = &self.amounts[amount_offset..amount_end];
+            amount_offset = amount_end;
 
-impl<'a> Iterator for SettledOrdersIter<'a> {
-    type Item = SettledOrder<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let orders = &mut self.0;
-
-        let (&bump, bumps) = orders.bumps.split_first()?;
-        let (&count, counts) = orders.counts.split_first()?;
-        let count = usize::from(count);
-
-        let (order_pda, rest) = orders.order_accounts.split_first()?;
-        let (sell_token_account, rest) = rest.split_first()?;
-        let (destinations, rest) = rest
-            .split_at_checked(count)
-            .expect("parse_body guarantees `count` destinations remain");
-        let (amounts, remaining_amounts) = orders
-            .amounts
-            .split_at_checked(count)
-            .expect("parse_body guarantees `count` amounts remain");
-
-        orders.order_accounts = rest;
-        orders.bumps = bumps;
-        orders.counts = counts;
-        orders.amounts = remaining_amounts;
-        Some(SettledOrder {
-            order_pda,
-            sell_token_account,
-            bump,
-            transfers: destinations.iter().zip(amounts),
+            Some(SettledOrder {
+                order_pda,
+                sell_token_account,
+                bump,
+                destinations,
+                amounts,
+            })
         })
     }
 }
@@ -141,20 +123,19 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
         // is the number of 8-byte amounts. Too few bytes for the order count, the
         // bumps, or the counts, or a trailing amount that isn't a whole `u64`,
         // means the data can't be parsed into the pull layout at all.
-        let [order_count, body @ ..] = body else {
+        let (&order_count, body) = body
+            .split_first()
+            .ok_or(ProgramError::InvalidInstructionData)?;
+        let order_count = usize::from(order_count);
+        let take = |s: &'a [u8]| {
+            s.split_at_checked(order_count)
+                .ok_or(ProgramError::InvalidInstructionData)
+        };
+        let (bumps, body) = take(body)?;
+        let (counts, amount_bytes) = take(body)?;
+        let (amounts, []) = amount_bytes.as_chunks::<8>() else {
             return Err(ProgramError::InvalidInstructionData);
         };
-        let order_count = usize::from(*order_count);
-        let (bumps, body) = body
-            .split_at_checked(order_count)
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        let (counts, amount_bytes) = body
-            .split_at_checked(order_count)
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        let (amounts, amounts_remainder) = amount_bytes.as_chunks::<8>();
-        if !amounts_remainder.is_empty() {
-            return Err(ProgramError::InvalidInstructionData);
-        }
         let transfer_count = amounts.len();
 
         // Each order contributes its order PDA, sell token account, and one
@@ -257,7 +238,7 @@ pub fn process_begin_settle(
         program_id,
         input.token_program_account,
         input.state_pda_account,
-        input.orders,
+        input.orders.iter(),
     )?;
 
     Ok(())
@@ -368,7 +349,8 @@ fn process_order(
         order_pda,
         sell_token_account,
         bump,
-        transfers,
+        destinations,
+        amounts,
     } = order;
 
     // Decode the order body. Reading is safe regardless of who owns the
@@ -420,7 +402,7 @@ fn process_order(
 
     // Pull the configured amounts out of the sell token account. The state
     // PDA is the SPL delegate, so it signs each transfer via `signer`.
-    for (destination, amount) in transfers {
+    for (destination, amount) in destinations.iter().zip(amounts) {
         Transfer::new(
             sell_token_account,
             destination,
@@ -543,7 +525,7 @@ mod tests {
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
-        assert_eq!(orders.into_iter().count(), 0);
+        assert_eq!(orders.iter().count(), 0);
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
     }
@@ -649,12 +631,12 @@ mod tests {
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
 
-        let mut orders = orders.into_iter();
+        let mut orders = orders.iter();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
         assert_eq!(order.bump, 0xab);
-        assert_eq!(order.transfers.len(), 0);
+        assert_eq!(order.destinations.len(), 0);
         assert!(orders.next().is_none());
     }
 
@@ -689,13 +671,15 @@ mod tests {
         let BeginSettleInput { orders, .. } =
             BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        let mut orders = orders.into_iter();
+        let mut orders = orders.iter();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
         assert_eq!(order.bump, 0xab);
         let transfers: Vec<(&Address, u64)> = order
-            .transfers
+            .destinations
+            .iter()
+            .zip(order.amounts)
             .map(|(destination, amount)| (destination.address(), u64::from_be_bytes(*amount)))
             .collect();
         assert_eq!(transfers, vec![(&dest0, 0x1122), (&dest1, 0x3344)]);
@@ -738,14 +722,14 @@ mod tests {
         ];
 
         let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        let orders: Vec<_> = parsed.orders.into_iter().collect();
+        let orders: Vec<_> = parsed.orders.iter().collect();
 
         assert_eq!(orders.len(), ORDER_COUNT);
         for (order, (order_pda, sell_token, bump)) in orders.iter().zip(&expected) {
             assert_eq!(order.order_pda.address(), order_pda);
             assert_eq!(order.sell_token_account.address(), sell_token);
             assert_eq!(order.bump, *bump);
-            assert_eq!(order.transfers.len(), 0);
+            assert_eq!(order.destinations.len(), 0);
         }
     }
 
@@ -924,7 +908,7 @@ mod tests {
                 &INSTRUCTIONS_SYSVAR_ID,
             ));
 
-            let parsed_orders: Vec<_> = parsed.orders.into_iter().collect();
+            let parsed_orders: Vec<_> = parsed.orders.iter().collect();
             prop_assert_eq!(parsed_orders.len(), expected.len());
             for (order, (order_pda, sell_token, bump)) in parsed_orders.iter().zip(&expected) {
                 prop_assert!(address_matches_pubkey(order.order_pda.address(), order_pda));
