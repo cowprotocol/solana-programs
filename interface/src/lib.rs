@@ -106,6 +106,22 @@ pub enum SettlementError {
     /// data: each push contributes a source buffer and a destination account,
     /// so the count must be twice the number of push amounts.
     AccountCountNotMatchingPushCount = 19,
+    /// `BeginSettle`: the number of pushes carried by the paired `FinalizeSettle`
+    /// doesn't equal the number of settled orders. Each order must be paid by
+    /// exactly one push.
+    SettledOrderPushCountMismatch = 20,
+    /// `BeginSettle`: a paired `FinalizeSettle` push doesn't pay the order's buy
+    /// token account — its destination differs from the `buy_token_account` in
+    /// the order's intent.
+    PushDestinationMismatch = 21,
+    /// `FinalizeSettle`: a push doesn't draw from the canonical buffer for its
+    /// destination's mint — its source isn't the buffer PDA derived from that
+    /// mint.
+    PushSourceNotBuffer = 22,
+    /// `FinalizeSettle`: a push's destination isn't a valid SPL token account
+    /// (wrong data length or not owned by the token program), so its mint can't
+    /// be read to derive the buffer.
+    BuyTokenAccountInvalid = 23,
 }
 
 impl From<SettlementError> for u32 {

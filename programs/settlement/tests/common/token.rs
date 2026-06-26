@@ -133,6 +133,39 @@ pub fn assert_no_spl_token_invocation(transaction: &TransactionMetadata) {
     );
 }
 
+/// Assert that no SPL Token instruction issued by the transaction references
+/// `account`. Each token transfer the program performs is a CPI recorded in
+/// `transaction.inner_instructions` as a compiled instruction whose program and
+/// account slots are indices into the transaction's `account_keys`; this resolves
+/// those indices and checks the token-program instructions, so a settlement that
+/// must leave one side untouched (e.g. a zero-pull order's sell token account)
+/// can prove no token instruction so much as named it.
+pub fn assert_no_token_instruction_touching(
+    transaction: &TransactionMetadata,
+    account_keys: &[Pubkey],
+    account: &Pubkey,
+) {
+    let token_program = Pubkey::new_from_array(litesvm_token::spl_token::ID.to_bytes());
+    for instruction in transaction
+        .inner_instructions
+        .iter()
+        .flatten()
+        .map(|inner| &inner.instruction)
+    {
+        if account_keys[usize::from(instruction.program_id_index)] != token_program {
+            continue;
+        }
+        let touches_account = instruction
+            .accounts
+            .iter()
+            .any(|&index| account_keys[usize::from(index)] == *account);
+        assert!(
+            !touches_account,
+            "expected no SPL Token instruction touching {account}, but one did",
+        );
+    }
+}
+
 /// Read the mint that `account` holds tokens of.
 pub fn mint_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
     litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, account)

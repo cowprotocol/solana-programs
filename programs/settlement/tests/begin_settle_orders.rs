@@ -4,18 +4,29 @@
 //! pair (begin at index 0 pointing to finalize at index 1, and vice versa) so
 //! that the begin/finalize pairing always validates and execution reaches the
 //! order-list checks, which is what these tests exercise.
+//!
+//! `BeginSettle` checks one push per order up front (after the token-program and
+//! state-PDA checks), so even a settlement expected to be rejected during order
+//! validation must pair with a finalize whose push count matches the order count
+//! — [`settle`] and [`settle_raw`] attach placeholder pushes for that, while
+//! [`settle_and_pay`] attaches real ones for settlements expected to succeed.
+//! Tests rejected before that count check (wrong token program or state PDA)
+//! pair with an empty finalize ([`send_settlement`]).
 
 use crate::common::{
-    assert_instruction_error, assert_settlement_error, create_account,
+    assert_instruction_error, assert_settlement_error, buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
     set_unix_timestamp, setup, token,
 };
-use litesvm::{types::TransactionMetadata, LiteSVM};
-use settlement_client::instructions::{BeginSettle, FinalizeSettle, Pull, SettleableOrder};
+use litesvm::LiteSVM;
+use settlement_client::instructions::{
+    BeginSettle, FinalizeSettle, Pull, SettleableOrder, SettledOrder,
+};
 use settlement_client::settlement_interface::{
     data::order::{EncodedOrderAccount, OrderAccount},
     instruction::settle::{
-        BeginSettle as BeginSettleRaw, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
+        BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw, INSTRUCTIONS_SYSVAR_ID,
+        SPL_TOKEN_PROGRAM_ID,
     },
     pda::{order::find_order_pda, state::find_state_pda},
     Instruction, SettlementError, SettlementInstruction,
@@ -36,14 +47,16 @@ fn no_pulls(n: usize) -> Vec<&'static [Pull]> {
     vec![&[]; n]
 }
 
-/// Send `[begin, finalize_settle(..)]` signed by `payer`, where `begin` is a
-/// pre-built `BeginSettle` instruction.
+/// Send `[begin, finalize]` signed by `payer`, where `begin` is a pre-built
+/// `BeginSettle` instruction and `finalize` settles no pushes. Use it only for
+/// cases rejected before `BeginSettle`'s one-push-per-order count check (wrong
+/// token program or state PDA); otherwise the empty finalize trips that check.
 fn send_settlement(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     begin: Instruction,
-) -> Result<TransactionMetadata, TransactionError> {
+) -> Result<(), TransactionError> {
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: 0,
@@ -56,34 +69,113 @@ fn send_settlement(
         &[payer],
         svm.latest_blockhash(),
     );
-    svm.send_transaction(tx).map_err(|e| e.err)
+    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
+}
+
+/// Send `[begin, finalize]` where `finalize` carries `push_count` placeholder
+/// pushes — enough to satisfy `BeginSettle`'s one-push-per-order count check, but
+/// never executed because these settlements are expected to be rejected during
+/// order validation.
+fn send_settlement_with_placeholder_pushes(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    begin: Instruction,
+    push_count: usize,
+) -> Result<(), TransactionError> {
+    let placeholders: Vec<Pubkey> = (0..push_count).map(|_| Pubkey::new_unique()).collect();
+    let bumps = vec![0u8; push_count];
+    let amounts = vec![0u64; push_count];
+    let finalize = FinalizeSettleRaw {
+        program_id: *program_id,
+        state_pda: find_state_pda(program_id).0,
+        begin_ix_index: 0,
+        source_buffers: &placeholders,
+        destinations: &placeholders,
+        bumps: &bumps,
+        amounts: &amounts,
+    }
+    .instruction();
+    let tx = Transaction::new_signed_with_payer(
+        &[begin, finalize],
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    );
+    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
 }
 
 /// Settle `orders` in a minimal `[BeginSettle, FinalizeSettle]` transaction
-/// (begin at index 0, finalize at index 1) signed by `payer`.
+/// (begin at index 0, finalize at index 1) signed by `payer`. The finalize
+/// carries placeholder pushes matching the order count, so this reaches
+/// `BeginSettle`'s order validation: use it for cases expected to be rejected
+/// there.
 fn settle(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     orders: &[SettleableOrder],
-) -> Result<TransactionMetadata, TransactionError> {
-    send_settlement(
-        svm,
-        program_id,
-        payer,
-        BeginSettle {
-            program_id: *program_id,
-            finalize_ix_index: 1,
-            orders,
-        }
-        .instruction(),
-    )
+) -> Result<(), TransactionError> {
+    let begin = BeginSettle {
+        program_id: *program_id,
+        finalize_ix_index: 1,
+        orders,
+    }
+    .instruction();
+    send_settlement_with_placeholder_pushes(svm, program_id, payer, begin, orders.len())
+}
+
+/// Settle `orders` and pay each one: the finalize pushes a zero amount from each
+/// order's canonical buy-token buffer to its buy token account, lining up
+/// one-to-one with the orders so `BeginSettle`'s push pass passes. The buffer for
+/// each order's buy mint is created on demand. Use it for settlements expected to
+/// succeed. (Real push amounts are exercised in `finalize_settle_pushes.rs`.)
+fn settle_and_pay(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    orders: &[SettleableOrder],
+) -> Result<(), TransactionError> {
+    let settled: Vec<SettledOrder> = orders
+        .iter()
+        .map(|order| {
+            let buy_mint = token::mint_of(svm, &order.intent.buy_token_account);
+            buffer::ensure(svm, program_id, payer, &buy_mint);
+            SettledOrder {
+                intent: order.intent,
+                mint: buy_mint,
+                amount: 0,
+            }
+        })
+        .collect();
+
+    let begin = BeginSettle {
+        program_id: *program_id,
+        finalize_ix_index: 1,
+        orders,
+    }
+    .instruction();
+    let finalize = FinalizeSettle {
+        program_id: *program_id,
+        begin_ix_index: 0,
+        orders: &settled,
+    }
+    .instruction();
+    let tx = Transaction::new_signed_with_payer(
+        &[begin, finalize],
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    );
+    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
 }
 
 /// Settle orders described by raw, parallel `(order_pda, sell_token, bump)`
 /// lists, pulling nothing. Uses the canonical state PDA and SPL Token program so
 /// execution reaches the order-validation checks; tests that need a
-/// non-canonical state PDA or token program build the instruction directly.
+/// non-canonical state PDA or token program build the instruction directly. The
+/// finalize carries placeholder pushes matching the order count to clear the
+/// count check; every caller expects rejection during order validation.
 fn settle_raw(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
@@ -91,7 +183,7 @@ fn settle_raw(
     order_pdas: &[Pubkey],
     sell_token_accounts: &[Pubkey],
     bumps: &[u8],
-) -> Result<TransactionMetadata, TransactionError> {
+) -> Result<(), TransactionError> {
     let begin = BeginSettleRaw {
         program_id: *program_id,
         state_pda: find_state_pda(program_id).0,
@@ -102,7 +194,7 @@ fn settle_raw(
         pulls: &no_pulls(bumps.len()),
     }
     .instruction();
-    send_settlement(svm, program_id, payer, begin)
+    send_settlement_with_placeholder_pushes(svm, program_id, payer, begin, bumps.len())
 }
 
 #[test]
@@ -111,7 +203,7 @@ fn settles_a_single_order() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
-    settle(
+    settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -141,7 +233,8 @@ fn settles_multiple_orders() {
         .iter()
         .map(|intent| SettleableOrder { intent, pulls: &[] })
         .collect();
-    settle(&mut svm, &program_id, &payer, &orders).expect("multi-order settlement should succeed");
+    settle_and_pay(&mut svm, &program_id, &payer, &orders)
+        .expect("multi-order settlement should succeed");
 }
 
 #[test]
@@ -291,8 +384,10 @@ fn rejects_duplicate_orders() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
+    // A matching push per order, so the first order's push validates and the
+    // second order trips the strictly-increasing check.
     assert_settlement_error(
-        settle(
+        settle_and_pay(
             &mut svm,
             &program_id,
             &payer,
@@ -327,21 +422,33 @@ fn rejects_orders_in_wrong_address_order() {
     let (second_pda, second_bump) = find_order_pda(&program_id, &second.uid());
 
     // Lay out the two distinct orders strictly decreasing by PDA address, which
-    // the program rejects. The interface builder would sort them, so build the
-    // instruction by hand in the current wire format: data is
+    // the program rejects. The interface builders would sort them, so build both
+    // instructions by hand in the current wire format. Begin data is
     // `[discriminator, finalize_ix_index (BE), order_count, bump×n, transfer_count×n]`
-    // (no transfers here) and accounts are `[instructions_sysvar, state_pda,
-    // token_program, (order_pda, sell_token_account)...]`.
+    // (no transfers here) and begin accounts are `[instructions_sysvar, state_pda,
+    // token_program, (order_pda, sell_token_account)...]`. The finalize's push
+    // destinations are laid out in the same decreasing order, so the first order's
+    // destination check passes and the second order trips the ordering check.
     let mut orders = [
-        (first_pda, first.sell_token_account, first_bump),
-        (second_pda, second.sell_token_account, second_bump),
+        (
+            first_pda,
+            first.sell_token_account,
+            first.buy_token_account,
+            first_bump,
+        ),
+        (
+            second_pda,
+            second.sell_token_account,
+            second.buy_token_account,
+            second_bump,
+        ),
     ];
-    orders.sort_by_key(|&(pda, _, _)| std::cmp::Reverse(pda));
+    orders.sort_by_key(|&(pda, ..)| std::cmp::Reverse(pda));
 
     let mut data = vec![SettlementInstruction::BeginSettle.discriminator()];
     data.extend_from_slice(&1u16.to_be_bytes());
     data.push(orders.len() as u8);
-    data.extend(orders.iter().map(|&(_, _, bump)| bump));
+    data.extend(orders.iter().map(|&(_, _, _, bump)| bump));
     // No transfers: one zero transfer-count byte per order.
     data.extend(orders.iter().map(|_| 0u8));
 
@@ -350,24 +457,40 @@ fn rejects_orders_in_wrong_address_order() {
         AccountMeta::new_readonly(find_state_pda(&program_id).0, false),
         AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
     ];
-    for (order_pda, sell_token_account, _) in orders {
+    for (order_pda, sell_token_account, _, _) in orders {
         accounts.push(AccountMeta::new_readonly(order_pda, false));
         accounts.push(AccountMeta::new(sell_token_account, false));
     }
+    let begin = Instruction {
+        program_id,
+        accounts,
+        data,
+    };
 
-    assert_settlement_error(
-        send_settlement(
-            &mut svm,
-            &program_id,
-            &payer,
-            Instruction {
-                program_id,
-                accounts,
-                data,
-            },
-        ),
-        SettlementError::OrdersNotStrictlyIncreasing,
+    // One zero-amount push per order, paying each order's buy token account,
+    // aligned with begin's decreasing order. `BeginSettle` checks only the
+    // destinations, so the sources are placeholders (and the finalize never runs,
+    // as begin rejects the ordering first).
+    let placeholder_source = Pubkey::new_unique();
+    let finalize = FinalizeSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        begin_ix_index: 0,
+        source_buffers: &[placeholder_source, placeholder_source],
+        destinations: &[orders[0].2, orders[1].2],
+        bumps: &[0, 0],
+        amounts: &[0, 0],
+    }
+    .instruction();
+
+    let tx = Transaction::new_signed_with_payer(
+        &[begin, finalize],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
     );
+    let result = svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err);
+    assert_settlement_error(result, SettlementError::OrdersNotStrictlyIncreasing);
 }
 
 #[test]
@@ -455,7 +578,7 @@ fn settles_order_at_exact_valid_to() {
         .build();
     set_unix_timestamp(&mut svm, i64::from(valid_to));
 
-    settle(
+    settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -479,7 +602,7 @@ fn pulls_funds_to_destination() {
     let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
 
     let amount = 2_000_000;
-    settle(
+    settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -515,7 +638,7 @@ fn pulls_to_multiple_destinations() {
 
     let pulled0 = 300_000;
     let pulled1 = 100_000;
-    settle(
+    settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -580,7 +703,7 @@ fn pulls_from_multiple_orders() {
 
     let pulled_first = 42_000;
     let pulled_second = 67_000;
-    settle(
+    settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -618,28 +741,61 @@ fn pulls_from_multiple_orders() {
 #[test]
 fn zero_pulls_moves_nothing() {
     let (mut svm, program_id, payer) = setup();
-    let mint = token::create_mint(&mut svm, &payer);
+    // The order sells `sell_mint` and is paid in a distinct `buy_mint`, so the
+    // buy-side push touches only `buy_mint` accounts. That isolates the sell
+    // mint: with no pulls, no token instruction should reference its account.
+    let sell_mint = token::create_mint(&mut svm, &payer);
+    let buy_mint = token::create_mint(&mut svm, &payer);
 
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
-    let sell_token = intent.sell_token_account;
+    let sell_token = token::create_token_account(&mut svm, &payer, &sell_mint, &payer.pubkey());
+    let buy_token = token::create_token_account(&mut svm, &payer, &buy_mint, &payer.pubkey());
+    let mut intent = sample_intent(payer.pubkey(), sell_token, 0);
+    intent.buy_token_account = buy_token;
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
+
     let initial_amount = 42_000_000;
-    token::mint_to(&mut svm, &payer, &mint, &sell_token, initial_amount);
+    token::mint_to(&mut svm, &payer, &sell_mint, &sell_token, initial_amount);
+    // The buy-side buffer must exist for the (zero-amount) push to draw from.
+    buffer::ensure(&mut svm, &program_id, &payer, &buy_mint);
 
-    let transaction = settle(
-        &mut svm,
-        &program_id,
-        &payer,
-        &[SettleableOrder {
+    // Build the `[begin, finalize]` settlement by hand so the issued token
+    // instructions can be inspected. Begin settles the order with no pulls;
+    // finalize pushes a zero amount from the buy buffer to the buy token account.
+    let begin = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[SettleableOrder {
             intent: &intent,
             pulls: &[],
         }],
-    )
-    .expect("settling without pulling should succeed");
+    }
+    .instruction();
+    let finalize = FinalizeSettle {
+        program_id,
+        begin_ix_index: 0,
+        orders: &[SettledOrder {
+            intent: &intent,
+            mint: buy_mint,
+            amount: 0,
+        }],
+    }
+    .instruction();
+    let tx = Transaction::new_signed_with_payer(
+        &[begin, finalize],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let account_keys = tx.message.account_keys.clone();
+    let transaction = svm
+        .send_transaction(tx)
+        .expect("settling without pulling should succeed");
 
+    // No token instruction references the sell token account (the sell mint's
+    // only account here): the lone token transfer is the buy-side push, which
+    // draws from `buy_mint`'s buffer. Its balance is also left untouched.
+    token::assert_no_token_instruction_touching(&transaction, &account_keys, &sell_token);
     assert_eq!(token::balance(&svm, &sell_token), initial_amount);
-    // Confirm that there are no transfers because there are no token
-    // invocations in general.
-    token::assert_no_spl_token_invocation(&transaction);
 }
 
 #[test]

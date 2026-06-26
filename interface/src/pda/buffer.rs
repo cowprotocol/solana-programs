@@ -26,6 +26,17 @@ pub fn buffer_pda_seeds(mint: &[u8; 32]) -> [&[u8]; 3] {
     [SETTLEMENT_SEED, mint, BUFFER_SEED]
 }
 
+/// Canonical seeds for re-deriving the buffer PDA for `mint` with `bump`. A
+/// caller that already knows the canonical bump (e.g. a solver building a
+/// settlement) passes it so the program re-derives the address with a single
+/// hash rather than searching for the canonical bump. By design, a buffer can
+/// only be created at its canonical bump, so a non-canonical bump derives an
+/// address no buffer lives at.
+pub fn buffer_pda_signer_seeds<'a>(mint: &'a [u8; 32], bump: &'a [u8; 1]) -> [&'a [u8]; 4] {
+    let [s0, s1, s2] = buffer_pda_seeds(mint);
+    [s0, s1, s2, bump]
+}
+
 /// Derive the canonical buffer PDA address (and bump) for the token `mint`.
 pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&buffer_pda_seeds(mint.as_array()), program_id)

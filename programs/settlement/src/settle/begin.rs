@@ -5,7 +5,11 @@ use std::ops::Deref;
 use pinocchio::{
     cpi::{Seed, Signer},
     error::ProgramError,
-    sysvars::{clock::Clock, instructions::Instructions, Sysvar},
+    sysvars::{
+        clock::Clock,
+        instructions::{Instructions, IntrospectedInstruction},
+        Sysvar,
+    },
     AccountView, Address, ProgramResult,
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
@@ -13,7 +17,7 @@ use settlement_interface::{
     data::order::EncodedOrderAccount,
     instruction::{
         create_buffer::SPL_TOKEN_PROGRAM_ID,
-        settle::{BeginSettleInput, SettledOrder},
+        settle::{BeginSettleInput, SettledOrder, SettledOrders},
         InstructionInputParsing,
     },
     pda::{order::order_pda_signer_seeds, state::state_pda_seeds},
@@ -59,14 +63,75 @@ pub fn process_begin_settle(
         input.finalize_ix_index,
     )?;
 
-    pull_funds(
+    // The pushes this settlement performs live in the paired `FinalizeSettle`,
+    // which only executes them; validating them is our job. We read its accounts
+    // by introspecting it through the instructions sysvar. The counterpart check
+    // above already confirmed the instruction at `finalize_ix_index` is our
+    // `FinalizeSettle` pointing back at us.
+    let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
+    let pushes = FinalizePushes::new(finalize_ix)?;
+
+    settle_orders(
         program_id,
         input.token_program_account,
         input.state_pda_account,
-        input.orders.iter(),
+        input.orders,
+        &pushes,
     )?;
 
     Ok(())
+}
+
+/// The number of fixed accounts every `FinalizeSettle` carries before its push
+/// accounts: the instructions sysvar, the settlement state PDA, and the token
+/// program. Each push then contributes a `[source_buffer, destination]` pair.
+const FINALIZE_FIXED_ACCOUNTS: usize = 3;
+
+/// The paired `FinalizeSettle`'s pushes, seen from `BeginSettle` through
+/// instruction introspection. `BeginSettle` validates only that each push pays
+/// the right order's buy token account, so it reads only the destination of push
+/// `index`, at account meta `FINALIZE_FIXED_ACCOUNTS + 2*index + 1` (the source
+/// buffer at the preceding meta is `FinalizeSettle`'s concern).
+struct FinalizePushes<'a> {
+    instruction: IntrospectedInstruction<'a>,
+    /// Number of pushes the finalize carries, recovered from its account count.
+    count: usize,
+}
+
+impl<'a> FinalizePushes<'a> {
+    /// Recover the push count from the finalize's account metas. A finalize with
+    /// fewer than the fixed accounts or an odd number of push accounts can't
+    /// present one `[source_buffer, destination]` pair per push, so its pushes
+    /// can't correspond to the settled orders.
+    fn new(instruction: IntrospectedInstruction<'a>) -> Result<Self, ProgramError> {
+        let count = instruction
+            .num_account_metas()
+            .checked_sub(FINALIZE_FIXED_ACCOUNTS)
+            .filter(|push_accounts| push_accounts % 2 == 0)
+            .map(|push_accounts| push_accounts / 2)
+            .ok_or(SettlementError::SettledOrderPushCountMismatch)?;
+        Ok(Self { instruction, count })
+    }
+
+    /// The destination address of each push, in order. The caller pairs these
+    /// with the settled orders, having checked that the counts match.
+    fn destinations(&self) -> impl Iterator<Item = &Address> {
+        (0..self.count).map(|index| {
+            // `index < self.count`, and the count derives from a `u16`-bounded
+            // account-meta count, so this offset never overflows `usize` and the
+            // meta is in bounds.
+            let destination_index = index
+                .checked_mul(2)
+                .and_then(|offset| offset.checked_add(FINALIZE_FIXED_ACCOUNTS))
+                .and_then(|source_index| source_index.checked_add(1))
+                .expect("push offset fits in usize for a u16-bounded account count");
+            &self
+                .instruction
+                .get_instruction_account_at(destination_index)
+                .expect("index < count, so the destination meta is in bounds")
+                .key
+        })
+    }
 }
 
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
@@ -111,19 +176,28 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
     Ok(())
 }
 
-/// Validate and pull funds for each order, requiring:
+/// Validate each order against its push, and pull user funds. This requires:
 /// - the legacy SPL Token program;
 /// - the canonical state PDA, which signs each transfer as the user's delegate;
 /// - orders strictly increasing by address, rejecting duplicates.
 ///
-/// Further validation and the actual transfers are processed through
+/// Each order is paid by exactly one push, so the order and push counts must
+/// match — checked once up front. The orders and the finalize's pushes are both
+/// laid out sorted by order PDA, so order `i` is paid by push `i`, and that
+/// push's destination must be order `i`'s buy token account. That the push draws
+/// from the canonical buffer for the destination's mint is `FinalizeSettle`'s
+/// check (it holds the destination account and can read its mint); here we only
+/// have the orders.
+///
+/// Further validation and the actual pulls are processed through
 /// [`process_order`].
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn pull_funds<'a>(
+fn settle_orders<'a>(
     program_id: &Address,
     token_program_account: &AccountView,
     state_pda_account: &AccountView,
-    orders: impl IntoIterator<Item = SettledOrder<'a>>,
+    orders: SettledOrders<'a>,
+    pushes: &FinalizePushes,
 ) -> ProgramResult {
     if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
         return Err(ProgramError::IncorrectProgramId);
@@ -134,6 +208,12 @@ fn pull_funds<'a>(
     let (state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
     if state_pda_account.address() != &state_pda {
         return Err(SettlementError::StateAccountMismatch.into());
+    }
+
+    // One push per order. With the counts equal, every order's push index is in
+    // range below and no push is left unaccounted for.
+    if orders.iter().count() != pushes.count {
+        return Err(SettlementError::SettledOrderPushCountMismatch.into());
     }
 
     let [seed] = seeds;
@@ -147,30 +227,40 @@ fn pull_funds<'a>(
 
     let now = Clock::get()?.unix_timestamp;
 
-    for order in orders {
+    // Counts match (checked above), so zipping pairs every order with its push.
+    for (order, push_destination) in orders.iter().zip(pushes.destinations()) {
         let order_pda = order.order_pda;
         if previous.is_some_and(|previous| order_pda.address() <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
         }
         previous = Some(order_pda.address());
 
-        process_order(program_id, order, now, state_pda_account, &state_pda_signer)?;
+        // Validate the order and pull its funds first, so an invalid order is
+        // rejected with its own error before its push is examined.
+        let intent_buy_token =
+            process_order(program_id, order, now, state_pda_account, &state_pda_signer)?;
+
+        // The push paying this order must send to the order's buy token account.
+        if !address_matches_pubkey(push_destination, &intent_buy_token) {
+            return Err(SettlementError::PushDestinationMismatch.into());
+        }
     }
 
     Ok(())
 }
 
-/// Validate a single order and process its pulls.
+/// Validate a single order, then process its pulls.
 /// This checks that the order is valid and settleable. Once the order passes
-/// those checks, its pulls are executed.
-#[must_use = "ignoring the output may lead to an unintended on-chain state"]
+/// those checks, its pulls are executed. Returns the buy token account named in
+/// the order's intent, which the caller checks the order's push pays.
+#[must_use = "skipping the return value may lead to funds not being pulled but accounted for in the order"]
 fn process_order(
     program_id: &Address,
     order: SettledOrder<'_>,
     now: i64,
     state_account: &AccountView,
     state_pda_signer: &Signer,
-) -> ProgramResult {
+) -> Result<Pubkey, ProgramError> {
     let SettledOrder {
         order_pda,
         sell_token_account,
@@ -239,7 +329,7 @@ fn process_order(
         .invoke_signed(core::slice::from_ref(state_pda_signer))?;
     }
 
-    Ok(())
+    Ok(intent.buy_token_account)
 }
 
 fn address_matches_pubkey(address: &Address, pubkey: &Pubkey) -> bool {

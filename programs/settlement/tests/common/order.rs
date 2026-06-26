@@ -64,7 +64,12 @@ impl<'a> OrderBuilder<'a> {
         mint: &'a Pubkey,
     ) -> Self {
         let sell_token = token::create_token_account(svm, payer, mint, &payer.pubkey());
-        let intent = sample_intent(payer.pubkey(), sell_token, 0);
+        // `BeginSettle` reads the buy token account's mint to validate the push
+        // that pays the order, so it must be a real token account. The same mint
+        // works for both sides; the buy side just needs a distinct account.
+        let buy_token = token::create_token_account(svm, payer, mint, &payer.pubkey());
+        let mut intent = sample_intent(payer.pubkey(), sell_token, 0);
+        intent.buy_token_account = buy_token;
         Self {
             svm,
             program_id,

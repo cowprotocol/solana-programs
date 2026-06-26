@@ -183,9 +183,12 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
         let (bumps, amount_bytes) = body
             .split_at_checked(push_count)
             .ok_or(ProgramError::InvalidInstructionData)?;
-        // `amount_bytes` is `8 * push_count` long, so this splits cleanly into
-        // `push_count` whole `u64`s with no remainder.
-        let (amounts, _remainder) = amount_bytes.as_chunks::<8>();
+        // `amount_bytes` is `8 * push_count` long, so it splits cleanly into
+        // `push_count` whole `u64`s; matching the remainder to `[]` rejects
+        // anything else, mirroring `BeginSettle`'s amount parsing.
+        let (amounts, []) = amount_bytes.as_chunks::<8>() else {
+            return Err(ProgramError::InvalidInstructionData);
+        };
 
         // Each push contributes a source buffer and a destination account, so
         // the push-account count is `2 * T`.

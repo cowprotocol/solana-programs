@@ -5,6 +5,7 @@
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
+pub mod buffer;
 pub mod order;
 pub mod pda;
 pub mod token;
