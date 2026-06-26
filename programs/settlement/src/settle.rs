@@ -35,7 +35,10 @@ struct SettledOrder<'a> {
 /// that there aren't missing elements or that they are assigned incorrectly.
 struct SettledOrders<'a> {
     /// Order accounts, laid out per order as
-    /// `[order_pda, sell_token_account, destination...]`.
+    /// [order_accounts_1,  order_accounts_2, ...] where
+    /// - each order_accounts is a series of accounts:
+    ///   `order_pda_N, sell_token_account_N, destination_N_1, destination_N_2, ..., destination_N_M`
+    /// - and M is `counts[N]`
     order_accounts: &'a [AccountView],
     bumps: &'a [u8],
     /// One transfer count per order, parallel to `bumps`.
