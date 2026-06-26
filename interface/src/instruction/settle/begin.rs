@@ -1,5 +1,4 @@
-//! `BeginSettle`/`FinalizeSettle` instruction tools, the instructions-sysvar
-//! account ID they all reference, and the off-chain instruction builders.
+//! Off-chain builder and input parsing for the `BeginSettle` instruction.
 
 use std::vec;
 
@@ -8,11 +7,10 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
-pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
-
-use super::InstructionInputParsing;
+use crate::instruction::InstructionInputParsing;
 use crate::{SettlementError, SettlementInstruction};
+
+use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
 
 /// A single transfer made when settling an order: `amount` tokens sent from the
 /// order's sell token account to `destination`.
@@ -101,33 +99,6 @@ pub fn begin_settle(
         program_id: *program_id,
         accounts,
         data,
-    }
-}
-
-pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u16) -> Instruction {
-    Instruction {
-        program_id: *program_id,
-        accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
-        data: [
-            &[SettlementInstruction::FinalizeSettle.discriminator()],
-            &begin_ix_index.to_be_bytes()[..],
-        ]
-        .concat(),
-    }
-}
-
-/// Reads the first two bytes of a byte slice (instruction data) and
-/// interprets them as a big-endian u16, returning it together with the
-/// remaining bytes to parse.
-/// It's meant to be used for BeginSettle and FinalizeSettle to extract the
-/// counterpart index, that is, the index linking that instruction to the
-/// opposite instruction which is encoded as the first
-/// 2 bytes of the instruction data: `[0x13, 0x37]` → `0x1337`.
-/// Returns `InvalidInstructionData` if fewer than two bytes are provided.
-pub fn recover_counterpart(instruction_data: &[u8]) -> Result<(u16, &[u8]), ProgramError> {
-    match instruction_data {
-        [b1, b2, rest @ ..] => Ok((u16::from_be_bytes([*b1, *b2]), rest)),
-        _ => Err(ProgramError::InvalidInstructionData),
     }
 }
 
@@ -287,86 +258,19 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
     }
 }
 
-/// Parsed inputs (instruction-data fields + relevant accounts) of a
-/// `FinalizeSettle` instruction.
-///
-/// Strictly the raw extracted form. Fields are read from `instruction_data` and
-/// `accounts` but **not validated** against runtime context except confirming
-/// that the discriminator matches the desired input.
-pub struct FinalizeSettleInput<'a> {
-    pub begin_ix_index: u16,
-    pub instructions_sysvar_account: &'a AccountView,
-}
-
-impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
-    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::FinalizeSettle;
-
-    fn parse_body(
-        instruction_data: &[u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
-        let (begin_ix_index, _) = recover_counterpart(instruction_data)?;
-        let instructions_sysvar_account =
-            accounts.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
-        Ok(Self {
-            begin_ix_index,
-            instructions_sysvar_account,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
+    use crate::instruction::settle::tests::ix_data;
     use hex_literal::hex;
     use solana_address::Address;
 
     /// The fixed accounts every `BeginSettle` carries before its order accounts:
     /// the instructions sysvar, the settlement state PDA, and the token program.
     const FIXED_ACCOUNTS: usize = 3;
-
-    /// Builds an instruction-data byte vector from a list of field chunks, so a
-    /// test can spell out the wire layout one field per line without repeating
-    /// the `&[..][..]` slicing. Each chunk is anything sliceable to `[u8]` (a
-    /// byte array, a `Vec<u8>`, the result of `to_be_bytes()`, ...).
-    macro_rules! ix_data {
-        ($($chunk:expr),* $(,)?) => {
-            [$(&$chunk[..]),*].concat()
-        };
-    }
-
-    #[test]
-    fn rejects_empty_payload() {
-        assert_eq!(
-            recover_counterpart(&[]),
-            Err(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
-    fn rejects_too_short_payload() {
-        assert_eq!(
-            recover_counterpart(&[42]),
-            Err(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
-    fn returns_trailing_bytes() {
-        assert_eq!(
-            recover_counterpart(
-                &[
-                    &hex!("1337")[..], // counterpart index
-                    &[42][..],         // trailing
-                ]
-                .concat()
-            ),
-            Ok((0x1337, [42].as_slice())),
-        );
-    }
 
     #[test]
     fn expected_encoding_begin_settle_no_orders() {
@@ -541,26 +445,6 @@ mod tests {
     }
 
     #[test]
-    fn expected_encoding_finalize_settle() {
-        let program_id = Pubkey::new_unique();
-        let ix = finalize_settle(&program_id, 0x1337);
-        assert_eq!(
-            ix.data,
-            [
-                &[SettlementInstruction::FinalizeSettle.discriminator()][..],
-                &hex!("1337")[..], // counterpart index
-            ]
-            .concat(),
-        );
-
-        // Only the instructions sysvar is referenced.
-        assert_eq!(ix.accounts.len(), 1);
-        assert_eq!(ix.accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
-        assert!(!ix.accounts[0].is_writable);
-        assert!(!ix.accounts[0].is_signer);
-    }
-
-    #[test]
     fn begin_settle_input_parses_valid_input() {
         let sysvar = Address::new_from_array([0x42u8; 32]);
         // The state-PDA and token-program slots are reserved but not surfaced.
@@ -591,22 +475,6 @@ mod tests {
     }
 
     #[test]
-    fn finalize_settle_input_parses_valid_input() {
-        let address = Address::new_from_array([0x42u8; 32]);
-        let mut accounts = [fake_account(address)];
-        let data = ix_data![
-            [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0x13, 0x37], // begin index
-        ];
-        let FinalizeSettleInput {
-            begin_ix_index,
-            instructions_sysvar_account,
-        } = FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        assert_eq!(begin_ix_index, 0x1337);
-        assert_eq!(instructions_sysvar_account.address(), &address);
-    }
-
-    #[test]
     fn begin_settle_input_rejects_different_discriminator() {
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
@@ -620,19 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn finalize_settle_input_rejects_different_discriminator() {
-        let data = ix_data![
-            [SettlementInstruction::BeginSettle.discriminator()],
-            [0, 0], // begin index
-        ];
-        let mut accounts: [AccountView; 0] = [];
-        assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut accounts).err(),
-            Some(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
     fn begin_settle_input_rejects_empty_accounts() {
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
@@ -641,19 +496,6 @@ mod tests {
         let mut accounts: [AccountView; 0] = [];
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
-            Some(ProgramError::NotEnoughAccountKeys),
-        );
-    }
-
-    #[test]
-    fn finalize_settle_input_rejects_empty_accounts() {
-        let data = ix_data![
-            [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0, 0], // begin index
-        ];
-        let mut accounts: [AccountView; 0] = [];
-        assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -900,23 +742,5 @@ mod tests {
             BeginSettleInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
-    }
-
-    #[test]
-    fn finalize_settle_input_ignores_extra_parameters() {
-        let first_address = Address::new_from_array([1u8; 32]);
-        let second_address = Address::new_from_array([2u8; 32]);
-        let mut accounts = [fake_account(first_address), fake_account(second_address)];
-        let data = ix_data![
-            [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0x13, 0x37], // begin index
-            [42],         // extra
-        ];
-        let FinalizeSettleInput {
-            begin_ix_index,
-            instructions_sysvar_account,
-        } = FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        assert_eq!(begin_ix_index, 0x1337);
-        assert_eq!(instructions_sysvar_account.address(), &first_address);
     }
 }
