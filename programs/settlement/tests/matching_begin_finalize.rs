@@ -44,6 +44,7 @@ fn run_sequence(
             AbstractInstruction::Fin(idx) => FinalizeSettle {
                 program_id: *program_id,
                 begin_ix_index: *idx,
+                orders: &[],
             }
             .instruction(),
             // 0-lamport self-transfer: a side-effect-free instruction that
@@ -148,6 +149,7 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: 0,
+        orders: &[],
     }
     .instruction();
 
@@ -186,6 +188,7 @@ fn rejects_counterpart_instruction_in_different_program() {
     let stranger = FinalizeSettle {
         program_id: solana_system_interface::program::ID,
         begin_ix_index: 0,
+        orders: &[],
     }
     .instruction();
 
@@ -269,6 +272,7 @@ fn rejects_cpi_call_to_finalize_settle() {
         FinalizeSettle {
             program_id: settlement_id,
             begin_ix_index: 0,
+            orders: &[],
         }
         .instruction(),
     );

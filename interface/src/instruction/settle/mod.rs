@@ -13,7 +13,7 @@ mod begin;
 mod finalize;
 
 pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder, SettledOrders};
-pub use finalize::{FinalizeSettle, FinalizeSettleInput};
+pub use finalize::{FinalizeSettle, FinalizeSettleInput, Push, Pushes};
 
 /// Reads the first two bytes of a byte slice (instruction data) and
 /// interprets them as a big-endian u16, returning it together with the

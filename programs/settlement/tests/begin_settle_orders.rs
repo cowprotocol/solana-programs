@@ -6,18 +6,14 @@
 //! order-list checks, which is what these tests exercise.
 
 use crate::common::{
-    assert_instruction_error, assert_settlement_error, create_account, set_unix_timestamp, setup,
-    signed_tx, token,
+    assert_instruction_error, assert_settlement_error, create_account,
+    order::{create_order_pda, sample_intent, OrderBuilder},
+    set_unix_timestamp, setup, token,
 };
 use litesvm::{types::TransactionMetadata, LiteSVM};
-use settlement_client::instructions::{
-    BeginSettle, CreateOrder, FinalizeSettle, Pull, SettledOrder,
-};
+use settlement_client::instructions::{BeginSettle, FinalizeSettle, Pull, SettleableOrder};
 use settlement_client::settlement_interface::{
-    data::{
-        intent::{OrderIntent, OrderKind},
-        order::{EncodedOrderAccount, OrderAccount},
-    },
+    data::order::{EncodedOrderAccount, OrderAccount},
     instruction::settle::{
         BeginSettle as BeginSettleRaw, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
     },
@@ -40,81 +36,6 @@ fn no_pulls(n: usize) -> Vec<&'static [Pull]> {
     vec![&[]; n]
 }
 
-fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> OrderIntent {
-    OrderIntent {
-        owner,
-        buy_token_account: Pubkey::new_from_array([0x22; 32]),
-        sell_token_account,
-        sell_amount: 1_000_000,
-        buy_amount: 2_000_000,
-        valid_to: 0xdead_beef,
-        kind: OrderKind::Sell,
-        partially_fillable: true,
-        // `salt` is folded into `app_data` so callers can mint several orders that
-        // hash to different UIDs (and therefore different order PDAs).
-        app_data: [salt; 32],
-    }
-}
-
-/// Create `intent`'s order PDA on-chain, signed and paid for by `owner`.
-fn create_order_pda(svm: &mut LiteSVM, program_id: &Pubkey, owner: &Keypair, intent: &OrderIntent) {
-    let ix = CreateOrder {
-        program_id: *program_id,
-        owner: owner.pubkey(),
-        created_by: owner.pubkey(),
-        intent,
-    }
-    .instruction();
-    let tx = signed_tx(svm, owner, owner, ix);
-    svm.send_transaction(tx)
-        .expect("create_order should succeed");
-}
-
-/// Builder that mints a valid settleable order on-chain and returns its intent.
-/// If nothing else is specified, It uses default parameters to build the order.
-/// Individula parameters can be changed before building the order.
-struct SettleableOrder<'a> {
-    svm: &'a mut LiteSVM,
-    program_id: &'a Pubkey,
-    payer: &'a Keypair,
-    intent: OrderIntent,
-}
-
-impl<'a> SettleableOrder<'a> {
-    fn new(
-        svm: &'a mut LiteSVM,
-        program_id: &'a Pubkey,
-        payer: &'a Keypair,
-        mint: &'a Pubkey,
-    ) -> Self {
-        let sell_token = token::create_token_account(svm, payer, mint, &payer.pubkey());
-        let intent = sample_intent(payer.pubkey(), sell_token, 0);
-        Self {
-            svm,
-            program_id,
-            payer,
-            intent,
-        }
-    }
-
-    /// Make this order distinct from its siblings: `salt` is folded into
-    /// `app_data` so each value hashes to a different UID (and order PDA).
-    fn salt(mut self, salt: u8) -> Self {
-        self.intent.app_data = [salt; 32];
-        self
-    }
-
-    fn valid_to(mut self, valid_to: u32) -> Self {
-        self.intent.valid_to = valid_to;
-        self
-    }
-
-    fn build(self) -> OrderIntent {
-        create_order_pda(self.svm, self.program_id, self.payer, &self.intent);
-        self.intent
-    }
-}
-
 /// Send `[begin, finalize_settle(..)]` signed by `payer`, where `begin` is a
 /// pre-built `BeginSettle` instruction.
 fn send_settlement(
@@ -126,6 +47,7 @@ fn send_settlement(
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: 0,
+        orders: &[],
     }
     .instruction();
     let tx = Transaction::new_signed_with_payer(
@@ -143,7 +65,7 @@ fn settle(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
-    orders: &[SettledOrder],
+    orders: &[SettleableOrder],
 ) -> Result<TransactionMetadata, TransactionError> {
     send_settlement(
         svm,
@@ -188,12 +110,12 @@ fn settles_a_single_order() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     settle(
         &mut svm,
         &program_id,
         &payer,
-        &[SettledOrder {
+        &[SettleableOrder {
             intent: &intent,
             pulls: &[],
         }],
@@ -209,15 +131,15 @@ fn settles_multiple_orders() {
     let mut intents = Vec::new();
     for salt in 0..3u8 {
         intents.push(
-            SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+            OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
                 .salt(salt)
                 .build(),
         );
     }
 
-    let orders: Vec<SettledOrder> = intents
+    let orders: Vec<SettleableOrder> = intents
         .iter()
-        .map(|intent| SettledOrder { intent, pulls: &[] })
+        .map(|intent| SettleableOrder { intent, pulls: &[] })
         .collect();
     settle(&mut svm, &program_id, &payer, &orders).expect("multi-order settlement should succeed");
 }
@@ -227,7 +149,7 @@ fn rejects_wrong_bump() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     assert_settlement_error(
         settle_raw(
@@ -301,7 +223,7 @@ fn rejects_sell_token_account_mismatch() {
     let mint = token::create_mint(&mut svm, &payer);
 
     // Supply a different token account than the one the order's intent names.
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     let wrong_sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
     assert_settlement_error(
@@ -332,7 +254,7 @@ fn rejects_sell_token_owner_mismatch() {
             &mut svm,
             &program_id,
             &payer,
-            &[SettledOrder {
+            &[SettleableOrder {
                 intent: &intent,
                 pulls: &[],
             }],
@@ -354,7 +276,7 @@ fn rejects_non_token_sell_account() {
             &mut svm,
             &program_id,
             &payer,
-            &[SettledOrder {
+            &[SettleableOrder {
                 intent: &intent,
                 pulls: &[],
             }],
@@ -368,18 +290,18 @@ fn rejects_duplicate_orders() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     assert_settlement_error(
         settle(
             &mut svm,
             &program_id,
             &payer,
             &[
-                SettledOrder {
+                SettleableOrder {
                     intent: &intent,
                     pulls: &[],
                 },
-                SettledOrder {
+                SettleableOrder {
                     intent: &intent,
                     pulls: &[],
                 },
@@ -394,10 +316,10 @@ fn rejects_orders_in_wrong_address_order() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let first = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+    let first = OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
         .salt(0)
         .build();
-    let second = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+    let second = OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
         .salt(1)
         .build();
 
@@ -487,7 +409,7 @@ fn rejects_cancelled_order() {
             &mut svm,
             &program_id,
             &payer,
-            &[SettledOrder {
+            &[SettleableOrder {
                 intent: &intent,
                 pulls: &[],
             }],
@@ -502,7 +424,7 @@ fn rejects_expired_order() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let valid_to = 1_000_000;
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
         .valid_to(valid_to)
         .build();
     let after_expiration = i64::from(valid_to) + 1;
@@ -513,7 +435,7 @@ fn rejects_expired_order() {
             &mut svm,
             &program_id,
             &payer,
-            &[SettledOrder {
+            &[SettleableOrder {
                 intent: &intent,
                 pulls: &[],
             }],
@@ -528,7 +450,7 @@ fn settles_order_at_exact_valid_to() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let valid_to = 1_000_000;
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
         .valid_to(valid_to)
         .build();
     set_unix_timestamp(&mut svm, i64::from(valid_to));
@@ -537,7 +459,7 @@ fn settles_order_at_exact_valid_to() {
         &mut svm,
         &program_id,
         &payer,
-        &[SettledOrder {
+        &[SettleableOrder {
             intent: &intent,
             pulls: &[],
         }],
@@ -550,7 +472,7 @@ fn pulls_funds_to_destination() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     let sell_token = intent.sell_token_account;
     let initial_amount = 42_000_000;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
@@ -561,7 +483,7 @@ fn pulls_funds_to_destination() {
         &mut svm,
         &program_id,
         &payer,
-        &[SettledOrder {
+        &[SettleableOrder {
             intent: &intent,
             pulls: &[Pull {
                 destination,
@@ -584,7 +506,7 @@ fn pulls_to_multiple_destinations() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     let sell_token = intent.sell_token_account;
     let initial_amount: u64 = 1_000_000;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
@@ -597,7 +519,7 @@ fn pulls_to_multiple_destinations() {
         &mut svm,
         &program_id,
         &payer,
-        &[SettledOrder {
+        &[SettleableOrder {
             intent: &intent,
             pulls: &[
                 Pull {
@@ -631,10 +553,10 @@ fn pulls_from_multiple_orders() {
     let mint = token::create_mint(&mut svm, &payer);
 
     // Two distinct orders, each selling from its own token account.
-    let first = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+    let first = OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
         .salt(0)
         .build();
-    let second = SettleableOrder::new(&mut svm, &program_id, &payer, &mint)
+    let second = OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
         .salt(1)
         .build();
     let initial_amount_first = 1_337_000;
@@ -663,14 +585,14 @@ fn pulls_from_multiple_orders() {
         &program_id,
         &payer,
         &[
-            SettledOrder {
+            SettleableOrder {
                 intent: &first,
                 pulls: &[Pull {
                     destination: dest_first,
                     amount: pulled_first,
                 }],
             },
-            SettledOrder {
+            SettleableOrder {
                 intent: &second,
                 pulls: &[Pull {
                     destination: dest_second,
@@ -698,7 +620,7 @@ fn zero_pulls_moves_nothing() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     let sell_token = intent.sell_token_account;
     let initial_amount = 42_000_000;
     token::mint_to(&mut svm, &payer, &mint, &sell_token, initial_amount);
@@ -707,7 +629,7 @@ fn zero_pulls_moves_nothing() {
         &mut svm,
         &program_id,
         &payer,
-        &[SettledOrder {
+        &[SettleableOrder {
             intent: &intent,
             pulls: &[],
         }],
@@ -725,7 +647,7 @@ fn rejects_wrong_state_pda() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     let not_the_state_pda = Pubkey::new_unique();
 
@@ -754,14 +676,14 @@ fn rejects_wrong_token_program() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
 
     // The builder always fills in the SPL Token program, so we swap the
     // token-program account out afterwards.
     let mut begin = BeginSettle {
         program_id,
         finalize_ix_index: 1,
-        orders: &[SettledOrder {
+        orders: &[SettleableOrder {
             intent: &intent,
             pulls: &[],
         }],
@@ -781,7 +703,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     let amount = 100_000;
     let sell_token = intent.sell_token_account;
     // Funds are present but some account other than the state PDA was
@@ -794,7 +716,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
         &mut svm,
         &program_id,
         &payer,
-        &[SettledOrder {
+        &[SettleableOrder {
             intent: &intent,
             pulls: &[Pull {
                 destination,
@@ -813,7 +735,7 @@ fn rejects_pull_exceeding_delegation() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     let sell_token = intent.sell_token_account;
     // Funded generously, but the state PDA is delegated only 100_000.
     let initial_amount = 42_000_000;
@@ -832,7 +754,7 @@ fn rejects_pull_exceeding_delegation() {
         &mut svm,
         &program_id,
         &payer,
-        &[SettledOrder {
+        &[SettleableOrder {
             intent: &intent,
             pulls: &[Pull {
                 destination,
@@ -855,12 +777,12 @@ fn rejects_extra_account() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
 
-    let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
     // A well-formed single-order, no-transfer settlement...
     let mut begin = BeginSettle {
         program_id,
         finalize_ix_index: 1,
-        orders: &[SettledOrder {
+        orders: &[SettleableOrder {
             intent: &intent,
             pulls: &[],
         }],

@@ -38,6 +38,7 @@ fn program_can_be_invoked() {
             FinalizeSettle {
                 program_id,
                 begin_ix_index: 0,
+                orders: &[],
             }
             .instruction(),
         ],
