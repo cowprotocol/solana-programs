@@ -113,6 +113,13 @@ pub fn balance(svm: &LiteSVM, account: &Pubkey) -> u64 {
         .amount
 }
 
+/// Read the amount `account` has delegated to its delegate.
+pub fn delegated_amount(svm: &LiteSVM, account: &Pubkey) -> u64 {
+    litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, account)
+        .expect("account should exist and be a valid SPL token account")
+        .delegated_amount
+}
+
 /// Read the mint that `account` holds tokens of.
 pub fn mint_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
     litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, account)

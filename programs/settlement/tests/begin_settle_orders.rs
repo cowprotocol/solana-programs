@@ -783,13 +783,14 @@ fn rejects_pull_exceeding_delegation() {
     let sell_token = intent.sell_token_account;
     // Funded generously, but the state PDA is delegated only 100_000.
     let initial_amount = 42_000_000;
+    let delegated = 100_000;
     token::mint_to(&mut svm, &payer, &mint, &sell_token, initial_amount);
     token::delegate(
         &mut svm,
         &payer,
         &sell_token,
         &find_state_pda(&program_id).0,
-        100_000,
+        delegated,
     );
     let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
 
@@ -811,6 +812,8 @@ fn rejects_pull_exceeding_delegation() {
     );
     assert_eq!(token::balance(&svm, &sell_token), initial_amount);
     assert_eq!(token::balance(&svm, &destination), 0);
+    // The rejected pull must not have consumed any of the delegation.
+    assert_eq!(token::delegated_amount(&svm, &sell_token), delegated);
 }
 
 #[test]
