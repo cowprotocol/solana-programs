@@ -1,6 +1,6 @@
 use litesvm::{types::FailedTransactionMetadata, LiteSVM};
 use settlement_client::instructions::{BeginSettle, FinalizeSettle};
-use settlement_client::settlement_interface::SettlementError;
+use settlement_client::settlement_interface::{SettlementError, SettlementInstruction};
 use solana_sdk::{
     instruction::{AccountMeta, Instruction, InstructionError},
     pubkey::Pubkey,
@@ -125,6 +125,11 @@ fn invalid_sequences() {
         (
             &[Other, Other, Fin(0), Other, Other],
             (2, SettlementError::CounterpartIsExternal),
+        ),
+        // Init pointing at an index past the end of the transaction
+        (
+            &[Init(9), Fin(0)],
+            (0, SettlementError::MissingCounterpartInstruction),
         ),
         // Fin before Init, but right matching.
         (
@@ -321,5 +326,88 @@ fn rejects_cpi_call_to_finalize_settle() {
         err.err,
         TransactionError::InstructionError(0, to_instruction_error(SettlementError::CalledViaCpi)),
         "expected CalledViaCpi when finalize_settle is called via CPI"
+    );
+}
+
+/// Build a real `BeginSettle` whose counterpart slot holds an instruction of
+/// this program but with empty data, so its discriminator can't be recovered.
+/// The abstract harness can't express this: its `Init`/`Fin` always carry a
+/// valid discriminator, and `Other` belongs to a different program.
+#[test]
+fn rejects_counterpart_with_unrecoverable_discriminator() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    let begin = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[],
+    }
+    .instruction();
+    // Uses the settlement program, but no data: `recover_discriminator` fails
+    // on the empty payload before any kind check can run.
+    let malformed = Instruction {
+        program_id,
+        accounts: vec![],
+        data: vec![],
+    };
+
+    let tx = Transaction::new_signed_with_payer(
+        &[begin, malformed],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("expected counterpart with no discriminator to fail");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(
+            0,
+            to_instruction_error(SettlementError::InvalidCounterpartDiscriminator),
+        ),
+        "expected InvalidCounterpartDiscriminator at instruction 0"
+    );
+}
+
+/// Build a real `BeginSettle` whose counterpart slot holds an instruction of
+/// this program carrying a valid discriminator but no counterpart index, so
+/// the back-pointer can't be recovered. Like the test above, this shape is
+/// outside what the abstract harness can produce.
+#[test]
+fn rejects_counterpart_with_unrecoverable_counterpart_index() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    let begin = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[],
+    }
+    .instruction();
+    // Same program as `begin`, with a valid discriminator but no trailing
+    // counterpart-index bytes: `recover_discriminator` succeeds, then
+    // `recover_counterpart` fails on the truncated remainder.
+    let malformed = Instruction {
+        program_id,
+        accounts: vec![],
+        data: vec![SettlementInstruction::FinalizeSettle.discriminator()],
+    };
+
+    let tx = Transaction::new_signed_with_payer(
+        &[begin, malformed],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("expected counterpart with no counterpart index to fail");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(
+            0,
+            to_instruction_error(SettlementError::InvalidCounterpartCounterpart),
+        ),
+        "expected InvalidCounterpartCounterpart at instruction 0"
     );
 }
