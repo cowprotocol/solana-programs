@@ -308,15 +308,16 @@ fn pull_funds<'a>(
     }
 
     // Funds are pulled with the state PDA's delegation, so it must be the signer.
-    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
+    let seeds = state_pda_seeds();
+    let (state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
     if state_pda_account.address() != &state_pda {
         return Err(SettlementError::StateAccountMismatch.into());
     }
 
-    let [seed] = state_pda_seeds();
+    let [seed] = seeds;
     let state_bump = [state_bump];
-    let signer_seeds = [Seed::from(seed), Seed::from(&state_bump[..])];
-    let signer = Signer::from(&signer_seeds[..]);
+    let signer_seeds = [seed, &state_bump].map(Seed::from);
+    let signer = Signer::from(&signer_seeds);
 
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
