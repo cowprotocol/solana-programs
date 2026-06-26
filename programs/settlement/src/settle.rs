@@ -289,13 +289,13 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
     Ok(())
 }
 
-/// Validate each order and pull user funds.
-/// Only the legacy SPL Token program is accepted and the supplied state
-/// account must be the canonical state PDA (which is in turn also the delegate
-/// the user approved) since it signs each transfer. Orders are processed one at
-/// a time by [`process_pull`] and must be passed strictly increasing by address;
-/// this rejects duplicates (settling the same order twice) without a separate
-/// scan.
+/// Validate and pull funds for each order, requiring:
+/// - the legacy SPL Token program;
+/// - the canonical state PDA, which signs each transfer as the user's delegate;
+/// - orders strictly increasing by address, rejecting duplicates.
+///
+/// Further validation and the actual transfers are processed through
+/// [`process_order`].
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn pull_funds<'a>(
     program_id: &Address,
