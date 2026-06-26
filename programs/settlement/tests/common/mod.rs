@@ -64,10 +64,13 @@ pub fn to_instruction_error(e: SettlementError) -> InstructionError {
     InstructionError::Custom(e.into())
 }
 
-pub fn assert_instruction_error(result: Result<(), TransactionError>, expected: InstructionError) {
-    assert_eq!(result, Err(TransactionError::InstructionError(0, expected)));
+pub fn assert_instruction_error<T>(result: Result<T, TransactionError>, expected: InstructionError) {
+    assert_eq!(
+        result.err(),
+        Some(TransactionError::InstructionError(0, expected))
+    );
 }
-pub fn assert_settlement_error(result: Result<(), TransactionError>, expected: SettlementError) {
+pub fn assert_settlement_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
     assert_instruction_error(result, to_instruction_error(expected));
 }
 

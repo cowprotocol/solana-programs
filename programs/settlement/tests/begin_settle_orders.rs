@@ -9,7 +9,7 @@ use crate::common::{
     assert_instruction_error, assert_settlement_error, create_account, set_unix_timestamp, setup,
     signed_tx, token,
 };
-use litesvm::LiteSVM;
+use litesvm::{types::TransactionMetadata, LiteSVM};
 use settlement_client::instructions::{
     begin_settle, create_order, finalize_settle, Pull, SettledOrder,
 };
@@ -116,7 +116,7 @@ fn send_settlement(
     program_id: &Pubkey,
     payer: &Keypair,
     begin: Instruction,
-) -> Result<(), TransactionError> {
+) -> Result<TransactionMetadata, TransactionError> {
     let finalize = finalize_settle(program_id, 0);
     let tx = Transaction::new_signed_with_payer(
         &[begin, finalize],
@@ -124,7 +124,7 @@ fn send_settlement(
         &[payer],
         svm.latest_blockhash(),
     );
-    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
+    svm.send_transaction(tx).map_err(|e| e.err)
 }
 
 /// Settle `orders` in a minimal `[BeginSettle, FinalizeSettle]` transaction
@@ -134,7 +134,7 @@ fn settle(
     program_id: &Pubkey,
     payer: &Keypair,
     orders: &[SettledOrder],
-) -> Result<(), TransactionError> {
+) -> Result<TransactionMetadata, TransactionError> {
     send_settlement(svm, program_id, payer, begin_settle(program_id, 1, orders))
 }
 
@@ -149,7 +149,7 @@ fn settle_raw(
     order_pdas: &[Pubkey],
     sell_token_accounts: &[Pubkey],
     bumps: &[u8],
-) -> Result<(), TransactionError> {
+) -> Result<TransactionMetadata, TransactionError> {
     let begin = raw_begin_settle(
         program_id,
         &find_state_pda(program_id).0,
@@ -168,7 +168,7 @@ fn settles_a_single_order() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
-    settle(
+    let transaction = settle(
         &mut svm,
         &program_id,
         &payer,
@@ -682,7 +682,7 @@ fn zero_pulls_moves_nothing() {
     let initial_amount = 42_000_000;
     token::mint_to(&mut svm, &payer, &mint, &sell_token, initial_amount);
 
-    settle(
+    let transaction = settle(
         &mut svm,
         &program_id,
         &payer,
@@ -694,6 +694,9 @@ fn zero_pulls_moves_nothing() {
     .expect("settling without pulling should succeed");
 
     assert_eq!(token::balance(&svm, &sell_token), initial_amount);
+    // Confirm that there are no transfers because there are no token
+    // invocations in general.
+    token::assert_no_spl_token_invocation(&transaction);
 }
 
 #[test]

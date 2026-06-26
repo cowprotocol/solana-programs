@@ -1,6 +1,6 @@
 //! SPL Token helpers for the settlement integration tests.
 
-use litesvm::LiteSVM;
+use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
     Approve, CreateAccount, CreateAssociatedTokenAccount, CreateMint, MintTo, Transfer,
 };
@@ -118,6 +118,19 @@ pub fn delegated_amount(svm: &LiteSVM, account: &Pubkey) -> u64 {
     litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, account)
         .expect("account should exist and be a valid SPL token account")
         .delegated_amount
+}
+
+/// Assert that there was no token invocation in the transaction.
+pub fn assert_no_spl_token_invocation(transaction: &TransactionMetadata) {
+    let token_program = litesvm_token::spl_token::ID.to_string();
+    assert!(
+        !transaction
+            .logs
+            .iter()
+            .any(|line| line.contains(&token_program) && line.contains("invoke")),
+        "expected no SPL Token invocation, but one ran; full tx logs:\n{:#?}",
+        transaction.logs,
+    );
 }
 
 /// Read the mint that `account` holds tokens of.
