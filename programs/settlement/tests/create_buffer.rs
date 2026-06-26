@@ -1,3 +1,4 @@
+use litesvm::LiteSVM;
 use litesvm_token::{
     get_spl_account,
     spl_token::{
@@ -442,4 +443,111 @@ fn rejects_same_mint_twice_in_one_instruction() {
         svm.get_account(&buffer_pda).is_none(),
         "the buffer must not be created in a batch that creates it twice"
     );
+}
+
+/// Largest number of buffers a single ALT-backed `create_buffers` transaction
+/// can carry, bounded by the transaction account-lock limit (litesvm and current
+/// mainnet both cap this at 64).
+///
+/// Nothing is created because the sent buffers are non-canonical and the
+/// transaction errors out, so the probe leaves no state behind.
+fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> usize {
+    let mut n: usize = 1;
+    loop {
+        let pairs: Vec<(Pubkey, Pubkey)> = (0..n)
+            .map(|_| (Pubkey::new_unique(), Pubkey::new_unique()))
+            .collect();
+        let ix = CreateBuffersRaw {
+            program_id: *program_id,
+            payer: payer.pubkey(),
+            buffers: &pairs,
+        }
+        .instruction();
+        let tx = common::lookup_table::lookup_table_tx(svm, payer, ix);
+        match svm.send_transaction(tx) {
+            // Over the lock limit: rejected at sanitization, before executing.
+            Err(failed) if failed.err == TransactionError::TooManyAccountLocks => {
+                return n
+                    .checked_sub(1)
+                    .expect("Overflow means zero accounts are too many")
+            }
+            // Within the limit: the transaction reached the program, which, as
+            // expected, rejected the throwaway (non-canonical) buffer PDA.
+            Err(failed) if matches!(failed.err, TransactionError::InstructionError(..)) => {
+                n = n.strict_add(1)
+            }
+            // Anything else (an unexpected error, or a transaction that somehow
+            // succeeded) means the probe's own setup is broken, not a real signal
+            // about the limit. Fail loudly rather than miscount.
+            other => panic!("unexpected result probing {n} buffers: {other:?}"),
+        }
+    }
+}
+
+/// This isn't really a test, it's a way to make it visible that a code change
+/// has changed the amount of buffer accounts that can be created in the same
+/// transaction. If the number increases, great, bump it up! If it decreases and
+/// you're ok with the performance hit, then you can bump it down.
+#[test]
+fn bench_max_buffers() {
+    let (mut svm, program_id, payer) = common::setup();
+    let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
+    assert_eq!(
+        max_buffers, 30,
+        "Max buffers that can be created has changed"
+    );
+}
+
+/// Pack a single `create_buffers` instruction with as many buffers as a
+/// transaction can have. Use Address Lookup Table to reach the real
+/// account-lock ceiling. This is a ceiling on how many buffers one transaction
+/// can create, and a benchmark for how much a maxed-out instruction costs.
+#[test]
+fn max_buffers_in_one_instruction() {
+    let (mut svm, program_id, payer) = common::setup();
+    let (state_pda, _) = find_state_pda(&program_id);
+
+    let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
+    // A legacy transaction tops out around 15 buffers (32-byte keys inlined into
+    // a 1232-byte packet). The whole point of the lookup table is to beat that;
+    // guard against a counterproductive use of lookup tables.
+    assert!(
+        max_buffers > 15,
+        "a lookup-table transaction must exceed the legacy packet limit, got {max_buffers}"
+    );
+
+    let mints: Vec<Pubkey> = (0..max_buffers)
+        .map(|_| common::token::create_mint(&mut svm, &payer))
+        .collect();
+
+    let ix = CreateBuffers {
+        program_id,
+        payer: payer.pubkey(),
+        mints: &mints,
+    }
+    .instruction();
+    let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
+    let meta = svm
+        .send_transaction(tx)
+        .expect("a transaction filled to the buffer limit should succeed");
+    println!(
+        "create_buffers with {max_buffers} buffers consumed {} compute units",
+        meta.compute_units_consumed
+    );
+
+    for mint in &mints {
+        let (buffer_pda, _bump) = find_buffer_pda(&program_id, mint);
+        let token_account = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
+            .expect("each buffer must be an initialized token account");
+        assert_eq!(token_account.mint, *mint, "each buffer must track its mint");
+        assert_eq!(
+            token_account.owner, state_pda,
+            "each buffer authority must be the settlement state PDA"
+        );
+        assert_eq!(
+            token_account.state,
+            AccountState::Initialized,
+            "each buffer must be an initialized token account"
+        );
+    }
 }

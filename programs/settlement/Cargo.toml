@@ -25,6 +25,7 @@ litesvm-token.workspace = true
 proptest.workspace = true
 settlement-client.workspace = true
 settlement-interface = { workspace = true, features = ["test-fixtures"] }
+solana-address-lookup-table-interface = { workspace = true, features = ["bincode"] }
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
 
