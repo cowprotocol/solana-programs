@@ -13,7 +13,7 @@ use settlement_interface::{
 
 // Reexport the instruction builders that don't change from the interface.
 // We want the client to provide all instruction builders.
-pub use settlement_interface::instruction::settle::{finalize_settle, Pull};
+pub use settlement_interface::instruction::settle::{FinalizeSettle, Pull};
 
 /// An order to settle together with the funds to pull from it: `intent`
 /// identifies the order and `pulls` lists the [`Pull`]s to make from its sell
@@ -23,64 +23,100 @@ pub struct SettledOrder<'a> {
     pub pulls: &'a [Pull],
 }
 
-/// Build a `BeginSettle` instruction settling the given orders.
-pub fn begin_settle(
-    program_id: &Pubkey,
-    finalize_ix_index: u16,
-    orders: &[SettledOrder],
-) -> Instruction {
-    let mut order_pdas = Vec::with_capacity(orders.len());
-    let mut sell_token_accounts = Vec::with_capacity(orders.len());
-    let mut bumps = Vec::with_capacity(orders.len());
-    let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(orders.len());
-    for order in orders {
-        let (order_pda, bump) = find_order_pda(program_id, &order.intent.uid());
-        order_pdas.push(order_pda);
-        sell_token_accounts.push(order.intent.sell_token_account);
-        bumps.push(bump);
-        pull_lists.push(order.pulls);
+/// Builder for a `BeginSettle` instruction settling the given orders.
+pub struct BeginSettle<'a> {
+    pub program_id: Pubkey,
+    pub finalize_ix_index: u16,
+    pub orders: &'a [SettledOrder<'a>],
+}
+
+impl BeginSettle<'_> {
+    pub fn instruction(self) -> Instruction {
+        let mut order_pdas = Vec::with_capacity(self.orders.len());
+        let mut sell_token_accounts = Vec::with_capacity(self.orders.len());
+        let mut bumps = Vec::with_capacity(self.orders.len());
+        let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(self.orders.len());
+        for order in self.orders {
+            let (order_pda, bump) = find_order_pda(&self.program_id, &order.intent.uid());
+            order_pdas.push(order_pda);
+            sell_token_accounts.push(order.intent.sell_token_account);
+            bumps.push(bump);
+            pull_lists.push(order.pulls);
+        }
+        let (state_pda, _bump) = find_state_pda(&self.program_id);
+        settlement_interface::instruction::settle::BeginSettle {
+            program_id: self.program_id,
+            state_pda,
+            finalize_ix_index: self.finalize_ix_index,
+            order_pdas: &order_pdas,
+            order_pda_bumps: &bumps,
+            sell_token_accounts: &sell_token_accounts,
+            pulls: &pull_lists,
+        }
+        .instruction()
     }
-    let (state_pda, _bump) = find_state_pda(program_id);
-    settlement_interface::instruction::settle::begin_settle(
-        program_id,
-        &state_pda,
-        finalize_ix_index,
-        &order_pdas,
-        &bumps,
-        &sell_token_accounts,
-        &pull_lists,
-    )
 }
 
-pub fn create_order(
-    program_id: &Pubkey,
-    owner: &Pubkey,
-    created_by: &Pubkey,
-    intent: &OrderIntent,
-) -> Instruction {
-    let encoded = EncodedOrderIntent::from(intent);
-    let (order_pda, _bump) = find_order_pda(program_id, &encoded.hash());
-    let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-    settlement_interface::instruction::create_order::create_order(
-        program_id,
-        owner,
-        created_by,
-        &order_pda,
-        &intent_bytes,
-    )
+pub struct CreateOrder<'a> {
+    pub program_id: Pubkey,
+    pub owner: Pubkey,
+    pub created_by: Pubkey,
+    pub intent: &'a OrderIntent,
 }
 
-pub fn create_buffers(program_id: &Pubkey, payer: &Pubkey, mints: &[Pubkey]) -> Instruction {
-    let buffers: Vec<(Pubkey, Pubkey)> = mints
-        .iter()
-        .map(|mint| (find_buffer_pda(program_id, mint).0, *mint))
-        .collect();
-    settlement_interface::instruction::create_buffer::create_buffers(program_id, payer, &buffers)
+impl CreateOrder<'_> {
+    pub fn instruction(self) -> Instruction {
+        let encoded = EncodedOrderIntent::from(self.intent);
+        let (order_pda, _bump) = find_order_pda(&self.program_id, &encoded.hash());
+        let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
+        settlement_interface::instruction::create_order::CreateOrder {
+            program_id: self.program_id,
+            owner: self.owner,
+            created_by: self.created_by,
+            order_pda,
+            intent_bytes,
+        }
+        .instruction()
+    }
 }
 
-pub fn initialize(program_id: &Pubkey, payer: &Pubkey) -> Instruction {
-    let (state_pda, _bump) = find_state_pda(program_id);
-    settlement_interface::instruction::initialize::initialize(program_id, payer, &state_pda)
+pub struct CreateBuffers<'a> {
+    pub program_id: Pubkey,
+    pub payer: Pubkey,
+    pub mints: &'a [Pubkey],
+}
+
+impl CreateBuffers<'_> {
+    pub fn instruction(self) -> Instruction {
+        let buffers: Vec<(Pubkey, Pubkey)> = self
+            .mints
+            .iter()
+            .map(|mint| (find_buffer_pda(&self.program_id, mint).0, *mint))
+            .collect();
+        settlement_interface::instruction::create_buffer::CreateBuffers {
+            program_id: self.program_id,
+            payer: self.payer,
+            buffers: &buffers,
+        }
+        .instruction()
+    }
+}
+
+pub struct Initialize {
+    pub program_id: Pubkey,
+    pub payer: Pubkey,
+}
+
+impl Initialize {
+    pub fn instruction(self) -> Instruction {
+        let (state_pda, _bump) = find_state_pda(&self.program_id);
+        settlement_interface::instruction::initialize::Initialize {
+            program_id: self.program_id,
+            payer: self.payer,
+            state_pda,
+        }
+        .instruction()
+    }
 }
 
 #[cfg(test)]
@@ -113,7 +149,12 @@ mod tests {
                 .iter()
                 .map(|intent| SettledOrder { intent, pulls: &[] })
                 .collect();
-            let ix = begin_settle(&program_id, finalize_ix_index, &orders);
+            let ix = BeginSettle {
+                program_id,
+                finalize_ix_index,
+                orders: &orders,
+            }
+            .instruction();
 
             // Expected orders: each intent's canonical PDA paired with its sell
             // token account and bump, sorted by PDA address (the builder's order).

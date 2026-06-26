@@ -12,15 +12,29 @@ use crate::SettlementInstruction;
 
 use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID};
 
-pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u16) -> Instruction {
-    Instruction {
-        program_id: *program_id,
-        accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
-        data: [
-            &[SettlementInstruction::FinalizeSettle.discriminator()],
-            &begin_ix_index.to_be_bytes()[..],
-        ]
-        .concat(),
+/// Builder for a `FinalizeSettle` instruction.
+///
+/// `begin_ix_index` is the index of the paired `BeginSettle` instruction in the
+/// same transaction.
+///
+/// Wire format: `[discriminator, begin_ix_index: u16 BE]`, 3 bytes.
+/// Required accounts: `[instructions_sysvar (R)]`.
+pub struct FinalizeSettle {
+    pub program_id: Pubkey,
+    pub begin_ix_index: u16,
+}
+
+impl FinalizeSettle {
+    pub fn instruction(self) -> Instruction {
+        Instruction {
+            program_id: self.program_id,
+            accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
+            data: [
+                &[SettlementInstruction::FinalizeSettle.discriminator()],
+                &self.begin_ix_index.to_be_bytes()[..],
+            ]
+            .concat(),
+        }
     }
 }
 
@@ -63,7 +77,11 @@ mod tests {
     #[test]
     fn expected_encoding_finalize_settle() {
         let program_id = Pubkey::new_unique();
-        let ix = finalize_settle(&program_id, 0x1337);
+        let ix = FinalizeSettle {
+            program_id,
+            begin_ix_index: 0x1337,
+        }
+        .instruction();
         assert_eq!(
             ix.data,
             [

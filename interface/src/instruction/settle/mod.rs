@@ -12,8 +12,8 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 mod begin;
 mod finalize;
 
-pub use begin::{begin_settle, BeginSettleInput, Pull, SettledOrder, SettledOrders};
-pub use finalize::{finalize_settle, FinalizeSettleInput};
+pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder, SettledOrders};
+pub use finalize::{FinalizeSettle, FinalizeSettleInput};
 
 /// Reads the first two bytes of a byte slice (instruction data) and
 /// interprets them as a big-endian u16, returning it together with the

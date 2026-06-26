@@ -19,7 +19,7 @@ use crate::SettlementInstruction;
 /// program.
 pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 
-/// Build a `CreateBuffer` instruction that creates one buffer per
+/// Builder for a `CreateBuffer` instruction that creates one buffer per
 /// `(buffer_pda, mint)` pair in `buffers`.
 ///
 /// Each `buffer_pda` must be the canonical PDA returned by
@@ -34,24 +34,28 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 /// The three shared accounts come first and are read positionally; the
 /// per-buffer pairs follow. The system program only has to be present so the
 /// `CreateAccount` CPI can dispatch; it isn't read by index.
-pub fn create_buffers(
-    program_id: &Pubkey,
-    payer: &Pubkey,
-    buffers: &[(Pubkey, Pubkey)],
-) -> Instruction {
-    let mut accounts = vec![
-        AccountMeta::new(*payer, true),
-        AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
-    ];
-    for (buffer_pda, mint) in buffers {
-        accounts.push(AccountMeta::new(*buffer_pda, false));
-        accounts.push(AccountMeta::new_readonly(*mint, false));
-    }
-    Instruction {
-        program_id: *program_id,
-        accounts,
-        data: vec![SettlementInstruction::CreateBuffer.discriminator()],
+pub struct CreateBuffers<'a> {
+    pub program_id: Pubkey,
+    pub payer: Pubkey,
+    pub buffers: &'a [(Pubkey, Pubkey)],
+}
+
+impl CreateBuffers<'_> {
+    pub fn instruction(self) -> Instruction {
+        let mut accounts = vec![
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
+        ];
+        for (buffer_pda, mint) in self.buffers {
+            accounts.push(AccountMeta::new(*buffer_pda, false));
+            accounts.push(AccountMeta::new_readonly(*mint, false));
+        }
+        Instruction {
+            program_id: self.program_id,
+            accounts,
+            data: vec![SettlementInstruction::CreateBuffer.discriminator()],
+        }
     }
 }
 
@@ -105,7 +109,7 @@ impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
 pub mod fixtures {
     use solana_address::Address;
 
-    use super::create_buffers;
+    use super::CreateBuffers;
 
     /// Number of accounts that don't depend on the number of buffers created:
     /// payer, system program, and token program.
@@ -115,7 +119,13 @@ pub mod fixtures {
     /// cases where the input is irrelevant.
     pub fn create_buffer_data() -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
-        create_buffers(&zero, &zero, &[(zero, zero)]).data
+        CreateBuffers {
+            program_id: zero,
+            payer: zero,
+            buffers: &[(zero, zero)],
+        }
+        .instruction()
+        .data
     }
 }
 
@@ -137,7 +147,13 @@ mod tests {
         let buffer_pda = Address::new_from_array([5; 32]);
         let mint = Address::new_from_array([6; 32]);
 
-        let data = create_buffers(&program_id, &payer, &[(buffer_pda, mint)]).data;
+        let data = CreateBuffers {
+            program_id,
+            payer,
+            buffers: &[(buffer_pda, mint)],
+        }
+        .instruction()
+        .data;
         let mut accounts = [
             fake_account(payer),
             system_program,
@@ -169,11 +185,12 @@ mod tests {
         let buffer_b = Address::new_from_array([7; 32]);
         let mint_b = Address::new_from_array([8; 32]);
 
-        let data = create_buffers(
-            &program_id,
-            &payer,
-            &[(buffer_a, mint_a), (buffer_b, mint_b)],
-        )
+        let data = CreateBuffers {
+            program_id,
+            payer,
+            buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
+        }
+        .instruction()
         .data;
         let mut accounts = [
             fake_account(payer),
@@ -248,7 +265,12 @@ mod tests {
         let payer = Pubkey::new_from_array([2; 32]);
         let buffer_pda = Pubkey::new_from_array([3; 32]);
         let mint = Pubkey::new_from_array([4; 32]);
-        let ix = create_buffers(&program_id, &payer, &[(buffer_pda, mint)]);
+        let ix = CreateBuffers {
+            program_id,
+            payer,
+            buffers: &[(buffer_pda, mint)],
+        }
+        .instruction();
         assert_eq!(
             ix.data,
             vec![SettlementInstruction::CreateBuffer.discriminator()]
@@ -261,7 +283,12 @@ mod tests {
         let payer = Pubkey::new_from_array([2; 32]);
         let buffer_pda = Pubkey::new_from_array([3; 32]);
         let mint = Pubkey::new_from_array([4; 32]);
-        let ix = create_buffers(&program_id, &payer, &[(buffer_pda, mint)]);
+        let ix = CreateBuffers {
+            program_id,
+            payer,
+            buffers: &[(buffer_pda, mint)],
+        }
+        .instruction();
 
         assert_eq!(ix.accounts.len(), 5);
         // payer: writable, signer
@@ -294,11 +321,12 @@ mod tests {
         let mint_a = Pubkey::new_from_array([4; 32]);
         let buffer_b = Pubkey::new_from_array([5; 32]);
         let mint_b = Pubkey::new_from_array([6; 32]);
-        let ix = create_buffers(
-            &program_id,
-            &payer,
-            &[(buffer_a, mint_a), (buffer_b, mint_b)],
-        );
+        let ix = CreateBuffers {
+            program_id,
+            payer,
+            buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
+        }
+        .instruction();
 
         // Three shared accounts followed by two (buffer, mint) pairs.
         assert_eq!(ix.accounts.len(), 3 + 2 * 2);
@@ -316,7 +344,12 @@ mod tests {
     fn empty_buffers_has_only_shared_accounts() {
         let program_id = Pubkey::new_from_array([1; 32]);
         let payer = Pubkey::new_from_array([2; 32]);
-        let ix = create_buffers(&program_id, &payer, &[]);
+        let ix = CreateBuffers {
+            program_id,
+            payer,
+            buffers: &[],
+        }
+        .instruction();
         assert_eq!(ix.accounts.len(), 3);
     }
 }

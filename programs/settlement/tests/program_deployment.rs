@@ -1,4 +1,4 @@
-use settlement_client::instructions::{begin_settle, finalize_settle};
+use settlement_client::instructions::{BeginSettle, FinalizeSettle};
 use solana_sdk::{
     instruction::{Instruction, InstructionError},
     signature::Signer,
@@ -29,8 +29,17 @@ fn program_can_be_invoked() {
         // Indices encode the BeginSettle/FinalizeSettle pair
         // `Begin` at 0 → finalize_ix=1, `Finalize` at 1 → begin_ix=0.
         &[
-            begin_settle(&program_id, 1, &[]),
-            finalize_settle(&program_id, 0),
+            BeginSettle {
+                program_id,
+                finalize_ix_index: 1,
+                orders: &[],
+            }
+            .instruction(),
+            FinalizeSettle {
+                program_id,
+                begin_ix_index: 0,
+            }
+            .instruction(),
         ],
         Some(&payer.pubkey()),
         &[&payer],

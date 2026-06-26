@@ -14,7 +14,7 @@ pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 use super::InstructionInputParsing;
 use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 
-/// Build a `CreateOrder` instruction.
+/// Builder for a `CreateOrder` instruction.
 ///
 /// `intent_bytes` is the canonical byte encoding (see
 /// [`EncodedOrderIntent`]). `order_pda` must be the canonical PDA returned
@@ -42,26 +42,30 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
 /// The system program needs to be available but doesn't need to be at that
 /// specific position in the instruction, unlike the others.
-pub fn create_order(
-    program_id: &Pubkey,
-    owner: &Pubkey,
-    created_by: &Pubkey,
-    order_pda: &Pubkey,
-    intent_bytes: &[u8; EncodedOrderIntent::SIZE],
-) -> Instruction {
-    let mut data = Vec::with_capacity(1 + EncodedOrderIntent::SIZE);
-    data.push(SettlementInstruction::CreateOrder.discriminator());
-    data.extend_from_slice(intent_bytes);
+pub struct CreateOrder {
+    pub program_id: Pubkey,
+    pub owner: Pubkey,
+    pub created_by: Pubkey,
+    pub order_pda: Pubkey,
+    pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
+}
 
-    Instruction {
-        program_id: *program_id,
-        accounts: vec![
-            AccountMeta::new_readonly(*owner, true),
-            AccountMeta::new(*created_by, true),
-            AccountMeta::new(*order_pda, false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-        ],
-        data,
+impl CreateOrder {
+    pub fn instruction(self) -> Instruction {
+        let mut data = Vec::with_capacity(1 + EncodedOrderIntent::SIZE);
+        data.push(SettlementInstruction::CreateOrder.discriminator());
+        data.extend_from_slice(&self.intent_bytes);
+
+        Instruction {
+            program_id: self.program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(self.owner, true),
+                AccountMeta::new(self.created_by, true),
+                AccountMeta::new(self.order_pda, false),
+                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            ],
+            data,
+        }
     }
 }
 
@@ -110,7 +114,7 @@ impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
 pub mod fixtures {
     use solana_address::Address;
 
-    use super::create_order;
+    use super::CreateOrder;
     use crate::data::intent::{
         fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
     };
@@ -136,7 +140,15 @@ pub mod fixtures {
     /// addresses for failure cases where the actual addresses don't matter.
     pub fn default_order_data(intent_bytes: &[u8; EncodedOrderIntent::SIZE]) -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
-        create_order(&zero, &zero, &zero, &zero, intent_bytes).data
+        CreateOrder {
+            program_id: zero,
+            owner: zero,
+            created_by: zero,
+            order_pda: zero,
+            intent_bytes: *intent_bytes,
+        }
+        .instruction()
+        .data
     }
 }
 
@@ -157,7 +169,15 @@ mod tests {
         let order_pda = Address::new_from_array([23; 32]);
         let intent_bytes = valid_intent_bytes();
 
-        let data = create_order(&program_id, &owner, &created_by, &order_pda, &intent_bytes).data;
+        let data = CreateOrder {
+            program_id,
+            owner,
+            created_by,
+            order_pda,
+            intent_bytes,
+        }
+        .instruction()
+        .data;
         let mut accounts = [
             fake_account(owner),
             fake_account(created_by),
@@ -222,7 +242,14 @@ mod tests {
         let order_pda = Pubkey::new_from_array([3; 32]);
         let intent_bytes = [0x42u8; EncodedOrderIntent::SIZE];
 
-        let ix = create_order(&program_id, &owner, &created_by, &order_pda, &intent_bytes);
+        let ix = CreateOrder {
+            program_id,
+            owner,
+            created_by,
+            order_pda,
+            intent_bytes,
+        }
+        .instruction();
 
         assert_eq!(ix.data.len(), 1 + EncodedOrderIntent::SIZE);
         assert_eq!(
@@ -240,7 +267,14 @@ mod tests {
         let order_pda = Pubkey::new_from_array([3; 32]);
         let intent_bytes = [0u8; EncodedOrderIntent::SIZE];
 
-        let ix = create_order(&program_id, &owner, &created_by, &order_pda, &intent_bytes);
+        let ix = CreateOrder {
+            program_id,
+            owner,
+            created_by,
+            order_pda,
+            intent_bytes,
+        }
+        .instruction();
 
         assert_eq!(ix.accounts.len(), 4);
         // owner: read-only, signer (authenticates the order; doesn't pay rent)
