@@ -552,6 +552,10 @@ fn pulls_funds_to_destination() {
 
     assert_eq!(token::balance(&svm, &destination), amount);
     assert_eq!(token::balance(&svm, &sell_token), initial_amount - amount);
+    assert_eq!(
+        token::delegated_amount(&svm, &sell_token),
+        initial_amount - amount
+    );
 }
 
 #[test]
@@ -561,7 +565,7 @@ fn pulls_to_multiple_destinations() {
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
     let sell_token = intent.sell_token_account;
-    let initial_amount = 1_000_000;
+    let initial_amount: u64 = 1_000_000;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
     let dest0 = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
     let dest1 = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
@@ -592,6 +596,10 @@ fn pulls_to_multiple_destinations() {
     assert_eq!(token::balance(&svm, &dest1), pulled1);
     assert_eq!(
         token::balance(&svm, &sell_token),
+        initial_amount - pulled0 - pulled1
+    );
+    assert_eq!(
+        token::delegated_amount(&svm, &sell_token),
         initial_amount - pulled0 - pulled1
     );
 }
