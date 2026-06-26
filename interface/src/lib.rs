@@ -83,9 +83,10 @@ pub enum SettlementError {
     /// A `BeginSettle` sell token account's SPL owner isn't the order's intent
     /// owner.
     SellTokenOwnerMismatch = 12,
-    /// `BeginSettle`'s order accounts don't form exactly one
-    /// `(order_pda, sell_token_account)` pair per order bump.
-    AccountCountNotMatchingBumps = 13,
+    /// `BeginSettle`'s order-account count doesn't match the structure its
+    /// instruction data expects: `n` orders each contribute an order PDA and a
+    /// sell token account, plus one destination account per transfer.
+    AccountCountNotMatchingOrderCount = 13,
     /// `BeginSettle` or `FinalizeSettle` was invoked via CPI rather than as a
     /// top-level transaction instruction.
     CalledViaCpi = 14,
@@ -95,6 +96,9 @@ pub enum SettlementError {
     /// A `BeginSettle` order's `valid_to` lies in the past: the order has
     /// expired and can no longer be settled.
     OrderExpired = 16,
+    /// The transfer counts in `BeginSettle` don't sum to the number of transfer
+    /// amounts, so destinations and amounts can't be paired up exactly.
+    TransferCountMismatch = 17,
 }
 
 impl From<SettlementError> for u32 {
