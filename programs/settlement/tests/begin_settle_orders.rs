@@ -561,10 +561,13 @@ fn pulls_to_multiple_destinations() {
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
     let sell_token = intent.sell_token_account;
-    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 1_000_000);
+    let initial_amount = 1_000_000;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
     let dest0 = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
     let dest1 = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
 
+    let pulled0 = 300_000;
+    let pulled1 = 100_000;
     settle(
         &mut svm,
         &program_id,
@@ -574,20 +577,23 @@ fn pulls_to_multiple_destinations() {
             pulls: &[
                 Pull {
                     destination: dest0,
-                    amount: 300_000,
+                    amount: pulled0,
                 },
                 Pull {
                     destination: dest1,
-                    amount: 100_000,
+                    amount: pulled1,
                 },
             ],
         }],
     )
     .expect("multiple pulls from one order should succeed");
 
-    assert_eq!(token::balance(&svm, &dest0), 300_000);
-    assert_eq!(token::balance(&svm, &dest1), 100_000);
-    assert_eq!(token::balance(&svm, &sell_token), 1_000_000 - 400_000);
+    assert_eq!(token::balance(&svm, &dest0), pulled0);
+    assert_eq!(token::balance(&svm, &dest1), pulled1);
+    assert_eq!(
+        token::balance(&svm, &sell_token),
+        initial_amount - pulled0 - pulled1
+    );
 }
 
 #[test]
