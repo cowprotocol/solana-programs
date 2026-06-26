@@ -317,7 +317,7 @@ fn pull_funds<'a>(
     let [seed] = seeds;
     let state_bump = [state_bump];
     let signer_seeds = [seed, &state_bump].map(Seed::from);
-    let signer = Signer::from(&signer_seeds);
+    let state_pda_signer = Signer::from(&signer_seeds);
 
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
@@ -332,7 +332,7 @@ fn pull_funds<'a>(
         }
         previous = Some(order_pda.address());
 
-        process_order(program_id, order, now, state_pda_account, &signer)?;
+        process_order(program_id, order, now, state_pda_account, &state_pda_signer)?;
     }
 
     Ok(())
@@ -347,7 +347,7 @@ fn process_order(
     order: SettledOrder<'_>,
     now: i64,
     state_account: &AccountView,
-    signer: &Signer,
+    state_pda_signer: &Signer,
 ) -> ProgramResult {
     let SettledOrder {
         order_pda,
@@ -413,7 +413,7 @@ fn process_order(
             state_account,
             u64::from_be_bytes(*amount),
         )
-        .invoke_signed(core::slice::from_ref(signer))?;
+        .invoke_signed(core::slice::from_ref(state_pda_signer))?;
     }
 
     Ok(())
