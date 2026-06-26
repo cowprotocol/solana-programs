@@ -168,7 +168,7 @@ fn settles_a_single_order() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
-    let transaction = settle(
+    settle(
         &mut svm,
         &program_id,
         &payer,
