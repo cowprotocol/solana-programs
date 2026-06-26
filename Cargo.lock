@@ -2224,6 +2224,7 @@ dependencies = [
 name = "settlement-client"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "settlement-interface",
 ]
 
@@ -2236,6 +2237,8 @@ dependencies = [
  "hex-literal",
  "num_enum",
  "proptest",
+ "solana-account-view",
+ "solana-address 2.6.1",
  "solana-hash 3.1.0",
  "solana-instruction",
  "solana-program-error",

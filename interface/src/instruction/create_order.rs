@@ -4,11 +4,14 @@
 //! initial body bytes; the PDA's storage layout lives in
 //! [`crate::data::order::EncodedOrderAccount`].
 
+use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
+use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
+use super::InstructionInputParsing;
 use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 
 /// Build a `CreateOrder` instruction.
@@ -62,9 +65,154 @@ pub fn create_order(
     }
 }
 
+/// Parsed inputs of a `CreateOrder` instruction.
+pub struct CreateOrderInput<'a> {
+    pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
+    pub owner: &'a AccountView,
+    pub created_by: &'a AccountView,
+    pub order_pda: &'a mut AccountView,
+}
+
+impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
+    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateOrder;
+
+    fn parse_body(
+        instruction_data: &'a [u8],
+        accounts: &'a mut [AccountView],
+    ) -> Result<Self, ProgramError> {
+        // Body (discriminator already stripped): exactly the 150 intent bytes.
+        if instruction_data.len() != EncodedOrderIntent::SIZE {
+            return Err(ProgramError::InvalidInstructionData);
+        }
+        // Accounts: [owner (S), created_by (W,S), order_pda (W), some other
+        // account]. We check that there are four accounts because the
+        // instruction needs to specify `SYSTEM_PROGRAM_ID` as one of the
+        // signers. It doesn't have to be the fourth though.
+        let [owner, created_by, order_pda, _, ..] = accounts else {
+            return Err(ProgramError::NotEnoughAccountKeys);
+        };
+
+        let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
+            instruction_data.try_into().expect("length checked above");
+
+        Ok(Self {
+            intent_bytes,
+            owner,
+            created_by,
+            order_pda,
+        })
+    }
+}
+
+/// Test scaffolding for `CreateOrder` parsing and handling, shared by this
+/// crate's tests and the settlement program's via the `test-fixtures` feature.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures {
+    use solana_address::Address;
+
+    use super::create_order;
+    use crate::data::intent::{
+        fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
+    };
+
+    /// Owner baked into [`valid_intent_bytes`]' sample intent.
+    pub const DEFAULT_OWNER: Address = Address::new_from_array([0x11; 32]);
+
+    /// Number of accounts `CreateOrder` expects: owner, created_by, order PDA,
+    /// and the system program.
+    pub const NUM_ACCOUNTS: usize = 4;
+
+    /// Canonical 150-byte intent payload for a valid sell order owned by
+    /// [`DEFAULT_OWNER`].
+    pub fn valid_intent_bytes() -> [u8; EncodedOrderIntent::SIZE] {
+        (&EncodedOrderIntent::from(&OrderIntent {
+            owner: DEFAULT_OWNER,
+            ..sample_intent(OrderKind::Sell, true)
+        }))
+            .into()
+    }
+
+    /// `CreateOrder` instruction data carrying `intent_bytes`, with placeholder
+    /// addresses for failure cases where the actual addresses don't matter.
+    pub fn default_order_data(intent_bytes: &[u8; EncodedOrderIntent::SIZE]) -> Vec<u8> {
+        let zero = Address::new_from_array([0; 32]);
+        create_order(&zero, &zero, &zero, &zero, intent_bytes).data
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::fixtures::{default_order_data, valid_intent_bytes, NUM_ACCOUNTS};
     use super::*;
+    use crate::instruction::fixtures::{
+        fake_account, fake_account_from_array, fake_sequential_accounts,
+    };
+    use solana_address::Address;
+
+    #[test]
+    fn create_order_input_parses_valid_input() {
+        let program_id = Address::new_from_array([21; 32]);
+        let owner = Address::new_from_array([22; 32]);
+        let created_by = Address::new_from_array([24; 32]);
+        let order_pda = Address::new_from_array([23; 32]);
+        let intent_bytes = valid_intent_bytes();
+
+        let data = create_order(&program_id, &owner, &created_by, &order_pda, &intent_bytes).data;
+        let mut accounts = [
+            fake_account(owner),
+            fake_account(created_by),
+            fake_account(order_pda),
+            fake_account_from_array([4; 32]),
+        ];
+
+        let CreateOrderInput {
+            intent_bytes: derived_intent_bytes,
+            owner: derived_owner,
+            created_by: derived_created_by,
+            order_pda: derived_order_pda,
+        } = CreateOrderInput::parse(&data, &mut accounts).expect("parse should succeed");
+
+        assert_eq!(derived_intent_bytes, intent_bytes);
+        assert_eq!(*derived_order_pda.address(), order_pda);
+        assert_eq!(*derived_owner.address(), owner);
+        assert_eq!(*derived_created_by.address(), created_by);
+    }
+
+    #[test]
+    fn create_order_input_rejects_short_data() {
+        let intent_bytes = valid_intent_bytes();
+        let mut data = default_order_data(&intent_bytes);
+        data.pop();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        assert_eq!(
+            CreateOrderInput::parse(&data, &mut accounts).err(),
+            Some(ProgramError::InvalidInstructionData),
+        );
+    }
+
+    #[test]
+    fn create_order_input_rejects_long_data() {
+        let intent_bytes = valid_intent_bytes();
+        let mut data = default_order_data(&intent_bytes);
+        data.push(0); // trailing byte
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        assert_eq!(
+            CreateOrderInput::parse(&data, &mut accounts).err(),
+            Some(ProgramError::InvalidInstructionData),
+        );
+    }
+
+    #[test]
+    fn create_order_input_rejects_missing_accounts() {
+        let intent_bytes = valid_intent_bytes();
+        let data = default_order_data(&intent_bytes);
+        let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
+        accounts.pop();
+        assert_eq!(
+            CreateOrderInput::parse(&data, &mut accounts).err(),
+            Some(ProgramError::NotEnoughAccountKeys),
+        );
+    }
 
     #[test]
     fn instruction_data_has_expected_layout() {
