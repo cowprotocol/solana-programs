@@ -27,7 +27,7 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 /// the bump itself and rejects any other address. `payer` funds every new token
 /// account's rent.
 ///
-/// Wire format: `[discriminator]`, 1 byte. The tokens are implied by the
+/// Wire format: `[discriminator=4]`, 1 byte. The tokens are implied by the
 /// `mint` accounts, so no further data is needed.
 /// Required accounts:
 /// `[payer (W,S), system_program (R), token_program (R), (buffer_pda (W), mint (R))...]`.

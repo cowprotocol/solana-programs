@@ -7,7 +7,7 @@ use litesvm_token::{
 };
 use settlement_client::instructions::CreateBuffers;
 use settlement_client::settlement_interface::{
-    instruction::create_buffer::{CreateBuffers as CreateBuffersIx, SPL_TOKEN_PROGRAM_ID},
+    instruction::create_buffer::{CreateBuffers as CreateBuffersRaw, SPL_TOKEN_PROGRAM_ID},
     pda::{
         buffer::{buffer_pda_seeds, find_buffer_pda},
         state::find_state_pda,
@@ -248,7 +248,7 @@ fn rejects_arbitrary_wrong_buffer_pda() {
     let mint = common::token::create_mint(&mut svm, &payer);
 
     let wrong_pda = Pubkey::new_unique();
-    let ix = CreateBuffersIx {
+    let ix = CreateBuffersRaw {
         program_id,
         payer: payer.pubkey(),
         buffers: &[(wrong_pda, mint)],
@@ -269,7 +269,7 @@ fn rejects_non_canonical_bump_pda() {
     let (_bump, non_canonical_pda) =
         common::pda::find_noncanonical_pda(&program_id, buffer_pda_seeds(mint.as_array()));
 
-    let ix = CreateBuffersIx {
+    let ix = CreateBuffersRaw {
         program_id,
         payer: payer.pubkey(),
         buffers: &[(non_canonical_pda, mint)],

@@ -1,6 +1,6 @@
 use settlement_client::instructions::Initialize;
 use settlement_client::settlement_interface::{
-    instruction::initialize::Initialize as InitializeIx, pda::state::find_state_pda,
+    instruction::initialize::Initialize as InitializeRaw, pda::state::find_state_pda,
 };
 use solana_sdk::{
     pubkey::Pubkey,
@@ -76,7 +76,7 @@ fn rejects_arbitrary_wrong_state_pda() {
     // The program only signs for the canonical PDA, so the lower-level interface
     // builder lets us point the instruction at a deliberately wrong address.
     let wrong_pda = Pubkey::new_unique();
-    let ix = InitializeIx {
+    let ix = InitializeRaw {
         program_id,
         payer: payer.pubkey(),
         state_pda: wrong_pda,

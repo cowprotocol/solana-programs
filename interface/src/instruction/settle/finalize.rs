@@ -17,7 +17,7 @@ use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID};
 /// `begin_ix_index` is the index of the paired `BeginSettle` instruction in the
 /// same transaction.
 ///
-/// Wire format: `[discriminator, begin_ix_index: u16 BE]`, 3 bytes.
+/// Wire format: `[discriminator=1, begin_ix_index: u16 BE]`, 3 bytes.
 /// Required accounts: `[instructions_sysvar (R)]`.
 pub struct FinalizeSettle {
     pub program_id: Pubkey,

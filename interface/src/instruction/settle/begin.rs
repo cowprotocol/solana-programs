@@ -35,9 +35,9 @@ pub struct Pull {
 /// Wire format (grouped, with `n` orders and `T` total transfers):
 /// `[discriminator=0][finalize_ix_index: u16 BE][n: u8][bump×n][transfer_count×n]
 /// [amount: u64 BE ×T]`.
-/// Accounts:
-/// `[instructions_sysvar (R), state_pda (R), token_program (R)]` followed, per
-/// order, by `[order_pda (R), sell_token_account (W), destination (W)...]`.
+/// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
+/// (R)]` followed, per order, by `[order_pda (R), sell_token_account (W),
+/// destination (W)...]`.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
 /// This builder establishes that ordering for the caller: it sorts the orders by

@@ -19,7 +19,7 @@ use settlement_client::settlement_interface::{
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::settle::{
-        BeginSettle as RawBeginSettle, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
+        BeginSettle as BeginSettleRaw, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
     },
     pda::{order::find_order_pda, state::find_state_pda},
     Instruction, SettlementError, SettlementInstruction,
@@ -170,7 +170,7 @@ fn settle_raw(
     sell_token_accounts: &[Pubkey],
     bumps: &[u8],
 ) -> Result<TransactionMetadata, TransactionError> {
-    let begin = RawBeginSettle {
+    let begin = BeginSettleRaw {
         program_id: *program_id,
         state_pda: find_state_pda(program_id).0,
         finalize_ix_index: 1,
@@ -734,7 +734,7 @@ fn rejects_wrong_state_pda() {
             &mut svm,
             &program_id,
             &payer,
-            RawBeginSettle {
+            BeginSettleRaw {
                 program_id,
                 state_pda: not_the_state_pda,
                 finalize_ix_index: 1,

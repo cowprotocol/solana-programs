@@ -27,7 +27,7 @@ use crate::SettlementInstruction;
 /// no parameters and succeeds only once: a second call fails because the
 /// account already exists.
 ///
-/// Wire format: just `[discriminator]`, 1 byte.
+/// Wire format: just `[discriminator=3]`, 1 byte.
 /// Required accounts: `[payer (W,S), state_pda (W), system_program (R)]`.
 /// The system program must be available for the `CreateAccount` CPI but doesn't
 /// need to sit at that specific position.
