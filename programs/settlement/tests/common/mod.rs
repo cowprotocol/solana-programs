@@ -128,10 +128,10 @@ pub fn signed_tx(
     svm: &LiteSVM,
     fee_payer: &Keypair,
     owner: &Keypair,
-    ix: Instruction,
+    ix: impl Into<Instruction>,
 ) -> Transaction {
     Transaction::new_signed_with_payer(
-        &[ix],
+        &[ix.into()],
         Some(&fee_payer.pubkey()),
         &[fee_payer, owner],
         svm.latest_blockhash(),

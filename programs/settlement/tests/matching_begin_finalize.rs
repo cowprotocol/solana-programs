@@ -215,7 +215,8 @@ fn rejects_counterpart_instruction_in_different_program() {
 /// The CPI caller treats `accounts[0]` as the target program and `accounts[1..]`
 /// as the accounts to forward, so `ix.program_id` becomes the first account and
 /// `ix.accounts` are appended after it.
-fn as_cpi_call(cpi_caller_id: Pubkey, ix: Instruction) -> Instruction {
+fn as_cpi_call(cpi_caller_id: Pubkey, ix: impl Into<Instruction>) -> Instruction {
+    let ix = ix.into();
     let mut accounts = vec![AccountMeta::new_readonly(ix.program_id, false)];
     accounts.extend(ix.accounts);
     Instruction {
@@ -238,8 +239,7 @@ fn rejects_cpi_call_to_begin_settle() {
             program_id: settlement_id,
             finalize_ix_index: 1,
             orders: &[],
-        }
-        .into(),
+        },
     );
 
     let tx = Transaction::new_signed_with_payer(
@@ -269,8 +269,7 @@ fn rejects_cpi_call_to_finalize_settle() {
         FinalizeSettle {
             program_id: settlement_id,
             begin_ix_index: 0,
-        }
-        .into(),
+        },
     );
 
     let tx = Transaction::new_signed_with_payer(

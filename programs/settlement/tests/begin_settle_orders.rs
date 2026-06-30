@@ -63,8 +63,7 @@ fn create_order_pda(svm: &mut LiteSVM, program_id: &Pubkey, owner: &Keypair, int
         owner: owner.pubkey(),
         created_by: owner.pubkey(),
         intent,
-    }
-    .into();
+    };
     let tx = signed_tx(svm, owner, owner, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
@@ -121,15 +120,14 @@ fn send_settlement(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
-    begin: Instruction,
+    begin: impl Into<Instruction>,
 ) -> Result<TransactionMetadata, TransactionError> {
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: 0,
-    }
-    .into();
+    };
     let tx = Transaction::new_signed_with_payer(
-        &[begin, finalize],
+        &[begin.into(), finalize.into()],
         Some(&payer.pubkey()),
         &[payer],
         svm.latest_blockhash(),
@@ -153,8 +151,7 @@ fn settle(
             program_id: *program_id,
             finalize_ix_index: 1,
             orders,
-        }
-        .into(),
+        },
     )
 }
 
@@ -178,8 +175,7 @@ fn settle_raw(
         order_pda_bumps: bumps,
         sell_token_accounts,
         pulls: &no_pulls(bumps.len()),
-    }
-    .into();
+    };
     send_settlement(svm, program_id, payer, begin)
 }
 
@@ -742,8 +738,7 @@ fn rejects_wrong_state_pda() {
                 order_pda_bumps: &[bump],
                 sell_token_accounts: &[intent.sell_token_account],
                 pulls: &no_pulls(1),
-            }
-            .into(),
+            },
         ),
         SettlementError::StateAccountMismatch,
     );

@@ -49,8 +49,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
         created_by: owner.pubkey(),
         order_pda: pda,
         intent_bytes: encoded,
-    }
-    .into();
+    };
     let tx = signed_tx(&svm, &owner, &owner, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
@@ -177,8 +176,7 @@ fn rejects_arbitrary_wrong_pda() {
         created_by: owner.pubkey(),
         order_pda: wrong_pda,
         intent_bytes: encoded,
-    }
-    .into();
+    };
     let tx = signed_tx(&svm, &owner, &owner, ix);
 
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
@@ -202,8 +200,7 @@ fn rejects_non_canonical_bump_pda() {
         created_by: fee_payer.pubkey(),
         order_pda: non_canonical_pda,
         intent_bytes: bytes,
-    }
-    .into();
+    };
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &non_canonical_pda);
 }
@@ -225,8 +222,7 @@ fn rejects_creating_same_pda_twice() {
         created_by: fee_payer.pubkey(),
         order_pda: pda,
         intent_bytes: encoded,
-    }
-    .into();
+    };
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     svm.send_transaction(tx)
         .expect("first create_order should succeed");
@@ -241,8 +237,7 @@ fn rejects_creating_same_pda_twice() {
         created_by: another_fee_payer.pubkey(),
         order_pda: pda,
         intent_bytes: encoded,
-    }
-    .into();
+    };
     let tx = signed_tx(&svm, &another_fee_payer, &fee_payer, ix);
     common::pda::assert_rejected_as_existing(&mut svm, tx);
 }
@@ -263,8 +258,7 @@ fn rejects_when_intent_owner_differs_from_signer() {
         created_by: fee_payer.pubkey(),
         order_pda: pda,
         intent_bytes: encoded,
-    }
-    .into();
+    };
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     let err = svm
         .send_transaction(tx)
