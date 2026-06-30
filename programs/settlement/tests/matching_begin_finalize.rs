@@ -128,7 +128,7 @@ fn invalid_sequences() {
         ),
         // Init pointing at an index past the end of the transaction
         (
-            &[Init(9), Fin(0)],
+            &[Init(2), Fin(0)],
             (0, SettlementError::MissingCounterpartInstruction),
         ),
         // Fin before Init, but right matching.
