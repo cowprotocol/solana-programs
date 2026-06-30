@@ -1,36 +1,12 @@
 //! `Initialize` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::{pda::state::state_pda_seeds, SettlementInstruction};
+use pinocchio::{AccountView, Address, ProgramResult};
+use settlement_interface::{
+    instruction::{initialize::InitializeInput, InstructionInputParsing},
+    pda::state::state_pda_seeds,
+};
 
-use crate::processor::{CanonicalPda, InstructionInputParsing};
-
-/// Parsed inputs of an `Initialize` instruction.
-struct InitializeInput<'a> {
-    payer: &'a AccountView,
-    state_pda: &'a AccountView,
-}
-
-impl<'a> InstructionInputParsing<'a> for InitializeInput<'a> {
-    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::Initialize;
-
-    fn parse_body(
-        instruction_data: &[u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
-        if !instruction_data.is_empty() {
-            return Err(ProgramError::InvalidInstructionData);
-        }
-        // Accounts: [payer (W,S), state_pda (W), system_program (R)]. The system
-        // program needs to be present for the `CreateAccount` CPI but doesn't
-        // need to be referenced directly and can be at any later position.
-        let [payer, state_pda, _system, ..] = accounts else {
-            return Err(ProgramError::NotEnoughAccountKeys);
-        };
-
-        Ok(Self { payer, state_pda })
-    }
-}
+use crate::processor::CanonicalPda;
 
 pub fn process_initialize(
     program_id: &Address,
@@ -61,62 +37,9 @@ pub fn process_initialize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{fake_account_from_array, fake_sequential_accounts};
-
-    /// Number of accounts `Initialize` expects: payer, state PDA, system program.
-    const NUM_ACCOUNTS: usize = 3;
-
-    // Only used in failing tests, where actual data doesn't matter
-    fn initialize_data() -> Vec<u8> {
-        let zero = Address::new_from_array([0; 32]);
-        settlement_interface::instruction::initialize::initialize(&zero, &zero, &zero).data
-    }
-
-    #[test]
-    fn initialize_input_parses_valid_input() {
-        let program_id = Address::new_unique();
-        let payer = fake_account_from_array([1; 32]);
-        let state_pda = fake_account_from_array([2; 32]);
-        let data = settlement_interface::instruction::initialize::initialize(
-            &program_id,
-            payer.address(),
-            state_pda.address(),
-        )
-        .data;
-
-        let system_program = fake_account_from_array([3; 32]);
-        let mut accounts = [payer, state_pda, system_program];
-
-        let InitializeInput {
-            payer: parsed_payer,
-            state_pda: parsed_state_pda,
-        } = InitializeInput::parse(&data, &mut accounts).expect("parse should succeed");
-
-        assert_eq!(parsed_payer.address(), payer.address());
-        assert_eq!(parsed_state_pda.address(), state_pda.address());
-    }
-
-    #[test]
-    fn initialize_input_rejects_long_data() {
-        let mut data = initialize_data();
-        data.push(0); // trailing byte
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
-        assert_eq!(
-            InitializeInput::parse(&data, &mut accounts).err(),
-            Some(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
-    fn initialize_input_rejects_missing_accounts() {
-        let data = initialize_data();
-        let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
-        accounts.pop();
-        assert_eq!(
-            InitializeInput::parse(&data, &mut accounts).err(),
-            Some(ProgramError::NotEnoughAccountKeys),
-        );
-    }
+    use pinocchio::error::ProgramError;
+    use settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use settlement_interface::instruction::initialize::fixtures::{initialize_data, NUM_ACCOUNTS};
 
     #[test]
     fn process_initialize_propagates_parse_error() {

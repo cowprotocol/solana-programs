@@ -6,9 +6,6 @@ mod initialize;
 mod processor;
 mod settle;
 
-#[cfg(test)]
-mod test_utils;
-
 use create_buffer::process_create_buffer;
 use create_order::process_create_order;
 use initialize::process_initialize;
