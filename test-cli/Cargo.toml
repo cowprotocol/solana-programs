@@ -1,5 +1,5 @@
 [package]
-name = "cow-cli"
+name = "cow-test-cli"
 version.workspace = true
 edition.workspace = true
 
