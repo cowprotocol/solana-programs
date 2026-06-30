@@ -475,7 +475,7 @@ fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &
 /// transaction. If the number increases, great, bump it up! If it decreases and
 /// you're ok with the performance hit, then you can bump it down.
 #[test]
-fn bench_max_buffers() {
+fn bench_assert_known_max_buffer_count() {
     let (mut svm, program_id, payer) = common::setup();
     let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
     assert_eq!(
