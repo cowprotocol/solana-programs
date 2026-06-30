@@ -340,8 +340,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
         program_id,
         finalize_ix_index: 1,
         orders: &[],
-    }
-    .instruction();
+    };
     // Uses the settlement program, but no data: `recover_discriminator` fails
     // on the empty payload before any kind check can run.
     let malformed = Instruction {
@@ -351,7 +350,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
     };
 
     let tx = Transaction::new_signed_with_payer(
-        &[begin, malformed],
+        &[begin.into(), malformed],
         Some(&payer.pubkey()),
         &[&payer],
         svm.latest_blockhash(),
@@ -381,8 +380,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
         program_id,
         finalize_ix_index: 1,
         orders: &[],
-    }
-    .instruction();
+    };
     // Same program as `begin`, with a valid discriminator but no trailing
     // counterpart-index bytes: `recover_discriminator` succeeds, then
     // `recover_counterpart` fails on the truncated remainder.
@@ -393,7 +391,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
     };
 
     let tx = Transaction::new_signed_with_payer(
-        &[begin, malformed],
+        &[begin.into(), malformed],
         Some(&payer.pubkey()),
         &[&payer],
         svm.latest_blockhash(),
