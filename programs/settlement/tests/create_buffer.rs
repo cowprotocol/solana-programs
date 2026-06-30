@@ -448,8 +448,7 @@ fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &
             program_id: *program_id,
             payer: payer.pubkey(),
             buffers: &pairs,
-        }
-        .instruction();
+        };
         let tx = common::lookup_table::lookup_table_tx(svm, payer, ix);
         match svm.send_transaction(tx) {
             // Over the lock limit: rejected at sanitization, before executing.
@@ -511,8 +510,7 @@ fn max_buffers_in_one_instruction() {
         program_id,
         payer: payer.pubkey(),
         mints: &mints,
-    }
-    .instruction();
+    };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
     let meta = svm
         .send_transaction(tx)

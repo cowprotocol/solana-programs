@@ -60,8 +60,9 @@ pub fn seed_lookup_table(svm: &mut LiteSVM, addresses: Vec<Pubkey>) -> AddressLo
 pub fn lookup_table_tx(
     svm: &mut LiteSVM,
     payer: &Keypair,
-    ix: Instruction,
+    ix: impl Into<Instruction>,
 ) -> VersionedTransaction {
+    let ix = ix.into();
     let table_addresses = ix.accounts.iter().map(|meta| meta.pubkey).collect();
     let lookup_table = seed_lookup_table(svm, table_addresses);
     let message = v0::Message::try_compile(
