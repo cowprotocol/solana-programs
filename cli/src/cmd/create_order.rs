@@ -203,7 +203,7 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
         .send_and_confirm_transaction(&tx)
         .context("transaction failed")?;
 
-    let uid_hex: String = uid.iter().map(|b| format!("{b:02x}")).collect();
+    let uid_hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
     println!("signature: {sig}");
     println!("order PDA: {order_pda}");
     println!("order UID: {uid_hex}");
