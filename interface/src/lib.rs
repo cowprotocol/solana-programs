@@ -54,16 +54,26 @@ pub fn recover_discriminator(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum SettlementError {
-    /// `BeginSettle`/`FinalizeSettle` did not form a valid pair:
-    /// the counterpart index on one of the two instructions points at the wrong
-    /// instruction kind, the pointed data doesn't match, the ordering is
-    /// reversed, or another settlement pair appears nested inside this one.
+    /// The `FinalizeSettle` included as input to `BeginSettle` isn't before
+    /// the actual `BeginSettle` index.
     FinalizeBeforeInitialize = 0,
+    /// Another `BeginSettle`/`FinalizeSettle` of this program appears strictly
+    /// between this pair's bounds, nesting or overlapping two settlements.
     BeginFinalizePairOverlap = 1,
+    /// The counterpart index points past the end of the transaction's
+    /// instruction list, so no instruction sits there.
     MissingCounterpartInstruction = 2,
+    /// The instruction at the counterpart index belongs to a different program.
     CounterpartIsExternal = 3,
+    /// The counterpart instruction's discriminator byte couldn't be recovered
+    /// from its data.
     InvalidCounterpartDiscriminator = 4,
+    /// The counterpart instruction's own counterpart index couldn't be
+    /// recovered from its data.
     InvalidCounterpartCounterpart = 5,
+    /// The counterpart's discriminator isn't the expected
+    /// `BeginSettle`/`FinalizeSettle` kind, or its counterpart index doesn't
+    /// point back at this instruction.
     MismatchedCounterpartDiscriminator = 6,
     /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
     /// owner.

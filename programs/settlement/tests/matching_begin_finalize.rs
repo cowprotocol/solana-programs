@@ -1,6 +1,6 @@
 use litesvm::{types::FailedTransactionMetadata, LiteSVM};
 use settlement_client::instructions::{BeginSettle, FinalizeSettle};
-use settlement_client::settlement_interface::SettlementError;
+use settlement_client::settlement_interface::{SettlementError, SettlementInstruction};
 use solana_sdk::{
     instruction::{AccountMeta, Instruction, InstructionError},
     pubkey::Pubkey,
@@ -102,31 +102,76 @@ fn valid_sequences() {
 fn invalid_sequences() {
     use AbstractInstruction::*;
 
-    let cases: &[&[AbstractInstruction]] = &[
+    // Each case lists its instructions, the index of the instruction expected
+    // to fail (the first one whose processing errors aborts the transaction),
+    // and the exact error that instruction should raise.
+    let cases: &[(&[AbstractInstruction], (u8, SettlementError))] = &[
         // Only init, pointing to itself
-        &[Other, Other, Init(2), Other, Other],
+        (
+            &[Other, Other, Init(2), Other, Other],
+            (2, SettlementError::MismatchedCounterpartDiscriminator),
+        ),
         // Only init, pointing to other.
-        &[Other, Other, Init(0), Other, Other],
+        (
+            &[Other, Other, Init(0), Other, Other],
+            (2, SettlementError::CounterpartIsExternal),
+        ),
         // Only fin, pointing to itself
-        &[Other, Other, Fin(2), Other, Other],
+        (
+            &[Other, Other, Fin(2), Other, Other],
+            (2, SettlementError::MismatchedCounterpartDiscriminator),
+        ),
         // Only fin, pointing to other
-        &[Other, Other, Fin(0), Other, Other],
-        // Fin before Init, but right matching
-        &[Fin(1), Init(0)],
+        (
+            &[Other, Other, Fin(0), Other, Other],
+            (2, SettlementError::CounterpartIsExternal),
+        ),
+        // Init pointing at an index past the end of the transaction
+        (
+            &[Init(2), Fin(0)],
+            (0, SettlementError::MissingCounterpartInstruction),
+        ),
+        // Fin before Init, but right matching.
+        (
+            &[Fin(1), Init(0)],
+            (1, SettlementError::FinalizeBeforeInitialize),
+        ),
         // A valid init/fin pair, plus an extra fin that points to init
-        &[Init(3), Other, Other, Fin(0), Other, Fin(0)],
+        (
+            &[Init(3), Other, Other, Fin(0), Other, Fin(0)],
+            (5, SettlementError::MismatchedCounterpartDiscriminator),
+        ),
         // A valid init/fin pair, plus an extra init that points to fin
-        &[Init(5), Other, Other, Init(5), Other, Fin(0)],
+        (
+            &[Init(5), Other, Other, Init(5), Other, Fin(0)],
+            (0, SettlementError::BeginFinalizePairOverlap),
+        ),
+        // A valid init/fin pair, plus an extra fin that points to init
+        (
+            &[Init(5), Other, Other, Fin(0), Other, Fin(0)],
+            (0, SettlementError::BeginFinalizePairOverlap),
+        ),
         // Two valid init/fin pairs, but one inside the other
-        &[Init(4), Init(3), Other, Fin(1), Fin(0)],
+        (
+            &[Init(4), Init(3), Other, Fin(1), Fin(0)],
+            (0, SettlementError::BeginFinalizePairOverlap),
+        ),
         // Two valid init/fin pairs, distinct but overlapping
-        &[Init(3), Init(4), Other, Fin(0), Fin(1)],
+        (
+            &[Init(3), Init(4), Other, Fin(0), Fin(1)],
+            (0, SettlementError::BeginFinalizePairOverlap),
+        ),
     ];
 
     let (mut svm, program_id, payer) = common::setup();
-    for sequence in cases {
-        let result = run_sequence(&mut svm, &program_id, &payer, sequence);
-        assert!(result.is_err(), "expected {sequence:?} to fail, got Ok");
+    for (sequence, (failing_index, expected)) in cases {
+        let err = run_sequence(&mut svm, &program_id, &payer, sequence)
+            .expect_err(&format!("expected {sequence:?} to fail, got Ok"));
+        assert_eq!(
+            err.err,
+            TransactionError::InstructionError(*failing_index, to_instruction_error(*expected)),
+            "expected {expected:?} at instruction {failing_index} for {sequence:?}"
+        );
     }
 }
 
@@ -285,5 +330,86 @@ fn rejects_cpi_call_to_finalize_settle() {
         err.err,
         TransactionError::InstructionError(0, to_instruction_error(SettlementError::CalledViaCpi)),
         "expected CalledViaCpi when finalize_settle is called via CPI"
+    );
+}
+
+/// Build a real `BeginSettle` whose counterpart slot holds an instruction of
+/// this program but with empty data, so its discriminator can't be recovered.
+/// The abstract harness can't express this: its `Init`/`Fin` always carry a
+/// valid discriminator, and `Other` belongs to a different program.
+#[test]
+fn rejects_counterpart_with_unrecoverable_discriminator() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    let begin = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[],
+    };
+    // Uses the settlement program, but no data: `recover_discriminator` fails
+    // on the empty payload before any kind check can run.
+    let malformed = Instruction {
+        program_id,
+        accounts: vec![],
+        data: vec![],
+    };
+
+    let tx = Transaction::new_signed_with_payer(
+        &[begin.into(), malformed],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("expected counterpart with no discriminator to fail");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(
+            0,
+            to_instruction_error(SettlementError::InvalidCounterpartDiscriminator),
+        ),
+        "expected InvalidCounterpartDiscriminator at instruction 0"
+    );
+}
+
+/// Build a real `BeginSettle` whose counterpart slot holds an instruction of
+/// this program carrying a valid discriminator but no counterpart index, so
+/// the back-pointer can't be recovered. Like the test above, this shape is
+/// outside what the abstract harness can produce.
+#[test]
+fn rejects_counterpart_with_unrecoverable_counterpart_index() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    let begin = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[],
+    };
+    // Same program as `begin`, with a valid discriminator but no trailing
+    // counterpart-index bytes: `recover_discriminator` succeeds, then
+    // `recover_counterpart` fails on the truncated remainder.
+    let malformed = Instruction {
+        program_id,
+        accounts: vec![],
+        data: vec![SettlementInstruction::FinalizeSettle.discriminator()],
+    };
+
+    let tx = Transaction::new_signed_with_payer(
+        &[begin.into(), malformed],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("expected counterpart with no counterpart index to fail");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(
+            0,
+            to_instruction_error(SettlementError::InvalidCounterpartCounterpart),
+        ),
+        "expected InvalidCounterpartCounterpart at instruction 0"
     );
 }
