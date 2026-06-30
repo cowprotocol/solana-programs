@@ -146,6 +146,11 @@ fn invalid_sequences() {
             &[Init(5), Other, Other, Init(5), Other, Fin(0)],
             (0, SettlementError::BeginFinalizePairOverlap),
         ),
+        // A valid init/fin pair, plus an extra fin that points to init
+        (
+            &[Init(5), Other, Other, Fin(0), Other, Fin(0)],
+            (0, SettlementError::BeginFinalizePairOverlap),
+        ),
         // Two valid init/fin pairs, but one inside the other
         (
             &[Init(4), Init(3), Other, Fin(1), Fin(0)],
