@@ -28,7 +28,7 @@ use solana_sdk::{
 ///
 /// Returns the in-memory handle `Message::try_compile` uses to assign indices;
 /// its `addresses` mirror the on-chain account so the indices line up.
-pub fn seed_lookup_table(svm: &mut LiteSVM, addresses: Vec<Pubkey>) -> AddressLookupTableAccount {
+fn seed_lookup_table(svm: &mut LiteSVM, addresses: Vec<Pubkey>) -> AddressLookupTableAccount {
     let meta = LookupTableMeta {
         // All new accounts should be seen as already extended.
         last_extended_slot_start_index: u8::try_from(addresses.len())
