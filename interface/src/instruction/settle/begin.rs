@@ -7,7 +7,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::instruction::InstructionInputParsing;
+use crate::instruction::{InstructionBuilding, InstructionInputParsing};
 use crate::{SettlementError, SettlementInstruction};
 
 use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
@@ -53,8 +53,8 @@ pub struct BeginSettle<'a> {
     pub pulls: &'a [&'a [Pull]],
 }
 
-impl BeginSettle<'_> {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for BeginSettle<'_> {
+    fn instruction(self) -> Instruction {
         let BeginSettle {
             program_id,
             state_pda,
@@ -279,6 +279,7 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::InstructionBuilding;
     use hex_literal::hex;
     use solana_address::Address;
 

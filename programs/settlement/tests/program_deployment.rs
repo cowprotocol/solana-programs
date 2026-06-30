@@ -1,4 +1,4 @@
-use settlement_client::instructions::{BeginSettle, FinalizeSettle};
+use settlement_client::instructions::{BeginSettle, FinalizeSettle, InstructionBuilding};
 use solana_sdk::{
     instruction::{Instruction, InstructionError},
     signature::Signer,

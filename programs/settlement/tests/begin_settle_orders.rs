@@ -11,7 +11,7 @@ use crate::common::{
 };
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use settlement_client::instructions::{
-    BeginSettle, CreateOrder, FinalizeSettle, Pull, SettledOrder,
+    BeginSettle, CreateOrder, FinalizeSettle, InstructionBuilding, Pull, SettledOrder,
 };
 use settlement_client::settlement_interface::{
     data::{

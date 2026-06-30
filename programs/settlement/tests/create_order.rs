@@ -4,6 +4,7 @@ use settlement_client::settlement_interface::{
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::create_order::CreateOrder,
+    instruction::InstructionBuilding,
     pda::order::{find_order_pda, order_pda_seeds},
     SettlementError,
 };

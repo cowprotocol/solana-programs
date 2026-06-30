@@ -15,6 +15,11 @@ use settlement_interface::{
 // We want the client to provide all instruction builders.
 pub use settlement_interface::instruction::settle::{FinalizeSettle, Pull};
 
+// Reexport the trait that all builders implement to expose `.instruction()`, so
+// callers get it in scope alongside the builders. It's also used by the wrappers
+// below, which delegate to the interface builders.
+pub use settlement_interface::instruction::InstructionBuilding;
+
 /// An order to settle together with the funds to pull from it: `intent`
 /// identifies the order and `pulls` lists the [`Pull`]s to make from its sell
 /// token account.
@@ -30,8 +35,8 @@ pub struct BeginSettle<'a> {
     pub orders: &'a [SettledOrder<'a>],
 }
 
-impl BeginSettle<'_> {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for BeginSettle<'_> {
+    fn instruction(self) -> Instruction {
         let mut order_pdas = Vec::with_capacity(self.orders.len());
         let mut sell_token_accounts = Vec::with_capacity(self.orders.len());
         let mut bumps = Vec::with_capacity(self.orders.len());
@@ -64,8 +69,8 @@ pub struct CreateOrder<'a> {
     pub intent: &'a OrderIntent,
 }
 
-impl CreateOrder<'_> {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for CreateOrder<'_> {
+    fn instruction(self) -> Instruction {
         let encoded = EncodedOrderIntent::from(self.intent);
         let (order_pda, _bump) = find_order_pda(&self.program_id, &encoded.hash());
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
@@ -86,8 +91,8 @@ pub struct CreateBuffers<'a> {
     pub mints: &'a [Pubkey],
 }
 
-impl CreateBuffers<'_> {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for CreateBuffers<'_> {
+    fn instruction(self) -> Instruction {
         let buffers: Vec<(Pubkey, Pubkey)> = self
             .mints
             .iter()
@@ -107,8 +112,8 @@ pub struct Initialize {
     pub payer: Pubkey,
 }
 
-impl Initialize {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for Initialize {
+    fn instruction(self) -> Instruction {
         let (state_pda, _bump) = find_state_pda(&self.program_id);
         settlement_interface::instruction::initialize::Initialize {
             program_id: self.program_id,

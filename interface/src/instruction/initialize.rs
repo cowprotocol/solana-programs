@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 
 pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
-use super::InstructionInputParsing;
+use super::{InstructionBuilding, InstructionInputParsing};
 use crate::SettlementInstruction;
 
 /// Builder for an `Initialize` instruction.
@@ -37,8 +37,8 @@ pub struct Initialize {
     pub state_pda: Pubkey,
 }
 
-impl Initialize {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for Initialize {
+    fn instruction(self) -> Instruction {
         Instruction {
             program_id: self.program_id,
             accounts: vec![
@@ -85,6 +85,7 @@ pub mod fixtures {
     use solana_address::Address;
 
     use super::Initialize;
+    use crate::instruction::InstructionBuilding;
 
     /// Number of accounts `Initialize` expects: payer, state PDA, system program.
     pub const NUM_ACCOUNTS: usize = 3;
@@ -108,6 +109,7 @@ mod tests {
     use super::fixtures::{initialize_data, NUM_ACCOUNTS};
     use super::*;
     use crate::instruction::fixtures::{fake_account_from_array, fake_sequential_accounts};
+    use crate::instruction::InstructionBuilding;
     use solana_address::Address;
 
     #[test]

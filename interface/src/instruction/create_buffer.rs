@@ -12,7 +12,7 @@ use solana_pubkey::Pubkey;
 
 pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
-use super::InstructionInputParsing;
+use super::{InstructionBuilding, InstructionInputParsing};
 use crate::SettlementInstruction;
 
 /// The SPL Token program. Buffers are created as token accounts owned by this
@@ -40,8 +40,8 @@ pub struct CreateBuffers<'a> {
     pub buffers: &'a [(Pubkey, Pubkey)],
 }
 
-impl CreateBuffers<'_> {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for CreateBuffers<'_> {
+    fn instruction(self) -> Instruction {
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
@@ -110,6 +110,7 @@ pub mod fixtures {
     use solana_address::Address;
 
     use super::CreateBuffers;
+    use crate::instruction::InstructionBuilding;
 
     /// Number of accounts that don't depend on the number of buffers created:
     /// payer, system program, and token program.
@@ -136,6 +137,7 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
+    use crate::instruction::InstructionBuilding;
     use solana_address::Address;
 
     #[test]

@@ -5,6 +5,7 @@
 //! [`crate::SettlementInstruction`]) and laying out the required accounts.
 
 use solana_account_view::AccountView;
+use solana_instruction::Instruction;
 use solana_program_error::ProgramError;
 
 use crate::{recover_discriminator, SettlementInstruction};
@@ -13,6 +14,14 @@ pub mod create_buffer;
 pub mod create_order;
 pub mod initialize;
 pub mod settle;
+
+/// Off-chain instruction builders that produce a [`solana_instruction::Instruction`].
+///
+/// Every builder in this crate (and the client wrappers) implements this, so
+/// callers have one shared `.instruction()` entry point across all of them.
+pub trait InstructionBuilding {
+    fn instruction(self) -> Instruction;
+}
 
 /// Shared components for parsing generic instruction input.
 ///

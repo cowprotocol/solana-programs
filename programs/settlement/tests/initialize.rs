@@ -1,4 +1,4 @@
-use settlement_client::instructions::Initialize;
+use settlement_client::instructions::{Initialize, InstructionBuilding};
 use settlement_client::settlement_interface::{
     instruction::initialize::Initialize as InitializeRaw, pda::state::find_state_pda,
 };

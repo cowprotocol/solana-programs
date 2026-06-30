@@ -11,7 +11,7 @@ use solana_pubkey::Pubkey;
 
 pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
-use super::InstructionInputParsing;
+use super::{InstructionBuilding, InstructionInputParsing};
 use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 
 /// Builder for a `CreateOrder` instruction.
@@ -50,8 +50,8 @@ pub struct CreateOrder {
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
 }
 
-impl CreateOrder {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for CreateOrder {
+    fn instruction(self) -> Instruction {
         let mut data = Vec::with_capacity(1 + EncodedOrderIntent::SIZE);
         data.push(SettlementInstruction::CreateOrder.discriminator());
         data.extend_from_slice(&self.intent_bytes);
@@ -118,6 +118,7 @@ pub mod fixtures {
     use crate::data::intent::{
         fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
     };
+    use crate::instruction::InstructionBuilding;
 
     /// Owner baked into [`valid_intent_bytes`]' sample intent.
     pub const DEFAULT_OWNER: Address = Address::new_from_array([0x11; 32]);
@@ -159,6 +160,7 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
+    use crate::instruction::InstructionBuilding;
     use solana_address::Address;
 
     #[test]

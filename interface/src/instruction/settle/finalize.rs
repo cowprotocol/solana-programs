@@ -7,7 +7,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::instruction::InstructionInputParsing;
+use crate::instruction::{InstructionBuilding, InstructionInputParsing};
 use crate::SettlementInstruction;
 
 use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID};
@@ -24,8 +24,8 @@ pub struct FinalizeSettle {
     pub begin_ix_index: u16,
 }
 
-impl FinalizeSettle {
-    pub fn instruction(self) -> Instruction {
+impl InstructionBuilding for FinalizeSettle {
+    fn instruction(self) -> Instruction {
         Instruction {
             program_id: self.program_id,
             accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
@@ -71,6 +71,7 @@ mod tests {
     use super::*;
     use crate::instruction::fixtures::fake_account;
     use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::InstructionBuilding;
     use hex_literal::hex;
     use solana_address::Address;
 
