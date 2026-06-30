@@ -2215,6 +2215,7 @@ dependencies = [
  "proptest",
  "settlement-client",
  "settlement-interface",
+ "solana-address-lookup-table-interface",
  "solana-instruction",
  "solana-sdk",
  "solana-system-interface 3.2.0",
