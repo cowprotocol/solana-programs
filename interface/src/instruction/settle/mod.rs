@@ -1,8 +1,5 @@
 //! `BeginSettle`/`FinalizeSettle` instruction tools, the instructions-sysvar
 //! account ID they all reference, and the off-chain instruction builders.
-//!
-//! The per-instruction builders and parsing live in the [`begin`] and
-//! [`finalize`] submodules; this module holds the shared logic.
 
 use solana_program_error::ProgramError;
 

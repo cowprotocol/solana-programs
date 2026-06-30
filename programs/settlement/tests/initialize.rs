@@ -19,8 +19,7 @@ fn happy_path_initializes_empty_state_pda() {
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
-    }
-    .instruction();
+    };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
 
@@ -54,8 +53,7 @@ fn funding_payer_can_differ_from_fee_payer() {
     let ix = Initialize {
         program_id,
         payer: funder.pubkey(),
-    }
-    .instruction();
+    };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
 
@@ -80,8 +78,7 @@ fn rejects_arbitrary_wrong_state_pda() {
         program_id,
         payer: payer.pubkey(),
         state_pda: wrong_pda,
-    }
-    .instruction();
+    };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
@@ -94,8 +91,7 @@ fn rejects_initializing_twice() {
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
-    }
-    .instruction();
+    };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx)
         .expect("first initialize should succeed");
@@ -105,8 +101,7 @@ fn rejects_initializing_twice() {
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
-    }
-    .instruction();
+    };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     common::pda::assert_rejected_as_existing(&mut svm, tx);
 }

@@ -50,18 +50,18 @@ pub struct CreateOrder {
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
 }
 
-impl CreateOrder {
-    pub fn instruction(self) -> Instruction {
+impl From<CreateOrder> for Instruction {
+    fn from(builder: CreateOrder) -> Self {
         let mut data = Vec::with_capacity(1 + EncodedOrderIntent::SIZE);
         data.push(SettlementInstruction::CreateOrder.discriminator());
-        data.extend_from_slice(&self.intent_bytes);
+        data.extend_from_slice(&builder.intent_bytes);
 
         Instruction {
-            program_id: self.program_id,
+            program_id: builder.program_id,
             accounts: vec![
-                AccountMeta::new_readonly(self.owner, true),
-                AccountMeta::new(self.created_by, true),
-                AccountMeta::new(self.order_pda, false),
+                AccountMeta::new_readonly(builder.owner, true),
+                AccountMeta::new(builder.created_by, true),
+                AccountMeta::new(builder.order_pda, false),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             ],
             data,
@@ -114,7 +114,7 @@ impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
 pub mod fixtures {
     use solana_address::Address;
 
-    use super::CreateOrder;
+    use super::{CreateOrder, Instruction};
     use crate::data::intent::{
         fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
     };
@@ -140,14 +140,13 @@ pub mod fixtures {
     /// addresses for failure cases where the actual addresses don't matter.
     pub fn default_order_data(intent_bytes: &[u8; EncodedOrderIntent::SIZE]) -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
-        CreateOrder {
+        Instruction::from(CreateOrder {
             program_id: zero,
             owner: zero,
             created_by: zero,
             order_pda: zero,
             intent_bytes: *intent_bytes,
-        }
-        .instruction()
+        })
         .data
     }
 }
@@ -169,14 +168,13 @@ mod tests {
         let order_pda = Address::new_from_array([23; 32]);
         let intent_bytes = valid_intent_bytes();
 
-        let data = CreateOrder {
+        let data = Instruction::from(CreateOrder {
             program_id,
             owner,
             created_by,
             order_pda,
             intent_bytes,
-        }
-        .instruction()
+        })
         .data;
         let mut accounts = [
             fake_account(owner),
@@ -242,21 +240,18 @@ mod tests {
         let order_pda = Pubkey::new_from_array([3; 32]);
         let intent_bytes = [0x42u8; EncodedOrderIntent::SIZE];
 
-        let ix = CreateOrder {
+        let Instruction { data, .. } = CreateOrder {
             program_id,
             owner,
             created_by,
             order_pda,
             intent_bytes,
         }
-        .instruction();
+        .into();
 
-        assert_eq!(ix.data.len(), 1 + EncodedOrderIntent::SIZE);
-        assert_eq!(
-            ix.data[0],
-            SettlementInstruction::CreateOrder.discriminator()
-        );
-        assert_eq!(&ix.data[1..], &intent_bytes);
+        assert_eq!(data.len(), 1 + EncodedOrderIntent::SIZE);
+        assert_eq!(data[0], SettlementInstruction::CreateOrder.discriminator());
+        assert_eq!(&data[1..], &intent_bytes);
     }
 
     #[test]
@@ -267,33 +262,33 @@ mod tests {
         let order_pda = Pubkey::new_from_array([3; 32]);
         let intent_bytes = [0u8; EncodedOrderIntent::SIZE];
 
-        let ix = CreateOrder {
+        let Instruction { accounts, .. } = CreateOrder {
             program_id,
             owner,
             created_by,
             order_pda,
             intent_bytes,
         }
-        .instruction();
+        .into();
 
-        assert_eq!(ix.accounts.len(), 4);
+        assert_eq!(accounts.len(), 4);
         // owner: read-only, signer (authenticates the order; doesn't pay rent)
-        assert_eq!(ix.accounts[0].pubkey, owner);
-        assert!(!ix.accounts[0].is_writable);
-        assert!(ix.accounts[0].is_signer);
+        assert_eq!(accounts[0].pubkey, owner);
+        assert!(!accounts[0].is_writable);
+        assert!(accounts[0].is_signer);
         // created_by: writable, signer (funds the new PDA's rent)
-        assert_eq!(ix.accounts[1].pubkey, created_by);
-        assert!(ix.accounts[1].is_writable);
-        assert!(ix.accounts[1].is_signer);
+        assert_eq!(accounts[1].pubkey, created_by);
+        assert!(accounts[1].is_writable);
+        assert!(accounts[1].is_signer);
         // order_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(ix.accounts[2].pubkey, order_pda);
-        assert!(ix.accounts[2].is_writable);
-        assert!(!ix.accounts[2].is_signer);
+        assert_eq!(accounts[2].pubkey, order_pda);
+        assert!(accounts[2].is_writable);
+        assert!(!accounts[2].is_signer);
         // system program: read-only, not signer; the on-chain handler
         // doesn't dereference it but the runtime requires it in the
         // transaction's `account_keys` to dispatch the CreateAccount CPI.
-        assert_eq!(ix.accounts[3].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!ix.accounts[3].is_writable);
-        assert!(!ix.accounts[3].is_signer);
+        assert_eq!(accounts[3].pubkey, SYSTEM_PROGRAM_ID);
+        assert!(!accounts[3].is_writable);
+        assert!(!accounts[3].is_signer);
     }
 }

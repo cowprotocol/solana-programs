@@ -53,8 +53,8 @@ pub struct BeginSettle<'a> {
     pub pulls: &'a [&'a [Pull]],
 }
 
-impl BeginSettle<'_> {
-    pub fn instruction(self) -> Instruction {
+impl From<BeginSettle<'_>> for Instruction {
+    fn from(builder: BeginSettle<'_>) -> Self {
         let BeginSettle {
             program_id,
             state_pda,
@@ -63,7 +63,7 @@ impl BeginSettle<'_> {
             order_pda_bumps,
             sell_token_accounts,
             pulls,
-        } = self;
+        } = builder;
 
         // Sort the parallel lists together by order PDA address via a shared
         // permutation, so each order keeps its own sell token account, bump, and
@@ -303,7 +303,7 @@ mod tests {
             sell_token_accounts: &[],
             pulls: &[],
         }
-        .instruction();
+        .into();
         assert_eq!(ix_program_id, program_id);
         assert_eq!(
             data,
@@ -338,7 +338,7 @@ mod tests {
         let low_order_pda = Pubkey::new_from_array([0xaa; 32]);
         let low_sell_token_account = Pubkey::new_from_array([0xb0; 32]);
         let low_bump = 0xbb;
-        let ix = BeginSettle {
+        let Instruction { data, accounts, .. } = BeginSettle {
             program_id,
             state_pda,
             finalize_ix_index: 0x1337,
@@ -347,11 +347,11 @@ mod tests {
             sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
             pulls: &[&[], &[]],
         }
-        .instruction();
+        .into();
 
         // Bumps follow the sorted order: the low PDA's bump comes first.
         assert_eq!(
-            ix.data,
+            data,
             [
                 &[SettlementInstruction::BeginSettle.discriminator()][..],
                 &hex!("1337")[..],          // counterpart index
@@ -371,12 +371,11 @@ mod tests {
             high_order_pda,
             high_sell_token_account,
         ];
-        let actual: Vec<Pubkey> = ix.accounts.iter().map(|account| account.pubkey).collect();
+        let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
         // The fixed accounts and the order PDAs are read-only; only the sell
         // token accounts are writable, following the sorted order.
-        let writable: Vec<Pubkey> = ix
-            .accounts
+        let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
             .map(|account| account.pubkey)
@@ -385,7 +384,7 @@ mod tests {
             writable,
             vec![low_sell_token_account, high_sell_token_account],
         );
-        assert!(ix.accounts.iter().all(|account| !account.is_signer));
+        assert!(accounts.iter().all(|account| !account.is_signer));
     }
 
     #[test]
@@ -401,7 +400,7 @@ mod tests {
         let dest_b0 = Pubkey::new_from_array([0x07; 32]);
 
         // Order A has two transfers, order B has one.
-        let ix = BeginSettle {
+        let Instruction { data, accounts, .. } = BeginSettle {
             program_id,
             state_pda,
             finalize_ix_index: 0x1337,
@@ -425,10 +424,10 @@ mod tests {
                 }],
             ],
         }
-        .instruction();
+        .into();
 
         assert_eq!(
-            ix.data,
+            data,
             [
                 &[SettlementInstruction::BeginSettle.discriminator()][..],
                 &hex!("1337")[..], // counterpart index
@@ -455,18 +454,17 @@ mod tests {
             sell_b,
             dest_b0,
         ];
-        let actual: Vec<Pubkey> = ix.accounts.iter().map(|account| account.pubkey).collect();
+        let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
         // The fixed accounts and the order PDAs are read-only; sell and
         // destination accounts are writable for the transfer.
-        let writable: Vec<Pubkey> = ix
-            .accounts
+        let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
             .map(|account| account.pubkey)
             .collect();
         assert_eq!(writable, vec![sell_a, dest_a0, dest_a1, sell_b, dest_b0]);
-        assert!(ix.accounts.iter().all(|account| !account.is_signer));
+        assert!(accounts.iter().all(|account| !account.is_signer));
     }
 
     #[test]

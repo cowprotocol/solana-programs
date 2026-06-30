@@ -40,12 +40,12 @@ fn run_sequence(
                 finalize_ix_index: *idx,
                 orders: &[],
             }
-            .instruction(),
+            .into(),
             AbstractInstruction::Fin(idx) => FinalizeSettle {
                 program_id: *program_id,
                 begin_ix_index: *idx,
             }
-            .instruction(),
+            .into(),
             // 0-lamport self-transfer: a side-effect-free instruction that
             // (unlike Compute Budget) Solana allows to appear multiple times
             // in the same transaction.
@@ -178,18 +178,18 @@ fn invalid_sequences() {
 fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let (mut svm, program_id, payer) = common::setup();
 
-    let mut begin = BeginSettle {
+    let mut begin: Instruction = BeginSettle {
         program_id,
         finalize_ix_index: 1,
         orders: &[],
     }
-    .instruction();
+    .into();
     begin.accounts[0] = AccountMeta::new_readonly(payer.pubkey(), false);
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: 0,
     }
-    .instruction();
+    .into();
 
     let tx = Transaction::new_signed_with_payer(
         &[begin, finalize],
@@ -219,7 +219,7 @@ fn rejects_counterpart_instruction_in_different_program() {
         finalize_ix_index: 1,
         orders: &[],
     }
-    .instruction();
+    .into();
     // We build a transaction that looks like a valid finalize_settle but
     // calling a different program. It doesn't really matter what program
     // we use here because execution isn't expected to reach this point.
@@ -227,7 +227,7 @@ fn rejects_counterpart_instruction_in_different_program() {
         program_id: solana_system_interface::program::ID,
         begin_ix_index: 0,
     }
-    .instruction();
+    .into();
 
     let instructions = [begin, stranger];
     let expected_failing_instruction_index = 0;
@@ -255,7 +255,8 @@ fn rejects_counterpart_instruction_in_different_program() {
 /// The CPI caller treats `accounts[0]` as the target program and `accounts[1..]`
 /// as the accounts to forward, so `ix.program_id` becomes the first account and
 /// `ix.accounts` are appended after it.
-fn as_cpi_call(cpi_caller_id: Pubkey, ix: Instruction) -> Instruction {
+fn as_cpi_call(cpi_caller_id: Pubkey, ix: impl Into<Instruction>) -> Instruction {
+    let ix = ix.into();
     let mut accounts = vec![AccountMeta::new_readonly(ix.program_id, false)];
     accounts.extend(ix.accounts);
     Instruction {
@@ -278,8 +279,7 @@ fn rejects_cpi_call_to_begin_settle() {
             program_id: settlement_id,
             finalize_ix_index: 1,
             orders: &[],
-        }
-        .instruction(),
+        },
     );
 
     let tx = Transaction::new_signed_with_payer(
@@ -309,8 +309,7 @@ fn rejects_cpi_call_to_finalize_settle() {
         FinalizeSettle {
             program_id: settlement_id,
             begin_ix_index: 0,
-        }
-        .instruction(),
+        },
     );
 
     let tx = Transaction::new_signed_with_payer(
