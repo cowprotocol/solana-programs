@@ -64,7 +64,7 @@ fn create_order_pda(svm: &mut LiteSVM, program_id: &Pubkey, owner: &Keypair, int
         created_by: owner.pubkey(),
         intent,
     }
-    .instruction();
+    .into();
     let tx = signed_tx(svm, owner, owner, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
@@ -127,7 +127,7 @@ fn send_settlement(
         program_id: *program_id,
         begin_ix_index: 0,
     }
-    .instruction();
+    .into();
     let tx = Transaction::new_signed_with_payer(
         &[begin, finalize],
         Some(&payer.pubkey()),
@@ -154,7 +154,7 @@ fn settle(
             finalize_ix_index: 1,
             orders,
         }
-        .instruction(),
+        .into(),
     )
 }
 
@@ -179,7 +179,7 @@ fn settle_raw(
         sell_token_accounts,
         pulls: &no_pulls(bumps.len()),
     }
-    .instruction();
+    .into();
     send_settlement(svm, program_id, payer, begin)
 }
 
@@ -743,7 +743,7 @@ fn rejects_wrong_state_pda() {
                 sell_token_accounts: &[intent.sell_token_account],
                 pulls: &no_pulls(1),
             }
-            .instruction(),
+            .into(),
         ),
         SettlementError::StateAccountMismatch,
     );
@@ -758,7 +758,7 @@ fn rejects_wrong_token_program() {
 
     // The builder always fills in the SPL Token program, so we swap the
     // token-program account out afterwards.
-    let mut begin = BeginSettle {
+    let mut begin: Instruction = BeginSettle {
         program_id,
         finalize_ix_index: 1,
         orders: &[SettledOrder {
@@ -766,7 +766,7 @@ fn rejects_wrong_token_program() {
             pulls: &[],
         }],
     }
-    .instruction();
+    .into();
     let token_account_index = 2;
     begin.accounts[token_account_index] = AccountMeta::new_readonly(Pubkey::new_unique(), false);
 
@@ -857,7 +857,7 @@ fn rejects_extra_account() {
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
     // A well-formed single-order, no-transfer settlement...
-    let mut begin = BeginSettle {
+    let mut begin: Instruction = BeginSettle {
         program_id,
         finalize_ix_index: 1,
         orders: &[SettledOrder {
@@ -865,7 +865,7 @@ fn rejects_extra_account() {
             pulls: &[],
         }],
     }
-    .instruction();
+    .into();
     // ...with one extra account appended, so the account count no longer matches
     // the `2n + T` the instruction data implies.
     begin

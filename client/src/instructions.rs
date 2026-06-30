@@ -30,30 +30,30 @@ pub struct BeginSettle<'a> {
     pub orders: &'a [SettledOrder<'a>],
 }
 
-impl BeginSettle<'_> {
-    pub fn instruction(self) -> Instruction {
-        let mut order_pdas = Vec::with_capacity(self.orders.len());
-        let mut sell_token_accounts = Vec::with_capacity(self.orders.len());
-        let mut bumps = Vec::with_capacity(self.orders.len());
-        let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(self.orders.len());
-        for order in self.orders {
-            let (order_pda, bump) = find_order_pda(&self.program_id, &order.intent.uid());
+impl From<BeginSettle<'_>> for Instruction {
+    fn from(builder: BeginSettle<'_>) -> Self {
+        let mut order_pdas = Vec::with_capacity(builder.orders.len());
+        let mut sell_token_accounts = Vec::with_capacity(builder.orders.len());
+        let mut bumps = Vec::with_capacity(builder.orders.len());
+        let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(builder.orders.len());
+        for order in builder.orders {
+            let (order_pda, bump) = find_order_pda(&builder.program_id, &order.intent.uid());
             order_pdas.push(order_pda);
             sell_token_accounts.push(order.intent.sell_token_account);
             bumps.push(bump);
             pull_lists.push(order.pulls);
         }
-        let (state_pda, _bump) = find_state_pda(&self.program_id);
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
         settlement_interface::instruction::settle::BeginSettle {
-            program_id: self.program_id,
+            program_id: builder.program_id,
             state_pda,
-            finalize_ix_index: self.finalize_ix_index,
+            finalize_ix_index: builder.finalize_ix_index,
             order_pdas: &order_pdas,
             order_pda_bumps: &bumps,
             sell_token_accounts: &sell_token_accounts,
             pulls: &pull_lists,
         }
-        .instruction()
+        .into()
     }
 }
 
@@ -64,19 +64,19 @@ pub struct CreateOrder<'a> {
     pub intent: &'a OrderIntent,
 }
 
-impl CreateOrder<'_> {
-    pub fn instruction(self) -> Instruction {
-        let encoded = EncodedOrderIntent::from(self.intent);
-        let (order_pda, _bump) = find_order_pda(&self.program_id, &encoded.hash());
+impl From<CreateOrder<'_>> for Instruction {
+    fn from(builder: CreateOrder<'_>) -> Self {
+        let encoded = EncodedOrderIntent::from(builder.intent);
+        let (order_pda, _bump) = find_order_pda(&builder.program_id, &encoded.hash());
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
         settlement_interface::instruction::create_order::CreateOrder {
-            program_id: self.program_id,
-            owner: self.owner,
-            created_by: self.created_by,
+            program_id: builder.program_id,
+            owner: builder.owner,
+            created_by: builder.created_by,
             order_pda,
             intent_bytes,
         }
-        .instruction()
+        .into()
     }
 }
 
@@ -86,19 +86,19 @@ pub struct CreateBuffers<'a> {
     pub mints: &'a [Pubkey],
 }
 
-impl CreateBuffers<'_> {
-    pub fn instruction(self) -> Instruction {
-        let buffers: Vec<(Pubkey, Pubkey)> = self
+impl From<CreateBuffers<'_>> for Instruction {
+    fn from(builder: CreateBuffers<'_>) -> Self {
+        let buffers: Vec<(Pubkey, Pubkey)> = builder
             .mints
             .iter()
-            .map(|mint| (find_buffer_pda(&self.program_id, mint).0, *mint))
+            .map(|mint| (find_buffer_pda(&builder.program_id, mint).0, *mint))
             .collect();
         settlement_interface::instruction::create_buffer::CreateBuffers {
-            program_id: self.program_id,
-            payer: self.payer,
+            program_id: builder.program_id,
+            payer: builder.payer,
             buffers: &buffers,
         }
-        .instruction()
+        .into()
     }
 }
 
@@ -107,15 +107,15 @@ pub struct Initialize {
     pub payer: Pubkey,
 }
 
-impl Initialize {
-    pub fn instruction(self) -> Instruction {
-        let (state_pda, _bump) = find_state_pda(&self.program_id);
+impl From<Initialize> for Instruction {
+    fn from(builder: Initialize) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
         settlement_interface::instruction::initialize::Initialize {
-            program_id: self.program_id,
-            payer: self.payer,
+            program_id: builder.program_id,
+            payer: builder.payer,
             state_pda,
         }
-        .instruction()
+        .into()
     }
 }
 
@@ -149,12 +149,11 @@ mod tests {
                 .iter()
                 .map(|intent| SettledOrder { intent, pulls: &[] })
                 .collect();
-            let ix = BeginSettle {
+            let ix = Instruction::from(BeginSettle {
                 program_id,
                 finalize_ix_index,
                 orders: &orders,
-            }
-            .instruction();
+            });
 
             // Expected orders: each intent's canonical PDA paired with its sell
             // token account and bump, sorted by PDA address (the builder's order).

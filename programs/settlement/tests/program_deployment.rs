@@ -34,12 +34,12 @@ fn program_can_be_invoked() {
                 finalize_ix_index: 1,
                 orders: &[],
             }
-            .instruction(),
+            .into(),
             FinalizeSettle {
                 program_id,
                 begin_ix_index: 0,
             }
-            .instruction(),
+            .into(),
         ],
         Some(&payer.pubkey()),
         &[&payer],
