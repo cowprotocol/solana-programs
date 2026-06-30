@@ -54,8 +54,8 @@ pub fn recover_discriminator(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum SettlementError {
-    /// The `FinalizeSettle` index isn't strictly after the `BeginSettle` that
-    /// names it: the ordering is reversed or the instruction points at itself.
+    /// The `FinalizeSettle` included as input to `BeginSettle` isn't before
+    /// the actual `BeginSettle` index.
     FinalizeBeforeInitialize = 0,
     /// Another `BeginSettle`/`FinalizeSettle` of this program appears strictly
     /// between this pair's bounds, nesting or overlapping two settlements.
