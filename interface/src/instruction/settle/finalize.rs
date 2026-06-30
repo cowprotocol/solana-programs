@@ -24,14 +24,14 @@ pub struct FinalizeSettle {
     pub begin_ix_index: u16,
 }
 
-impl FinalizeSettle {
-    pub fn instruction(self) -> Instruction {
+impl From<FinalizeSettle> for Instruction {
+    fn from(builder: FinalizeSettle) -> Self {
         Instruction {
-            program_id: self.program_id,
+            program_id: builder.program_id,
             accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
             data: [
                 &[SettlementInstruction::FinalizeSettle.discriminator()],
-                &self.begin_ix_index.to_be_bytes()[..],
+                &builder.begin_ix_index.to_be_bytes()[..],
             ]
             .concat(),
         }
@@ -77,13 +77,13 @@ mod tests {
     #[test]
     fn expected_encoding_finalize_settle() {
         let program_id = Pubkey::new_unique();
-        let ix = FinalizeSettle {
+        let Instruction { data, accounts, .. } = FinalizeSettle {
             program_id,
             begin_ix_index: 0x1337,
         }
-        .instruction();
+        .into();
         assert_eq!(
-            ix.data,
+            data,
             [
                 &[SettlementInstruction::FinalizeSettle.discriminator()][..],
                 &hex!("1337")[..], // counterpart index
@@ -92,10 +92,10 @@ mod tests {
         );
 
         // Only the instructions sysvar is referenced.
-        assert_eq!(ix.accounts.len(), 1);
-        assert_eq!(ix.accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
-        assert!(!ix.accounts[0].is_writable);
-        assert!(!ix.accounts[0].is_signer);
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
+        assert!(!accounts[0].is_writable);
+        assert!(!accounts[0].is_signer);
     }
 
     #[test]
