@@ -1,8 +1,4 @@
 //! `BeginSettle`/`FinalizeSettle` instruction handlers.
-//!
-//! The handlers themselves live in the [`begin`] and [`finalize`] submodules;
-//! this module holds the reciprocity check they share and re-exports their
-//! entry points.
 
 use std::ops::Deref;
 
