@@ -35,7 +35,7 @@ fn run_sequence(
     let instructions: Vec<Instruction> = sequence
         .iter()
         .map(|spec| match spec {
-            AbstractInstruction::Init(idx) => begin_settle(program_id, *idx),
+            AbstractInstruction::Init(idx) => begin_settle(program_id, *idx, &[]),
             AbstractInstruction::Fin(idx) => finalize_settle(program_id, *idx),
             // 0-lamport self-transfer: a side-effect-free instruction that
             // (unlike Compute Budget) Solana allows to appear multiple times
@@ -129,7 +129,7 @@ fn invalid_sequences() {
 fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let (mut svm, program_id, payer) = common::setup();
 
-    let mut begin = begin_settle(&program_id, 1);
+    let mut begin = begin_settle(&program_id, 1, &[]);
     begin.accounts[0] = AccountMeta::new_readonly(payer.pubkey(), false);
     let finalize = finalize_settle(&program_id, 0);
 
@@ -156,7 +156,7 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
 fn rejects_counterpart_instruction_in_different_program() {
     let (mut svm, program_id, payer) = common::setup();
 
-    let begin = begin_settle(&program_id, 1);
+    let begin = begin_settle(&program_id, 1, &[]);
     // We build a transaction that looks like a valid finalize_settle but
     // calling a different program. It doesn't really matter what program
     // we use here because execution isn't expected to reach this point.
@@ -180,5 +180,69 @@ fn rejects_counterpart_instruction_in_different_program() {
             to_instruction_error(SettlementError::CounterpartIsExternal),
         ),
         "expected CounterpartIsExternal at instruction {expected_failing_instruction_index}"
+    );
+}
+
+/// Wrap a settlement `Instruction` as a call through the test CPI caller.
+///
+/// The CPI caller treats `accounts[0]` as the target program and `accounts[1..]`
+/// as the accounts to forward, so `ix.program_id` becomes the first account and
+/// `ix.accounts` are appended after it.
+fn as_cpi_call(cpi_caller_id: Pubkey, ix: Instruction) -> Instruction {
+    let mut accounts = vec![AccountMeta::new_readonly(ix.program_id, false)];
+    accounts.extend(ix.accounts);
+    Instruction {
+        program_id: cpi_caller_id,
+        accounts,
+        data: ix.data,
+    }
+}
+
+/// Build a transaction that uses the test CPI caller to invoke `begin_settle`
+/// via CPI.  The settlement program should reject it with `CalledViaCpi`.
+#[test]
+fn rejects_cpi_call_to_begin_settle() {
+    let (mut svm, settlement_id, payer) = common::setup();
+    let cpi_caller_id = common::setup_cpi_caller(&mut svm);
+
+    let cpi_caller_ix = as_cpi_call(cpi_caller_id, begin_settle(&settlement_id, 1, &[]));
+
+    let tx = Transaction::new_signed_with_payer(
+        &[cpi_caller_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("CPI call to begin_settle should be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, to_instruction_error(SettlementError::CalledViaCpi)),
+        "expected CalledViaCpi when begin_settle is called via CPI"
+    );
+}
+
+/// Same as `rejects_cpi_call_to_begin_settle` but for `finalize_settle`.
+#[test]
+fn rejects_cpi_call_to_finalize_settle() {
+    let (mut svm, settlement_id, payer) = common::setup();
+    let cpi_caller_id = common::setup_cpi_caller(&mut svm);
+
+    let cpi_caller_ix = as_cpi_call(cpi_caller_id, finalize_settle(&settlement_id, 0));
+
+    let tx = Transaction::new_signed_with_payer(
+        &[cpi_caller_ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("CPI call to finalize_settle should be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, to_instruction_error(SettlementError::CalledViaCpi)),
+        "expected CalledViaCpi when finalize_settle is called via CPI"
     );
 }

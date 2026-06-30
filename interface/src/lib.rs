@@ -21,6 +21,7 @@ pub enum SettlementInstruction {
     FinalizeSettle = 1,
     CreateOrder = 2,
     Initialize = 3,
+    CreateBuffer = 4,
 }
 
 impl SettlementInstruction {
@@ -67,6 +68,40 @@ pub enum SettlementError {
     /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
     /// owner.
     OwnerMismatch = 7,
+    /// A `BeginSettle` order account doesn't sit at the canonical order PDA
+    /// derived from the intent it stores and the supplied bump.
+    OrderNotCanonical = 8,
+    /// `BeginSettle`'s order accounts aren't passed strictly increasing by
+    /// address.
+    OrdersNotStrictlyIncreasing = 9,
+    /// A `BeginSettle` sell token account doesn't match the
+    /// `sell_token_account` recorded in the order's intent.
+    SellTokenAccountMismatch = 10,
+    /// A `BeginSettle` sell token account isn't a valid SPL token account
+    /// (wrong data length or not owned by the token program).
+    SellTokenAccountInvalid = 11,
+    /// A `BeginSettle` sell token account's SPL owner isn't the order's intent
+    /// owner.
+    SellTokenOwnerMismatch = 12,
+    /// `BeginSettle`'s order-account count doesn't match the structure its
+    /// instruction data expects: `n` orders each contribute an order PDA and a
+    /// sell token account, plus one destination account per transfer.
+    AccountCountNotMatchingOrderCount = 13,
+    /// `BeginSettle` or `FinalizeSettle` was invoked via CPI rather than as a
+    /// top-level transaction instruction.
+    CalledViaCpi = 14,
+    /// A `BeginSettle` order has been cancelled by its owner and can no longer
+    /// be settled.
+    OrderCancelled = 15,
+    /// A `BeginSettle` order's `valid_to` lies in the past: the order has
+    /// expired and can no longer be settled.
+    OrderExpired = 16,
+    /// The transfer counts in `BeginSettle` don't sum to the number of transfer
+    /// amounts, so destinations and amounts can't be paired up exactly.
+    TransferCountMismatch = 17,
+    /// `BeginSettle`'s state account isn't the canonical settlement state PDA,
+    /// which must sign the pulls as the user's token delegate.
+    StateAccountMismatch = 18,
 }
 
 impl From<SettlementError> for u32 {

@@ -4,6 +4,7 @@
 //! settlement instructions, encoding their discriminator (see
 //! [`crate::SettlementInstruction`]) and laying out the required accounts.
 
+pub mod create_buffer;
 pub mod create_order;
 pub mod initialize;
 pub mod settle;
