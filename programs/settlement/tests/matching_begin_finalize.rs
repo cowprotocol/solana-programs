@@ -1,5 +1,5 @@
 use litesvm::{types::FailedTransactionMetadata, LiteSVM};
-use settlement_client::instructions::{begin_settle, finalize_settle};
+use settlement_client::instructions::{BeginSettle, FinalizeSettle};
 use settlement_client::settlement_interface::SettlementError;
 use solana_sdk::{
     instruction::{AccountMeta, Instruction, InstructionError},
@@ -35,8 +35,17 @@ fn run_sequence(
     let instructions: Vec<Instruction> = sequence
         .iter()
         .map(|spec| match spec {
-            AbstractInstruction::Init(idx) => begin_settle(program_id, *idx, &[]),
-            AbstractInstruction::Fin(idx) => finalize_settle(program_id, *idx),
+            AbstractInstruction::Init(idx) => BeginSettle {
+                program_id: *program_id,
+                finalize_ix_index: *idx,
+                orders: &[],
+            }
+            .into(),
+            AbstractInstruction::Fin(idx) => FinalizeSettle {
+                program_id: *program_id,
+                begin_ix_index: *idx,
+            }
+            .into(),
             // 0-lamport self-transfer: a side-effect-free instruction that
             // (unlike Compute Budget) Solana allows to appear multiple times
             // in the same transaction.
@@ -129,9 +138,18 @@ fn invalid_sequences() {
 fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let (mut svm, program_id, payer) = common::setup();
 
-    let mut begin = begin_settle(&program_id, 1, &[]);
+    let mut begin: Instruction = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[],
+    }
+    .into();
     begin.accounts[0] = AccountMeta::new_readonly(payer.pubkey(), false);
-    let finalize = finalize_settle(&program_id, 0);
+    let finalize = FinalizeSettle {
+        program_id,
+        begin_ix_index: 0,
+    }
+    .into();
 
     let tx = Transaction::new_signed_with_payer(
         &[begin, finalize],
@@ -156,11 +174,20 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
 fn rejects_counterpart_instruction_in_different_program() {
     let (mut svm, program_id, payer) = common::setup();
 
-    let begin = begin_settle(&program_id, 1, &[]);
+    let begin = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[],
+    }
+    .into();
     // We build a transaction that looks like a valid finalize_settle but
     // calling a different program. It doesn't really matter what program
     // we use here because execution isn't expected to reach this point.
-    let stranger = finalize_settle(&solana_system_interface::program::ID, 0);
+    let stranger = FinalizeSettle {
+        program_id: solana_system_interface::program::ID,
+        begin_ix_index: 0,
+    }
+    .into();
 
     let instructions = [begin, stranger];
     let expected_failing_instruction_index = 0;
@@ -188,7 +215,8 @@ fn rejects_counterpart_instruction_in_different_program() {
 /// The CPI caller treats `accounts[0]` as the target program and `accounts[1..]`
 /// as the accounts to forward, so `ix.program_id` becomes the first account and
 /// `ix.accounts` are appended after it.
-fn as_cpi_call(cpi_caller_id: Pubkey, ix: Instruction) -> Instruction {
+fn as_cpi_call(cpi_caller_id: Pubkey, ix: impl Into<Instruction>) -> Instruction {
+    let ix = ix.into();
     let mut accounts = vec![AccountMeta::new_readonly(ix.program_id, false)];
     accounts.extend(ix.accounts);
     Instruction {
@@ -205,7 +233,14 @@ fn rejects_cpi_call_to_begin_settle() {
     let (mut svm, settlement_id, payer) = common::setup();
     let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
-    let cpi_caller_ix = as_cpi_call(cpi_caller_id, begin_settle(&settlement_id, 1, &[]));
+    let cpi_caller_ix = as_cpi_call(
+        cpi_caller_id,
+        BeginSettle {
+            program_id: settlement_id,
+            finalize_ix_index: 1,
+            orders: &[],
+        },
+    );
 
     let tx = Transaction::new_signed_with_payer(
         &[cpi_caller_ix],
@@ -229,7 +264,13 @@ fn rejects_cpi_call_to_finalize_settle() {
     let (mut svm, settlement_id, payer) = common::setup();
     let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
-    let cpi_caller_ix = as_cpi_call(cpi_caller_id, finalize_settle(&settlement_id, 0));
+    let cpi_caller_ix = as_cpi_call(
+        cpi_caller_id,
+        FinalizeSettle {
+            program_id: settlement_id,
+            begin_ix_index: 0,
+        },
+    );
 
     let tx = Transaction::new_signed_with_payer(
         &[cpi_caller_ix],

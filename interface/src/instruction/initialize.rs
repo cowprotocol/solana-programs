@@ -12,7 +12,7 @@ pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 use super::InstructionInputParsing;
 use crate::SettlementInstruction;
 
-/// Build an `Initialize` instruction.
+/// Builder for an `Initialize` instruction.
 ///
 /// `payer` funds the new account's rent and signs. It is meant to be the
 /// transaction's fee payer: the state is created once at deployment and never
@@ -27,19 +27,27 @@ use crate::SettlementInstruction;
 /// no parameters and succeeds only once: a second call fails because the
 /// account already exists.
 ///
-/// Wire format: just `[discriminator]`, 1 byte.
+/// Wire format: just `[discriminator=3]`, 1 byte.
 /// Required accounts: `[payer (W,S), state_pda (W), system_program (R)]`.
 /// The system program must be available for the `CreateAccount` CPI but doesn't
 /// need to sit at that specific position.
-pub fn initialize(program_id: &Pubkey, payer: &Pubkey, state_pda: &Pubkey) -> Instruction {
-    Instruction {
-        program_id: *program_id,
-        accounts: vec![
-            AccountMeta::new(*payer, true),
-            AccountMeta::new(*state_pda, false),
-            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-        ],
-        data: vec![SettlementInstruction::Initialize.discriminator()],
+pub struct Initialize {
+    pub program_id: Pubkey,
+    pub payer: Pubkey,
+    pub state_pda: Pubkey,
+}
+
+impl From<Initialize> for Instruction {
+    fn from(builder: Initialize) -> Self {
+        Instruction {
+            program_id: builder.program_id,
+            accounts: vec![
+                AccountMeta::new(builder.payer, true),
+                AccountMeta::new(builder.state_pda, false),
+                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            ],
+            data: vec![SettlementInstruction::Initialize.discriminator()],
+        }
     }
 }
 
@@ -76,7 +84,7 @@ impl<'a> InstructionInputParsing<'a> for InitializeInput<'a> {
 pub mod fixtures {
     use solana_address::Address;
 
-    use super::initialize;
+    use super::{Initialize, Instruction};
 
     /// Number of accounts `Initialize` expects: payer, state PDA, system program.
     pub const NUM_ACCOUNTS: usize = 3;
@@ -85,7 +93,12 @@ pub mod fixtures {
     /// cases where the actual addresses don't matter.
     pub fn initialize_data() -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
-        initialize(&zero, &zero, &zero).data
+        Instruction::from(Initialize {
+            program_id: zero,
+            payer: zero,
+            state_pda: zero,
+        })
+        .data
     }
 }
 
@@ -101,7 +114,12 @@ mod tests {
         let program_id = Address::new_unique();
         let payer = fake_account_from_array([1; 32]);
         let state_pda = fake_account_from_array([2; 32]);
-        let data = initialize(&program_id, payer.address(), state_pda.address()).data;
+        let data = Instruction::from(Initialize {
+            program_id,
+            payer: *payer.address(),
+            state_pda: *state_pda.address(),
+        })
+        .data;
 
         let system_program = fake_account_from_array([3; 32]);
         let mut accounts = [payer, state_pda, system_program];
@@ -143,9 +161,14 @@ mod tests {
         let payer = Pubkey::new_from_array([2; 32]);
         let state_pda = Pubkey::new_from_array([3; 32]);
 
-        let ix = initialize(&program_id, &payer, &state_pda);
+        let Instruction { data, .. } = Initialize {
+            program_id,
+            payer,
+            state_pda,
+        }
+        .into();
         assert_eq!(
-            ix.data,
+            data,
             vec![SettlementInstruction::Initialize.discriminator()]
         );
     }
@@ -156,20 +179,25 @@ mod tests {
         let payer = Pubkey::new_from_array([2; 32]);
         let state_pda = Pubkey::new_from_array([3; 32]);
 
-        let ix = initialize(&program_id, &payer, &state_pda);
+        let Instruction { accounts, .. } = Initialize {
+            program_id,
+            payer,
+            state_pda,
+        }
+        .into();
 
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(accounts.len(), 3);
         // payer: writable, signer (funds the new account's rent)
-        assert_eq!(ix.accounts[0].pubkey, payer);
-        assert!(ix.accounts[0].is_writable);
-        assert!(ix.accounts[0].is_signer);
+        assert_eq!(accounts[0].pubkey, payer);
+        assert!(accounts[0].is_writable);
+        assert!(accounts[0].is_signer);
         // state_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(ix.accounts[1].pubkey, state_pda);
-        assert!(ix.accounts[1].is_writable);
-        assert!(!ix.accounts[1].is_signer);
+        assert_eq!(accounts[1].pubkey, state_pda);
+        assert!(accounts[1].is_writable);
+        assert!(!accounts[1].is_signer);
         // system program: read-only
-        assert_eq!(ix.accounts[2].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!ix.accounts[2].is_writable);
-        assert!(!ix.accounts[2].is_signer);
+        assert_eq!(accounts[2].pubkey, SYSTEM_PROGRAM_ID);
+        assert!(!accounts[2].is_writable);
+        assert!(!accounts[2].is_signer);
     }
 }

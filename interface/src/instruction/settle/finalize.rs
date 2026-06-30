@@ -12,15 +12,29 @@ use crate::SettlementInstruction;
 
 use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID};
 
-pub fn finalize_settle(program_id: &Pubkey, begin_ix_index: u16) -> Instruction {
-    Instruction {
-        program_id: *program_id,
-        accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
-        data: [
-            &[SettlementInstruction::FinalizeSettle.discriminator()],
-            &begin_ix_index.to_be_bytes()[..],
-        ]
-        .concat(),
+/// Builder for a `FinalizeSettle` instruction.
+///
+/// `begin_ix_index` is the index of the paired `BeginSettle` instruction in the
+/// same transaction.
+///
+/// Wire format: `[discriminator=1, begin_ix_index: u16 BE]`, 3 bytes.
+/// Required accounts: `[instructions_sysvar (R)]`.
+pub struct FinalizeSettle {
+    pub program_id: Pubkey,
+    pub begin_ix_index: u16,
+}
+
+impl From<FinalizeSettle> for Instruction {
+    fn from(builder: FinalizeSettle) -> Self {
+        Instruction {
+            program_id: builder.program_id,
+            accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
+            data: [
+                &[SettlementInstruction::FinalizeSettle.discriminator()],
+                &builder.begin_ix_index.to_be_bytes()[..],
+            ]
+            .concat(),
+        }
     }
 }
 
@@ -63,9 +77,13 @@ mod tests {
     #[test]
     fn expected_encoding_finalize_settle() {
         let program_id = Pubkey::new_unique();
-        let ix = finalize_settle(&program_id, 0x1337);
+        let Instruction { data, accounts, .. } = FinalizeSettle {
+            program_id,
+            begin_ix_index: 0x1337,
+        }
+        .into();
         assert_eq!(
-            ix.data,
+            data,
             [
                 &[SettlementInstruction::FinalizeSettle.discriminator()][..],
                 &hex!("1337")[..], // counterpart index
@@ -74,10 +92,10 @@ mod tests {
         );
 
         // Only the instructions sysvar is referenced.
-        assert_eq!(ix.accounts.len(), 1);
-        assert_eq!(ix.accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
-        assert!(!ix.accounts[0].is_writable);
-        assert!(!ix.accounts[0].is_signer);
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
+        assert!(!accounts[0].is_writable);
+        assert!(!accounts[0].is_signer);
     }
 
     #[test]

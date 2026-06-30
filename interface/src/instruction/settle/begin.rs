@@ -20,7 +20,7 @@ pub struct Pull {
     pub amount: u64,
 }
 
-/// Build a `BeginSettle` instruction settling the orders described by the
+/// Builder for a `BeginSettle` instruction settling the orders described by the
 /// parallel lists:
 /// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
 /// - `order_pda_bumps[i]` is the bump of the canonical order PDA
@@ -35,70 +35,84 @@ pub struct Pull {
 /// Wire format (grouped, with `n` orders and `T` total transfers):
 /// `[discriminator=0][finalize_ix_index: u16 BE][n: u8][bump×n][transfer_count×n]
 /// [amount: u64 BE ×T]`.
-/// Accounts:
-/// `[instructions_sysvar (R), state_pda (R), token_program (R)]` followed, per
-/// order, by `[order_pda (R), sell_token_account (W), destination (W)...]`.
+/// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
+/// (R)]` followed, per order, by `[order_pda (R), sell_token_account (W),
+/// destination (W)...]`.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
 /// This builder establishes that ordering for the caller: it sorts the orders by
 /// PDA address, carrying each order's sell token account, bump, transfer count,
 /// amounts, and destination metas before emitting them.
-pub fn begin_settle(
-    program_id: &Pubkey,
-    state_pda: &Pubkey,
-    finalize_ix_index: u16,
-    order_pdas: &[Pubkey],
-    order_pda_bumps: &[u8],
-    sell_token_accounts: &[Pubkey],
-    pulls: &[&[Pull]],
-) -> Instruction {
-    // Sort the parallel lists together by order PDA address via a shared
-    // permutation, so each order keeps its own sell token account, bump, and
-    // pulls (transfer count, amounts, and destination metas).
-    let mut order: Vec<usize> = (0..order_pdas.len()).collect();
-    order.sort_by_key(|&i| order_pdas[i]);
+pub struct BeginSettle<'a> {
+    pub program_id: Pubkey,
+    pub state_pda: Pubkey,
+    pub finalize_ix_index: u16,
+    pub order_pdas: &'a [Pubkey],
+    pub order_pda_bumps: &'a [u8],
+    pub sell_token_accounts: &'a [Pubkey],
+    pub pulls: &'a [&'a [Pull]],
+}
 
-    let counts: Vec<u8> = order.iter().map(|&i| pulls[i].len() as u8).collect();
-    let amounts: Vec<u8> = order
-        .iter()
-        .flat_map(|&i| pulls[i].iter())
-        .flat_map(|pull| pull.amount.to_be_bytes())
-        .collect();
-    let data = [
-        &[SettlementInstruction::BeginSettle.discriminator()][..],
-        &finalize_ix_index.to_be_bytes()[..],
-        &[order_pdas.len() as u8][..],
-        &order
+impl From<BeginSettle<'_>> for Instruction {
+    fn from(builder: BeginSettle<'_>) -> Self {
+        let BeginSettle {
+            program_id,
+            state_pda,
+            finalize_ix_index,
+            order_pdas,
+            order_pda_bumps,
+            sell_token_accounts,
+            pulls,
+        } = builder;
+
+        // Sort the parallel lists together by order PDA address via a shared
+        // permutation, so each order keeps its own sell token account, bump, and
+        // pulls (transfer count, amounts, and destination metas).
+        let mut order: Vec<usize> = (0..order_pdas.len()).collect();
+        order.sort_by_key(|&i| order_pdas[i]);
+
+        let counts: Vec<u8> = order.iter().map(|&i| pulls[i].len() as u8).collect();
+        let amounts: Vec<u8> = order
             .iter()
-            .map(|&i| order_pda_bumps[i])
-            .collect::<Vec<u8>>()[..],
-        &counts[..],
-        &amounts[..],
-    ]
-    .concat();
+            .flat_map(|&i| pulls[i].iter())
+            .flat_map(|pull| pull.amount.to_be_bytes())
+            .collect();
+        let data = [
+            &[SettlementInstruction::BeginSettle.discriminator()][..],
+            &finalize_ix_index.to_be_bytes()[..],
+            &[order_pdas.len() as u8][..],
+            &order
+                .iter()
+                .map(|&i| order_pda_bumps[i])
+                .collect::<Vec<u8>>()[..],
+            &counts[..],
+            &amounts[..],
+        ]
+        .concat();
 
-    // Read-only accounts for instruction introspection, settlement state, and
-    // the SPL token program.
-    let mut accounts = vec![
-        AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
-        AccountMeta::new_readonly(*state_pda, false),
-        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
-    ];
-    for &i in &order {
-        // Read-only account for the order.
-        accounts.push(AccountMeta::new_readonly(order_pdas[i], false));
-        // Writable accounts settling the order: its sell token account and the
-        // recipient of each transfer.
-        accounts.push(AccountMeta::new(sell_token_accounts[i], false));
-        for pull in pulls[i] {
-            accounts.push(AccountMeta::new(pull.destination, false));
+        // Read-only accounts for instruction introspection, settlement state, and
+        // the SPL token program.
+        let mut accounts = vec![
+            AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
+            AccountMeta::new_readonly(state_pda, false),
+            AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
+        ];
+        for &i in &order {
+            // Read-only account for the order.
+            accounts.push(AccountMeta::new_readonly(order_pdas[i], false));
+            // Writable accounts settling the order: its sell token account and the
+            // recipient of each transfer.
+            accounts.push(AccountMeta::new(sell_token_accounts[i], false));
+            for pull in pulls[i] {
+                accounts.push(AccountMeta::new(pull.destination, false));
+            }
         }
-    }
 
-    Instruction {
-        program_id: *program_id,
-        accounts,
-        data,
+        Instruction {
+            program_id,
+            accounts,
+            data,
+        }
     }
 }
 
@@ -280,7 +294,16 @@ mod tests {
             program_id: ix_program_id,
             accounts,
             data,
-        } = begin_settle(&program_id, &state_pda, 0x1337, &[], &[], &[], &[]);
+        } = BeginSettle {
+            program_id,
+            state_pda,
+            finalize_ix_index: 0x1337,
+            order_pdas: &[],
+            order_pda_bumps: &[],
+            sell_token_accounts: &[],
+            pulls: &[],
+        }
+        .into();
         assert_eq!(ix_program_id, program_id);
         assert_eq!(
             data,
@@ -315,19 +338,20 @@ mod tests {
         let low_order_pda = Pubkey::new_from_array([0xaa; 32]);
         let low_sell_token_account = Pubkey::new_from_array([0xb0; 32]);
         let low_bump = 0xbb;
-        let ix = begin_settle(
-            &program_id,
-            &state_pda,
-            0x1337,
-            &[high_order_pda, low_order_pda],
-            &[high_bump, low_bump],
-            &[high_sell_token_account, low_sell_token_account],
-            &[&[], &[]],
-        );
+        let Instruction { data, accounts, .. } = BeginSettle {
+            program_id,
+            state_pda,
+            finalize_ix_index: 0x1337,
+            order_pdas: &[high_order_pda, low_order_pda],
+            order_pda_bumps: &[high_bump, low_bump],
+            sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
+            pulls: &[&[], &[]],
+        }
+        .into();
 
         // Bumps follow the sorted order: the low PDA's bump comes first.
         assert_eq!(
-            ix.data,
+            data,
             [
                 &[SettlementInstruction::BeginSettle.discriminator()][..],
                 &hex!("1337")[..],          // counterpart index
@@ -347,12 +371,11 @@ mod tests {
             high_order_pda,
             high_sell_token_account,
         ];
-        let actual: Vec<Pubkey> = ix.accounts.iter().map(|account| account.pubkey).collect();
+        let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
         // The fixed accounts and the order PDAs are read-only; only the sell
         // token accounts are writable, following the sorted order.
-        let writable: Vec<Pubkey> = ix
-            .accounts
+        let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
             .map(|account| account.pubkey)
@@ -361,7 +384,7 @@ mod tests {
             writable,
             vec![low_sell_token_account, high_sell_token_account],
         );
-        assert!(ix.accounts.iter().all(|account| !account.is_signer));
+        assert!(accounts.iter().all(|account| !account.is_signer));
     }
 
     #[test]
@@ -377,14 +400,14 @@ mod tests {
         let dest_b0 = Pubkey::new_from_array([0x07; 32]);
 
         // Order A has two transfers, order B has one.
-        let ix = begin_settle(
-            &program_id,
-            &state_pda,
-            0x1337,
-            &[order_a, order_b],
-            &[0xa1, 0xb1],
-            &[sell_a, sell_b],
-            &[
+        let Instruction { data, accounts, .. } = BeginSettle {
+            program_id,
+            state_pda,
+            finalize_ix_index: 0x1337,
+            order_pdas: &[order_a, order_b],
+            order_pda_bumps: &[0xa1, 0xb1],
+            sell_token_accounts: &[sell_a, sell_b],
+            pulls: &[
                 &[
                     Pull {
                         destination: dest_a0,
@@ -400,10 +423,11 @@ mod tests {
                     amount: 0x0506,
                 }],
             ],
-        );
+        }
+        .into();
 
         assert_eq!(
-            ix.data,
+            data,
             [
                 &[SettlementInstruction::BeginSettle.discriminator()][..],
                 &hex!("1337")[..], // counterpart index
@@ -430,18 +454,17 @@ mod tests {
             sell_b,
             dest_b0,
         ];
-        let actual: Vec<Pubkey> = ix.accounts.iter().map(|account| account.pubkey).collect();
+        let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
         // The fixed accounts and the order PDAs are read-only; sell and
         // destination accounts are writable for the transfer.
-        let writable: Vec<Pubkey> = ix
-            .accounts
+        let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
             .map(|account| account.pubkey)
             .collect();
         assert_eq!(writable, vec![sell_a, dest_a0, dest_a1, sell_b, dest_b0]);
-        assert!(ix.accounts.iter().all(|account| !account.is_signer));
+        assert!(accounts.iter().all(|account| !account.is_signer));
     }
 
     #[test]
