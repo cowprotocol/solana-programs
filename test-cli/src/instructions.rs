@@ -1,7 +1,7 @@
 //! Instruction builders for operations the CLI needs to compose.
 
 use anyhow::Context as _;
-use settlement_client::settlement_interface::{pda::SETTLEMENT_SEED, Pubkey};
+use settlement_client::settlement_interface::{pda::state::find_state_pda, Pubkey};
 use solana_instruction::Instruction;
 use spl_associated_token_account_interface::{
     address::get_associated_token_address_with_program_id,
@@ -38,7 +38,7 @@ pub fn approve(
     owner: &Pubkey,
     amount: u64,
 ) -> anyhow::Result<Instruction> {
-    let (settlement_pda, _) = Pubkey::find_program_address(&[SETTLEMENT_SEED], program_id);
+    let (settlement_pda, _) = find_state_pda(program_id);
 
     token_ix::approve(
         &spl_token_interface::id(),
