@@ -189,7 +189,10 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     };
 
     // Bundle preparation and order creation into a single transaction.
-    let all_ixs: Vec<_> = prep_ixs.into_iter().chain([create_order_ix.into()]).collect();
+    let all_ixs: Vec<_> = prep_ixs
+        .into_iter()
+        .chain([create_order_ix.into()])
+        .collect();
 
     let blockhash = rpc
         .get_latest_blockhash()

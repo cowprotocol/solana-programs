@@ -23,7 +23,7 @@ const DEVNET_GENESIS_HASH: &str = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
 
 // Temporary registry mapping solana networks (isolated by "genesis" hash) and token symbols to mint addresess. Intended to be replaced in the
 // future with something more robust.
-static REGISTRY: &[( &str, &str, KnownToken)] = &[(
+static REGISTRY: &[(&str, &str, KnownToken)] = &[(
     DEVNET_GENESIS_HASH,
     "USDC",
     KnownToken {
@@ -41,7 +41,10 @@ pub struct ResolvedToken {
 
 /// Resolve a user-supplied token string to a token account and decimal count.
 pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Result<ResolvedToken> {
-    match (token_str.parse::<Pubkey>(), token_str.to_uppercase().as_str()) {
+    match (
+        token_str.parse::<Pubkey>(),
+        token_str.to_uppercase().as_str(),
+    ) {
         // 1. `"SOL"` / `"WSOL"` — payer's WSOL ATA, 9 decimals, no RPC call.
         (_, "SOL" | "WSOL") => {
             let wsol_mint: Pubkey = native_mint::id();
@@ -56,20 +59,22 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
             })
         }
         // parsable address -> resolve its mint as necessary and fetch decimals
-        (Ok(pubkey), _) => {
-            resolve_token_account(rpc, owner, &pubkey)
-        }
+        (Ok(pubkey), _) => resolve_token_account(rpc, owner, &pubkey),
         // something else -> lookup the mint in the registry
         _ => {
-            let genesis_hash = rpc.get_genesis_hash()
+            let genesis_hash = rpc
+                .get_genesis_hash()
                 .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
                 .to_string();
             if let Some((_, _, known)) = REGISTRY.iter().find(|(registry_genesis_hash, sym, _)| {
                 *registry_genesis_hash == genesis_hash && *sym == token_str.to_uppercase().as_str()
             }) {
                 let mint: Pubkey = known.mint.parse().expect("registry mint constant");
-                let ata =
-                    get_associated_token_address_with_program_id(owner, &mint, &spl_token_interface::id());
+                let ata = get_associated_token_address_with_program_id(
+                    owner,
+                    &mint,
+                    &spl_token_interface::id(),
+                );
                 Ok(ResolvedToken {
                     account: ata,
                     decimals: known.decimals,
@@ -82,7 +87,6 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
             }
         }
     }
-
 }
 
 fn resolve_token_account(
@@ -107,7 +111,11 @@ fn resolve_token_account(
         })
     } else if let Ok(mint) = Mint::unpack(&account.data) {
         Ok(ResolvedToken {
-            account: get_associated_token_address_with_program_id(owner, token_account_or_mint, &account.owner),
+            account: get_associated_token_address_with_program_id(
+                owner,
+                token_account_or_mint,
+                &account.owner,
+            ),
             decimals: mint.decimals,
         })
     } else {

@@ -5,6 +5,11 @@ mod cmd;
 mod instructions;
 mod token;
 
+fn default_keypair_path() -> String {
+    let home = std::env::var("HOME").expect("`HOME` env not available");
+    format!("{home}/.config/solana/id.json")
+}
+
 #[derive(Parser)]
 #[command(name = "cow", about = "CoW Protocol Solana dev/testing CLI")]
 struct Cli {
@@ -22,7 +27,7 @@ struct Cli {
         long,
         global = true,
         env = "KEYPAIR",
-        default_value = "~/.config/solana/id.json"
+        default_value_t = default_keypair_path()
     )]
     keypair: String,
 

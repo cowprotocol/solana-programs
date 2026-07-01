@@ -12,19 +12,19 @@ pub struct Context {
 }
 
 impl Context {
-
     pub fn from_args(cli: &Cli) -> Self {
         Self {
             rpc_url: cli.rpc_url.clone(),
             keypair: cli.keypair.clone(),
-            program_id: cli.program_id.unwrap_or(settlement_client::settlement_interface::ID.into()),
+            program_id: cli
+                .program_id
+                .unwrap_or(settlement_client::settlement_interface::ID),
         }
     }
 
     pub fn load_payer(&self) -> anyhow::Result<solana_sdk::signer::keypair::Keypair> {
-        let path = expand_tilde(&self.keypair);
-        solana_sdk::signature::read_keypair_file(&path)
-            .map_err(|e| anyhow::anyhow!("failed to read keypair from {}: {e}", path.display()))
+        solana_sdk::signature::read_keypair_file(&self.keypair)
+            .map_err(|e| anyhow::anyhow!("failed to read keypair from {}: {e}", self.keypair))
     }
 
     pub fn rpc(&self) -> solana_rpc_client::rpc_client::RpcClient {
@@ -32,14 +32,5 @@ impl Context {
             self.rpc_url.clone(),
             solana_commitment_config::CommitmentConfig::confirmed(),
         )
-    }
-}
-
-fn expand_tilde(path: &str) -> std::path::PathBuf {
-    match path.strip_prefix("~/") {
-        Some(rest) => {
-            std::path::PathBuf::from(std::env::var("HOME").expect("`HOME` env not available")).join(rest)
-        }
-        None => std::path::PathBuf::from(path),
     }
 }
