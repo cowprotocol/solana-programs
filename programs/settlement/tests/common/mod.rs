@@ -5,6 +5,7 @@
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
+pub mod lookup_table;
 pub mod pda;
 pub mod token;
 
@@ -128,10 +129,10 @@ pub fn signed_tx(
     svm: &LiteSVM,
     fee_payer: &Keypair,
     owner: &Keypair,
-    ix: Instruction,
+    ix: impl Into<Instruction>,
 ) -> Transaction {
     Transaction::new_signed_with_payer(
-        &[ix],
+        &[ix.into()],
         Some(&fee_payer.pubkey()),
         &[fee_payer, owner],
         svm.latest_blockhash(),

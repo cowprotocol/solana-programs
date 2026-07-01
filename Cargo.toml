@@ -25,6 +25,9 @@ pinocchio-token = "0.6"
 proptest = "1"
 settlement-client = { path = "client" }
 settlement-interface = { path = "interface" }
+solana-account-view = "2"
+solana-address = "2"
+solana-address-lookup-table-interface = "3"
 solana-hash = "3"
 solana-instruction = "3"
 solana-program-error = "3"

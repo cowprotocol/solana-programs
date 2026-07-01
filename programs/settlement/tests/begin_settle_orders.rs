@@ -11,7 +11,7 @@ use crate::common::{
 };
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use settlement_client::instructions::{
-    begin_settle, create_order, finalize_settle, Pull, SettledOrder,
+    BeginSettle, CreateOrder, FinalizeSettle, Pull, SettledOrder,
 };
 use settlement_client::settlement_interface::{
     data::{
@@ -19,7 +19,7 @@ use settlement_client::settlement_interface::{
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::settle::{
-        begin_settle as raw_begin_settle, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
+        BeginSettle as BeginSettleRaw, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
     },
     pda::{order::find_order_pda, state::find_state_pda},
     Instruction, SettlementError, SettlementInstruction,
@@ -58,7 +58,12 @@ fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> OrderIn
 
 /// Create `intent`'s order PDA on-chain, signed and paid for by `owner`.
 fn create_order_pda(svm: &mut LiteSVM, program_id: &Pubkey, owner: &Keypair, intent: &OrderIntent) {
-    let ix = create_order(program_id, &owner.pubkey(), &owner.pubkey(), intent);
+    let ix = CreateOrder {
+        program_id: *program_id,
+        owner: owner.pubkey(),
+        created_by: owner.pubkey(),
+        intent,
+    };
     let tx = signed_tx(svm, owner, owner, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
@@ -115,11 +120,14 @@ fn send_settlement(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
-    begin: Instruction,
+    begin: impl Into<Instruction>,
 ) -> Result<TransactionMetadata, TransactionError> {
-    let finalize = finalize_settle(program_id, 0);
+    let finalize = FinalizeSettle {
+        program_id: *program_id,
+        begin_ix_index: 0,
+    };
     let tx = Transaction::new_signed_with_payer(
-        &[begin, finalize],
+        &[begin.into(), finalize.into()],
         Some(&payer.pubkey()),
         &[payer],
         svm.latest_blockhash(),
@@ -135,7 +143,16 @@ fn settle(
     payer: &Keypair,
     orders: &[SettledOrder],
 ) -> Result<TransactionMetadata, TransactionError> {
-    send_settlement(svm, program_id, payer, begin_settle(program_id, 1, orders))
+    send_settlement(
+        svm,
+        program_id,
+        payer,
+        BeginSettle {
+            program_id: *program_id,
+            finalize_ix_index: 1,
+            orders,
+        },
+    )
 }
 
 /// Settle orders described by raw, parallel `(order_pda, sell_token, bump)`
@@ -150,15 +167,15 @@ fn settle_raw(
     sell_token_accounts: &[Pubkey],
     bumps: &[u8],
 ) -> Result<TransactionMetadata, TransactionError> {
-    let begin = raw_begin_settle(
-        program_id,
-        &find_state_pda(program_id).0,
-        1,
+    let begin = BeginSettleRaw {
+        program_id: *program_id,
+        state_pda: find_state_pda(program_id).0,
+        finalize_ix_index: 1,
         order_pdas,
-        bumps,
+        order_pda_bumps: bumps,
         sell_token_accounts,
-        &no_pulls(bumps.len()),
-    );
+        pulls: &no_pulls(bumps.len()),
+    };
     send_settlement(svm, program_id, payer, begin)
 }
 
@@ -713,15 +730,15 @@ fn rejects_wrong_state_pda() {
             &mut svm,
             &program_id,
             &payer,
-            raw_begin_settle(
-                &program_id,
-                &not_the_state_pda,
-                1,
-                &[order_pda],
-                &[bump],
-                &[intent.sell_token_account],
-                &no_pulls(1),
-            ),
+            BeginSettleRaw {
+                program_id,
+                state_pda: not_the_state_pda,
+                finalize_ix_index: 1,
+                order_pdas: &[order_pda],
+                order_pda_bumps: &[bump],
+                sell_token_accounts: &[intent.sell_token_account],
+                pulls: &no_pulls(1),
+            },
         ),
         SettlementError::StateAccountMismatch,
     );
@@ -736,14 +753,15 @@ fn rejects_wrong_token_program() {
 
     // The builder always fills in the SPL Token program, so we swap the
     // token-program account out afterwards.
-    let mut begin = begin_settle(
-        &program_id,
-        1,
-        &[SettledOrder {
+    let mut begin: Instruction = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[SettledOrder {
             intent: &intent,
             pulls: &[],
         }],
-    );
+    }
+    .into();
     let token_account_index = 2;
     begin.accounts[token_account_index] = AccountMeta::new_readonly(Pubkey::new_unique(), false);
 
@@ -834,14 +852,15 @@ fn rejects_extra_account() {
 
     let intent = SettleableOrder::new(&mut svm, &program_id, &payer, &mint).build();
     // A well-formed single-order, no-transfer settlement...
-    let mut begin = begin_settle(
-        &program_id,
-        1,
-        &[SettledOrder {
+    let mut begin: Instruction = BeginSettle {
+        program_id,
+        finalize_ix_index: 1,
+        orders: &[SettledOrder {
             intent: &intent,
             pulls: &[],
         }],
-    );
+    }
+    .into();
     // ...with one extra account appended, so the account count no longer matches
     // the `2n + T` the instruction data implies.
     begin

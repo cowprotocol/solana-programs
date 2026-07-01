@@ -6,5 +6,9 @@ edition.workspace = true
 [dependencies]
 settlement-interface.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+settlement-interface = { workspace = true, features = ["test-fixtures"] }
+
 [lints]
 workspace = true

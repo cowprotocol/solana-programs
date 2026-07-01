@@ -8,6 +8,12 @@ arrayref.workspace = true
 derive_more.workspace = true
 num_enum.workspace = true
 proptest = { workspace = true, optional = true }
+# `copy` makes `AccountView`/`Address` `Copy`, matching the program: it builds
+# against Pinocchio (default `copy` features on), whose own `copy` forwards to
+# this package as well:
+# https://github.com/anza-xyz/pinocchio/blob/8758463e1bbddecc34fc6dccc7259091eacbb157/sdk/Cargo.toml#L27-L29
+solana-account-view = { workspace = true, features = ["copy"] }
+solana-address.workspace = true
 solana-hash.workspace = true
 solana-instruction.workspace = true
 solana-program-error.workspace = true
