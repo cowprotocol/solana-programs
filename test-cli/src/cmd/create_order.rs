@@ -78,16 +78,16 @@ pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
     execute(ctx, parsed, common)
 }
 
-/// `(kind, a_tok, a_amount, b_tok, b_amount)` — amounts are `None` when unspecified.
-/// If kind = OrderKind::Sell, then `a_tok` and `a_amount` is the sold token
-/// If kind = OrderKind::Buy, then `b_tok` and `b_amount` is the sold token
-type ParsedSyntax<'a> = (
-    OrderKind,
-    &'a str,
-    Option<&'a str>,
-    &'a str,
-    Option<&'a str>,
-);
+/// Amounts are `None` when unspecified.
+/// If `kind` is `OrderKind::Sell`, then `a_tok`/`a_amount` is the sold token.
+/// If `kind` is `OrderKind::Buy`, then `b_tok`/`b_amount` is the sold token.
+struct ParsedSyntax<'a> {
+    kind: OrderKind,
+    a_tok: &'a str,
+    a_amount: Option<&'a str>,
+    b_tok: &'a str,
+    b_amount: Option<&'a str>,
+}
 
 fn parse<'a>(
     kind: OrderKind,
@@ -100,11 +100,27 @@ fn parse<'a>(
         .map(String::as_str)
         .collect();
     match t.as_slice() {
-        [tok] => Ok((kind, "SOL", Some(amount), tok, None)),
-        [a_tok, b_tok] => Ok((kind, a_tok, Some(amount), b_tok, None)),
-        [a_tok, buy_amount, b_tok] if is_amount(buy_amount) => {
-            Ok((kind, a_tok, Some(amount), b_tok, Some(buy_amount)))
-        }
+        [tok] => Ok(ParsedSyntax {
+            kind,
+            a_tok: "SOL",
+            a_amount: Some(amount),
+            b_tok: tok,
+            b_amount: None,
+        }),
+        [a_tok, b_tok] => Ok(ParsedSyntax {
+            kind,
+            a_tok,
+            a_amount: Some(amount),
+            b_tok,
+            b_amount: None,
+        }),
+        [a_tok, buy_amount, b_tok] if is_amount(buy_amount) => Ok(ParsedSyntax {
+            kind,
+            a_tok,
+            a_amount: Some(amount),
+            b_tok,
+            b_amount: Some(buy_amount),
+        }),
         _ => anyhow::bail!(
             "cannot interpret {:?}; run `cow sell --help` for usage",
             terms
@@ -113,7 +129,15 @@ fn parse<'a>(
 }
 
 fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow::Result<()> {
-    let (kind, mut sell_tok, mut sell_amount_str, mut buy_tok, mut buy_amount_str) = parsed;
+    let ParsedSyntax {
+        kind,
+        a_tok,
+        a_amount,
+        b_tok,
+        b_amount,
+    } = parsed;
+    let (mut sell_tok, mut sell_amount_str) = (a_tok, a_amount);
+    let (mut buy_tok, mut buy_amount_str) = (b_tok, b_amount);
 
     // if buying the token, the parsing comes reversed
     if kind == OrderKind::Buy {
