@@ -123,10 +123,8 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
         (sell_amount_str, buy_amount_str) = (buy_amount_str, sell_amount_str);
     }
 
-    let payer = ctx.load_payer()?;
-
-    let sell_resolved = crate::token::resolve(&ctx.rpc, &payer.pubkey(), sell_tok)?;
-    let buy_resolved = crate::token::resolve(&ctx.rpc, &payer.pubkey(), buy_tok)?;
+    let sell_resolved = crate::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
+    let buy_resolved = crate::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
 
     let sell_amount_str = sell_amount_str.unwrap_or("0");
     let buy_amount_str = buy_amount_str.unwrap_or("0");
@@ -139,13 +137,13 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
 
     // If the sell token is SOL, wrap it into the payer's WSOL ATA first.
     let (sell_token_account, mut prep_ixs) = if sell_tok.eq_ignore_ascii_case("sol") {
-        let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&payer.pubkey(), sell_amount)?;
+        let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&ctx.payer.pubkey(), sell_amount)?;
         (wsol_ata, wrap_ixs)
     } else {
         // We are selling from an ATA--either we have to resolve it from the mint, or the user gave
         // it to us and we should validate
         let account = if let Some(explicit) = common.sell_token_account {
-            verify_ata_ownership(&ctx.rpc, &explicit, &payer.pubkey())?;
+            verify_ata_ownership(&ctx.rpc, &explicit, &ctx.payer.pubkey())?;
             explicit
         } else {
             sell_resolved.account
@@ -159,12 +157,12 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     prep_ixs.push(crate::instructions::approve(
         &ctx.program_id,
         &sell_token_account,
-        &payer.pubkey(),
+        &ctx.payer.pubkey(),
         sell_amount,
     )?);
 
     let intent = OrderIntent {
-        owner: payer.pubkey(),
+        owner: ctx.payer.pubkey(),
         sell_token_account,
         buy_token_account,
         sell_amount,
@@ -182,8 +180,8 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     // owner == created_by: the payer both owns the order and funds the rent.
     let create_order_ix = CreateOrder {
         program_id: ctx.program_id,
-        owner: payer.pubkey(),
-        created_by: payer.pubkey(),
+        owner: ctx.payer.pubkey(),
+        created_by: ctx.payer.pubkey(),
         intent: &intent,
     };
 
@@ -197,8 +195,12 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
         .rpc
         .get_latest_blockhash()
         .context("failed to fetch blockhash")?;
-    let tx =
-        Transaction::new_signed_with_payer(&all_ixs, Some(&payer.pubkey()), &[&payer], blockhash);
+    let tx = Transaction::new_signed_with_payer(
+        &all_ixs,
+        Some(&ctx.payer.pubkey()),
+        &[&ctx.payer],
+        blockhash,
+    );
     let sig = ctx
         .rpc
         .send_and_confirm_transaction(&tx)

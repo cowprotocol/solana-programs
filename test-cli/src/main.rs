@@ -49,7 +49,7 @@ enum Commands {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let ctx = cmd::Context::from_args(&cli);
+    let ctx = cmd::Context::from_args(&cli)?;
     match cli.command {
         Commands::Sell(args) => cmd::create_order::run_sell(ctx, args),
         Commands::Buy(args) => cmd::create_order::run_buy(ctx, args),
