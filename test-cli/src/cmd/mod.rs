@@ -1,5 +1,7 @@
 use settlement_client::settlement_interface::Pubkey;
 
+use crate::Cli;
+
 pub mod create_order;
 
 /// Shared context threaded through every subcommand.
@@ -10,6 +12,15 @@ pub struct Context {
 }
 
 impl Context {
+
+    pub fn from_args(cli: &Cli) -> Self {
+        Self {
+            rpc_url: cli.rpc_url.clone(),
+            keypair: cli.keypair.clone(),
+            program_id: cli.program_id.unwrap_or(settlement_client::settlement_interface::ID.into()),
+        }
+    }
+
     pub fn load_payer(&self) -> anyhow::Result<solana_sdk::signer::keypair::Keypair> {
         let path = expand_tilde(&self.keypair);
         solana_sdk::signature::read_keypair_file(&path)

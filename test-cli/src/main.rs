@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use settlement_client::settlement_interface::{self, Pubkey};
+use settlement_client::settlement_interface::Pubkey;
 
 mod cmd;
 mod instructions;
@@ -44,11 +44,7 @@ enum Commands {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let ctx = cmd::Context {
-        rpc_url: cli.rpc_url,
-        keypair: cli.keypair,
-        program_id: cli.program_id.unwrap_or(settlement_interface::ID.into()),
-    };
+    let ctx = cmd::Context::from_args(&cli);
     match cli.command {
         Commands::Sell(args) => cmd::create_order::run_sell(ctx, args),
         Commands::Buy(args) => cmd::create_order::run_buy(ctx, args),
