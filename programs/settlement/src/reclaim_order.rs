@@ -53,8 +53,12 @@ pub fn process_reclaim_order(
 #[cfg(test)]
 mod tests {
     use pinocchio::Address;
-use settlement_interface::{
-        data::intent::{OrderKind, fixtures::sample_intent}, instruction::{fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts}, reclaim_order::fixtures::{NUM_ACCOUNTS, default_reclaim_data}},
+    use settlement_interface::{
+        data::intent::{fixtures::sample_intent, OrderKind},
+        instruction::{
+            fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
+            reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
+        },
     };
 
     use super::*;
@@ -84,7 +88,10 @@ use settlement_interface::{
             ..Default::default()
         };
 
-        let order_pda = fake_account_with_data(Address::new_unique(), &EncodedOrderAccount::from(order_data)[..]);
+        let order_pda = fake_account_with_data(
+            Address::new_unique(),
+            &EncodedOrderAccount::from(order_data)[..],
+        );
 
         assert_eq!(
             process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),
@@ -101,12 +108,15 @@ use settlement_interface::{
         let mut intent = sample_intent(OrderKind::Sell, false);
         intent.valid_to = 4_000_000_000; // far in the future
         let order_data = OrderAccount {
-            intent: intent,
+            intent,
             created_by: *reclaim_recipient.address(),
             ..Default::default()
         };
 
-        let order_pda = fake_account_with_data(Address::new_unique(), &EncodedOrderAccount::from(order_data)[..]);
+        let order_pda = fake_account_with_data(
+            Address::new_unique(),
+            &EncodedOrderAccount::from(order_data)[..],
+        );
 
         assert_eq!(
             process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),

@@ -27,7 +27,8 @@ use solana_pubkey::Pubkey;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 #[repr(u8)]
 pub enum OrderKind {
-    #[default] Sell = 0,
+    #[default]
+    Sell = 0,
     Buy = 1,
 }
 

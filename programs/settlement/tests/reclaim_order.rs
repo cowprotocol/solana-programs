@@ -53,10 +53,9 @@ fn create_order(
         created_by: owner.pubkey(),
         order_pda: pda,
         intent_bytes: encoded,
-    }
-    .instruction();
+    };
     let tx = Transaction::new_signed_with_payer(
-        &[ix],
+        &[ix.into()],
         Some(&owner.pubkey()),
         &[owner],
         svm.latest_blockhash(),
@@ -95,10 +94,9 @@ fn happy_path_returns_lamports_and_closes_pda() {
         created_by: reclaim_recipient.pubkey(),
         order_pda: pda,
         intent_bytes: encoded_bytes,
-    }
-    .instruction();
+    };
     let tx = Transaction::new_signed_with_payer(
-        &[ix],
+        &[ix.into()],
         Some(&fee_payer.pubkey()),
         &[&fee_payer, &reclaim_recipient],
         svm.latest_blockhash(),
