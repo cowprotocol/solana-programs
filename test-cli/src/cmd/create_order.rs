@@ -124,10 +124,9 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     }
 
     let payer = ctx.load_payer()?;
-    let rpc = ctx.rpc();
 
-    let sell_resolved = crate::token::resolve(&rpc, &payer.pubkey(), sell_tok)?;
-    let buy_resolved = crate::token::resolve(&rpc, &payer.pubkey(), buy_tok)?;
+    let sell_resolved = crate::token::resolve(&ctx.rpc, &payer.pubkey(), sell_tok)?;
+    let buy_resolved = crate::token::resolve(&ctx.rpc, &payer.pubkey(), buy_tok)?;
 
     let sell_amount_str = sell_amount_str.unwrap_or("0");
     let buy_amount_str = buy_amount_str.unwrap_or("0");
@@ -146,7 +145,7 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
         // We are selling from an ATA--either we have to resolve it from the mint, or the user gave
         // it to us and we should validate
         let account = if let Some(explicit) = common.sell_token_account {
-            verify_ata_ownership(&rpc, &explicit, &payer.pubkey())?;
+            verify_ata_ownership(&ctx.rpc, &explicit, &payer.pubkey())?;
             explicit
         } else {
             sell_resolved.account
@@ -194,12 +193,14 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
         .chain([create_order_ix.into()])
         .collect();
 
-    let blockhash = rpc
+    let blockhash = ctx
+        .rpc
         .get_latest_blockhash()
         .context("failed to fetch blockhash")?;
     let tx =
         Transaction::new_signed_with_payer(&all_ixs, Some(&payer.pubkey()), &[&payer], blockhash);
-    let sig = rpc
+    let sig = ctx
+        .rpc
         .send_and_confirm_transaction(&tx)
         .context("transaction failed")?;
 
