@@ -27,7 +27,7 @@ impl Context {
 fn expand_tilde(path: &str) -> std::path::PathBuf {
     match path.strip_prefix("~/") {
         Some(rest) => {
-            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest)
+            std::path::PathBuf::from(std::env::var("HOME").expect("`HOME` env not available")).join(rest)
         }
         None => std::path::PathBuf::from(path),
     }
