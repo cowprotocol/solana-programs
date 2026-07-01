@@ -7,7 +7,7 @@ use spl_associated_token_account_interface::{
     address::get_associated_token_address_with_program_id,
     instruction::create_associated_token_account_idempotent,
 };
-use spl_token_interface::instruction::{self as token_ix, AuthorityType};
+use spl_token_interface::instruction::{self as token_ix};
 
 /// Build instructions that wrap `amount` lamports into the payer's WSOL ATA.
 ///
@@ -28,25 +28,6 @@ pub fn wrap_sol(payer: &Pubkey, amount: u64) -> anyhow::Result<(Pubkey, Vec<Inst
         .context("failed to build SyncNative instruction")?;
 
     Ok((wsol_ata, vec![create_ata, transfer, sync]))
-}
-
-/// Build a `SetAuthority(CloseAccount)` instruction.
-pub fn set_close_authority(
-    program_id: &Pubkey,
-    token_account: &Pubkey,
-    owner: &Pubkey,
-) -> anyhow::Result<Instruction> {
-    let (settlement_pda, _) = Pubkey::find_program_address(&[SETTLEMENT_SEED], program_id);
-
-    token_ix::set_authority(
-        &spl_token_interface::id(),
-        token_account,
-        Some(&settlement_pda),
-        AuthorityType::CloseAccount,
-        owner,
-        &[],
-    )
-    .context("failed to build SetAuthority(CloseAccount) instruction")
 }
 
 /// Build an `Approve` instruction delegating `amount` tokens on `token_account`

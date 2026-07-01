@@ -8,10 +8,7 @@ use settlement_client::{
         Pubkey,
     },
 };
-use solana_program_pack::Pack;
-use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::{signature::Signer, transaction::Transaction};
-use spl_token_interface::state::Account as SplTokenAccount;
 
 use super::Context;
 use crate::token::verify_ata_ownership;
@@ -132,8 +129,14 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     let sell_resolved = crate::token::resolve(&rpc, &payer.pubkey(), sell_tok)?;
     let buy_resolved = crate::token::resolve(&rpc, &payer.pubkey(), buy_tok)?;
 
-    let sell_amount = parse_amount(sell_amount_str.unwrap_or("0"), sell_resolved.decimals)?;
-    let buy_amount = parse_amount(buy_amount_str.unwrap_or("0"), buy_resolved.decimals)?;
+    let sell_amount_str = sell_amount_str.unwrap_or("0");
+    let buy_amount_str = buy_amount_str.unwrap_or("0");
+    let sell_amount =
+        spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell_resolved.decimals)
+            .map_err(|_| anyhow::anyhow!("invalid sell amount: {sell_amount_str}"))?;
+    let buy_amount =
+        spl_token::try_ui_amount_into_amount(buy_amount_str.to_string(), buy_resolved.decimals)
+            .map_err(|_| anyhow::anyhow!("invalid buy amount: {buy_amount_str}"))?;
 
     // If the sell token is SOL, wrap it into the payer's WSOL ATA first.
     let (sell_token_account, mut prep_ixs) = if sell_tok.eq_ignore_ascii_case("sol") {
@@ -160,17 +163,6 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
         &payer.pubkey(),
         sell_amount,
     )?);
-
-    // Grant the settlement program close authority so it can reclaim rent after settlement.
-    // Skip if the owner no longer controls close authority (i.e. already delegated).
-    // (This isnt actually a feature in the settlement contract yet, but it might become)
-    if owner_controls_close_authority(&rpc, &sell_token_account) {
-        prep_ixs.push(crate::instructions::set_close_authority(
-            &ctx.program_id,
-            &sell_token_account,
-            &payer.pubkey(),
-        )?);
-    }
 
     let intent = OrderIntent {
         owner: payer.pubkey(),
@@ -211,36 +203,11 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     Ok(())
 }
 
+/// Returns `true` if `s` looks like a numeric amount (as opposed to a token
+/// symbol/mint), so the 3-token form can be disambiguated before decimals are
+/// known. Real validation happens later via `spl_token::try_ui_amount_into_amount`.
 fn is_amount(s: &str) -> bool {
-    s.parse::<f64>().is_ok()
-}
-
-/// Convert a human-readable amount string to the token's smallest unit using
-/// `decimals` fetched from the on-chain mint.
-fn parse_amount(amount_str: &str, decimals: u8) -> anyhow::Result<u64> {
-    let amount: f64 = amount_str
-        .parse()
-        .with_context(|| format!("invalid amount: {amount_str}"))?;
-    let multiplier = 10u64.pow(u32::from(decimals));
-    Ok((amount * multiplier as f64).round() as u64)
-}
-
-/// Returns `true` if the token account's close authority is still controlled by its owner
-/// (either unset, meaning the owner implicitly controls it, or explicitly equal to the owner).
-///
-/// Returns `true` for non-existent accounts (they will be created with owner control).
-fn owner_controls_close_authority(rpc: &RpcClient, token_account: &Pubkey) -> bool {
-    rpc.get_account(token_account)
-        .ok()
-        .and_then(|acc| SplTokenAccount::unpack(&acc.data).ok())
-        .map(|ta| {
-            // COption::None means the owner implicitly controls close authority.
-            // Use bytes comparison to avoid cross-version PartialEq ambiguity.
-            ta.close_authority
-                .map(|ca| ca.to_bytes() == ta.owner.to_bytes())
-                .unwrap_or(true)
-        })
-        .unwrap_or(true)
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
 /// Returns the current unix timestamp plus `secs_from_now`, saturating at `u32::MAX`.
