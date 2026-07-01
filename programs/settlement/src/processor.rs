@@ -3,6 +3,7 @@
 use pinocchio::{
     address::MAX_SEEDS,
     cpi::{Seed, Signer},
+    error::ProgramError,
     AccountView, Address, ProgramResult,
 };
 
@@ -62,6 +63,24 @@ impl<const N: usize> CanonicalPda<'_, N> {
 
 pub fn is_cpi_call() -> bool {
     get_stack_height() > TRANSACTION_LEVEL_STACK_HEIGHT
+}
+
+/// Current on-chain unix timestamp.
+///
+/// Off the Solana target (e.g. host-run unit tests), the `Clock` sysvar isn't
+/// available, so this returns a fixed 2026-01-01T00:00:00Z timestamp instead.
+#[cfg(target_os = "solana")]
+#[inline(always)]
+pub fn get_timestamp() -> Result<i64, ProgramError> {
+    use pinocchio::sysvars::{clock::Clock, Sysvar};
+
+    Ok(Clock::get()?.unix_timestamp)
+}
+
+#[cfg(not(target_os = "solana"))]
+#[inline(always)]
+pub fn get_timestamp() -> Result<i64, ProgramError> {
+    Ok(1_767_225_600)
 }
 
 #[cfg(test)]

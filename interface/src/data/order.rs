@@ -29,7 +29,7 @@ use solana_pubkey::Pubkey;
 use crate::data::intent::{self, EncodedOrderIntent, OrderIntent};
 
 /// Idiomatic representation of an order PDA's body.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct OrderAccount {
     /// `false` = the order is still active and can be filled; `true` = the
     /// order has been cancelled by the owner and must not be filled.

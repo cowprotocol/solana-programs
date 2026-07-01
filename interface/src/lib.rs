@@ -22,6 +22,7 @@ pub enum SettlementInstruction {
     CreateOrder = 2,
     Initialize = 3,
     CreateBuffer = 4,
+    ReclaimOrder = 5,
 }
 
 impl SettlementInstruction {
@@ -112,6 +113,11 @@ pub enum SettlementError {
     /// `BeginSettle`'s state account isn't the canonical settlement state PDA,
     /// which must sign the pulls as the user's token delegate.
     StateAccountMismatch = 18,
+    /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
+    OrderNotExpired = 19,
+    /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
+    /// `created_by` address recorded in the order.
+    ReclaimRecipientMismatch = 20,
 }
 
 impl From<SettlementError> for u32 {

@@ -12,6 +12,7 @@ use crate::{recover_discriminator, SettlementInstruction};
 pub mod create_buffer;
 pub mod create_order;
 pub mod initialize;
+pub mod reclaim_order;
 pub mod settle;
 
 /// Shared components for parsing generic instruction input.
@@ -85,11 +86,33 @@ pub mod fixtures {
         unsafe { AccountView::new_unchecked(backing as *mut RuntimeAccount) }
     }
 
+    pub fn fake_account_with_data(address: Address, data: &[u8]) -> AccountView {
+
+        // The RuntimeAccount struct actually functions as a header. If any data is included in the account, it should be placed in the bytes following the header.
+        // For this, we need to allocate some data on the heap to hold both the account and the data we want to store.
+        // We use Box::leak to prevent the memory from being deallocated after this function, which is fine for tests.
+        const HEADER: usize = core::mem::size_of::<RuntimeAccount>();
+
+        let buf = Box::leak(Box::<[u8]>::new_uninit_slice(HEADER + data.len()));
+        let base = buf.as_mut_ptr() as *mut u8;
+
+        unsafe {
+            std::ptr::write(base as *mut RuntimeAccount, RuntimeAccount {
+                address,
+                borrow_state: solana_account_view::NOT_BORROWED, // allows for code to borrow this account to read its data
+                data_len: data.len() as u64,
+                ..Default::default()
+            });
+
+            // mostly equivalent to C's `memcpy`
+            std::ptr::copy_nonoverlapping(data.as_ptr(), base.add(HEADER), data.len());
+        }
+
+        unsafe { AccountView::new_unchecked(buf.as_mut_ptr() as *mut RuntimeAccount) }
+    }
+
     pub fn fake_account(address: Address) -> AccountView {
-        fake_account_from(RuntimeAccount {
-            address,
-            ..Default::default()
-        })
+        fake_account_with_data(address, &[])
     }
 
     pub fn fake_account_from_array(address_array: [u8; 32]) -> AccountView {

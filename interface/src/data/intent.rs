@@ -24,14 +24,14 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 /// Direction of the trade.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 #[repr(u8)]
 pub enum OrderKind {
-    Sell = 0,
+    #[default] Sell = 0,
     Buy = 1,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct OrderIntent {
     /// Account authorized to create and invalidate this order and whose
     /// signature authenticates it. For off-chain orders this is the Ed25519
