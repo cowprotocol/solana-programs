@@ -1,7 +1,7 @@
 use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser};
 use settlement_client::{
-    instructions::create_order,
+    instructions::CreateOrder,
     settlement_interface::{
         data::intent::{EncodedOrderIntent, OrderIntent, OrderKind},
         pda::order::find_order_pda,
@@ -181,10 +181,15 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     let (order_pda, _) = find_order_pda(&ctx.program_id, &uid);
 
     // owner == created_by: the payer both owns the order and funds the rent.
-    let create_order_ix = create_order(&ctx.program_id, &payer.pubkey(), &payer.pubkey(), &intent);
+    let create_order_ix = CreateOrder {
+        program_id: ctx.program_id,
+        owner: payer.pubkey(),
+        created_by: payer.pubkey(),
+        intent: &intent,
+    };
 
     // Bundle preparation and order creation into a single transaction.
-    let all_ixs: Vec<_> = prep_ixs.into_iter().chain([create_order_ix]).collect();
+    let all_ixs: Vec<_> = prep_ixs.into_iter().chain([create_order_ix.into()]).collect();
 
     let blockhash = rpc
         .get_latest_blockhash()

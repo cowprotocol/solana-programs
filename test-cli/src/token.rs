@@ -19,9 +19,12 @@ struct KnownToken {
     decimals: u8,
 }
 
-// Temporary registry mapping token symbols to mint addresess. Intended to be replaced in the
+const DEVNET_GENESIS_HASH: &str = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaDFTBmGyp9";
+
+// Temporary registry mapping solana networks (isolated by "genesis" hash) and token symbols to mint addresess. Intended to be replaced in the
 // future with something more robust.
-static REGISTRY: &[(&str, KnownToken)] = &[(
+static REGISTRY: &[( &str, &str, KnownToken)] = &[(
+    DEVNET_GENESIS_HASH,
     "USDC",
     KnownToken {
         mint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
@@ -59,7 +62,13 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
         });
     }
 
-    if let Some((_, known)) = REGISTRY.iter().find(|(sym, _)| *sym == upper.as_str()) {
+    let genesis_hash = rpc.get_genesis_hash()
+        .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
+        .to_string();
+
+    if let Some((_, _, known)) = REGISTRY.iter().find(|(registry_genesis_hash, sym, _)| {
+        *registry_genesis_hash == genesis_hash && *sym == upper.as_str()
+    }) {
         let mint: Pubkey = known.mint.parse().expect("registry mint constant");
         let ata =
             get_associated_token_address_with_program_id(owner, &mint, &spl_token_interface::id());
@@ -70,7 +79,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
     }
 
     if let Ok(pubkey) = token_str.parse::<Pubkey>() {
-        return resolve_pubkey(rpc, owner, &pubkey);
+        return resolve_token_account(rpc, owner, &pubkey);
     }
 
     anyhow::bail!(
@@ -85,28 +94,28 @@ fn resolve_token_account(
     token_account_or_mint: &Pubkey,
 ) -> anyhow::Result<ResolvedToken> {
     let account = rpc
-        .get_account(pubkey)
-        .with_context(|| format!("account {pubkey} not found on-chain"))?;
+        .get_account(token_account_or_mint)
+        .with_context(|| format!("account {token_account_or_mint} not found on-chain"))?;
 
     anyhow::ensure!(
         account.owner == spl_token_interface::id(),
-        "{pubkey} is not owned by the token program (owner: {})",
+        "{token_account_or_mint} is not owned by the token program (owner: {})",
         account.owner
     );
 
     if let Ok(token_account) = TokenAccount::unpack(&account.data) {
         Ok(ResolvedToken {
-            account: *pubkey,
+            account: *token_account_or_mint,
             decimals: fetch_mint_decimals(rpc, &token_account.mint)?,
         })
     } else if let Ok(mint) = Mint::unpack(&account.data) {
         Ok(ResolvedToken {
-            account: get_associated_token_address_with_program_id(owner, pubkey, &account.owner),
+            account: get_associated_token_address_with_program_id(owner, token_account_or_mint, &account.owner),
             decimals: mint.decimals,
         })
     } else {
         anyhow::bail!(
-            "{pubkey} could not be unpacked as a token account or mint \
+            "{token_account_or_mint} could not be unpacked as a token account or mint \
              (data length: {})",
             account.data.len()
         )

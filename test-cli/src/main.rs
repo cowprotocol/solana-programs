@@ -1,12 +1,9 @@
 use clap::{Parser, Subcommand};
-use settlement_client::settlement_interface::Pubkey;
+use settlement_client::settlement_interface::{self, Pubkey};
 
 mod cmd;
 mod instructions;
 mod token;
-
-/// Default program ID declared in `settlement_interface`.
-const DEFAULT_PROGRAM_ID: &str = "MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK";
 
 #[derive(Parser)]
 #[command(name = "cow", about = "CoW Protocol Solana dev/testing CLI")]
@@ -30,8 +27,8 @@ struct Cli {
     keypair: String,
 
     /// Settlement program ID
-    #[arg(long, global = true, default_value = DEFAULT_PROGRAM_ID)]
-    program_id: Pubkey,
+    #[arg(long, global = true, default_value = None)]
+    program_id: Option<Pubkey>,
 
     #[command(subcommand)]
     command: Commands,
@@ -50,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     let ctx = cmd::Context {
         rpc_url: cli.rpc_url,
         keypair: cli.keypair,
-        program_id: cli.program_id,
+        program_id: cli.program_id.unwrap_or(settlement_interface::ID.into()),
     };
     match cli.command {
         Commands::Sell(args) => cmd::create_order::run_sell(ctx, args),
