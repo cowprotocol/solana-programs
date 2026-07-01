@@ -19,7 +19,7 @@ struct KnownToken {
     decimals: u8,
 }
 
-const DEVNET_GENESIS_HASH: &str = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaDFTBmGyp9";
+const DEVNET_GENESIS_HASH: &str = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 
 // Temporary registry mapping solana networks (isolated by "genesis" hash) and token symbols to mint addresess. Intended to be replaced in the
 // future with something more robust.
@@ -40,52 +40,49 @@ pub struct ResolvedToken {
 }
 
 /// Resolve a user-supplied token string to a token account and decimal count.
-///
-/// Resolution order:
-/// 1. `"SOL"` / `"WSOL"` — payer's WSOL ATA, 9 decimals, no RPC call.
-/// 2. Known symbol (e.g. `"USDC"`) — payer's ATA for the registered mint, no RPC call.
-/// 3. Base58 mint address — derives payer's ATA; fetches decimals from the mint.
-/// 4. Base58 token-account address — used directly; fetches decimals from its mint.
 pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Result<ResolvedToken> {
-    let upper = token_str.to_uppercase();
-
-    if matches!(upper.as_str(), "SOL" | "WSOL") {
-        let wsol_mint: Pubkey = native_mint::id();
-        let wsol_ata = get_associated_token_address_with_program_id(
-            owner,
-            &wsol_mint,
-            &spl_token_interface::id(),
-        );
-        return Ok(ResolvedToken {
-            account: wsol_ata,
-            decimals: native_mint::DECIMALS,
-        });
+    match (token_str.parse::<Pubkey>(), token_str.to_uppercase().as_str()) {
+        // 1. `"SOL"` / `"WSOL"` — payer's WSOL ATA, 9 decimals, no RPC call.
+        (_, "SOL" | "WSOL") => {
+            let wsol_mint: Pubkey = native_mint::id();
+            let wsol_ata = get_associated_token_address_with_program_id(
+                owner,
+                &wsol_mint,
+                &spl_token_interface::id(),
+            );
+            Ok(ResolvedToken {
+                account: wsol_ata,
+                decimals: native_mint::DECIMALS,
+            })
+        }
+        // parsable address -> resolve its mint as necessary and fetch decimals
+        (Ok(pubkey), _) => {
+            resolve_token_account(rpc, owner, &pubkey)
+        }
+        // something else -> lookup the mint in the registry
+        _ => {
+            let genesis_hash = rpc.get_genesis_hash()
+                .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
+                .to_string();
+            if let Some((_, _, known)) = REGISTRY.iter().find(|(registry_genesis_hash, sym, _)| {
+                *registry_genesis_hash == genesis_hash && *sym == token_str.to_uppercase().as_str()
+            }) {
+                let mint: Pubkey = known.mint.parse().expect("registry mint constant");
+                let ata =
+                    get_associated_token_address_with_program_id(owner, &mint, &spl_token_interface::id());
+                Ok(ResolvedToken {
+                    account: ata,
+                    decimals: known.decimals,
+                })
+            } else {
+                anyhow::bail!(
+                    "unknown token '{token_str}'; supported symbols: SOL, WSOL, USDC — \
+                    or provide a mint / token-account address"
+                )
+            }
+        }
     }
 
-    let genesis_hash = rpc.get_genesis_hash()
-        .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
-        .to_string();
-
-    if let Some((_, _, known)) = REGISTRY.iter().find(|(registry_genesis_hash, sym, _)| {
-        *registry_genesis_hash == genesis_hash && *sym == upper.as_str()
-    }) {
-        let mint: Pubkey = known.mint.parse().expect("registry mint constant");
-        let ata =
-            get_associated_token_address_with_program_id(owner, &mint, &spl_token_interface::id());
-        return Ok(ResolvedToken {
-            account: ata,
-            decimals: known.decimals,
-        });
-    }
-
-    if let Ok(pubkey) = token_str.parse::<Pubkey>() {
-        return resolve_token_account(rpc, owner, &pubkey);
-    }
-
-    anyhow::bail!(
-        "unknown token '{token_str}'; supported symbols: SOL, WSOL, USDC — \
-         or provide a mint / token-account address"
-    )
 }
 
 fn resolve_token_account(
