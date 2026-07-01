@@ -79,10 +79,10 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
     )
 }
 
-fn resolve_pubkey(
+fn resolve_token_account(
     rpc: &RpcClient,
     owner: &Pubkey,
-    pubkey: &Pubkey,
+    token_account_or_mint: &Pubkey,
 ) -> anyhow::Result<ResolvedToken> {
     let account = rpc
         .get_account(pubkey)
