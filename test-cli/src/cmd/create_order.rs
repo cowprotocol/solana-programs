@@ -55,9 +55,9 @@ pub struct BuyOrSellArgs {
     /// Amount to sell (e.g. 1.0)
     amount: String,
 
-    /// Remaining tokens — see above for all supported forms
+    /// Remaining terms (tokens and/or an amount) — run with --help for supported forms
     #[arg(num_args = 1..=4)]
-    tokens: Vec<String>,
+    terms: Vec<String>,
 
     #[command(flatten)]
     common: CommonArgs,
@@ -65,20 +65,20 @@ pub struct BuyOrSellArgs {
 pub fn run_sell(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
     let BuyOrSellArgs {
         amount,
-        tokens,
+        terms,
         common,
     } = args;
-    let parsed = parse(OrderKind::Sell, &amount, &tokens)?;
+    let parsed = parse(OrderKind::Sell, &amount, &terms)?;
     execute(ctx, parsed, common)
 }
 
 pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
     let BuyOrSellArgs {
         amount,
-        tokens,
+        terms,
         common,
     } = args;
-    let parsed = parse(OrderKind::Buy, &amount, &tokens)?;
+    let parsed = parse(OrderKind::Buy, &amount, &terms)?;
     execute(ctx, parsed, common)
 }
 
@@ -96,9 +96,9 @@ type ParsedSyntax<'a> = (
 fn parse<'a>(
     kind: OrderKind,
     amount: &'a str,
-    tokens: &'a [String],
+    terms: &'a [String],
 ) -> anyhow::Result<ParsedSyntax<'a>> {
-    let t: Vec<&str> = tokens
+    let t: Vec<&str> = terms
         .iter()
         .filter(|s| !s.eq_ignore_ascii_case("for"))
         .map(String::as_str)
@@ -111,7 +111,7 @@ fn parse<'a>(
         }
         _ => anyhow::bail!(
             "cannot interpret {:?}; run `cow sell --help` for usage",
-            tokens
+            terms
         ),
     }
 }
