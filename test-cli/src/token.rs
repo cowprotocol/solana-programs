@@ -41,16 +41,16 @@ pub struct ResolvedToken {
 
 /// Resolve a user-supplied token string to a token account and decimal count.
 pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Result<ResolvedToken> {
-    match (
-        token_str.parse::<Pubkey>(),
-        token_str.to_uppercase().as_str(),
-    ) {
-        // 1. `"SOL"` / `"WSOL"` — payer's WSOL ATA, 9 decimals, no RPC call.
-        (_, "SOL" | "WSOL") => {
-            let wsol_mint: Pubkey = native_mint::id();
+    let genesis_hash = rpc
+        .get_genesis_hash()
+        .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
+        .to_string();
+    match token_str.to_uppercase().as_str() {
+        // 1. `"SOL"` / `"WSOL"` — payer's WSOL ATA, 9 decimals.
+        "SOL" | "WSOL" => {
             let wsol_ata = get_associated_token_address_with_program_id(
                 owner,
-                &wsol_mint,
+                &native_mint::id(),
                 &spl_token_interface::id(),
             );
             Ok(ResolvedToken {
@@ -58,35 +58,41 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
                 decimals: native_mint::DECIMALS,
             })
         }
-        // parsable address -> resolve its mint as necessary and fetch decimals
-        (Ok(pubkey), _) => resolve_token_account(rpc, owner, &pubkey),
-        // something else -> lookup the mint in the registry
-        _ => {
-            let genesis_hash = rpc
-                .get_genesis_hash()
-                .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
-                .to_string();
-            if let Some((_, _, known)) = REGISTRY.iter().find(|(registry_genesis_hash, sym, _)| {
-                *registry_genesis_hash == genesis_hash && *sym == token_str.to_uppercase().as_str()
-            }) {
-                let mint: Pubkey = known.mint.parse().expect("registry mint constant");
-                let ata = get_associated_token_address_with_program_id(
-                    owner,
-                    &mint,
-                    &spl_token_interface::id(),
-                );
-                Ok(ResolvedToken {
-                    account: ata,
-                    decimals: known.decimals,
-                })
-            } else {
-                anyhow::bail!(
-                    "unknown token '{token_str}'; supported symbols: SOL, WSOL, USDC — \
-                    or provide a mint / token-account address"
-                )
-            }
+
+        // 2. A mint or token-account address — resolve its mint as necessary and fetch decimals.
+        token_str if let Ok(pubkey) = token_str.parse::<Pubkey>() => {
+            resolve_token_account(rpc, owner, &pubkey)
         }
+
+        // 3. A known symbol in the network's registry.
+        token_str if let Some(known) = registry_lookup(&genesis_hash, token_str) => {
+            let mint: Pubkey = known.mint.parse().expect("registry mint constant");
+            let ata = get_associated_token_address_with_program_id(
+                owner,
+                &mint,
+                &spl_token_interface::id(),
+            );
+            Ok(ResolvedToken {
+                account: ata,
+                decimals: known.decimals,
+            })
+        }
+
+        // 4. Unknown token.
+        token_str => anyhow::bail!(
+            "unknown token '{token_str}'; supported symbols: SOL, WSOL, USDC — \
+            or provide a mint / token-account address"
+        ),
     }
+}
+
+/// Find the registry entry for `symbol` on the network identified by `genesis_hash`.
+fn registry_lookup(genesis_hash: &str, symbol: &str) -> Option<&'static KnownToken> {
+    REGISTRY
+        .iter()
+        .find_map(|(registry_genesis_hash, sym, known)| {
+            (*registry_genesis_hash == genesis_hash && *sym == symbol).then_some(known)
+        })
 }
 
 fn resolve_token_account(
