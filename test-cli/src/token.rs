@@ -141,7 +141,10 @@ pub fn verify_ata_ownership(
         return Ok(());
     };
     let Ok(ta) = TokenAccount::unpack(&raw.data) else {
-        return Ok(());
+        anyhow::bail!(
+            "account {token_account} is not a valid SPL token account (data length: {})",
+            raw.data.len()
+        );
     };
     let expected_ata = get_associated_token_address_with_program_id(
         &ta.owner,
