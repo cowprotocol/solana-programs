@@ -33,7 +33,7 @@ static REGISTRY: &[( &str, &str, KnownToken)] = &[(
 )];
 
 pub struct ResolvedToken {
-    /// SPL token account to use in the order (ATA if input was a mint).
+    /// SPL token account to use in the order (ATA if supplied program argument was a mint).
     pub account: Pubkey,
     /// On-chain `decimals` value for the token's mint.
     pub decimals: u8,
