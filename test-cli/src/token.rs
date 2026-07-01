@@ -88,10 +88,10 @@ fn resolve_pubkey(
         .get_account(pubkey)
         .with_context(|| format!("account {pubkey} not found on-chain"))?;
 
-    let owner_str = account.owner.to_string();
     anyhow::ensure!(
-        owner_str == spl_token_interface::id().to_string(),
-        "{pubkey} is not owned by the token program (owner: {owner_str})"
+        account.owner == spl_token_interface::id(),
+        "{pubkey} is not owned by the token program (owner: {})",
+        account.owner
     );
 
     if let Ok(token_account) = TokenAccount::unpack(&account.data) {
