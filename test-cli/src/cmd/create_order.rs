@@ -15,7 +15,7 @@ use crate::token::verify_ata_ownership;
 
 #[derive(ClapArgs)]
 struct CommonArgs {
-    /// Override the resolved sell-side SPL token account (default: payer's WSOL ATA for SOL)
+    /// Override the resolved sell-side SPL token account (default: payer's ATA for the sell token)
     #[arg(long)]
     sell_token_account: Option<Pubkey>,
 
