@@ -34,21 +34,16 @@ struct CommonArgs {
 
 #[derive(Parser)]
 #[command(long_about = "\
-Create an order selling exactly N token for another. This only creates the order \
-on-chain; it does not itself execute the swap. Supported forms:
+Create an order to sell or buy exactly N token, per the subcommand used \
+(`cow sell` / `cow buy`). This only creates the order on-chain; it does not \
+itself execute the swap. Supported forms:
 
   cow sell 1.0 SOL USDC        sell exactly 1.0 SOL, receive any USDC
   cow sell 1.0 SOL 50.0 USDC   sell exactly 1.0 SOL, receive ≥ 50.0 USDC
   cow sell 1.0 USDC            sell 1.0 SOL into USDC (SOL implied as sell token)
-
-Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address.")]
-#[command(long_about = "\
-Create an order buying exactly N token using another. This only creates the order \
-on-chain; it does not itself execute the swap. Supported forms:
-
-  cow buy 1.0 SOL 100.0 USDC       buy exactly 1.0 SOL, spend at most 100.0 USDC
-  cow buy 1.0 SOL USDC             buy exactly 1.0 SOL, spending any USDC
-  cow buy 1.0 USDC                 buy 1.0 USDC, selling any amount of SOL (implied)
+  cow buy 1.0 SOL 100.0 USDC   buy exactly 1.0 SOL, spend at most 100.0 USDC
+  cow buy 1.0 SOL USDC         buy exactly 1.0 SOL, spending any USDC
+  cow buy 1.0 USDC             buy 1.0 USDC, selling any amount of SOL (implied)
 
 Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address.")]
 pub struct BuyOrSellArgs {
@@ -62,6 +57,7 @@ pub struct BuyOrSellArgs {
     #[command(flatten)]
     common: CommonArgs,
 }
+
 pub fn run_sell(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
     let BuyOrSellArgs {
         amount,

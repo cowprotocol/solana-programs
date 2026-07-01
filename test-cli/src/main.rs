@@ -41,9 +41,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Sell a token for another (e.g. `cow sell 1.0 SOL for USDC`)
+    #[command(about = "Sell a token for another (e.g. `cow sell 1.0 SOL for USDC`)")]
     Sell(cmd::create_order::BuyOrSellArgs),
-    /// Buy a token using another (e.g. `cow buy 1.0 SOL with USDC`)
+    #[command(about = "Buy a token using another (e.g. `cow buy 1.0 SOL with USDC`)")]
     Buy(cmd::create_order::BuyOrSellArgs),
 }
 
