@@ -181,15 +181,14 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         intent: &intent,
     };
 
-    // Bundle preparation and order creation into a single transaction.
-    let all_ixs: Vec<_> = ixs.into_iter().chain([create_order_ix.into()]).collect();
+    ixs.push(create_order_ix.into());
 
     let blockhash = ctx
         .rpc
         .get_latest_blockhash()
         .context("failed to fetch blockhash")?;
     let tx = Transaction::new_signed_with_payer(
-        &all_ixs,
+        &ixs,
         Some(&ctx.payer.pubkey()),
         &[&ctx.payer],
         blockhash,
