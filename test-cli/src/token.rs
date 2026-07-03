@@ -41,55 +41,51 @@ pub struct ResolvedToken {
 
 /// Resolve a user-supplied token string to a token account and decimal count.
 pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Result<ResolvedToken> {
-    match (
-        token_str.parse::<Pubkey>(),
-        token_str.to_uppercase().as_str(),
-    ) {
-        // 1. `"SOL"` / `"WSOL"` — payer's WSOL ATA, 9 decimals, no RPC call.
-        (_, "SOL" | "WSOL") => {
-            let wsol_mint: Pubkey = native_mint::id();
-            let wsol_ata = get_associated_token_address_with_program_id(
-                owner,
-                &wsol_mint,
-                &spl_token_interface::id(),
-            );
-            Ok(ResolvedToken {
-                account: wsol_ata,
-                decimals: native_mint::DECIMALS,
-            })
-        }
-        // parsable address -> resolve its mint as necessary and fetch decimals
-        (Ok(pubkey), _) => resolve_token_account(rpc, owner, &pubkey),
-        // something else -> lookup the mint in the registry
-        _ => {
-            let genesis_hash = rpc
-                .get_genesis_hash()
-                .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
-                .to_string();
-            if let Some((_, _, known)) = REGISTRY.iter().find(|(registry_genesis_hash, sym, _)| {
-                *registry_genesis_hash == genesis_hash && *sym == token_str.to_uppercase().as_str()
-            }) {
-                let mint: Pubkey = known.mint.parse().expect("registry mint constant");
-                let ata = get_associated_token_address_with_program_id(
-                    owner,
-                    &mint,
-                    &spl_token_interface::id(),
-                );
-                Ok(ResolvedToken {
-                    account: ata,
-                    decimals: known.decimals,
-                })
-            } else {
-                anyhow::bail!(
-                    "unknown token '{token_str}'; supported symbols: SOL, WSOL, USDC — \
-                    or provide a mint / token-account address"
-                )
-            }
-        }
+    let upper = token_str.to_uppercase();
+
+    // 1. `"SOL"` / `"WSOL"` — payer's WSOL ATA, 9 decimals, no RPC call needed.
+    if matches!(upper.as_str(), "SOL" | "WSOL") {
+        let wsol_mint: Pubkey = native_mint::id();
+        let wsol_ata = get_associated_token_address_with_program_id(
+            owner,
+            &wsol_mint,
+            &spl_token_interface::id(),
+        );
+        return Ok(ResolvedToken {
+            account: wsol_ata,
+            decimals: native_mint::DECIMALS,
+        });
     }
+
+    // 2. Base58 mint or token-account address — fetches decimals from the mint, and possibly the token account owner.
+    if let Ok(pubkey) = token_str.parse::<Pubkey>() {
+        return resolve_from_account(rpc, owner, &pubkey);
+    }
+
+    // 3. Known symbol (e.g. `"USDC"`) — payer's ATA for the registered mint, RPC call required to get genesis hash (detecting the network).
+    let genesis_hash = rpc
+        .get_genesis_hash()
+        .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
+        .to_string();
+    if let Some((_, _, known)) = REGISTRY.iter().find(|(registry_genesis_hash, sym, _)| {
+        *registry_genesis_hash == genesis_hash && *sym == upper.as_str()
+    }) {
+        let mint: Pubkey = known.mint.parse().expect("registry mint constant");
+        let ata =
+            get_associated_token_address_with_program_id(owner, &mint, &spl_token_interface::id());
+        return Ok(ResolvedToken {
+            account: ata,
+            decimals: known.decimals,
+        });
+    }
+
+    anyhow::bail!(
+        "unknown token '{token_str}'; supported symbols: SOL, WSOL, USDC — \
+         or provide a mint / token-account address"
+    )
 }
 
-fn resolve_token_account(
+fn resolve_from_account(
     rpc: &RpcClient,
     owner: &Pubkey,
     token_account_or_mint: &Pubkey,
@@ -134,37 +130,4 @@ fn fetch_mint_decimals(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<u8> {
     Ok(Mint::unpack(&data)
         .with_context(|| format!("failed to unpack mint {mint}"))?
         .decimals)
-}
-
-/// Errors if `token_account` is an ATA whose owner is not `expected_owner`.
-///
-/// Non-ATA accounts and accounts that don't exist on-chain are silently skipped — the
-/// on-chain program will reject a misowned account at settlement time anyway.
-pub fn verify_ata_ownership(
-    rpc: &RpcClient,
-    token_account: &Pubkey,
-    expected_owner: &Pubkey,
-) -> anyhow::Result<()> {
-    let Some(raw) = rpc.get_account(token_account).ok() else {
-        return Ok(());
-    };
-    let Ok(ta) = TokenAccount::unpack(&raw.data) else {
-        anyhow::bail!(
-            "account {token_account} is not a valid SPL token account (data length: {})",
-            raw.data.len()
-        );
-    };
-    let expected_ata = get_associated_token_address_with_program_id(
-        &ta.owner,
-        &ta.mint,
-        &spl_token_interface::id(),
-    );
-    if expected_ata == *token_account && ta.owner.to_bytes() != expected_owner.to_bytes() {
-        anyhow::bail!(
-            "sell_token_account {token_account} is an ATA belonging to {}, not the signer {}",
-            ta.owner,
-            expected_owner,
-        );
-    }
-    Ok(())
 }

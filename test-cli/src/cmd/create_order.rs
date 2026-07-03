@@ -5,24 +5,15 @@ use settlement_client::{
     settlement_interface::{
         data::intent::{EncodedOrderIntent, OrderIntent, OrderKind},
         pda::order::find_order_pda,
-        Pubkey,
     },
 };
 use solana_sdk::{signature::Signer, transaction::Transaction};
 
 use super::Context;
-use crate::token::verify_ata_ownership;
+use crate::token::ResolvedToken;
 
 #[derive(ClapArgs)]
 struct CommonArgs {
-    /// Override the resolved sell-side SPL token account (default: payer's ATA for the sell token)
-    #[arg(long)]
-    sell_token_account: Option<Pubkey>,
-
-    /// Override the resolved buy-side SPL token account (default: payer's ATA for the buy token)
-    #[arg(long)]
-    buy_token_account: Option<Pubkey>,
-
     /// Unix timestamp after which the order expires (defaults to 5 minutes from now)
     #[arg(long, default_value_t = valid_to_in(300))]
     valid_to: u32,
@@ -38,12 +29,14 @@ Create an order to sell or buy exactly N token, per the subcommand used \
 (`cow sell` / `cow buy`). This only creates the order on-chain; it does not \
 itself execute the swap. Supported forms:
 
-  cow sell 1.0 SOL USDC        sell exactly 1.0 SOL, receive any USDC
-  cow sell 1.0 SOL 50.0 USDC   sell exactly 1.0 SOL, receive ≥ 50.0 USDC
-  cow sell 1.0 USDC            sell 1.0 SOL into USDC (SOL implied as sell token)
-  cow buy 1.0 SOL 100.0 USDC   buy exactly 1.0 SOL, spend at most 100.0 USDC
-  cow buy 1.0 SOL USDC         buy exactly 1.0 SOL, spending any USDC
-  cow buy 1.0 USDC             buy 1.0 USDC, selling any amount of SOL (implied)
+  cow sell 1.0 SOL USDC             sell exactly 1.0 SOL, receive any USDC
+  cow sell 1.0 SOL 50.0 USDC        sell exactly 1.0 SOL, receive ≥ 50.0 USDC
+  cow sell 1.0 SOL for 50.0 USDC    same as before, but more english
+  cow sell 1.0 USDC                 sell 1.0 SOL into USDC (SOL implied as sell token)
+  cow buy 1.0 SOL 100.0 USDC        buy exactly 1.0 SOL, spend at most 100.0 USDC
+  cow buy 1.0 SOL for 100.0 USDC    same as before, but more english
+  cow buy 1.0 SOL USDC              buy exactly 1.0 SOL, spending any USDC
+  cow buy 1.0 USDC                  buy 1.0 USDC, selling any amount of SOL (implied)
 
 Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address.")]
 pub struct BuyOrSellArgs {
@@ -64,7 +57,7 @@ pub fn run_sell(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
         terms,
         common,
     } = args;
-    let parsed = parse(OrderKind::Sell, &amount, &terms)?;
+    let parsed = parse(&ctx, OrderKind::Sell, &amount, &terms)?;
     execute(ctx, parsed, common)
 }
 
@@ -74,119 +67,100 @@ pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
         terms,
         common,
     } = args;
-    let parsed = parse(OrderKind::Buy, &amount, &terms)?;
+    let parsed = parse(&ctx, OrderKind::Buy, &amount, &terms)?;
     execute(ctx, parsed, common)
 }
 
-/// Amounts are `None` when unspecified.
-/// If `kind` is `OrderKind::Sell`, then `a_tok`/`a_amount` is the sold token.
-/// If `kind` is `OrderKind::Buy`, then `b_tok`/`b_amount` is the sold token.
-struct ParsedSyntax<'a> {
+/// Fully resolved and in sell/buy order — `parse` applies the buy-side flip
+/// and does token/amount resolution, so `execute` just builds instructions.
+struct ParsedOrder {
     kind: OrderKind,
-    a_tok: &'a str,
-    a_amount: Option<&'a str>,
-    b_tok: &'a str,
-    b_amount: Option<&'a str>,
+    sell: ResolvedToken,
+    sell_amount: u64,
+    sell_is_sol: bool,
+    buy: ResolvedToken,
+    buy_amount: u64,
 }
 
-fn parse<'a>(
+fn parse(
+    ctx: &Context,
     kind: OrderKind,
-    amount: &'a str,
-    terms: &'a [String],
-) -> anyhow::Result<ParsedSyntax<'a>> {
+    amount: &str,
+    terms: &[String],
+) -> anyhow::Result<ParsedOrder> {
     let t: Vec<&str> = terms
         .iter()
-        .filter(|s| !s.eq_ignore_ascii_case("for"))
+        .filter(|s| !s.eq_ignore_ascii_case("for") && !s.eq_ignore_ascii_case("with"))
         .map(String::as_str)
         .collect();
-    match t.as_slice() {
-        [tok] => Ok(ParsedSyntax {
-            kind,
-            a_tok: "SOL",
-            a_amount: Some(amount),
-            b_tok: tok,
-            b_amount: None,
-        }),
-        [a_tok, b_tok] => Ok(ParsedSyntax {
-            kind,
-            a_tok,
-            a_amount: Some(amount),
-            b_tok,
-            b_amount: None,
-        }),
-        [a_tok, buy_amount, b_tok] if is_amount(buy_amount) => Ok(ParsedSyntax {
-            kind,
-            a_tok,
-            a_amount: Some(amount),
-            b_tok,
-            b_amount: Some(buy_amount),
-        }),
+
+    // a/b are in the order the user typed them, not sell/buy order.
+    let (a_tok, a_amount, b_tok, b_amount) = match t.as_slice() {
+        [tok] => ("SOL", amount, *tok, "0"),
+        [a, b] => (*a, amount, *b, "0"),
+        [a, buy_amount, b] if is_amount(buy_amount) => (*a, amount, *b, *buy_amount),
         _ => anyhow::bail!(
             "cannot interpret {:?}; run `cow sell --help` for usage",
             terms
         ),
-    }
-}
-
-fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow::Result<()> {
-    let ParsedSyntax {
-        kind,
-        a_tok,
-        a_amount,
-        b_tok,
-        b_amount,
-    } = parsed;
-    let (mut sell_tok, mut sell_amount_str) = (a_tok, a_amount);
-    let (mut buy_tok, mut buy_amount_str) = (b_tok, b_amount);
-
-    // if buying the token, the parsing comes reversed
-    if kind == OrderKind::Buy {
-        (sell_tok, buy_tok) = (buy_tok, sell_tok);
-        (sell_amount_str, buy_amount_str) = (buy_amount_str, sell_amount_str);
-    }
-
-    let sell_resolved = crate::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
-    let buy_resolved = crate::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
-
-    let sell_amount_str = sell_amount_str.unwrap_or("0");
-    let buy_amount_str = buy_amount_str.unwrap_or("0");
-    let sell_amount =
-        spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell_resolved.decimals)
-            .map_err(|_| anyhow::anyhow!("invalid sell amount: {sell_amount_str}"))?;
-    let buy_amount =
-        spl_token::try_ui_amount_into_amount(buy_amount_str.to_string(), buy_resolved.decimals)
-            .map_err(|_| anyhow::anyhow!("invalid buy amount: {buy_amount_str}"))?;
-
-    // If the sell token is SOL, wrap it into the payer's WSOL ATA first.
-    let (sell_token_account, mut prep_ixs) = if sell_tok.eq_ignore_ascii_case("sol") {
-        let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&ctx.payer.pubkey(), sell_amount)?;
-        (wsol_ata, wrap_ixs)
-    } else {
-        // We are selling from an ATA--either we have to resolve it from the mint, or the user gave
-        // it to us and we should validate
-        let account = if let Some(explicit) = common.sell_token_account {
-            verify_ata_ownership(&ctx.rpc, &explicit, &ctx.payer.pubkey())?;
-            explicit
-        } else {
-            sell_resolved.account
-        };
-        (account, vec![])
     };
 
-    let buy_token_account = common.buy_token_account.unwrap_or(buy_resolved.account);
+    let (sell_tok, sell_amount_str, buy_tok, buy_amount_str) = match kind {
+        OrderKind::Sell => (a_tok, a_amount, b_tok, b_amount),
+        OrderKind::Buy => (b_tok, b_amount, a_tok, a_amount),
+    };
+
+    let sell = crate::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
+    let buy = crate::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
+
+    let sell_amount =
+        spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell.decimals)
+            .map_err(|_| anyhow::anyhow!("invalid sell amount: {sell_amount_str}"))?;
+    let buy_amount = spl_token::try_ui_amount_into_amount(buy_amount_str.to_string(), buy.decimals)
+        .map_err(|_| anyhow::anyhow!("invalid buy amount: {buy_amount_str}"))?;
+
+    Ok(ParsedOrder {
+        kind,
+        sell_is_sol: sell_tok.eq_ignore_ascii_case("sol"),
+        sell,
+        sell_amount,
+        buy,
+        buy_amount,
+    })
+}
+
+fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Result<()> {
+    let ParsedOrder {
+        kind,
+        sell,
+        sell_amount,
+        sell_is_sol,
+        buy,
+        buy_amount,
+    } = parsed;
+
+    // If the sell token is SOL, wrap it into the payer's WSOL ATA first.
+    // NOTE: later this will be swapped for the solflow program.
+    let mut ixs = Vec::new();
+
+    if sell_is_sol {
+        let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&ctx.payer.pubkey(), sell_amount)?;
+        assert_eq!(wsol_ata, sell.account, "resolved WSOL ATA mismatch");
+        ixs.extend(wrap_ixs);
+    }
 
     // Approve the settlement program to pull sell tokens on our behalf.
-    prep_ixs.push(crate::instructions::approve(
+    ixs.push(crate::instructions::approve(
         &ctx.program_id,
-        &sell_token_account,
+        &sell.account,
         &ctx.payer.pubkey(),
         sell_amount,
     )?);
 
     let intent = OrderIntent {
         owner: ctx.payer.pubkey(),
-        sell_token_account,
-        buy_token_account,
+        sell_token_account: sell.account,
+        buy_token_account: buy.account,
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,
@@ -208,10 +182,7 @@ fn execute(ctx: Context, parsed: ParsedSyntax<'_>, common: CommonArgs) -> anyhow
     };
 
     // Bundle preparation and order creation into a single transaction.
-    let all_ixs: Vec<_> = prep_ixs
-        .into_iter()
-        .chain([create_order_ix.into()])
-        .collect();
+    let all_ixs: Vec<_> = ixs.into_iter().chain([create_order_ix.into()]).collect();
 
     let blockhash = ctx
         .rpc
