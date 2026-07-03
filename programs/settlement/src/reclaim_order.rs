@@ -99,6 +99,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "settlement-test-clock")]
     #[test]
     fn process_reclaim_order_rejects_not_yet_expired() {
         let data = default_reclaim_data();
