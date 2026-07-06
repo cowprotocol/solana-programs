@@ -9,7 +9,7 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 mod begin;
 mod finalize;
 
-pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder, SettledOrders};
+pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder};
 pub use finalize::{FinalizeSettle, FinalizeSettleInput};
 
 /// Reads the first two bytes of a byte slice (instruction data) and
