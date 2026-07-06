@@ -7,11 +7,9 @@
 
 use settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
-    instruction::create_buffer::SPL_TOKEN_PROGRAM_ID,
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
-use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 
 // Reexport the instruction builders that don't change from the interface.
 // We want the client to provide all instruction builders.
@@ -123,6 +121,13 @@ impl From<Initialize> for Instruction {
     }
 }
 
+/// Builder for a `ReclaimBuffer` instruction closing the buffer for each of
+/// `mints`.
+///
+/// **Warning:** any token balance still held by a buffer is burned, not
+/// recovered, before the buffer is closed. Only reclaim buffers expected to
+/// be empty, or to write off dust/dead balances — never one that might still
+/// hold funds of useful value.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub receiver: Pubkey,
@@ -132,17 +137,12 @@ pub struct ReclaimBuffer<'a> {
 impl From<ReclaimBuffer<'_>> for Instruction {
     fn from(builder: ReclaimBuffer<'_>) -> Self {
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        let buffers: Vec<(Pubkey, Pubkey, Pubkey)> = builder
+        let buffers: Vec<(Pubkey, Pubkey)> = builder
             .mints
             .iter()
             .map(|mint| {
                 let (buffer_pda, _bump) = find_buffer_pda(&builder.program_id, mint);
-                let receiver_token_account = get_associated_token_address_with_program_id(
-                    &builder.receiver,
-                    mint,
-                    &SPL_TOKEN_PROGRAM_ID,
-                );
-                (buffer_pda, *mint, receiver_token_account)
+                (buffer_pda, *mint)
             })
             .collect();
         settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
