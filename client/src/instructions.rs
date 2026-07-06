@@ -34,12 +34,14 @@ impl From<BeginSettle<'_>> for Instruction {
     fn from(builder: BeginSettle<'_>) -> Self {
         let mut order_pdas = Vec::with_capacity(builder.orders.len());
         let mut sell_token_accounts = Vec::with_capacity(builder.orders.len());
+        let mut buy_token_accounts = Vec::with_capacity(builder.orders.len());
         let mut bumps = Vec::with_capacity(builder.orders.len());
         let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(builder.orders.len());
         for order in builder.orders {
             let (order_pda, bump) = find_order_pda(&builder.program_id, &order.intent.uid());
             order_pdas.push(order_pda);
             sell_token_accounts.push(order.intent.sell_token_account);
+            buy_token_accounts.push(order.intent.buy_token_account);
             bumps.push(bump);
             pull_lists.push(order.pulls);
         }
@@ -51,6 +53,7 @@ impl From<BeginSettle<'_>> for Instruction {
             order_pdas: &order_pdas,
             order_pda_bumps: &bumps,
             sell_token_accounts: &sell_token_accounts,
+            buy_token_accounts: &buy_token_accounts,
             pulls: &pull_lists,
         }
         .into()

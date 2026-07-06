@@ -112,6 +112,9 @@ pub enum SettlementError {
     /// `BeginSettle`'s state account isn't the canonical settlement state PDA,
     /// which must sign the pulls as the user's token delegate.
     StateAccountMismatch = 18,
+    /// A `BeginSettle` buy token account doesn't match the `buy_token_account`
+    /// recorded in the order's intent.
+    BuyTokenAccountMismatch = 19,
 }
 
 impl From<SettlementError> for u32 {

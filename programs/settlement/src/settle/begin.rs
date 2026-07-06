@@ -8,7 +8,9 @@ use pinocchio::{
     sysvars::{clock::Clock, instructions::Instructions, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
+use pinocchio_token::{
+    instructions::CloseAccount, instructions::Transfer, state::Account as TokenAccount,
+};
 use settlement_interface::{
     data::order::EncodedOrderAccount,
     instruction::{
@@ -174,6 +176,7 @@ fn process_order(
     let SettledOrder {
         order_pda,
         sell_token_account,
+        buy_token_account,
         bump,
         destinations,
         amounts,
@@ -214,6 +217,13 @@ fn process_order(
     if !address_matches_pubkey(sell_token_account.address(), &intent.sell_token_account) {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
+    // The buy token account must be the one named in the intent: it's the
+    // destination for the sell token account's reclaimed rent if it's closed
+    // below, and an arbitrary caller-supplied account must not be able to
+    // redirect those funds.
+    if !address_matches_pubkey(buy_token_account.address(), &intent.buy_token_account) {
+        return Err(SettlementError::BuyTokenAccountMismatch.into());
+    }
     // Assert the order intent owner matches that of the sell token account.
     {
         // `from_account_view` confirms this is a real SPL token account
@@ -237,6 +247,21 @@ fn process_order(
             u64::from_be_bytes(*amount),
         )
         .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+
+        // If the sell token account is now empty and the state PDA is able to
+        // close it, then close it. The borrow is released at the end of this
+        // block, before `CloseAccount` needs to mutably touch the account.
+        let should_close = {
+            let token_account = TokenAccount::from_account_view(sell_token_account)
+                .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
+            token_account.amount() == 0
+                && token_account.close_authority() == Some(state_account.address())
+        };
+
+        if should_close {
+            CloseAccount::new(sell_token_account, buy_token_account, state_account)
+                .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+        }
     }
 
     Ok(())
