@@ -91,4 +91,11 @@ The deployer for the canonical devnet program (`MooohhPEAAHwAwEozL7JPEmnDvaahuUp
 
 ## License
 
-All code is licensed under the GNU LGPL v3 — see [LICENSE.LESSER][./LICENSE.LESSER].
+
+## License
+
+[![License: LGPL v3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](./COPYING.LESSER)
+
+This project is licensed under the terms of the GNU Lesser General Public License v3.0.
+
+Copyright (C) 2026 CoW Foundation
