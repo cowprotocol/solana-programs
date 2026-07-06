@@ -17,7 +17,6 @@ pinocchio-system.workspace = true
 pinocchio-token.workspace = true
 settlement-interface.workspace = true
 solana-instruction = { workspace = true, features = ["syscalls"] }
-spl-associated-token-account-interface.workspace = true
 
 [dev-dependencies]
 arrayref.workspace = true
@@ -29,6 +28,7 @@ settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-address-lookup-table-interface = { workspace = true, features = ["bincode"] }
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
+spl-associated-token-account-interface.workspace = true
 
 [features]
 settlement-test-clock = []
