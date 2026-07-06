@@ -17,6 +17,7 @@ pinocchio-system.workspace = true
 pinocchio-token.workspace = true
 settlement-interface.workspace = true
 solana-instruction = { workspace = true, features = ["syscalls"] }
+spl-associated-token-account-interface.workspace = true
 
 [dev-dependencies]
 arrayref.workspace = true

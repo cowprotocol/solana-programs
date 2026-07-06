@@ -10,15 +10,17 @@ use solana_sdk::{
 mod common;
 
 #[test]
-fn happy_path_initializes_empty_state_pda() {
+fn happy_path_initializes_state_pda_with_receiver() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
+    let receiver = Pubkey::new_unique();
 
     // `payer` is both the transaction fee payer and the account funding the
     // state PDA's rent.
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
+        receiver,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -30,9 +32,13 @@ fn happy_path_initializes_empty_state_pda() {
         account.owner, program_id,
         "state PDA must be owned by the settlement program"
     );
-    assert!(account.data.is_empty(), "state PDA must be empty");
+    assert_eq!(
+        account.data,
+        receiver.to_bytes(),
+        "state PDA must store exactly the configured receiver"
+    );
 
-    let rent = svm.minimum_balance_for_rent_exemption(0);
+    let rent = svm.minimum_balance_for_rent_exemption(32);
     assert_eq!(
         account.lamports, rent,
         "state PDA must hold exactly the rent minimum: {} != {}",
@@ -53,13 +59,14 @@ fn funding_payer_can_differ_from_fee_payer() {
     let ix = Initialize {
         program_id,
         payer: funder.pubkey(),
+        receiver: Pubkey::new_unique(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
 
     // The rent came out of the funder, not the fee payer: the funder paid no
     // transaction fee, so its balance dropped by exactly the PDA rent.
-    let rent = svm.minimum_balance_for_rent_exemption(0);
+    let rent = svm.minimum_balance_for_rent_exemption(32);
     assert_eq!(
         common::lamports(&svm, &funder.pubkey()),
         funder_airdrop - rent,
@@ -78,6 +85,7 @@ fn rejects_arbitrary_wrong_state_pda() {
         program_id,
         payer: payer.pubkey(),
         state_pda: wrong_pda,
+        receiver: Pubkey::new_unique(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
@@ -91,6 +99,7 @@ fn rejects_initializing_twice() {
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
+        receiver: Pubkey::new_unique(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx)
@@ -101,6 +110,7 @@ fn rejects_initializing_twice() {
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
+        receiver: Pubkey::new_unique(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     common::pda::assert_rejected_as_existing(&mut svm, tx);

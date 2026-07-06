@@ -2,6 +2,7 @@
 
 use pinocchio::{AccountView, Address, ProgramResult};
 use settlement_interface::{
+    data::state::EncodedStateAccount,
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
 };
@@ -13,7 +14,11 @@ pub fn process_initialize(
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    let InitializeInput { payer, state_pda } = InitializeInput::parse(instruction_data, accounts)?;
+    let InitializeInput {
+        payer,
+        state_pda,
+        receiver,
+    } = InitializeInput::parse(instruction_data, accounts)?;
 
     // There are no explicit account guards here: `create_canonical_pda` rejects
     // any `state_pda`  other than the address those seeds derive and guards
@@ -25,11 +30,15 @@ pub fn process_initialize(
         program_id,
         payer,
         pda: state_pda,
-        size: 0,
+        size: EncodedStateAccount::SIZE as u64,
         owner: program_id,
         seeds: state_pda_seeds(),
     }
     .create()?;
+
+    state_pda
+        .try_borrow_mut()?
+        .copy_from_slice(&receiver.to_bytes());
 
     Ok(())
 }

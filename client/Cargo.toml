@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 settlement-interface.workspace = true
+spl-associated-token-account-interface.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

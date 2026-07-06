@@ -7,9 +7,11 @@
 
 use settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
+    instruction::create_buffer::SPL_TOKEN_PROGRAM_ID,
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 
 // Reexport the instruction builders that don't change from the interface.
 // We want the client to provide all instruction builders.
@@ -105,6 +107,7 @@ impl From<CreateBuffers<'_>> for Instruction {
 pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,
+    pub receiver: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
@@ -114,6 +117,39 @@ impl From<Initialize> for Instruction {
             program_id: builder.program_id,
             payer: builder.payer,
             state_pda,
+            receiver: builder.receiver,
+        }
+        .into()
+    }
+}
+
+pub struct ReclaimBuffer<'a> {
+    pub program_id: Pubkey,
+    pub receiver: Pubkey,
+    pub mints: &'a [Pubkey],
+}
+
+impl From<ReclaimBuffer<'_>> for Instruction {
+    fn from(builder: ReclaimBuffer<'_>) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
+        let buffers: Vec<(Pubkey, Pubkey, Pubkey)> = builder
+            .mints
+            .iter()
+            .map(|mint| {
+                let (buffer_pda, _bump) = find_buffer_pda(&builder.program_id, mint);
+                let receiver_token_account = get_associated_token_address_with_program_id(
+                    &builder.receiver,
+                    mint,
+                    &SPL_TOKEN_PROGRAM_ID,
+                );
+                (buffer_pda, *mint, receiver_token_account)
+            })
+            .collect();
+        settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
+            program_id: builder.program_id,
+            state_pda,
+            receiver: builder.receiver,
+            buffers: &buffers,
         }
         .into()
     }
