@@ -88,3 +88,7 @@ just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ~/solana-keys/deployer.j
 ```
 
 The deployer for the canonical devnet program (`MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
+
+## License
+
+All code is licensed under the GNU LGPL v3 — see [LICENSE.LESSER][./LICENSE.LESSER].
