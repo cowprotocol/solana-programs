@@ -53,11 +53,9 @@ pub fn process_reclaim_order(
 #[cfg(test)]
 mod tests {
     use pinocchio::Address;
-    use settlement_interface::{
-        instruction::{
-            fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
-            reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
-        },
+    use settlement_interface::instruction::{
+        fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
+        reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
     };
 
     use super::*;
@@ -106,7 +104,7 @@ mod tests {
         let reclaim_recipient = fake_account(Address::new_unique());
 
         let order_data = OrderAccount {
-            intent: OrderIntent {
+            intent: settlement_interface::data::intent::OrderIntent {
                 valid_to: 4_000_000_000,
                 ..Default::default()
             },

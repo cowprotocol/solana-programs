@@ -10,7 +10,8 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use pinocchio_token::{
-    instructions::{Burn, CloseAccount}, state::Account as TokenAccount,
+    instructions::{Burn, CloseAccount},
+    state::Account as TokenAccount,
 };
 use settlement_interface::{
     instruction::{
@@ -27,13 +28,8 @@ struct ReclaimBufferEntry {
 }
 
 /// Read one slice element into a [`ReclaimBufferEntry`].
-fn read_buffer_entry(
-    &[buffer_pda, mint]: &[AccountView; 2],
-) -> ReclaimBufferEntry {
-    ReclaimBufferEntry {
-        buffer_pda,
-        mint,
-    }
+fn read_buffer_entry(&[buffer_pda, mint]: &[AccountView; 2]) -> ReclaimBufferEntry {
+    ReclaimBufferEntry { buffer_pda, mint }
 }
 
 pub fn process_reclaim_buffer(
@@ -75,11 +71,7 @@ pub fn process_reclaim_buffer(
         return Err(SettlementError::ReceiverMismatch.into());
     }
 
-    for ReclaimBufferEntry {
-        buffer_pda,
-        mint,
-    } in buffers.iter().map(read_buffer_entry)
-    {
+    for ReclaimBufferEntry { buffer_pda, mint } in buffers.iter().map(read_buffer_entry) {
         let expected_buffer_pda =
             Address::find_program_address(&buffer_pda_seeds(mint.address().as_array()), program_id)
                 .0;
@@ -98,7 +90,7 @@ pub fn process_reclaim_buffer(
         if amount > 0 {
             // Using the unchecked burn variant because we would just be reading the decimals
             // off of the mint anyway and we are only looking to erase all tokens.
-            Burn::new(&buffer_pda, &mint, &state_pda, amount)
+            Burn::new(&buffer_pda, &mint, state_pda, amount)
                 .invoke_signed(core::slice::from_ref(&state_signer))?;
         }
 
@@ -112,7 +104,9 @@ pub fn process_reclaim_buffer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use settlement_interface::instruction::fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts};
+    use settlement_interface::instruction::fixtures::{
+        fake_account, fake_account_with_data, fake_sequential_accounts,
+    };
     use settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
@@ -135,15 +129,18 @@ mod tests {
         let data = reclaim_buffer_data();
         let receiver_address = Address::new_unique();
         let mut accounts = [
-            fake_account_with_data(Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0, &receiver_address.to_bytes()), // state PDA
-            fake_account(receiver_address), // receiver
+            fake_account_with_data(
+                Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
+                &receiver_address.to_bytes(),
+            ), // state PDA
+            fake_account(receiver_address),      // receiver
             fake_account(Address::new_unique()), // **wrong** token program
             fake_account(Address::new_unique()), // buffer PDA
             fake_account(Address::new_unique()), // mint
         ];
         assert_eq!(
             process_reclaim_buffer(&PROGRAM_ID, &mut accounts, &data),
-            Err(ProgramError::IncorrectProgramId.into()),
+            Err(ProgramError::IncorrectProgramId),
         );
     }
 
@@ -153,7 +150,7 @@ mod tests {
         let receiver_address = Address::new_unique();
         let mut accounts = [
             fake_account_with_data(Address::new_unique(), &receiver_address.to_bytes()), // state PDA
-            fake_account(receiver_address), // receiver
+            fake_account(receiver_address),                                              // receiver
             fake_account(SPL_TOKEN_PROGRAM_ID),
             fake_account(Address::new_unique()), // buffer PDA
             fake_account(Address::new_unique()), // mint
@@ -168,7 +165,10 @@ mod tests {
     fn process_reclaim_buffer_rejects_wrong_receiver() {
         let data = reclaim_buffer_data();
         let mut accounts = [
-            fake_account_with_data(Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0, &Address::new_unique().to_bytes()), // state PDA
+            fake_account_with_data(
+                Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
+                &Address::new_unique().to_bytes(),
+            ), // state PDA
             fake_account(Address::new_unique()), // receiver
             fake_account(SPL_TOKEN_PROGRAM_ID),
             fake_account(Address::new_unique()), // buffer PDA
@@ -185,7 +185,10 @@ mod tests {
         let data = reclaim_buffer_data();
         let receiver_address = Address::new_unique();
         let mut accounts = [
-            fake_account_with_data(Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0, &receiver_address.to_bytes()), // state PDA
+            fake_account_with_data(
+                Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
+                &receiver_address.to_bytes(),
+            ), // state PDA
             fake_account(receiver_address), // receiver
             fake_account(SPL_TOKEN_PROGRAM_ID),
             fake_account(Address::new_unique()), // buffer PDA

@@ -106,7 +106,7 @@ pub mod fixtures {
                 RuntimeAccount {
                     address,
                     borrow_state: solana_account_view::NOT_BORROWED, // allows for code to borrow this account to read its data
-                    is_signer: if data.len() > 0 { 0 } else { 1 },
+                    is_signer: if data.is_empty() { 1 } else { 0 },
                     data_len: data.len() as u64,
                     ..Default::default()
                 },

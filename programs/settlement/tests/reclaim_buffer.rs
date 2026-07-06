@@ -1,10 +1,7 @@
 use settlement_client::instructions::{CreateBuffers, Initialize, ReclaimBuffer};
 use settlement_client::settlement_interface::{
     instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw,
-    pda::{
-        buffer::find_buffer_pda,
-        state::find_state_pda,
-    },
+    pda::{buffer::find_buffer_pda, state::find_state_pda},
     SettlementError,
 };
 use solana_sdk::{
@@ -123,7 +120,8 @@ fn happy_path_reclaims_empty_buffer_without_token_transfer() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &receiver, ix);
-    svm.send_transaction(tx).expect("reclaim_buffer should succeed");
+    svm.send_transaction(tx)
+        .expect("reclaim_buffer should succeed");
 
     assert!(
         svm.get_account(&buffer_pda).is_none(),
@@ -157,7 +155,8 @@ fn reclaims_multiple_buffers_in_one_instruction() {
         mints: &[mint_a, mint_b],
     };
     let tx = common::signed_tx(&svm, &payer, &receiver, ix);
-    svm.send_transaction(tx).expect("reclaim_buffer should succeed");
+    svm.send_transaction(tx)
+        .expect("reclaim_buffer should succeed");
 
     assert!(
         svm.get_account(&buffer_a).is_none(),
