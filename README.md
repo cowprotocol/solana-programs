@@ -91,9 +91,6 @@ The deployer for the canonical devnet program (`MooohhPEAAHwAwEozL7JPEmnDvaahuUp
 
 ## License
 
-
-## License
-
 [![License: LGPL v3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](./COPYING.LESSER)
 
 This project is licensed under the terms of the GNU Lesser General Public License v3.0.
