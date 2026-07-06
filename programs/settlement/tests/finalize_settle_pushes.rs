@@ -88,8 +88,7 @@ fn finalizes_with_no_pushes() {
 #[test]
 fn finalizes_with_single_push() {
     let (mut svm, program_id, payer) = setup();
-    let sell_mint = token::create_mint(&mut svm, &payer);
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &sell_mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
 
     finalize(
         &mut svm,
@@ -108,10 +107,10 @@ fn finalizes_with_single_push() {
 fn finalizes_with_several_pushes_same_mint() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
-    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
+    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer)
         .salt(1)
         .build();
-    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint)
+    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
         .salt(2)
         .build();
 
@@ -140,8 +139,8 @@ fn finalizes_with_several_pushes_different_mint() {
     let (mut svm, program_id, payer) = setup();
     let mint_1 = token::create_mint(&mut svm, &payer);
     let mint_2 = token::create_mint(&mut svm, &payer);
-    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint_1).build();
-    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint_2).build();
+    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer).build();
 
     finalize(
         &mut svm,
@@ -166,8 +165,7 @@ fn finalizes_with_several_pushes_different_mint() {
 #[test]
 fn rejects_push_account_count_mismatch() {
     let (mut svm, program_id, payer) = setup();
-    let sell_mint = token::create_mint(&mut svm, &payer);
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &sell_mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
         mint: Pubkey::new_unique(),
@@ -224,8 +222,7 @@ fn rejects_too_few_accounts() {
 #[test]
 fn rejects_partial_push_amount() {
     let (mut svm, program_id, payer) = setup();
-    let sell_mint = token::create_mint(&mut svm, &payer);
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer, &sell_mint).build();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
         mint: Pubkey::new_unique(),

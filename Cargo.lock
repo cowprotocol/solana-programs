@@ -2217,6 +2217,7 @@ dependencies = [
  "settlement-interface",
  "solana-address-lookup-table-interface",
  "solana-instruction",
+ "solana-instructions-sysvar",
  "solana-sdk",
  "solana-system-interface 3.2.0",
 ]

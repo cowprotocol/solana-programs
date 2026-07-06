@@ -26,6 +26,7 @@ proptest.workspace = true
 settlement-client.workspace = true
 settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-address-lookup-table-interface = { workspace = true, features = ["bincode"] }
+solana-instructions-sysvar.workspace = true
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
 
