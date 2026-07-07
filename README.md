@@ -97,4 +97,4 @@ The core settlement program rust crate is licensed under the terms of the GNU Le
 
 All other crates are dual licensed under the terms of the MIT or Apache 2.0 license.
 
-Copyright (C) 2026 CoW Foundation
+Copyright (c) 2026 CoW Foundation
