@@ -91,8 +91,10 @@ The deployer for the canonical devnet program (`MooohhPEAAHwAwEozL7JPEmnDvaahuUp
 
 ## License
 
-[![License: LGPL v3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](./COPYING.LESSER)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./COPYING.MIT) [![License: Apache v2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](./COPYING.APACHE) [![License: LGPL v3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](./COPYING.LESSER)
 
-This project is licensed under the terms of the GNU Lesser General Public License v3.0.
+The core settlement program rust crate is licensed under the terms of the GNU Lesser General Public License v3.0.
+
+All other crates are dual licensed under the terms of the MIT or Apache 2.0 license.
 
 Copyright (C) 2026 CoW Foundation

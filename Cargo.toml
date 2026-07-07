@@ -6,7 +6,9 @@ members = ["client", "interface", "programs/settlement", "programs/test/cpi-call
 version = "0.1.0"
 # Solana recommends edition 2021: https://solana.com/docs/programs/rust
 edition = "2021"
-license = "LGPGL-3.0-or-later"
+
+# Most crates in this repository use MIT or Apache-2.0 dual license.
+license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 arrayref = "0.3"

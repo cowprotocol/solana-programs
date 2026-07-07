@@ -2,7 +2,7 @@
 name = "settlement"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license = "LGPL-3.0-or-later"
 
 [lib]
 # Required for `solana-verify` to identify (allegedly). See:
