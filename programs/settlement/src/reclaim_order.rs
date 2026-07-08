@@ -6,28 +6,23 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use settlement_interface::{
-    data::order::{EncodedOrderAccount, OrderAccount},
+    data::order::OrderAccount,
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
     SettlementError,
 };
 
 pub fn process_reclaim_order(
-    _program_id: &pinocchio::Address,
+    program_id: &pinocchio::Address,
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
     let ReclaimOrderInput {
         order_pda,
+        bump,
         reclaim_recipient,
     } = ReclaimOrderInput::parse(instruction_data, accounts)?;
 
-    let account = {
-        let data = order_pda.try_borrow()?;
-        let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
-            .try_into()
-            .map_err(|_| ProgramError::InvalidAccountData)?;
-        OrderAccount::try_from(*bytes)?
-    };
+    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
 
     if reclaim_recipient.address() != &account.created_by {
         return Err(SettlementError::ReclaimRecipientMismatch.into());
@@ -54,10 +49,13 @@ pub fn process_reclaim_order(
 #[cfg(test)]
 mod tests {
     use pinocchio::Address;
+    use settlement_interface::data::order::EncodedOrderAccount;
     use settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
     };
+    use settlement_interface::pda::order::find_order_pda;
+    use settlement_interface::SettlementInstruction;
 
     use super::*;
 
@@ -77,8 +75,6 @@ mod tests {
 
     #[test]
     fn process_reclaim_order_rejects_mismatched_reclaim_recipient() {
-        let data = default_reclaim_data();
-
         let reclaim_recipient = fake_account(Address::new_unique());
 
         let order_data = OrderAccount {
@@ -86,8 +82,13 @@ mod tests {
             ..Default::default()
         };
 
+        // The order PDA must be canonical for `order_data.intent`, otherwise
+        // `load_from_pda` rejects it before the recipient check ever runs.
+        let (order_pda_address, bump) = find_order_pda(&PROGRAM_ID, &order_data.intent.uid());
+        let data = vec![SettlementInstruction::ReclaimOrder.discriminator(), bump];
+
         let order_pda = fake_account_with_data(
-            Address::new_unique(),
+            order_pda_address,
             &EncodedOrderAccount::from(order_data)[..],
         );
 
