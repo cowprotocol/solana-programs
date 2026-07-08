@@ -159,10 +159,9 @@ mod tests {
         }
         .instruction();
 
-        assert_eq!(ix.data.len(), 1);
         assert_eq!(
-            ix.data[0],
-            SettlementInstruction::ReclaimOrder.discriminator()
+            ix.data,
+            vec![SettlementInstruction::ReclaimOrder.discriminator()]
         );
     }
 
