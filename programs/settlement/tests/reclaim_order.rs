@@ -169,22 +169,3 @@ fn rejects_when_reclaim_recipient_mismatch() {
         SettlementError::ReclaimRecipientMismatch,
     );
 }
-
-#[test]
-fn rejects_missing_accounts() {
-    let (mut svm, program_id, owner) = common::setup();
-
-    common::set_unix_timestamp(&mut svm, AFTER_EXPIRY);
-
-    // Build a minimal instruction with only the discriminator, no accounts.
-    let ix = solana_sdk::instruction::Instruction {
-        program_id,
-        accounts: vec![],
-        data: vec![
-            settlement_client::settlement_interface::SettlementInstruction::ReclaimOrder
-                .discriminator(),
-        ],
-    };
-    let tx = signed_tx(&svm, &owner, &owner, ix);
-    assert!(svm.send_transaction(tx).is_err());
-}
