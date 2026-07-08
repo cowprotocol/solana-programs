@@ -27,7 +27,7 @@ pub fn process_reclaim_order(
         OrderAccount::try_from(*bytes)?
     };
 
-    if reclaim_recipient.address().as_array() != &account.created_by.to_bytes() {
+    if reclaim_recipient.address() != &account.created_by {
         return Err(SettlementError::ReclaimRecipientMismatch.into());
     }
 
