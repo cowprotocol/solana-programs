@@ -50,9 +50,9 @@ pub trait InstructionInputParsing<'a>: Sized {
 /// duplicating the unsafe initializer below.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
-    use std::{ptr, mem};
-    use solana_account_view::{AccountView, MAX_PERMITTED_DATA_INCREASE, RuntimeAccount};
+    use solana_account_view::{AccountView, RuntimeAccount, MAX_PERMITTED_DATA_INCREASE};
     use solana_address::Address;
+    use std::{mem, ptr};
 
     /// Build an `AccountView` based on the input `RuntimeAccount` and whose
     /// data region is empty.
@@ -118,7 +118,7 @@ pub mod fixtures {
         // `solana_account_view::RuntimeAccount` has public fields and a
         // `Default` impl.
         let hdr_size = mem::size_of::<RuntimeAccount>();
-        // we over-allocate by MAX_PERMITTED_DATA_INCREASE to prevent memory 
+        // we over-allocate by MAX_PERMITTED_DATA_INCREASE to prevent memory
         //corruption in the unlikely case a runtime increases the account data size
         let total = hdr_size + data.len() + MAX_PERMITTED_DATA_INCREASE;
         let words = total.div_ceil(mem::size_of::<u64>());
