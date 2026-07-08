@@ -88,3 +88,13 @@ just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ~/solana-keys/deployer.j
 ```
 
 The deployer for the canonical devnet program (`MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
+
+## License
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./COPYING.MIT) [![License: Apache v2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](./COPYING.APACHE) [![License: LGPL v3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](./COPYING.LESSER)
+
+The core settlement program rust crate is licensed under the terms of the GNU Lesser General Public License v3.0.
+
+All other crates are dual licensed under the terms of the MIT or Apache 2.0 license.
+
+Copyright (c) 2026 CoW Foundation
