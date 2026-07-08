@@ -19,7 +19,7 @@ fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
         valid_to: VALID_TO,
-        .. ..fixtures::sample_intent(OrderKind::Sell, true)
+        ....fixtures::sample_intent(OrderKind::Sell, true)
     }
 }
 

@@ -16,7 +16,7 @@ build: build-program
 
 # Run the test suite (builds the program first so the .so exists).
 test: build-program build-test-programs
-    cargo test --features settlement-test-clock
+    cargo test
 
 # Format the source code.
 fmt:

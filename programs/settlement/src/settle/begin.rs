@@ -3,10 +3,7 @@
 use std::ops::Deref;
 
 use pinocchio::{
-    cpi::{Seed, Signer},
-    error::ProgramError,
-    sysvars::instructions::Instructions,
-    AccountView, Address, ProgramResult,
+    AccountView, Address, ProgramResult, cpi::{Seed, Signer}, error::ProgramError, sysvars::{Sysvar, clock::Clock, instructions::Instructions},
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
@@ -20,7 +17,7 @@ use settlement_interface::{
     recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
 };
 
-use crate::processor::{get_timestamp, is_cpi_call};
+use crate::processor::is_cpi_call;
 
 use super::validate_counterpart;
 
@@ -145,7 +142,7 @@ fn pull_funds<'a>(
     // duplicates (settling the same order twice) without a separate scan.
     let mut previous: Option<&Address> = None;
 
-    let now = get_timestamp()?;
+    let now = Clock::get()?.unix_timestamp;
 
     for order in orders {
         let order_pda = order.order_pda;

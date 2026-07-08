@@ -30,8 +30,5 @@ solana-address-lookup-table-interface = { workspace = true, features = ["bincode
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
 
-[features]
-settlement-test-clock = []
-
 [lints]
 workspace = true
