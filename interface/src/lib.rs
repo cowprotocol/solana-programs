@@ -34,6 +34,30 @@ impl SettlementInstruction {
     }
 }
 
+/// Identifies the account type a given account's data belongs to, via the
+/// single discriminator byte stored at its front. Starts at 128 to keep
+/// account discriminators visually distinct from instruction discriminators.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
+#[repr(u8)]
+#[num_enum(error_type(
+    name = ProgramError,
+    constructor = SettlementAccount::unknown_discriminator,
+))]
+pub enum SettlementAccount {
+    OrderAccount = 128,
+    SettlementState = 129,
+}
+
+impl SettlementAccount {
+    pub const fn discriminator(self) -> u8 {
+        self as u8
+    }
+
+    fn unknown_discriminator(_: u8) -> ProgramError {
+        ProgramError::InvalidAccountData
+    }
+}
+
 /// Recover the discriminator from the first byte of the payload and the
 /// remaining bytes to parse.
 /// Returns `InvalidInstructionData` for an insufficient length or an
@@ -173,6 +197,32 @@ mod tests {
         assert_eq!(
             SettlementInstruction::try_from(0),
             Ok(SettlementInstruction::BeginSettle)
+        );
+    }
+
+    #[test]
+    fn settlement_account_try_from_partitions_all_bytes() {
+        for i in u8::MIN..=u8::MAX {
+            match SettlementAccount::try_from(i) {
+                Ok(account) => assert_eq!(account as u8, i),
+                Err(err) => assert_eq!(err, ProgramError::InvalidAccountData),
+            }
+        }
+    }
+
+    #[test]
+    fn settlement_account_try_from_matches_order_account() {
+        assert_eq!(
+            SettlementAccount::try_from(128),
+            Ok(SettlementAccount::OrderAccount)
+        );
+    }
+
+    #[test]
+    fn settlement_account_discriminators_are_distinct() {
+        assert_ne!(
+            SettlementAccount::OrderAccount.discriminator(),
+            SettlementAccount::SettlementState.discriminator(),
         );
     }
 }

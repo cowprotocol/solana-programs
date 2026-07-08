@@ -1,6 +1,6 @@
 use settlement_client::instructions::Initialize;
 use settlement_client::settlement_interface::{
-    instruction::initialize::Initialize as InitializeRaw, pda::state::find_state_pda,
+    data::state, instruction::initialize::Initialize as InitializeRaw, pda::state::find_state_pda,
 };
 use solana_sdk::{
     pubkey::Pubkey,
@@ -10,7 +10,7 @@ use solana_sdk::{
 mod common;
 
 #[test]
-fn happy_path_initializes_empty_state_pda() {
+fn happy_path_initializes_state_pda_with_discriminator() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
 
@@ -30,9 +30,13 @@ fn happy_path_initializes_empty_state_pda() {
         account.owner, program_id,
         "state PDA must be owned by the settlement program"
     );
-    assert!(account.data.is_empty(), "state PDA must be empty");
+    assert_eq!(
+        account.data,
+        state::DISCRIMINATOR,
+        "state PDA must hold only the Anchor-style discriminator"
+    );
 
-    let rent = svm.minimum_balance_for_rent_exemption(0);
+    let rent = svm.minimum_balance_for_rent_exemption(state::SIZE);
     assert_eq!(
         account.lamports, rent,
         "state PDA must hold exactly the rent minimum: {} != {}",
@@ -59,7 +63,7 @@ fn funding_payer_can_differ_from_fee_payer() {
 
     // The rent came out of the funder, not the fee payer: the funder paid no
     // transaction fee, so its balance dropped by exactly the PDA rent.
-    let rent = svm.minimum_balance_for_rent_exemption(0);
+    let rent = svm.minimum_balance_for_rent_exemption(state::SIZE);
     assert_eq!(
         common::lamports(&svm, &funder.pubkey()),
         funder_airdrop - rent,
