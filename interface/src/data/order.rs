@@ -61,13 +61,13 @@ pub struct OrderAccount {
 ///
 /// ```text
 /// ┌──── discriminator
-/// │┌─── cancelled
-/// ┌┬───────┬───────┬───────────────────────────────┬─────────────────...─────────────────┐
-/// ││amount_│amount_│                               │                                     │
-/// ││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
-/// ││drawn  │ceived │                               │                                     │
-/// └┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
-/// 0 1      2       10                              18                ...                 200
+/// │ ┌─── cancelled
+/// ┌──┬───────┬───────┬───────────────────────────────┬─────────────────...─────────────────┐
+/// │  │amount_│amount_│                               │                                     │
+/// │  │with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
+/// │  │drawn  │ceived │                               │                                     │
+/// └──┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
+/// 0  2       10      18                              50                ...               200
 /// ```
 ///
 /// The first byte is an IDL-style account discriminator (see
@@ -78,7 +78,7 @@ pub struct EncodedOrderAccount([u8; Self::SIZE]);
 
 impl EncodedOrderAccount {
     // Per-field widths, derived from the `OrderAccount` field types.
-    const W_DISCRIMINATOR: usize = 1;
+    const W_DISCRIMINATOR: usize = size_of::<u8>();
     const W_CANCELLED: usize = size_of::<bool>();
     const W_AMOUNT_WITHDRAWN: usize = size_of::<u64>();
     const W_AMOUNT_RECEIVED: usize = size_of::<u64>();

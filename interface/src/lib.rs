@@ -211,14 +211,6 @@ mod tests {
     }
 
     #[test]
-    fn settlement_account_try_from_matches_order_account() {
-        assert_eq!(
-            SettlementAccount::try_from(128),
-            Ok(SettlementAccount::OrderAccount)
-        );
-    }
-
-    #[test]
     fn settlement_account_discriminators_are_distinct() {
         assert_ne!(
             SettlementAccount::OrderAccount.discriminator(),

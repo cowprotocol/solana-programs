@@ -1,8 +1,4 @@
 //! Settlement state PDA body.
-//!
-//! The state PDA carries no fields of its own (see [`crate::pda::state`]); its
-//! only content is the account discriminator, so that IDL-driven tooling can
-//! identify the account type.
 
 use solana_program_error::ProgramError;
 
