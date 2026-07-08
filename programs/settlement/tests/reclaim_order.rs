@@ -1,5 +1,5 @@
 use settlement_client::settlement_interface::{
-    data::intent::{EncodedOrderIntent, OrderIntent, OrderKind},
+    data::intent::{EncodedOrderIntent, OrderIntent, OrderKind, fixtures::sample_intent},
     instruction::{create_order::CreateOrder, reclaim_order::ReclaimOrder},
     pda::order::find_order_pda,
     SettlementError,
@@ -15,11 +15,11 @@ mod common;
 const VALID_TO: u32 = 1_000;
 const AFTER_EXPIRY: i64 = 1_001;
 
-fn sample_intent(owner: Pubkey) -> OrderIntent {
+fn reclaim_sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
         valid_to: VALID_TO,
-        ....fixtures::sample_intent(OrderKind::Sell, true)
+        ..sample_intent(OrderKind::Sell, true)
     }
 }
 
@@ -71,7 +71,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
 
     let intent = OrderIntent {
         owner: fee_payer.pubkey(),
-        ..sample_intent(fee_payer.pubkey())
+        ..reclaim_sample_intent(fee_payer.pubkey())
     };
     let encoded = EncodedOrderIntent::from(&intent);
     let encoded_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
@@ -143,7 +143,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
 fn rejects_when_order_not_yet_expired() {
     let (mut svm, program_id, owner) = common::setup();
 
-    let intent = sample_intent(owner.pubkey());
+    let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
 
     common::set_unix_timestamp(&mut svm, VALID_TO as i64); // technically this is the last valid timestamp
@@ -170,7 +170,7 @@ fn rejects_when_order_not_yet_expired() {
 fn rejects_when_reclaim_recipient_mismatch() {
     let (mut svm, program_id, owner) = common::setup();
 
-    let intent = sample_intent(owner.pubkey());
+    let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
 
     common::set_unix_timestamp(&mut svm, AFTER_EXPIRY);
