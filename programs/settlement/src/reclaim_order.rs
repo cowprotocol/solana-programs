@@ -51,7 +51,6 @@ pub fn process_reclaim_order(
 mod tests {
     use pinocchio::Address;
     use settlement_interface::{
-        data::intent::OrderIntent,
         instruction::{
             fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
             reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},

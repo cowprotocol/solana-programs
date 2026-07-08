@@ -81,7 +81,7 @@ pub mod fixtures {
     pub const NUM_ACCOUNTS: usize = 2;
 
     /// `ReclaimOrder` instruction data with placeholder addresses.
-    fn default_reclaim_data() -> Vec<u8> {
+    pub fn default_reclaim_data() -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
         ReclaimOrder {
             program_id: zero,
