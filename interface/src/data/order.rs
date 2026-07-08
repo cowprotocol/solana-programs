@@ -349,8 +349,7 @@ mod tests {
         let mut bytes: [u8; EncodedOrderAccount::SIZE] =
             EncodedOrderAccount::from(sample_account(false)).into();
         bytes[0] ^= 0xff;
-        let err =
-            OrderAccount::try_from(bytes).expect_err("wrong discriminator must be rejected");
+        let err = OrderAccount::try_from(bytes).expect_err("wrong discriminator must be rejected");
         assert_eq!(err, ProgramError::InvalidAccountData);
     }
 
