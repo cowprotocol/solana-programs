@@ -17,7 +17,7 @@ use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID};
 /// `begin_ix_index` is the index of the paired `BeginSettle` instruction in the
 /// same transaction.
 ///
-/// Wire format: `[discriminator=1, begin_ix_index: u16 BE]`, 3 bytes.
+/// Wire format: `[discriminator=1, begin_ix_index: u16 LE]`, 3 bytes.
 /// Required accounts: `[instructions_sysvar (R)]`.
 pub struct FinalizeSettle {
     pub program_id: Pubkey,
@@ -31,7 +31,7 @@ impl From<FinalizeSettle> for Instruction {
             accounts: vec![AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false)],
             data: [
                 &[SettlementInstruction::FinalizeSettle.discriminator()],
-                &builder.begin_ix_index.to_be_bytes()[..],
+                &builder.begin_ix_index.to_le_bytes()[..],
             ]
             .concat(),
         }
@@ -86,7 +86,7 @@ mod tests {
             data,
             [
                 &[SettlementInstruction::FinalizeSettle.discriminator()][..],
-                &hex!("1337")[..], // counterpart index
+                &hex!("3713")[..], // counterpart index, little-endian
             ]
             .concat(),
         );
@@ -104,7 +104,7 @@ mod tests {
         let mut accounts = [fake_account(address)];
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0x13, 0x37], // begin index
+            [0x37, 0x13], // begin index, little-endian
         ];
         let FinalizeSettleInput {
             begin_ix_index,
@@ -147,7 +147,7 @@ mod tests {
         let mut accounts = [fake_account(first_address), fake_account(second_address)];
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0x13, 0x37], // begin index
+            [0x37, 0x13], // begin index, little-endian
             [42],         // extra
         ];
         let FinalizeSettleInput {

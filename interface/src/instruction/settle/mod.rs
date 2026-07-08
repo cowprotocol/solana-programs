@@ -13,16 +13,16 @@ pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder, SettledOrders
 pub use finalize::{FinalizeSettle, FinalizeSettleInput};
 
 /// Reads the first two bytes of a byte slice (instruction data) and
-/// interprets them as a big-endian u16, returning it together with the
+/// interprets them as a little-endian u16, returning it together with the
 /// remaining bytes to parse.
 /// It's meant to be used for BeginSettle and FinalizeSettle to extract the
 /// counterpart index, that is, the index linking that instruction to the
 /// opposite instruction which is encoded as the first
-/// 2 bytes of the instruction data: `[0x13, 0x37]` → `0x1337`.
+/// 2 bytes of the instruction data: `[0x37, 0x13]` → `0x1337`.
 /// Returns `InvalidInstructionData` if fewer than two bytes are provided.
 pub fn recover_counterpart(instruction_data: &[u8]) -> Result<(u16, &[u8]), ProgramError> {
     match instruction_data {
-        [b1, b2, rest @ ..] => Ok((u16::from_be_bytes([*b1, *b2]), rest)),
+        [b1, b2, rest @ ..] => Ok((u16::from_le_bytes([*b1, *b2]), rest)),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }
@@ -35,7 +35,7 @@ mod tests {
     /// Builds an instruction-data byte vector from a list of field chunks, so a
     /// test can spell out the wire layout one field per line without repeating
     /// the `&[..][..]` slicing. Each chunk is anything sliceable to `[u8]` (a
-    /// byte array, a `Vec<u8>`, the result of `to_be_bytes()`, ...).
+    /// byte array, a `Vec<u8>`, the result of `to_le_bytes()`, ...).
     macro_rules! ix_data {
         ($($chunk:expr),* $(,)?) => {
             [$(&$chunk[..]),*].concat()
@@ -64,7 +64,7 @@ mod tests {
         assert_eq!(
             recover_counterpart(
                 &[
-                    &hex!("1337")[..], // counterpart index
+                    &hex!("3713")[..], // counterpart index, little-endian
                     &[42][..],         // trailing
                 ]
                 .concat()

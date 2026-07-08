@@ -403,7 +403,7 @@ fn rejects_orders_in_wrong_address_order() {
     // Lay out the two distinct orders strictly decreasing by PDA address, which
     // the program rejects. The interface builder would sort them, so build the
     // instruction by hand in the current wire format: data is
-    // `[discriminator, finalize_ix_index (BE), order_count, bump×n, transfer_count×n]`
+    // `[discriminator, finalize_ix_index (LE), order_count, bump×n, transfer_count×n]`
     // (no transfers here) and accounts are `[instructions_sysvar, state_pda,
     // token_program, (order_pda, sell_token_account)...]`.
     let mut orders = [
@@ -413,7 +413,7 @@ fn rejects_orders_in_wrong_address_order() {
     orders.sort_by_key(|&(pda, _, _)| std::cmp::Reverse(pda));
 
     let mut data = vec![SettlementInstruction::BeginSettle.discriminator()];
-    data.extend_from_slice(&1u16.to_be_bytes());
+    data.extend_from_slice(&1u16.to_le_bytes());
     data.push(orders.len() as u8);
     data.extend(orders.iter().map(|&(_, _, bump)| bump));
     // No transfers: one zero transfer-count byte per order.

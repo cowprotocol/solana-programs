@@ -33,7 +33,7 @@ pub struct Pull {
 /// the builder.
 ///
 /// Wire format (grouped, with `n` orders and `T` total transfers):
-/// `[discriminator=0][finalize_ix_index: u16 BE][n: u8][bump×n][transfer_count×n]
+/// `[discriminator=0][finalize_ix_index: u16 LE][n: u8][bump×n][transfer_count×n]
 /// [amount: u64 BE ×T]`.
 /// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
 /// (R)]` followed, per order, by `[order_pda (R), sell_token_account (W),
@@ -79,7 +79,7 @@ impl From<BeginSettle<'_>> for Instruction {
             .collect();
         let data = [
             &[SettlementInstruction::BeginSettle.discriminator()][..],
-            &finalize_ix_index.to_be_bytes()[..],
+            &finalize_ix_index.to_le_bytes()[..],
             &[order_pdas.len() as u8][..],
             &order
                 .iter()
@@ -309,7 +309,7 @@ mod tests {
             data,
             [
                 &[SettlementInstruction::BeginSettle.discriminator()][..],
-                &hex!("1337")[..], // counterpart index
+                &hex!("3713")[..], // counterpart index, little-endian
                 &[0][..],          // order count
             ]
             .concat(),
@@ -354,7 +354,7 @@ mod tests {
             data,
             [
                 &[SettlementInstruction::BeginSettle.discriminator()][..],
-                &hex!("1337")[..],          // counterpart index
+                &hex!("3713")[..],          // counterpart index, little-endian
                 &[2][..],                   // order count
                 &[low_bump, high_bump][..], // bumps
                 &[0, 0][..],                // transfer counts (both zero)
@@ -430,7 +430,7 @@ mod tests {
             data,
             [
                 &[SettlementInstruction::BeginSettle.discriminator()][..],
-                &hex!("1337")[..], // counterpart index
+                &hex!("3713")[..], // counterpart index, little-endian
                 &[2][..],          // order count
                 &[0xa1, 0xb1][..], // bumps
                 &[2, 1][..],       // counts
@@ -480,7 +480,7 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0x13, 0x37], // finalize index
+            [0x37, 0x13], // finalize index, little-endian
             [0x00],       // order count
         ];
         let BeginSettleInput {
@@ -539,7 +539,7 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0x13, 0x37], // finalize index
+            [0x37, 0x13], // finalize index, little-endian
             [0x01],       // order count
             [0xab],       // one order's bump
             [0x00],       // that order's transfer count
@@ -585,7 +585,7 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0x13, 0x37], // finalize index
+            [0x37, 0x13], // finalize index, little-endian
             [0x01],       // order count
             [0xab],       // bump
             [0x02],       // transfer count
@@ -640,7 +640,7 @@ mod tests {
         // then all transfer counts (every order has zero transfers).
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0x13, 0x37],        // finalize index
+            [0x37, 0x13],        // finalize index, little-endian
             [ORDER_COUNT as u8], // order count
             bumps,
             [0u8; ORDER_COUNT],

@@ -55,9 +55,9 @@ pub struct OrderAccount {
 /// written to/read from the order PDA's data area.
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
-/// each divider belongs to the cell on its right. Integers are big-endian.
-/// The intent slot holds a verbatim [`EncodedOrderIntent`]; see that
-/// type's docs for its inner layout.
+/// each divider belongs to the cell on its right. Integers are little-endian
+/// (Anchor/Borsh convention). The intent slot holds a verbatim
+/// [`EncodedOrderIntent`]; see that type's docs for its inner layout.
 ///
 /// ```text
 /// ┌──── cancelled
@@ -120,8 +120,8 @@ pub fn write_account(
         EncodedOrderAccount::W_INTENT
     ];
     *cancelled_slot = [cancelled as u8];
-    *amount_withdrawn_slot = amount_withdrawn.to_be_bytes();
-    *amount_received_slot = amount_received.to_be_bytes();
+    *amount_withdrawn_slot = amount_withdrawn.to_le_bytes();
+    *amount_received_slot = amount_received.to_le_bytes();
     *created_by_slot = created_by.to_bytes();
     *intent_slot = *encoded_intent;
 }
@@ -166,8 +166,8 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
                 [1] => true,
                 _ => return Err(ProgramError::InvalidAccountData),
             },
-            amount_withdrawn: u64::from_be_bytes(*amount_withdrawn),
-            amount_received: u64::from_be_bytes(*amount_received),
+            amount_withdrawn: u64::from_le_bytes(*amount_withdrawn),
+            amount_received: u64::from_le_bytes(*amount_received),
             created_by: Pubkey::new_from_array(*created_by),
             intent: OrderIntent::try_from(intent).map_err(|_| ProgramError::InvalidAccountData)?,
         })
