@@ -18,14 +18,8 @@ const AFTER_EXPIRY: i64 = 1_001;
 fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
-        buy_token_account: Pubkey::new_from_array([0x22; 32]),
-        sell_token_account: Pubkey::new_from_array([0x33; 32]),
-        sell_amount: 1_000_000,
-        buy_amount: 2_000_000,
         valid_to: VALID_TO,
-        kind: OrderKind::Sell,
-        partially_fillable: true,
-        app_data: [0; 32],
+        .. ..fixtures::sample_intent(OrderKind::Sell, true)
     }
 }
 
