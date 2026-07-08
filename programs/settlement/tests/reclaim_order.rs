@@ -1,5 +1,5 @@
 use settlement_client::settlement_interface::{
-    data::intent::{EncodedOrderIntent, OrderIntent, OrderKind, fixtures::sample_intent},
+    data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind},
     instruction::{create_order::CreateOrder, reclaim_order::ReclaimOrder},
     pda::order::find_order_pda,
     SettlementError,
@@ -7,8 +7,9 @@ use settlement_client::settlement_interface::{
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::Transaction,
 };
+
+use crate::common::signed_tx;
 
 mod common;
 
@@ -48,12 +49,7 @@ fn create_order(
         order_pda: pda,
         intent_bytes: encoded,
     };
-    let tx = Transaction::new_signed_with_payer(
-        &[ix.into()],
-        Some(&owner.pubkey()),
-        &[owner],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(svm, owner, owner, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
     pda
@@ -89,12 +85,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
         order_pda: pda,
         intent_bytes: encoded_bytes,
     };
-    let tx = Transaction::new_signed_with_payer(
-        &[ix.into()],
-        Some(&fee_payer.pubkey()),
-        &[&fee_payer, &reclaim_recipient],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &fee_payer, &reclaim_recipient, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
 
@@ -115,12 +106,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
         reclaim_recipient: reclaim_recipient.pubkey(),
     }
     .instruction();
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&fee_payer.pubkey()),
-        &[&fee_payer],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     svm.send_transaction(tx)
         .expect("reclaim_order should succeed after expiry");
 
@@ -154,12 +140,7 @@ fn rejects_when_order_not_yet_expired() {
         reclaim_recipient: owner.pubkey(),
     }
     .instruction();
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&owner.pubkey()),
-        &[&owner],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &owner, &owner, ix);
     common::assert_settlement_error(
         svm.send_transaction(tx).map_err(|e| e.err),
         SettlementError::OrderNotExpired,
@@ -182,12 +163,7 @@ fn rejects_when_reclaim_recipient_mismatch() {
         reclaim_recipient: wrong_authority,
     }
     .instruction();
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&owner.pubkey()),
-        &[&owner],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &owner, &owner, ix);
     common::assert_settlement_error(
         svm.send_transaction(tx).map_err(|e| e.err),
         SettlementError::ReclaimRecipientMismatch,
@@ -209,11 +185,6 @@ fn rejects_missing_accounts() {
                 .discriminator(),
         ],
     };
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&owner.pubkey()),
-        &[&owner],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &owner, &owner, ix);
     assert!(svm.send_transaction(tx).is_err());
 }

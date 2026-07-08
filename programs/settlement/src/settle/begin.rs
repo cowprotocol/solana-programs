@@ -3,7 +3,10 @@
 use std::ops::Deref;
 
 use pinocchio::{
-    AccountView, Address, ProgramResult, cpi::{Seed, Signer}, error::ProgramError, sysvars::{Sysvar, clock::Clock, instructions::Instructions},
+    cpi::{Seed, Signer},
+    error::ProgramError,
+    sysvars::{clock::Clock, instructions::Instructions, Sysvar},
+    AccountView, Address, ProgramResult,
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{

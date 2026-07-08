@@ -1,6 +1,10 @@
 //! `ReclaimOrder` instruction handler.
 
-use pinocchio::{AccountView, ProgramResult, error::ProgramError, sysvars::{Sysvar, clock::Clock}};
+use pinocchio::{
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, ProgramResult,
+};
 use settlement_interface::{
     data::order::{EncodedOrderAccount, OrderAccount},
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
@@ -50,11 +54,9 @@ pub fn process_reclaim_order(
 #[cfg(test)]
 mod tests {
     use pinocchio::Address;
-    use settlement_interface::{
-        instruction::{
-            fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
-            reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
-        },
+    use settlement_interface::instruction::{
+        fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
+        reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
     };
 
     use super::*;
