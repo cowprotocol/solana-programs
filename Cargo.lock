@@ -2213,6 +2213,7 @@ dependencies = [
  "pinocchio-system",
  "pinocchio-token",
  "proptest",
+ "serde_json",
  "settlement-client",
  "settlement-interface",
  "solana-address-lookup-table-interface",
