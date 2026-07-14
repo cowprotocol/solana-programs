@@ -169,8 +169,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         app_data: [0u8; 32],
     };
 
-    let encoded = EncodedOrderIntent::from(&intent);
-    let uid = encoded.hash();
+    let uid = intent.uid();
     let (order_pda, _) = find_order_pda(&ctx.program_id, &uid);
 
     // owner == created_by: the payer both owns the order and funds the rent.
