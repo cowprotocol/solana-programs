@@ -109,9 +109,11 @@ fn finalizes_with_several_pushes_same_mint() {
     let mint = token::create_mint(&mut svm, &payer);
     let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer)
         .salt(1)
+        .buy_mint(&mint)
         .build();
     let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
         .salt(2)
+        .buy_mint(&mint)
         .build();
 
     finalize(
@@ -139,8 +141,12 @@ fn finalizes_with_several_pushes_different_mint() {
     let (mut svm, program_id, payer) = setup();
     let mint0 = token::create_mint(&mut svm, &payer);
     let mint1 = token::create_mint(&mut svm, &payer);
-    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_mint(&mint0)
+        .build();
+    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_mint(&mint1)
+        .build();
 
     finalize(
         &mut svm,
