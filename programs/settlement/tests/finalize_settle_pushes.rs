@@ -137,8 +137,8 @@ fn finalizes_with_several_pushes_same_mint() {
 #[test]
 fn finalizes_with_several_pushes_different_mint() {
     let (mut svm, program_id, payer) = setup();
-    let mint_1 = token::create_mint(&mut svm, &payer);
-    let mint_2 = token::create_mint(&mut svm, &payer);
+    let mint0 = token::create_mint(&mut svm, &payer);
+    let mint1 = token::create_mint(&mut svm, &payer);
     let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer).build();
 
@@ -149,12 +149,12 @@ fn finalizes_with_several_pushes_different_mint() {
         &[
             FinalizedIntent {
                 intent: &intent0,
-                mint: mint_1,
+                mint: mint0,
                 amount: 1_000,
             },
             FinalizedIntent {
                 intent: &intent1,
-                mint: mint_2,
+                mint: mint1,
                 amount: 2_000,
             },
         ],
@@ -216,6 +216,43 @@ fn rejects_too_few_accounts() {
         // Rather than silencing a linting, let's use the program error.
         ProgramError::try_from(ix_error),
         Ok(ProgramError::NotEnoughAccountKeys),
+    );
+}
+
+// Similar to `rejects_too_few_accounts`, but pops two accounts instead of one.
+// This is because variable-length accounts in the instruction are naturally
+// grouped in pairs, so a single missing account could just be an unsuccessful
+// pairing rather than accounting for missing accounts.
+#[test]
+fn rejects_two_too_few_accounts() {
+    let (mut svm, program_id, payer) = setup();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        mint: Pubkey::new_unique(),
+        amount: 1_000,
+    }];
+
+    // A well-formed single-push finalize...
+    let mut finalize = Instruction::from(FinalizeSettle {
+        program_id,
+        begin_ix_index: BEGIN_INDEX.into(),
+        orders: &orders,
+    });
+    // ...with that push's whole (source, destination) pair popped, so the data
+    // still declares one push while no push accounts remain.
+    finalize.accounts.pop();
+    finalize.accounts.pop();
+
+    // The paired `Begin` settles no orders, so it never checks the push
+    // destinations: the inconsistency is left for the finalize's own
+    // account-count check to reject.
+    assert_eq!(
+        send_settlement(&mut svm, &program_id, &payer, &[], finalize),
+        Err(TransactionError::InstructionError(
+            FINALIZE_INDEX,
+            to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
+        )),
     );
 }
 
