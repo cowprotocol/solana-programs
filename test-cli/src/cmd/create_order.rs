@@ -219,5 +219,5 @@ fn valid_to_in(secs_from_now: u64) -> u32 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    now.saturating_add(secs_from_now).min(u32::MAX as u64) as u32
+    u32::try_from(now.saturating_add(secs_from_now)).unwrap_or(u32::MAX)
 }
