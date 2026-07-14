@@ -77,8 +77,7 @@ pub fn process_begin_settle(
 }
 
 /// The destination address of each push carried by the paired `FinalizeSettle`,
-/// seen through instruction introspection, in order and stopping at the first
-/// missing account.
+/// seen through instruction introspection, in order.
 ///
 /// The push structure isn't validated here: the paired `FinalizeSettle` re-parses
 /// the same instruction from its own data and rejects a dangling source buffer or
@@ -90,14 +89,16 @@ fn push_destinations<'a>(
 ) -> impl Iterator<Item = &'a Address> {
     // Each push occupies a `[source_buffer, destination]` meta pair after the
     // fixed accounts, so the destinations are every second meta beginning at the
-    // first push's destination. The first index with no meta ends the list.
-    (FINALIZE_FIXED_ACCOUNTS + 1..)
+    // first push's destination.
+    (FINALIZE_FIXED_ACCOUNTS + 1..instruction.num_account_metas())
         .step_by(2)
-        .map_while(|destination_index| {
-            instruction
+        .map(|destination_index| {
+            // The index stays below `num_account_metas`, so the lookup, whose only
+            // error is an out-of-bounds index, always succeeds.
+            &instruction
                 .get_instruction_account_at(destination_index)
-                .ok()
-                .map(|account| &account.key)
+                .expect("index within num_account_metas")
+                .key
         })
 }
 
@@ -390,14 +391,12 @@ mod tests {
         /// For any well-formed finalize the two must recover the same push
         /// count and the same destination for every push.
         #[test]
-        fn finalize_pushes_agrees_with_finalize_settle_input(
+        fn push_destinations_output_matches_finalize_parser(
             program_id in any::<[u8; 32]>(),
             state_pda in any::<[u8; 32]>(),
             begin_ix_index in any::<u16>(),
             (source_buffers, destinations, bumps, amounts) in arb_pushes(0..=16usize),
         ) {
-            let count = source_buffers.len();
-
             let ix = Instruction::from(FinalizeSettle {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
@@ -419,8 +418,6 @@ mod tests {
             let parsed_destinations: Vec<Address> =
                 parsed.pushes.iter().map(|push| *push.destination.address()).collect();
 
-            prop_assert_eq!(introspected_destinations.len(), count);
-            prop_assert_eq!(parsed.pushes.iter().count(), count);
             prop_assert_eq!(&introspected_destinations, &destinations);
             prop_assert_eq!(&parsed_destinations, &destinations);
         }
