@@ -761,9 +761,8 @@ fn pulls_from_multiple_orders() {
 #[test]
 fn zero_pulls_moves_nothing() {
     let (mut svm, program_id, payer) = setup();
-    // The order sells `sell_mint` and is paid in a distinct `buy_mint`, so the
-    // buy-side push touches only `buy_mint` accounts. That isolates the sell
-    // mint: with no pulls, no token instruction should reference its account.
+    // The intent specifies a sell mint. We want to see that, when no pull is
+    // specified, this account isn't touched in the transaction.
     let sell_mint = token::create_mint(&mut svm, &payer);
     let buy_mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
