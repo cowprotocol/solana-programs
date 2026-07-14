@@ -138,10 +138,10 @@ fn finalizes_with_several_pushes_same_mint() {
 #[test]
 fn finalizes_with_several_pushes_different_mint() {
     let (mut svm, program_id, payer) = setup();
-    let mint_1 = token::create_mint(&mut svm, &payer);
-    let mint_2 = token::create_mint(&mut svm, &payer);
-    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint_1).build();
-    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint_2).build();
+    let mint0 = token::create_mint(&mut svm, &payer);
+    let mint1 = token::create_mint(&mut svm, &payer);
+    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint0).build();
+    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint1).build();
 
     finalize(
         &mut svm,
@@ -150,12 +150,12 @@ fn finalizes_with_several_pushes_different_mint() {
         &[
             FinalizedIntent {
                 intent: &intent0,
-                mint: mint_1,
+                mint: mint0,
                 amount: 1_000,
             },
             FinalizedIntent {
                 intent: &intent1,
-                mint: mint_2,
+                mint: mint1,
                 amount: 2_000,
             },
         ],
