@@ -77,8 +77,7 @@ pub fn process_begin_settle(
 }
 
 /// The destination address of each push carried by the paired `FinalizeSettle`,
-/// seen through instruction introspection, in order and stopping at the first
-/// missing account.
+/// seen through instruction introspection, in order.
 ///
 /// The push structure isn't validated here: the paired `FinalizeSettle` re-parses
 /// the same instruction from its own data and rejects a dangling source buffer or
@@ -90,14 +89,16 @@ fn push_destinations<'a>(
 ) -> impl Iterator<Item = &'a Address> {
     // Each push occupies a `[source_buffer, destination]` meta pair after the
     // fixed accounts, so the destinations are every second meta beginning at the
-    // first push's destination. The first index with no meta ends the list.
-    (FINALIZE_FIXED_ACCOUNTS + 1..)
+    // first push's destination.
+    (FINALIZE_FIXED_ACCOUNTS + 1..instruction.num_account_metas())
         .step_by(2)
-        .map_while(|destination_index| {
-            instruction
+        .map(|destination_index| {
+            // The index stays below `num_account_metas`, so the lookup, whose only
+            // error is an out-of-bounds index, always succeeds.
+            &instruction
                 .get_instruction_account_at(destination_index)
-                .ok()
-                .map(|account| &account.key)
+                .expect("index within num_account_metas")
+                .key
         })
 }
 
