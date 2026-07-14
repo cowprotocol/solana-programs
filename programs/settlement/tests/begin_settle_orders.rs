@@ -91,7 +91,7 @@ fn build_settlement_with_placeholder_pushes(
 /// The finalize carries placeholder pushes matching the orders in count and
 /// destination, so this clears the push checks and reaches `BeginSettle`'s order
 /// validation: use it for cases expected to be rejected there.
-fn settle(
+fn build_settlement_from_orders_with_placeholders(
     svm: &LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
@@ -324,7 +324,7 @@ fn rejects_sell_token_owner_mismatch() {
     let intent = sample_intent(payer.pubkey(), sell_token, 1);
     create_order_pda(&mut svm, &program_id, &payer, &intent);
 
-    let tx = settle(
+    let tx = build_settlement_from_orders_with_placeholders(
         &svm,
         &program_id,
         &payer,
@@ -344,7 +344,7 @@ fn rejects_non_token_sell_account() {
     let intent = sample_intent(payer.pubkey(), non_token, 1);
     create_order_pda(&mut svm, &program_id, &payer, &intent);
 
-    let tx = settle(
+    let tx = build_settlement_from_orders_with_placeholders(
         &svm,
         &program_id,
         &payer,
@@ -493,7 +493,7 @@ fn rejects_cancelled_order() {
     )
     .expect("placing a cancelled order at its canonical PDA should succeed");
 
-    let tx = settle(
+    let tx = build_settlement_from_orders_with_placeholders(
         &svm,
         &program_id,
         &payer,
@@ -516,7 +516,7 @@ fn rejects_expired_order() {
     let after_expiration = i64::from(valid_to) + 1;
     set_unix_timestamp(&mut svm, after_expiration);
 
-    let tx = settle(
+    let tx = build_settlement_from_orders_with_placeholders(
         &svm,
         &program_id,
         &payer,
@@ -814,7 +814,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
     let destination =
         token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
 
-    let tx = settle(
+    let tx = build_settlement_from_orders_with_placeholders(
         &svm,
         &program_id,
         &payer,
@@ -855,7 +855,7 @@ fn rejects_pull_exceeding_delegation() {
     let destination =
         token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
 
-    let tx = settle(
+    let tx = build_settlement_from_orders_with_placeholders(
         &svm,
         &program_id,
         &payer,
