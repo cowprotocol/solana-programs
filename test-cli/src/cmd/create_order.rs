@@ -3,7 +3,7 @@ use clap::{Args as ClapArgs, Parser};
 use settlement_client::{
     instructions::CreateOrder,
     settlement_interface::{
-        data::intent::{EncodedOrderIntent, OrderIntent, OrderKind},
+        data::intent::{OrderIntent, OrderKind},
         pda::order::find_order_pda,
     },
 };
@@ -50,19 +50,13 @@ pub struct BuyOrSellArgs {
 }
 
 pub fn run_sell(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
-    let BuyOrSellArgs {
-        terms,
-        common,
-    } = args;
+    let BuyOrSellArgs { terms, common } = args;
     let parsed = parse(&ctx, OrderKind::Sell, &terms)?;
     execute(ctx, parsed, common)
 }
 
 pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
-    let BuyOrSellArgs {
-        terms,
-        common,
-    } = args;
+    let BuyOrSellArgs { terms, common } = args;
     let parsed = parse(&ctx, OrderKind::Buy, &terms)?;
     execute(ctx, parsed, common)
 }
@@ -78,17 +72,15 @@ struct ParsedOrder {
     buy_amount: u64,
 }
 
-fn parse(
-    ctx: &Context,
-    kind: OrderKind,
-    terms: &[String],
-) -> anyhow::Result<ParsedOrder> {
+fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<ParsedOrder> {
     let term_refs: Vec<&str> = terms.iter().map(String::as_str).collect();
     let terms = &term_refs[..];
 
     // first two terms are always the same
     let [a_amount, a_tok, ..] = terms else {
-        anyhow::bail!("must provide at least an amount and a token; run `cow sell --help` for usage");
+        anyhow::bail!(
+            "must provide at least an amount and a token; run `cow sell --help` for usage"
+        );
     };
 
     // next token could be "for" or "with" (ignored), a second token, or a numeric amount
