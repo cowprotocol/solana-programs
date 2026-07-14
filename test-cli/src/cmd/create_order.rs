@@ -41,11 +41,8 @@ itself execute the swap. Supported forms:
 
 Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address.")]
 pub struct BuyOrSellArgs {
-    /// Amount to sell (e.g. 1.0)
-    amount: String,
-
     /// Remaining terms (tokens and/or an amount) — run with --help for supported forms
-    #[arg(num_args = 1..=4)]
+    #[arg(num_args = 2..=5)]
     terms: Vec<String>,
 
     #[command(flatten)]
@@ -54,21 +51,19 @@ pub struct BuyOrSellArgs {
 
 pub fn run_sell(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
     let BuyOrSellArgs {
-        amount,
         terms,
         common,
     } = args;
-    let parsed = parse(&ctx, OrderKind::Sell, &amount, &terms)?;
+    let parsed = parse(&ctx, OrderKind::Sell, &terms)?;
     execute(ctx, parsed, common)
 }
 
 pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
     let BuyOrSellArgs {
-        amount,
         terms,
         common,
     } = args;
-    let parsed = parse(&ctx, OrderKind::Buy, &amount, &terms)?;
+    let parsed = parse(&ctx, OrderKind::Buy, &terms)?;
     execute(ctx, parsed, common)
 }
 
@@ -86,20 +81,25 @@ struct ParsedOrder {
 fn parse(
     ctx: &Context,
     kind: OrderKind,
-    amount: &str,
     terms: &[String],
 ) -> anyhow::Result<ParsedOrder> {
-    let t: Vec<&str> = terms
-        .iter()
-        .filter(|s| !s.eq_ignore_ascii_case("for") && !s.eq_ignore_ascii_case("with"))
-        .map(String::as_str)
-        .collect();
+    let term_refs: Vec<&str> = terms.iter().map(String::as_str).collect();
+    let terms = &term_refs[..];
+
+    // first two terms are always the same
+    let [a_amount, a_tok, ..] = terms else {
+        anyhow::bail!("must provide at least an amount and a token; run `cow sell --help` for usage");
+    };
+
+    // next token could be "for" or "with" (ignored), a second token, or a numeric amount
 
     // a/b are in the order the user typed them, not sell/buy order.
-    let (a_tok, a_amount, b_tok, b_amount) = match t.as_slice() {
-        [tok] => (*tok, amount, "SOL", "0"),
-        [a, b] => (*a, amount, *b, "0"),
-        [a, buy_amount, b] if is_amount(buy_amount) => (*a, amount, *b, *buy_amount),
+    let (b_tok, b_amount) = match terms[2..] {
+        [] => ("SOL", "0"),
+        ["for" | "with", b] => (b, "0"),
+        ["for" | "with", buy_amount, b] => (b, buy_amount),
+        [b] => (b, "0"),
+        [buy_amount, b] => (b, buy_amount),
         _ => anyhow::bail!(
             "cannot interpret {:?}; run `cow sell --help` for usage",
             terms
@@ -107,8 +107,8 @@ fn parse(
     };
 
     let (sell_tok, sell_amount_str, buy_tok, buy_amount_str) = match kind {
-        OrderKind::Sell => (a_tok, a_amount, b_tok, b_amount),
-        OrderKind::Buy => (b_tok, b_amount, a_tok, a_amount),
+        OrderKind::Sell => (*a_tok, *a_amount, b_tok, b_amount),
+        OrderKind::Buy => (b_tok, b_amount, *a_tok, *a_amount),
     };
 
     let sell = crate::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
@@ -205,13 +205,6 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     println!("order UID: {uid_hex}");
 
     Ok(())
-}
-
-/// Returns `true` if `s` looks like a numeric amount (as opposed to a token
-/// symbol/mint), so the 3-token form can be disambiguated before decimals are
-/// known. Real validation happens later via `spl_token::try_ui_amount_into_amount`.
-fn is_amount(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
 /// Returns the current unix timestamp plus `secs_from_now`, saturating at `u32::MAX`.
