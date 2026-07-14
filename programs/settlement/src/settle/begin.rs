@@ -390,7 +390,7 @@ mod tests {
         /// For any well-formed finalize the two must recover the same push
         /// count and the same destination for every push.
         #[test]
-        fn finalize_pushes_agrees_with_finalize_settle_input(
+        fn push_destinations_output_matches_finalize_parser(
             program_id in any::<[u8; 32]>(),
             state_pda in any::<[u8; 32]>(),
             begin_ix_index in any::<u16>(),
