@@ -6,6 +6,7 @@
 use anyhow::Context as _;
 use settlement_client::settlement_interface::Pubkey;
 use solana_program_pack::Pack;
+use solana_pubkey::pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use spl_token_interface::native_mint;
@@ -15,7 +16,7 @@ use spl_token_interface::state::{Account as TokenAccount, Mint};
 /// Avoids an RPC round-trip for well-known mints whose decimals are fixed.
 /// Replace with a proper on-chain registry or quote-API lookup when available.
 struct KnownToken {
-    mint: &'static str,
+    mint: Pubkey,
     decimals: u8,
 }
 
@@ -27,7 +28,7 @@ static REGISTRY: &[(&str, &str, KnownToken)] = &[(
     DEVNET_GENESIS_HASH,
     "USDC",
     KnownToken {
-        mint: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+        mint: pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"),
         decimals: 6,
     },
 )];
@@ -75,9 +76,11 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
         .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
         .to_string();
     if let Some(known) = known_token(&genesis_hash, &upper) {
-        let mint: Pubkey = known.mint.parse().expect("registry mint constant");
-        let ata =
-            get_associated_token_address_with_program_id(owner, &mint, &spl_token_interface::id());
+        let ata = get_associated_token_address_with_program_id(
+            owner,
+            &known.mint,
+            &spl_token_interface::id(),
+        );
         return Ok(ResolvedToken {
             account: ata,
             decimals: known.decimals,

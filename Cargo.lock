@@ -884,6 +884,7 @@ dependencies = [
  "solana-commitment-config",
  "solana-instruction",
  "solana-program-pack",
+ "solana-pubkey 3.0.0",
  "solana-rpc-client",
  "solana-sdk",
  "solana-system-interface 3.2.0",
