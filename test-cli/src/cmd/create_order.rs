@@ -8,6 +8,7 @@ use settlement_client::{
     },
 };
 use solana_sdk::{signature::Signer, transaction::Transaction};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
 use crate::token::ResolvedToken;
@@ -215,7 +216,6 @@ fn is_amount(s: &str) -> bool {
 
 /// Returns the current unix timestamp plus `secs_from_now`, saturating at `u32::MAX`.
 fn valid_to_in(secs_from_now: u64) -> u32 {
-    use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

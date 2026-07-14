@@ -32,6 +32,13 @@ static REGISTRY: &[(&str, &str, KnownToken)] = &[(
     },
 )];
 
+fn known_token(genesis_hash: &str, symbol: &str) -> Option<&'static KnownToken> {
+    REGISTRY
+        .iter()
+        .find(|(g, s, _)| *g == genesis_hash && *s == symbol)
+        .map(|(_, _, known)| known)
+}
+
 pub struct ResolvedToken {
     /// SPL token account to use in the order (ATA if supplied program argument was a mint).
     pub account: Pubkey,
@@ -67,9 +74,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
         .get_genesis_hash()
         .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
         .to_string();
-    if let Some((_, _, known)) = REGISTRY.iter().find(|(registry_genesis_hash, sym, _)| {
-        *registry_genesis_hash == genesis_hash && *sym == upper.as_str()
-    }) {
+    if let Some(known) = known_token(&genesis_hash, &upper) {
         let mint: Pubkey = known.mint.parse().expect("registry mint constant");
         let ata =
             get_associated_token_address_with_program_id(owner, &mint, &spl_token_interface::id());
