@@ -161,7 +161,7 @@ fn settle_orders<'a>(
     program_id: &Address,
     token_program_account: &AccountView,
     state_pda_account: &AccountView,
-    orders: impl IntoIterator<Item = SettledOrder<'a>>,
+    orders: impl IntoIterator<Item = SettledOrder<'a, AccountView>>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
     if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
@@ -225,7 +225,7 @@ fn settle_orders<'a>(
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order(
     program_id: &Address,
-    order: SettledOrder<'_>,
+    order: SettledOrder<'_, AccountView>,
     push_destination: &Address,
     now: i64,
     state_account: &AccountView,

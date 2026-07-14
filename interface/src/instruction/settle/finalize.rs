@@ -2,6 +2,7 @@
 
 use std::vec;
 
+#[cfg(test)]
 use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
@@ -95,9 +96,9 @@ impl From<FinalizeSettle<'_>> for Instruction {
 /// A single fund push parsed from `FinalizeSettle`: move `amount` (big-endian
 /// `u64`) from `source_buffer` to `destination`. `bump` is `source_buffer`'s
 /// claimed canonical buffer bump, which the program re-derives against.
-pub struct Push<'a> {
-    pub source_buffer: &'a AccountView,
-    pub destination: &'a AccountView,
+pub struct Push<'a, A> {
+    pub source_buffer: &'a A,
+    pub destination: &'a A,
     pub bump: u8,
     pub amount: &'a [u8; 8],
 }
@@ -107,21 +108,21 @@ pub struct Push<'a> {
 /// account pairs parallel to `bumps` and `amounts`. The parsing step that created
 /// this struct guarantees `push_accounts.len() == 2 * amounts.len()` and
 /// `bumps.len() == amounts.len()`, so the offsets below never run short.
-pub struct Pushes<'a> {
+pub struct Pushes<'a, A> {
     /// `[source_buffer, destination]` per push, flattened.
-    push_accounts: &'a [AccountView],
+    push_accounts: &'a [A],
     bumps: &'a [u8],
     /// One push amount (big-endian `u64`) per push, parallel to `bumps`.
     amounts: &'a [[u8; 8]],
 }
 
-impl<'a> Pushes<'a> {
+impl<'a, A> Pushes<'a, A> {
     /// Returns an iterator yielding one [`Push`] per step.
     #[allow(
         clippy::arithmetic_side_effects,
         reason = "offsets are bounded by tx limits"
     )]
-    pub fn iter(&self) -> impl Iterator<Item = Push<'a>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = Push<'a, A>> + '_ {
         let push_count = self.bumps.len();
         let mut i = 0usize;
         let mut account_offset = 0usize;
@@ -154,24 +155,21 @@ impl<'a> Pushes<'a> {
 /// `accounts` but **not validated** against runtime context except confirming
 /// that the discriminator matches the desired input and that the number of
 /// accounts and amounts is consistent.
-pub struct FinalizeSettleInput<'a> {
+pub struct FinalizeSettleInput<'a, A> {
     pub begin_ix_index: u16,
-    pub instructions_sysvar_account: &'a AccountView,
-    pub state_pda_account: &'a AccountView,
-    pub token_program_account: &'a AccountView,
-    pub pushes: Pushes<'a>,
+    pub instructions_sysvar_account: &'a A,
+    pub state_pda_account: &'a A,
+    pub token_program_account: &'a A,
+    pub pushes: Pushes<'a, A>,
 }
 
 /// This implementation defines how instruction bytes and accounts are laid out
 /// in the transaction. It's the source of truth for deciding where the data
 /// is stored.
-impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
+impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::FinalizeSettle;
 
-    fn parse_body(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         let (begin_ix_index, body) = recover_counterpart(instruction_data)?;
 
         let [instructions_sysvar_account, state_pda_account, token_program_account, push_accounts @ ..] =
@@ -524,6 +522,54 @@ mod tests {
             FinalizeSettleInput::parse(&data, &mut too_many).err(),
             Some(SettlementError::AccountCountNotMatchingPushCount.into()),
         );
+    }
+
+    #[test]
+    fn finalize_settle_input_parses_over_address_list() {
+        use crate::instruction::HasAddress;
+
+        // The parser is generic over the account element. Here the account list
+        // is a bare `&[Address]` (`Pubkey` is a re-export of `Address`) rather
+        // than live `AccountView`s, yet the same `parse` recovers the same
+        // fields, with each account's address read uniformly via `HasAddress`.
+        let program_id = Pubkey::new_from_array([9; 32]);
+        let state_pda = Pubkey::new_from_array([8; 32]);
+        let source = Pubkey::new_from_array([3; 32]);
+        let dest = Pubkey::new_from_array([4; 32]);
+
+        let ix = Instruction::from(FinalizeSettle {
+            program_id,
+            state_pda,
+            begin_ix_index: 0x1337,
+            source_buffers: &[source],
+            destinations: &[dest],
+            bumps: &[0x7f],
+            amounts: &[0x2211],
+        });
+
+        let mut accounts: Vec<Address> = ix.accounts.iter().map(|meta| meta.pubkey).collect();
+        let parsed = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            .expect("parse should succeed over an address list");
+
+        assert_eq!(parsed.begin_ix_index, 0x1337);
+        assert_eq!(
+            parsed.instructions_sysvar_account.address(),
+            &INSTRUCTIONS_SYSVAR_ID,
+        );
+        assert_eq!(parsed.state_pda_account.address(), &state_pda);
+        let pushes: Vec<(&Address, &Address, u8, u64)> = parsed
+            .pushes
+            .iter()
+            .map(|push| {
+                (
+                    push.source_buffer.address(),
+                    push.destination.address(),
+                    push.bump,
+                    u64::from_be_bytes(*push.amount),
+                )
+            })
+            .collect();
+        assert_eq!(pushes, vec![(&source, &dest, 0x7f, 0x2211)]);
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! token authority. Each token is identified by its `mint` account; the buffer
 //! address must be the canonical PDA for that mint.
 
+#[cfg(test)]
 use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
@@ -60,20 +61,17 @@ impl From<CreateBuffers<'_>> for Instruction {
 }
 
 /// Parsed inputs of a `CreateBuffer` instruction.
-pub struct CreateBufferInput<'a> {
-    pub payer: &'a AccountView,
-    pub token_program: &'a AccountView,
+pub struct CreateBufferInput<'a, A> {
+    pub payer: &'a A,
+    pub token_program: &'a A,
     /// One `[buffer_pda, mint]` pair per buffer to create.
-    pub buffers: &'a [[AccountView; 2]],
+    pub buffers: &'a [[A; 2]],
 }
 
-impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
+impl<'a, A> InstructionInputParsing<'a, A> for CreateBufferInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateBuffer;
 
-    fn parse_body(
-        instruction_data: &[u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &[u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -89,7 +87,7 @@ impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
         // buffer needs both, so a stray odd account left over is a malformed
         // instruction. There must be at least one pair: an instruction that
         // creates no buffers is rejected as a likely encoding issue.
-        let rest: &'a [AccountView] = rest;
+        let rest: &'a [A] = rest;
         let (buffers, remainder) = rest.as_chunks::<2>();
         if !remainder.is_empty() || buffers.is_empty() {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -229,7 +227,7 @@ mod tests {
         let mut data = create_buffer_data();
         data.push(0); // trailing byte
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut []).err(),
+            CreateBufferInput::<AccountView>::parse(&data, &mut []).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }

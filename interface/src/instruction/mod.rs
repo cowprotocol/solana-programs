@@ -5,6 +5,8 @@
 //! [`crate::SettlementInstruction`]) and laying out the required accounts.
 
 use solana_account_view::AccountView;
+use solana_address::Address;
+use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 
 use crate::{recover_discriminator, SettlementInstruction};
@@ -20,24 +22,54 @@ pub mod settle;
 /// belong to and parse the remaining instruction data and accounts. The
 /// discriminator check is shared via the default [`parse`] implementation; an
 /// impl only needs to provide [`parse_body`].
-pub trait InstructionInputParsing<'a>: Sized {
+///
+/// The account element `A` is generic: parsing is purely positional (it slices
+/// and destructures the accounts, never reading an address), so the same parser
+/// works over a live `&mut [AccountView]` on-chain or over any other account
+/// list such as `&mut [AccountMeta]` or `&mut [Address]` off-chain. Consumers
+/// that need each account's address recover it uniformly via [`HasAddress`].
+pub trait InstructionInputParsing<'a, A>: Sized {
     const DISCRIMINATOR: SettlementInstruction;
 
-    fn parse_body(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError>;
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError>;
 
-    fn parse(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         match recover_discriminator(instruction_data)? {
             (discriminator, remaining_data) if discriminator == Self::DISCRIMINATOR => {
                 Self::parse_body(remaining_data, accounts)
             }
             _ => Err(ProgramError::InvalidInstructionData),
         }
+    }
+}
+
+/// Uniform read access to the address of an account-like value.
+///
+/// Parsing an instruction input is positional and needs nothing from the
+/// account element, so [`InstructionInputParsing`] carries no bound on it. This
+/// trait is what a *consumer* of a parsed input uses to read each account's
+/// address without caring whether it came from a live [`AccountView`], an
+/// [`AccountMeta`], or a bare [`Address`].
+pub trait HasAddress {
+    fn address(&self) -> &Address;
+}
+
+impl HasAddress for AccountView {
+    fn address(&self) -> &Address {
+        AccountView::address(self)
+    }
+}
+
+impl HasAddress for Address {
+    fn address(&self) -> &Address {
+        self
+    }
+}
+
+impl HasAddress for AccountMeta {
+    fn address(&self) -> &Address {
+        // `AccountMeta::pubkey` is a `Pubkey`, itself a re-export of `Address`.
+        &self.pubkey
     }
 }
 
@@ -109,7 +141,7 @@ mod tests {
     #[test]
     fn input_parsing_rejects_different_discriminator() {
         struct TestInputParsing {}
-        impl<'a> InstructionInputParsing<'a> for TestInputParsing {
+        impl<'a> InstructionInputParsing<'a, AccountView> for TestInputParsing {
             const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
             fn parse_body(
