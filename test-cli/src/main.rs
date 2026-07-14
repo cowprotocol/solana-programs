@@ -32,8 +32,8 @@ struct Cli {
     keypair: String,
 
     /// Settlement program ID
-    #[arg(long, global = true, default_value = None)]
-    program_id: Option<Pubkey>,
+    #[arg(long, global = true, default_value_t = settlement_client::settlement_interface::ID)]
+    program_id: Pubkey,
 
     #[command(subcommand)]
     command: Commands,

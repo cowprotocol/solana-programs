@@ -17,9 +17,7 @@ impl Context {
             .map_err(|e| anyhow::anyhow!("failed to read keypair from {}: {e}", cli.keypair))?;
         Ok(Self {
             payer,
-            program_id: cli
-                .program_id
-                .unwrap_or(settlement_client::settlement_interface::ID),
+            program_id: cli.program_id,
             rpc: solana_rpc_client::rpc_client::RpcClient::new_with_commitment(
                 cli.rpc_url.clone(),
                 solana_commitment_config::CommitmentConfig::confirmed(),
