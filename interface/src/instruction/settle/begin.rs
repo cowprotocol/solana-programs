@@ -34,7 +34,7 @@ pub struct Pull {
 ///
 /// Wire format (grouped, with `n` orders and `T` total transfers):
 /// `[discriminator=0][finalize_ix_index: u16 LE][n: u8][bump×n][transfer_count×n]
-/// [amount: u64 BE ×T]`.
+/// [amount: u64 LE ×T]`.
 /// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
 /// (R)]` followed, per order, by `[order_pda (R), sell_token_account (W),
 /// destination (W)...]`.
@@ -75,7 +75,7 @@ impl From<BeginSettle<'_>> for Instruction {
         let amounts: Vec<u8> = order
             .iter()
             .flat_map(|&i| pulls[i].iter())
-            .flat_map(|pull| pull.amount.to_be_bytes())
+            .flat_map(|pull| pull.amount.to_le_bytes())
             .collect();
         let data = [
             &[SettlementInstruction::BeginSettle.discriminator()][..],
@@ -124,7 +124,7 @@ pub struct SettledOrder<'a> {
     pub bump: u8,
     /// Destination accounts for this order's transfers.
     pub destinations: &'a [AccountView],
-    /// Transfer amounts (big-endian `u64`), one per destination.
+    /// Transfer amounts (little-endian `u64`), one per destination.
     pub amounts: &'a [[u8; 8]],
 }
 
@@ -141,7 +141,7 @@ pub struct SettledOrders<'a> {
     bumps: &'a [u8],
     /// One transfer count per order, parallel to `bumps`.
     counts: &'a [u8],
-    /// Transfer amounts (big-endian `u64`), shared across orders and
+    /// Transfer amounts (little-endian `u64`), shared across orders and
     /// handed out `count` at a time.
     amounts: &'a [[u8; 8]],
 }
@@ -434,10 +434,10 @@ mod tests {
                 &[2][..],          // order count
                 &[0xa1, 0xb1][..], // bumps
                 &[2, 1][..],       // counts
-                // amounts
-                &hex!("0000000000000102")[..],
-                &hex!("0000000000000304")[..],
-                &hex!("0000000000000506")[..],
+                // amounts, little-endian
+                &hex!("0201000000000000")[..],
+                &hex!("0403000000000000")[..],
+                &hex!("0605000000000000")[..],
             ]
             .concat(),
         );
@@ -589,8 +589,8 @@ mod tests {
             [0x01],       // order count
             [0xab],       // bump
             [0x02],       // transfer count
-            0x1122u64.to_be_bytes(),
-            0x3344u64.to_be_bytes(),
+            0x1122u64.to_le_bytes(),
+            0x3344u64.to_le_bytes(),
         ];
 
         let BeginSettleInput { orders, .. } =
@@ -605,7 +605,7 @@ mod tests {
             .destinations
             .iter()
             .zip(order.amounts)
-            .map(|(destination, amount)| (destination.address(), u64::from_be_bytes(*amount)))
+            .map(|(destination, amount)| (destination.address(), u64::from_le_bytes(*amount)))
             .collect();
         assert_eq!(transfers, vec![(&dest0, 0x1122), (&dest1, 0x3344)]);
         assert!(orders.next().is_none());
@@ -690,8 +690,8 @@ mod tests {
             [0x01], // order count
             [0xab], // bump
             [0x01], // count says one, but two amounts/destinations exist
-            0u64.to_be_bytes(),
-            0u64.to_be_bytes(),
+            0u64.to_le_bytes(),
+            0u64.to_le_bytes(),
         ];
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
