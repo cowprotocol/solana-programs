@@ -221,6 +221,48 @@ fn rejects_too_few_accounts() {
     );
 }
 
+// Similar to `rejects_too_few_accounts`, but pops two accounts instead of one.
+// This is because variable-length accounts in the instruction are naturally
+// grouped in pairs, so a single missing account could just be an unsuccessful
+// pairing rather than accounting for missing accounts.
+#[test]
+fn rejects_two_too_few_accounts() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+    let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
+    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer, &mint).build();
+    let orders = [
+        FinalizedIntent {
+            intent: &intent0,
+            mint,
+            amount: 0,
+        },
+        FinalizedIntent {
+            intent: &intent1,
+            mint,
+            amount: 0,
+        },
+    ];
+
+    // A well-formed two-push finalize...
+    let mut finalize = Instruction::from(FinalizeSettle {
+        program_id,
+        begin_ix_index: BEGIN_INDEX.into(),
+        orders: &orders,
+    });
+    // ...with the last push's whole (source, destination) pair popped.
+    finalize.accounts.pop();
+    finalize.accounts.pop();
+
+    assert_eq!(
+        send_settlement(&mut svm, &program_id, &payer, &orders, finalize),
+        Err(TransactionError::InstructionError(
+            FINALIZE_INDEX,
+            to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
+        )),
+    );
+}
+
 #[test]
 fn rejects_partial_push_amount() {
     let (mut svm, program_id, payer) = setup();
