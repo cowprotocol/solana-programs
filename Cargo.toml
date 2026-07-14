@@ -1,14 +1,22 @@
 [workspace]
 resolver = "2"
-members = ["client", "interface", "programs/settlement", "programs/test/cpi-caller"]
+members = ["test-cli", "client", "interface", "programs/settlement", "programs/test/cpi-caller"]
 
 [workspace.package]
 version = "0.1.0"
 # Solana recommends edition 2021: https://solana.com/docs/programs/rust
 edition = "2021"
 
+# Most crates in this repository use MIT or Apache-2.0 dual license.
+license = "MIT OR Apache-2.0"
+
 [workspace.dependencies]
+anyhow = "1"
 arrayref = "0.3"
+clap = { version = "4", features = ["derive", "env"] }
+solana-commitment-config = "3"
+solana-program-pack = "3"
+solana-rpc-client = "3"
 derive_more = { version = "1", features = ["deref"] }
 hex-literal = "1"
 litesvm = "0.12.0"
@@ -32,6 +40,8 @@ solana-sdk = "3"
 solana-sdk-ids = "3"
 solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
+spl-associated-token-account-interface = { version = "2" }
+spl-token = "9"
 spl-token-interface = "2"
 
 [workspace.metadata.cli]
