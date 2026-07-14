@@ -32,7 +32,7 @@ itself execute the swap. Supported forms:
   cow sell 1.0 SOL USDC             sell exactly 1.0 SOL, receive any USDC
   cow sell 1.0 SOL 50.0 USDC        sell exactly 1.0 SOL, receive ≥ 50.0 USDC
   cow sell 1.0 SOL for 50.0 USDC    same as before, but more english
-  cow sell 1.0 USDC                 sell 1.0 SOL into USDC (SOL implied as sell token)
+  cow sell 1.0 USDC                 sell 1.0 USDC into SOL (SOL implied as buy token)
   cow buy 1.0 SOL 100.0 USDC        buy exactly 1.0 SOL, spend at most 100.0 USDC
   cow buy 1.0 SOL for 100.0 USDC    same as before, but more english
   cow buy 1.0 SOL USDC              buy exactly 1.0 SOL, spending any USDC
@@ -96,7 +96,7 @@ fn parse(
 
     // a/b are in the order the user typed them, not sell/buy order.
     let (a_tok, a_amount, b_tok, b_amount) = match t.as_slice() {
-        [tok] => ("SOL", amount, *tok, "0"),
+        [tok] => (*tok, amount, "SOL", "0"),
         [a, b] => (*a, amount, *b, "0"),
         [a, buy_amount, b] if is_amount(buy_amount) => (*a, amount, *b, *buy_amount),
         _ => anyhow::bail!(
