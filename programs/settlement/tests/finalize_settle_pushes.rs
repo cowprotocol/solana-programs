@@ -1,6 +1,11 @@
 //! Integration tests for the fund-push list carried by `FinalizeSettle`.
 
-use crate::common::{order::OrderBuilder, setup, to_instruction_error, token};
+use crate::common::{
+    order::OrderBuilder,
+    send,
+    settlement::{settlement_tx, BEGIN_INDEX, FINALIZE_INDEX},
+    setup, to_instruction_error, token,
+};
 use litesvm::LiteSVM;
 use settlement_client::instructions::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent,
@@ -10,29 +15,23 @@ use solana_sdk::{
     instruction::{AccountMeta, InstructionError},
     program_error::ProgramError,
     pubkey::Pubkey,
-    signature::{Keypair, Signer},
+    signature::Keypair,
     transaction::{Transaction, TransactionError},
 };
 
 mod common;
 
-/// The following [`send_settlement`] function simulates a settlement and for
-/// that hardcodes some instruction indices that will be referenced in the
-/// tests. We make those indices more explicit with a constant.
-const BEGIN_INDEX: u8 = 0;
-const FINALIZE_INDEX: u8 = 1;
-
-/// Send `[begin, finalize]` signed by `payer`, where `finalize` is a pre-built
+/// Build `[begin, finalize]` signed by `payer`, where `finalize` is a pre-built
 /// `FinalizeSettle` at [`FINALIZE_INDEX`] and `begin` settles `orders` (with no
 /// pulls) at [`BEGIN_INDEX`], the same orders the finalize is expected to push
-/// to.
-fn send_settlement(
-    svm: &mut LiteSVM,
+/// to. Submit the returned transaction with [`send`].
+fn build_settlement(
+    svm: &LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     orders: &[FinalizedIntent],
     finalize: impl Into<Instruction>,
-) -> Result<(), TransactionError> {
+) -> Transaction {
     let begin_orders: Vec<InitializedIntent> = orders
         .iter()
         .map(|order| InitializedIntent {
@@ -40,49 +39,36 @@ fn send_settlement(
             pulls: &[],
         })
         .collect();
-    let begin = Instruction::from(BeginSettle {
+    let begin = BeginSettle {
         program_id: *program_id,
         finalize_ix_index: FINALIZE_INDEX.into(),
         orders: &begin_orders,
-    });
-    // Assemble the transaction, confirming each instruction lands at its named
-    // index to make sure the constants are meaningfully defined.
-    let mut instructions = Vec::new();
-    assert_eq!(instructions.len(), usize::from(BEGIN_INDEX));
-    instructions.push(begin);
-    assert_eq!(instructions.len(), usize::from(FINALIZE_INDEX));
-    instructions.push(finalize.into());
-    let tx = Transaction::new_signed_with_payer(
-        &instructions,
-        Some(&payer.pubkey()),
-        &[payer],
-        svm.latest_blockhash(),
-    );
-    // Drop the success metadata, not needed in these tests.
-    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
+    };
+    settlement_tx(svm, payer, begin, finalize)
 }
 
-/// Settle `orders` (begin) and push their proceeds (finalize) in a minimal
-/// `[BeginSettle, FinalizeSettle]` transaction signed by `payer`.
+/// Build a minimal `[BeginSettle, FinalizeSettle]` transaction that settles
+/// `orders` (begin) and pushes their proceeds (finalize), signed by `payer`.
 fn finalize(
-    svm: &mut LiteSVM,
+    svm: &LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     orders: &[FinalizedIntent],
-) -> Result<(), TransactionError> {
+) -> Transaction {
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         orders,
     };
-    send_settlement(svm, program_id, payer, orders, finalize)
+    build_settlement(svm, program_id, payer, orders, finalize)
 }
 
 #[test]
 fn finalizes_with_no_pushes() {
     let (mut svm, program_id, payer) = setup();
 
-    finalize(&mut svm, &program_id, &payer, &[]).expect("a finalize with no pushes should succeed");
+    let tx = finalize(&svm, &program_id, &payer, &[]);
+    send(&mut svm, tx).expect("a finalize with no pushes should succeed");
 }
 
 #[test]
@@ -90,8 +76,8 @@ fn finalizes_with_single_push() {
     let (mut svm, program_id, payer) = setup();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
 
-    finalize(
-        &mut svm,
+    let tx = finalize(
+        &svm,
         &program_id,
         &payer,
         &[FinalizedIntent {
@@ -99,8 +85,8 @@ fn finalizes_with_single_push() {
             mint: Pubkey::new_unique(),
             amount: 1_000,
         }],
-    )
-    .expect("a single push should parse and be accepted");
+    );
+    send(&mut svm, tx).expect("a single push should parse and be accepted");
 }
 
 #[test]
@@ -116,8 +102,8 @@ fn finalizes_with_several_pushes_same_mint() {
         .buy_mint(&mint)
         .build();
 
-    finalize(
-        &mut svm,
+    let tx = finalize(
+        &svm,
         &program_id,
         &payer,
         &[
@@ -132,8 +118,8 @@ fn finalizes_with_several_pushes_same_mint() {
                 amount: 2_000,
             },
         ],
-    )
-    .expect("several pushes should parse and be accepted");
+    );
+    send(&mut svm, tx).expect("several pushes should parse and be accepted");
 }
 
 #[test]
@@ -148,8 +134,8 @@ fn finalizes_with_several_pushes_different_mint() {
         .buy_mint(&mint1)
         .build();
 
-    finalize(
-        &mut svm,
+    let tx = finalize(
+        &svm,
         &program_id,
         &payer,
         &[
@@ -164,8 +150,8 @@ fn finalizes_with_several_pushes_different_mint() {
                 amount: 2_000,
             },
         ],
-    )
-    .expect("several pushes should parse and be accepted");
+    );
+    send(&mut svm, tx).expect("several pushes should parse and be accepted");
 }
 
 #[test]
@@ -189,8 +175,9 @@ fn rejects_push_account_count_mismatch() {
         .accounts
         .push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
 
+    let tx = build_settlement(&svm, &program_id, &payer, &orders, finalize);
     assert_eq!(
-        send_settlement(&mut svm, &program_id, &payer, &orders, finalize),
+        send(&mut svm, tx),
         Err(TransactionError::InstructionError(
             FINALIZE_INDEX,
             to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
@@ -211,7 +198,8 @@ fn rejects_too_few_accounts() {
     // ...with one account popped.
     finalize.accounts.pop();
 
-    let result = send_settlement(&mut svm, &program_id, &payer, &[], finalize);
+    let tx = build_settlement(&svm, &program_id, &payer, &[], finalize);
+    let result = send(&mut svm, tx);
     let Err(TransactionError::InstructionError(index, ix_error)) = result else {
         panic!("expected an instruction error, got {result:?}");
     };
@@ -253,8 +241,9 @@ fn rejects_two_too_few_accounts() {
     // The paired `Begin` settles no orders, so it never checks the push
     // destinations: the inconsistency is left for the finalize's own
     // account-count check to reject.
+    let tx = build_settlement(&svm, &program_id, &payer, &[], finalize);
     assert_eq!(
-        send_settlement(&mut svm, &program_id, &payer, &[], finalize),
+        send(&mut svm, tx),
         Err(TransactionError::InstructionError(
             FINALIZE_INDEX,
             to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
@@ -281,8 +270,9 @@ fn rejects_partial_push_amount() {
     // ...with one byte popped, so the trailing amount is no longer a whole `u64`.
     finalize.data.pop();
 
+    let tx = build_settlement(&svm, &program_id, &payer, &orders, finalize);
     assert_eq!(
-        send_settlement(&mut svm, &program_id, &payer, &orders, finalize),
+        send(&mut svm, tx),
         Err(TransactionError::InstructionError(
             FINALIZE_INDEX,
             InstructionError::InvalidInstructionData,

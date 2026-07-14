@@ -9,9 +9,10 @@ pub mod buffer;
 pub mod lookup_table;
 pub mod order;
 pub mod pda;
+pub mod settlement;
 pub mod token;
 
-use litesvm::LiteSVM;
+use litesvm::{types::TransactionMetadata, LiteSVM};
 use settlement_client::settlement_interface::SettlementError;
 use settlement_interface::Instruction;
 use solana_sdk::{
@@ -139,4 +140,10 @@ pub fn signed_tx(
         &[fee_payer, owner],
         svm.latest_blockhash(),
     )
+}
+
+/// Submit `tx`, surfacing only the transaction-level error on failure (dropping
+/// the success metadata's error wrapper).
+pub fn send(svm: &mut LiteSVM, tx: Transaction) -> Result<TransactionMetadata, TransactionError> {
+    svm.send_transaction(tx).map_err(|e| e.err)
 }
