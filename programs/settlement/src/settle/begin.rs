@@ -396,8 +396,6 @@ mod tests {
             begin_ix_index in any::<u16>(),
             (source_buffers, destinations, bumps, amounts) in arb_pushes(0..=16usize),
         ) {
-            let count = source_buffers.len();
-
             let ix = Instruction::from(FinalizeSettle {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
@@ -419,8 +417,6 @@ mod tests {
             let parsed_destinations: Vec<Address> =
                 parsed.pushes.iter().map(|push| *push.destination.address()).collect();
 
-            prop_assert_eq!(introspected_destinations.len(), count);
-            prop_assert_eq!(parsed.pushes.iter().count(), count);
             prop_assert_eq!(&introspected_destinations, &destinations);
             prop_assert_eq!(&parsed_destinations, &destinations);
         }
