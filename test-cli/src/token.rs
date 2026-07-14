@@ -90,6 +90,10 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
     )
 }
 
+/// Resolve token information via a base58 address that may be either a token account or a mint.
+/// If a token account is supplied, an additional call is required to retrieve the mint address.
+/// Then, the mint account data is decoded to retrieve important token information, such as the
+/// decimals.
 fn resolve_from_account(
     rpc: &RpcClient,
     owner: &Pubkey,
