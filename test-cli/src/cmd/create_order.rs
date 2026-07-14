@@ -170,8 +170,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         app_data: [0u8; 32],
     };
 
-    let encoded = EncodedOrderIntent::from(&intent);
-    let uid = encoded.hash();
+    let uid = intent.uid();
     let (order_pda, _) = find_order_pda(&ctx.program_id, &uid);
 
     // owner == created_by: the payer both owns the order and funds the rent.
@@ -213,5 +212,5 @@ fn valid_to_in(secs_from_now: u64) -> u32 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    now.saturating_add(secs_from_now).min(u32::MAX as u64) as u32
+    u32::try_from(now.saturating_add(secs_from_now)).unwrap_or(u32::MAX)
 }

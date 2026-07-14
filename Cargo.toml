@@ -7,6 +7,9 @@ version = "0.1.0"
 # Solana recommends edition 2021: https://solana.com/docs/programs/rust
 edition = "2021"
 
+# Most crates in this repository use MIT or Apache-2.0 dual license.
+license = "MIT OR Apache-2.0"
+
 [workspace.dependencies]
 anyhow = "1"
 arrayref = "0.3"
