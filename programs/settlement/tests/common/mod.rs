@@ -6,6 +6,7 @@
 )]
 
 pub mod lookup_table;
+pub mod order;
 pub mod pda;
 pub mod token;
 
