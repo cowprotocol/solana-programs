@@ -34,7 +34,7 @@ pub struct Pull {
 ///
 /// Wire format (grouped, with `n` orders and `T` total transfers):
 /// `[discriminator=0][finalize_ix_index: u16 LE][n: u8][bump×n][transfer_count×n]
-/// [amount: u64 BE ×T]`.
+/// [amount: u64 LE ×T]`.
 /// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
 /// (R)]` followed, per order, by `[order_pda (R), sell_token_account (W),
 /// destination (W)...]`.
@@ -124,7 +124,7 @@ pub struct SettledOrder<'a> {
     pub bump: u8,
     /// Destination accounts for this order's transfers.
     pub destinations: &'a [AccountView],
-    /// Transfer amounts (big-endian `u64`), one per destination.
+    /// Transfer amounts (little-endian `u64`), one per destination.
     pub amounts: &'a [[u8; 8]],
 }
 
@@ -141,7 +141,7 @@ pub struct SettledOrders<'a> {
     bumps: &'a [u8],
     /// One transfer count per order, parallel to `bumps`.
     counts: &'a [u8],
-    /// Transfer amounts (big-endian `u64`), shared across orders and
+    /// Transfer amounts (little-endian `u64`), shared across orders and
     /// handed out `count` at a time.
     amounts: &'a [[u8; 8]],
 }
@@ -432,7 +432,7 @@ mod tests {
                 [2],          // order count
                 [0xa1, 0xb1], // bumps
                 [2, 1],       // counts
-                // amounts
+                // amounts, little endian
                 hex!("0201000000000000"),
                 hex!("0403000000000000"),
                 hex!("0605000000000000"),
