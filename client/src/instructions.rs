@@ -60,6 +60,9 @@ impl From<BeginSettle<'_>> for Instruction {
 /// A settled order whose proceeds are pushed to it: `intent` identifies the
 /// order (its `buy_token_account` is the push destination), `mint` selects the
 /// canonical source buffer, and `amount` is the quantity to push.
+/// Technically the mint is already included in the intent, but for that we need
+/// to read the sell account data on-chain, which makes the builder harder to
+/// use.
 pub struct FinalizedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub mint: Pubkey,
