@@ -12,6 +12,11 @@ use crate::{SettlementError, SettlementInstruction};
 
 use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
 
+/// The number of fixed accounts every `FinalizeSettle` carries before its push
+/// accounts: the instructions sysvar, the settlement state PDA, and the token
+/// program.
+pub const FINALIZE_FIXED_ACCOUNTS: usize = 3;
+
 /// Builder for a `FinalizeSettle` instruction pushing the funds described by the
 /// parallel lists:
 /// - `source_buffers[i]` is the buffer token account the funds come from,
@@ -223,10 +228,21 @@ mod tests {
     use hex_literal::hex;
     use solana_address::Address;
 
-    /// The fixed accounts every `FinalizeSettle` carries before its push
-    /// accounts: the instructions sysvar, the settlement state PDA, and the
-    /// token program.
-    const FIXED_ACCOUNTS: usize = 3;
+    #[test]
+    fn finalize_fixed_accounts_matches_builder() {
+        // A no-push finalize carries exactly the fixed accounts, so the constant
+        // must equal the account count the builder emits with no pushes.
+        let ix = Instruction::from(FinalizeSettle {
+            program_id: Pubkey::new_unique(),
+            state_pda: Pubkey::new_unique(),
+            begin_ix_index: 0,
+            source_buffers: &[],
+            destinations: &[],
+            bumps: &[],
+            amounts: &[],
+        });
+        assert_eq!(ix.accounts.len(), FINALIZE_FIXED_ACCOUNTS);
+    }
 
     #[test]
     fn expected_encoding_finalize_settle_no_pushes() {
@@ -496,14 +512,14 @@ mod tests {
         ];
 
         // Too few: only one push account follows the fixed accounts.
-        let mut too_few = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 1 }>();
+        let mut too_few = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 1 }>();
         assert_eq!(
             FinalizeSettleInput::parse(&data, &mut too_few).err(),
             Some(SettlementError::AccountCountNotMatchingPushCount.into()),
         );
 
         // Too many: three push accounts follow the fixed accounts.
-        let mut too_many = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 3 }>();
+        let mut too_many = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 3 }>();
         assert_eq!(
             FinalizeSettleInput::parse(&data, &mut too_many).err(),
             Some(SettlementError::AccountCountNotMatchingPushCount.into()),
@@ -514,7 +530,7 @@ mod tests {
     fn finalize_settle_input_rejects_partial_push() {
         // Four trailing bytes: not a whole number of 9-byte pushes (a bump plus a
         // `u64` amount), so the body can't be parsed into the push layout.
-        let mut accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
+        let mut accounts = fake_sequential_accounts::<FINALIZE_FIXED_ACCOUNTS>();
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
             [13, 37],                 // begin index
