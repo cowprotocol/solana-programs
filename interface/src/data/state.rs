@@ -18,6 +18,12 @@ pub fn decode(bytes: &[u8; SIZE]) -> Result<(), ProgramError> {
     Ok(())
 }
 
+/// Writes the canonical encoding of the settlement state PDA's body into
+/// `buffer`. There are no fields beyond the discriminator.
+pub fn write_account(buffer: &mut [u8; SIZE]) {
+    *buffer = DISCRIMINATOR;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -32,5 +38,13 @@ mod tests {
         let mut bytes = DISCRIMINATOR;
         bytes[0] ^= 0xff;
         assert_eq!(decode(&bytes), Err(ProgramError::InvalidAccountData));
+    }
+
+    #[test]
+    fn write_account_produces_decodable_bytes() {
+        let mut buffer = [0u8; SIZE];
+        write_account(&mut buffer);
+        assert_eq!(decode(&buffer), Ok(()));
+        assert_eq!(buffer, DISCRIMINATOR);
     }
 }

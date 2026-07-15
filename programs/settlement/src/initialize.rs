@@ -36,7 +36,7 @@ pub fn process_initialize(
     let buffer: &mut [u8; state::SIZE] = (&mut *buffer)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    *buffer = state::DISCRIMINATOR;
+    state::write_account(buffer);
 
     Ok(())
 }
