@@ -69,10 +69,6 @@ pub struct OrderAccount {
 /// └──┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
 /// 0  2       10      18                              50                ...               200
 /// ```
-///
-/// The first byte is an IDL-style account discriminator (see
-/// [`EncodedOrderAccount::DISCRIMINATOR`]), letting IDL-driven tooling (e.g.
-/// Solscan) identify the account type before decoding the rest.
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
 
