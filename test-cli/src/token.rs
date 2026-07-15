@@ -42,9 +42,13 @@ fn known_token(genesis_hash: &str, symbol: &str) -> Option<&'static KnownToken> 
 
 pub struct ResolvedToken {
     /// SPL token account to use in the order (ATA if supplied program argument was a mint).
-    pub account: Pubkey,
-    /// On-chain `decimals` value for the token's mint.
-    pub decimals: u8,
+    pub ta: Pubkey,
+    /// The actual TokenAccount data
+    pub ta_data: TokenAccount,
+    /// Mint address for the token.
+    pub mint: Pubkey,
+    /// The actual mint data
+    pub mint_data: Mint,
 }
 
 /// Resolve a user-supplied token string to a token account and decimal count.
@@ -60,14 +64,16 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
             &spl_token_interface::id(),
         );
         return Ok(ResolvedToken {
-            account: wsol_ata,
-            decimals: native_mint::DECIMALS,
+            ta: wsol_ata,
+            mint: wsol_mint,
+            ta_data: fetch_ta_data(rpc, &wsol_ata)?,
+            mint_data: fetch_mint_data(rpc, &wsol_mint)?,
         });
     }
 
     // 2. Base58 mint or token-account address — fetches decimals from the mint, and possibly the token account owner.
     if let Ok(pubkey) = token_str.parse::<Pubkey>() {
-        return resolve_from_account(rpc, owner, &pubkey);
+        return resolve_token_from_account(rpc, owner, &pubkey);
     }
 
     // 3. Known symbol (e.g. `"USDC"`) — payer's ATA for the registered mint, RPC call required to get genesis hash (detecting the network).
@@ -82,8 +88,10 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
             &spl_token_interface::id(),
         );
         return Ok(ResolvedToken {
-            account: ata,
-            decimals: known.decimals,
+            ta: ata,
+            ta_data: fetch_ta_data(rpc, &ata)?,
+            mint: known.mint,
+            mint_data: fetch_mint_data(rpc, &known.mint)?,
         });
     }
 
@@ -97,7 +105,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
 /// If a token account is supplied, an additional call is required to retrieve the mint address.
 /// Then, the mint account data is decoded to retrieve important token information, such as the
 /// decimals.
-fn resolve_from_account(
+pub fn resolve_token_from_account(
     rpc: &RpcClient,
     owner: &Pubkey,
     token_account_or_mint: &Pubkey,
@@ -114,17 +122,18 @@ fn resolve_from_account(
 
     if let Ok(token_account) = TokenAccount::unpack(&account.data) {
         Ok(ResolvedToken {
-            account: *token_account_or_mint,
-            decimals: fetch_mint_decimals(rpc, &token_account.mint)?,
+            ta: *token_account_or_mint,
+            mint: token_account.mint,
+            ta_data: token_account,
+            mint_data: fetch_mint_data(rpc, &token_account.mint)?,
         })
     } else if let Ok(mint) = Mint::unpack(&account.data) {
+        let ata = get_associated_token_address_with_program_id(owner, token_account_or_mint, &spl_token_interface::id());
         Ok(ResolvedToken {
-            account: get_associated_token_address_with_program_id(
-                owner,
-                token_account_or_mint,
-                &account.owner,
-            ),
-            decimals: mint.decimals,
+            ta: ata,
+            ta_data: fetch_ta_data(rpc, &ata)?,
+            mint_data: mint,
+            mint: *token_account_or_mint,
         })
     } else {
         anyhow::bail!(
@@ -135,11 +144,34 @@ fn resolve_from_account(
     }
 }
 
-fn fetch_mint_decimals(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<u8> {
+fn fetch_ta_data(rpc: &RpcClient, token_account: &Pubkey) -> anyhow::Result<TokenAccount> {
+    let data = rpc
+        .get_account_data(token_account);
+
+    if let Err(_) = data {
+        return Ok(TokenAccount::default());
+    }
+
+    if let Ok(ta_data) = TokenAccount::unpack(&data.unwrap()) {
+        Ok(ta_data)
+    } else {
+        Err(anyhow::anyhow!(
+            "account {token_account} is not a token account"
+        ))
+    }
+}
+
+fn fetch_mint_data(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<Mint> {
+
     let data = rpc
         .get_account_data(mint)
         .with_context(|| format!("mint account {mint} not found"))?;
-    Ok(Mint::unpack(&data)
-        .with_context(|| format!("failed to unpack mint {mint}"))?
-        .decimals)
+
+    if let Ok(mint_data) = Mint::unpack(&data) {
+        Ok(mint_data)
+    } else {
+        Err(anyhow::anyhow!(
+            "account {mint} is not a mint"
+        ))
+    }
 }
