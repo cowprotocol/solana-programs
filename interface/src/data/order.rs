@@ -84,7 +84,7 @@ impl EncodedOrderAccount {
     pub const SIZE: usize = 200;
 
     /// Single-byte account discriminator. See [`crate::SettlementAccount`].
-    pub const DISCRIMINATOR: [u8; 1] = [crate::SettlementAccount::OrderAccount.discriminator()];
+    pub const DISCRIMINATOR: u8 = crate::SettlementAccount::OrderAccount.discriminator();
 
     /// Decode the account body and compute the embedded intent's UID in one
     /// shot, mirroring [`EncodedOrderIntent::decode_and_hash`]. Decoding
@@ -132,7 +132,7 @@ pub fn write_account(
         EncodedOrderAccount::W_CREATED_BY,
         EncodedOrderAccount::W_INTENT
     ];
-    *discriminator_slot = EncodedOrderAccount::DISCRIMINATOR;
+    *discriminator_slot = [EncodedOrderAccount::DISCRIMINATOR];
     *cancelled_slot = [cancelled as u8];
     *amount_withdrawn_slot = amount_withdrawn.to_le_bytes();
     *amount_received_slot = amount_received.to_le_bytes();
@@ -175,7 +175,7 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
             EncodedOrderAccount::W_INTENT
         ];
 
-        if *discriminator != EncodedOrderAccount::DISCRIMINATOR {
+        if *discriminator != [EncodedOrderAccount::DISCRIMINATOR] {
             return Err(ProgramError::InvalidAccountData);
         }
 
@@ -212,6 +212,7 @@ pub mod fixtures {
     };
 
     // Hardcoded but verified in a sanity-check test.
+    pub const DISCRIMINATOR_OFFSET: usize = 0;
     pub const CANCELLED_OFFSET: usize = 1;
     pub const INTENT_OFFSET: usize = 50;
 
@@ -251,7 +252,7 @@ pub mod fixtures {
 mod tests {
     use core::mem::size_of;
 
-    use super::fixtures::{sample_account, CANCELLED_OFFSET, INTENT_OFFSET};
+    use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
     use crate::data::intent::{
         fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
@@ -444,8 +445,7 @@ mod tests {
                 kind in arb_order_kind(),
                 partially_fillable in any::<bool>(),
             ) {
-                bytes[..EncodedOrderAccount::DISCRIMINATOR.len()]
-                    .copy_from_slice(&EncodedOrderAccount::DISCRIMINATOR);
+                bytes[DISCRIMINATOR_OFFSET] = EncodedOrderAccount::DISCRIMINATOR;
                 bytes[CANCELLED_OFFSET] = cancelled as u8;
                 bytes[INTENT_OFFSET + KIND_OFFSET] = kind as u8;
                 bytes[INTENT_OFFSET + PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
