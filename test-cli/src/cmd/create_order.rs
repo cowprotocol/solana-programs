@@ -107,9 +107,9 @@ fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<Par
     let buy = crate::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
 
     let sell_amount =
-        spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell.decimals)
+        spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell.mint_data.decimals)
             .map_err(|_| anyhow::anyhow!("invalid sell amount: {sell_amount_str}"))?;
-    let buy_amount = spl_token::try_ui_amount_into_amount(buy_amount_str.to_string(), buy.decimals)
+    let buy_amount = spl_token::try_ui_amount_into_amount(buy_amount_str.to_string(), buy.mint_data.decimals)
         .map_err(|_| anyhow::anyhow!("invalid buy amount: {buy_amount_str}"))?;
 
     Ok(ParsedOrder {
@@ -138,22 +138,22 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
 
     if sell_is_sol {
         let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&ctx.payer.pubkey(), sell_amount)?;
-        assert_eq!(wsol_ata, sell.account, "resolved WSOL ATA mismatch");
+        assert_eq!(wsol_ata, sell.ta, "resolved WSOL ATA mismatch");
         ixs.extend(wrap_ixs);
     }
 
     // Approve the settlement program to pull sell tokens on our behalf.
     ixs.push(crate::instructions::approve(
         &ctx.program_id,
-        &sell.account,
+        &sell.ta,
         &ctx.payer.pubkey(),
         sell_amount,
     )?);
 
     let intent = OrderIntent {
         owner: ctx.payer.pubkey(),
-        sell_token_account: sell.account,
-        buy_token_account: buy.account,
+        sell_token_account: sell.ta,
+        buy_token_account: buy.ta,
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,
