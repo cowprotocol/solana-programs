@@ -142,8 +142,19 @@ pub fn signed_tx(
     )
 }
 
-/// Submit `tx`, surfacing only the transaction-level error on failure (dropping
-/// the success metadata's error wrapper).
-pub fn send(svm: &mut LiteSVM, tx: Transaction) -> Result<TransactionMetadata, TransactionError> {
+/// Assemble `instructions` into a transaction signed by `payer` and submit it,
+/// surfacing only the transaction-level error on failure (dropping the success
+/// metadata's error wrapper).
+pub fn send(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+) -> Result<TransactionMetadata, TransactionError> {
+    let tx = Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    );
     svm.send_transaction(tx).map_err(|e| e.err)
 }
