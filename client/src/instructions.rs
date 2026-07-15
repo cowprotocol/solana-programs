@@ -60,6 +60,9 @@ impl From<BeginSettle<'_>> for Instruction {
 /// A settled order whose proceeds are pushed to it: `intent` identifies the
 /// order (its `buy_token_account` is the push destination), `mint` selects the
 /// canonical source buffer, and `amount` is the quantity to push.
+/// Technically the mint is already included in the intent, but for that we need
+/// to read the sell account data on-chain, which makes the builder harder to
+/// use.
 pub struct FinalizedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub mint: Pubkey,
@@ -87,16 +90,17 @@ impl From<FinalizeSettle<'_>> for Instruction {
         // For BeginSettle, sorting can take place in the interface. But the
         // order PDAs don't appear in the actual FinalizeSettle instruction, so
         // the sorting can only happen here.
-        let mut order: Vec<usize> = (0..builder.orders.len()).collect();
-        order.sort_by_key(|&i| {
+        let num_orders = builder.orders.len();
+        let mut orders: Vec<usize> = (0..num_orders).collect();
+        orders.sort_by_key(|&i| {
             find_order_pda(&builder.program_id, &builder.orders[i].intent.uid()).0
         });
 
-        let mut source_buffers: Vec<Pubkey> = Vec::with_capacity(builder.orders.len());
-        let mut destinations = Vec::with_capacity(builder.orders.len());
-        let mut bumps = Vec::with_capacity(builder.orders.len());
-        let mut amounts = Vec::with_capacity(builder.orders.len());
-        for &i in &order {
+        let mut source_buffers: Vec<Pubkey> = Vec::with_capacity(num_orders);
+        let mut destinations = Vec::with_capacity(num_orders);
+        let mut bumps = Vec::with_capacity(num_orders);
+        let mut amounts = Vec::with_capacity(num_orders);
+        for &i in &orders {
             let (buffer_pda, bump) = find_buffer_pda(&builder.program_id, &builder.orders[i].mint);
             source_buffers.push(buffer_pda);
             destinations.push(builder.orders[i].intent.buy_token_account);

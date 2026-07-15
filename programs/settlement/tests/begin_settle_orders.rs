@@ -8,19 +8,19 @@
 //! `BeginSettle` pairs one push with each order and checks that push pays the
 //! order's buy token account, so even a settlement expected to be rejected during
 //! order validation must pair with a finalize whose pushes match the orders in
-//! both count and destination. [`settle`] and [`settle_raw`] attach such pushes
-//! (with placeholder source, bump, and amount, so they never execute), while
-//! [`settle_and_pay`] attaches fully real ones for settlements expected to
-//! succeed. Tests rejected before the push checks (wrong token program or state
-//! PDA) pair with an empty finalize ([`build_settlement_with_placeholder_pushes`]
-//! with no destinations).
+//! both count and destination. [`settle_and_pay`] builds exactly such a
+//! fully-working settlement, so every test here builds one with it and either
+//! sends it unmodified (when the rejection is already baked into the orders or
+//! accounts passed in) or mutates its `BeginSettle` instruction in place
+//! afterwards (a wrong account, a wrong token program, a wrong state PDA, an
+//! extra account). A few tests are the exception and build the raw instruction
+//! directly, because what they exercise can't come out of the client builder,
+//! whose output is a properly built instruction.
 
 use crate::common::{
     assert_instruction_error, assert_settlement_error, buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
-    send, set_unix_timestamp,
-    settlement::{settlement_tx, BEGIN_INDEX, FINALIZE_INDEX},
-    setup, token,
+    replace_first_matching_account, send, set_unix_timestamp, setup, token,
 };
 use litesvm::LiteSVM;
 use litesvm_token::spl_token::error::TokenError;
@@ -36,6 +36,7 @@ use settlement_client::settlement_interface::{
     pda::{order::find_order_pda, state::find_state_pda},
     Instruction, SettlementError, SettlementInstruction,
 };
+use settlement_interface::data::intent::OrderIntent;
 use solana_sdk::{
     account::Account,
     instruction::{AccountMeta, InstructionError},
@@ -46,75 +47,19 @@ use solana_sdk::{
 
 mod common;
 
+/// Position of `BeginSettle` in the `[BeginSettle, FinalizeSettle]` pair the
+/// tests in this file build; the finalize sits right after it. Kept in sync with
+/// the tests that reach into `instructions[BEGIN_INDEX]` to corrupt the begin.
+const BEGIN_INDEX: u8 = 0;
+const FINALIZE_INDEX: u8 = 1;
+
 /// A list of empty transfer lists, one per order. Used for settling `n` orders
 /// without pulling any funds.
 fn no_pulls(n: usize) -> Vec<&'static [Pull]> {
     vec![&[]; n]
 }
 
-/// Build `[begin, finalize]` signed by `payer`, where `begin` is pre-built and
-/// `finalize` carries one push per `destination` (enough to satisfy
-/// `BeginSettle`'s one-push-per-order pairing) and, with each push targeting its
-/// order's buy token account, its push-destination check too. The pushes'
-/// source, bump, and amount are placeholders: these settlements are expected to
-/// be rejected during order validation, so the finalize never runs.
-///
-/// With no destinations the finalize settles no pushes; use that form only for
-/// cases rejected before `BeginSettle`'s one-push-per-order count check (wrong
-/// token program or state PDA), where the empty finalize would otherwise trip
-/// that check.
-fn build_settlement_with_placeholder_pushes(
-    svm: &LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    begin: impl Into<Instruction>,
-    destinations: &[Pubkey],
-) -> Transaction {
-    let push_count = destinations.len();
-    let placeholder_sources: Vec<Pubkey> = (0..push_count).map(|_| Pubkey::new_unique()).collect();
-    let bumps = vec![0u8; push_count];
-    let amounts = vec![0u64; push_count];
-    let finalize = Instruction::from(FinalizeSettleRaw {
-        program_id: *program_id,
-        state_pda: find_state_pda(program_id).0,
-        begin_ix_index: BEGIN_INDEX.into(),
-        source_buffers: &placeholder_sources,
-        destinations,
-        bumps: &bumps,
-        amounts: &amounts,
-    });
-    settlement_tx(svm, payer, begin, finalize)
-}
-
-/// Build a minimal `[BeginSettle, FinalizeSettle]` transaction settling `orders`
-/// (begin at [`BEGIN_INDEX`], finalize at [`FINALIZE_INDEX`]) signed by `payer`.
-/// The finalize carries placeholder pushes matching the orders in count and
-/// destination, so this clears the push checks and reaches `BeginSettle`'s order
-/// validation: use it for cases expected to be rejected there.
-fn build_settlement_from_orders_with_placeholders(
-    svm: &LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    orders: &[InitializedIntent],
-) -> Transaction {
-    let destinations: Vec<Pubkey> = orders
-        .iter()
-        .map(|order| order.intent.buy_token_account)
-        .collect();
-    build_settlement_with_placeholder_pushes(
-        svm,
-        program_id,
-        payer,
-        BeginSettle {
-            program_id: *program_id,
-            finalize_ix_index: FINALIZE_INDEX.into(),
-            orders,
-        },
-        &destinations,
-    )
-}
-
-/// Build a `[BeginSettle, FinalizeSettle]` transaction settling `orders` and
+/// Build the `[BeginSettle, FinalizeSettle]` instructions settling `orders` and
 /// paying each one: the finalize pushes a zero amount from each order's canonical
 /// buy-token buffer to its buy token account, lining up one-to-one with the
 /// orders so `BeginSettle`'s push pass passes. The buffer for each order's buy
@@ -126,7 +71,7 @@ fn settle_and_pay(
     program_id: &Pubkey,
     payer: &Keypair,
     orders: &[InitializedIntent],
-) -> Transaction {
+) -> Vec<Instruction> {
     let settled: Vec<FinalizedIntent> = orders
         .iter()
         .map(|order| {
@@ -150,37 +95,7 @@ fn settle_and_pay(
         begin_ix_index: BEGIN_INDEX.into(),
         orders: &settled,
     };
-    settlement_tx(svm, payer, begin, finalize)
-}
-
-/// Settle orders described by raw, parallel `(order_pda, sell_token, buy_token,
-/// bump)` lists, pulling nothing. Uses the canonical state PDA and SPL Token
-/// program so execution reaches the order-validation checks; tests that need a
-/// non-canonical state PDA or token program build the instruction directly. The
-/// finalize carries placeholder pushes, one per order and aimed at that order's
-/// `buy_token`, to clear the push count and destination checks; every caller
-/// expects rejection during order validation. Callers rejected before the push
-/// destination check (a non-canonical or undecodable order) may pass any
-/// `buy_token`.
-fn settle_raw(
-    svm: &LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    order_pdas: &[Pubkey],
-    sell_token_accounts: &[Pubkey],
-    buy_token_accounts: &[Pubkey],
-    bumps: &[u8],
-) -> Transaction {
-    let begin = BeginSettleRaw {
-        program_id: *program_id,
-        state_pda: find_state_pda(program_id).0,
-        finalize_ix_index: FINALIZE_INDEX.into(),
-        order_pdas,
-        order_pda_bumps: bumps,
-        sell_token_accounts,
-        pulls: &no_pulls(bumps.len()),
-    };
-    build_settlement_with_placeholder_pushes(svm, program_id, payer, begin, buy_token_accounts)
+    vec![begin.into(), finalize.into()]
 }
 
 #[test]
@@ -188,7 +103,7 @@ fn settles_a_single_order() {
     let (mut svm, program_id, payer) = setup();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    let tx = settle_and_pay(
+    let instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -197,7 +112,7 @@ fn settles_a_single_order() {
             pulls: &[],
         }],
     );
-    send(&mut svm, tx).expect("settlement should succeed");
+    send(&mut svm, &payer, instructions).expect("settlement should succeed");
 }
 
 #[test]
@@ -217,8 +132,8 @@ fn settles_multiple_orders() {
         .iter()
         .map(|intent| InitializedIntent { intent, pulls: &[] })
         .collect();
-    let tx = settle_and_pay(&mut svm, &program_id, &payer, &orders);
-    send(&mut svm, tx).expect("multi-order settlement should succeed");
+    let instructions = settle_and_pay(&mut svm, &program_id, &payer, &orders);
+    send(&mut svm, &payer, instructions).expect("multi-order settlement should succeed");
 }
 
 #[test]
@@ -227,16 +142,33 @@ fn rejects_wrong_bump() {
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
-    let tx = settle_raw(
-        &svm,
-        &program_id,
-        &payer,
-        &[order_pda],
-        &[intent.sell_token_account],
-        &[intent.buy_token_account],
-        &[bump ^ 0x01],
+
+    // Build the raw instruction directly to inject a bad bump. The finalize
+    // carries placeholder, the transaction is expected to reject before its
+    // execution.
+    let begin = BeginSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        finalize_ix_index: 1,
+        order_pdas: &[order_pda],
+        order_pda_bumps: &[bump ^ 0x01],
+        sell_token_accounts: &[intent.sell_token_account],
+        pulls: &no_pulls(1),
+    };
+    let finalize = FinalizeSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        begin_ix_index: 0,
+        source_buffers: &[Pubkey::new_unique()],
+        destinations: &[intent.buy_token_account],
+        bumps: &[0],
+        amounts: &[0],
+    };
+    let instructions = vec![begin.into(), finalize.into()];
+    assert_settlement_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::OrderNotCanonical,
     );
-    assert_settlement_error(send(&mut svm, tx), SettlementError::OrderNotCanonical);
 }
 
 #[test]
@@ -245,28 +177,46 @@ fn rejects_fabricated_program_owned_account() {
     let mint = token::create_mint(&mut svm, &payer);
 
     let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
+    let intent = sample_intent(payer.pubkey(), sell_token, 0);
     let body: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
         cancelled: false,
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: sample_intent(payer.pubkey(), sell_token, 0),
+        intent: intent.clone(),
     })
     .into();
     // A program-owned account holding a valid order body, but sitting at an
     // address that isn't the canonical order PDA.
     let fake_order = create_account(&mut svm, &program_id, &body);
 
-    let tx = settle_raw(
-        &svm,
-        &program_id,
-        &payer,
-        &[fake_order],
-        &[sell_token],
-        &[Pubkey::new_unique()],
-        &[255],
+    let (_real_order_pda, bump) = find_order_pda(&program_id, &intent.uid());
+    let begin = BeginSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        finalize_ix_index: 1,
+        order_pdas: &[fake_order],
+        order_pda_bumps: &[bump],
+        sell_token_accounts: &[sell_token],
+        pulls: &no_pulls(1),
+    };
+    // Mostly placeholder values: the transaction will reject before reaching
+    // this instruction, we just want to make sure that `BeginSettle` validates.
+    let finalize = FinalizeSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        begin_ix_index: 0,
+        source_buffers: &[Pubkey::new_unique()],
+        destinations: &[intent.buy_token_account],
+        bumps: &[0],
+        amounts: &[0],
+    };
+    let instructions = vec![begin.into(), finalize.into()];
+
+    assert_settlement_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::OrderNotCanonical,
     );
-    assert_settlement_error(send(&mut svm, tx), SettlementError::OrderNotCanonical);
 }
 
 #[test]
@@ -278,16 +228,33 @@ fn rejects_non_order_account_in_order_slot() {
 
     // Put a token account in the order slot. Its 165-byte data can't decode as a
     // 199-byte order body, so it's rejected before the canonical-address check.
-    let tx = settle_raw(
-        &svm,
-        &program_id,
-        &payer,
-        &[sell_token],
-        &[sell_token],
-        &[Pubkey::new_unique()],
-        &[255],
+    // The client builder always references a real order PDA, so build the raw
+    // instruction by hand; the bump is irrelevant, as the decode fails first.
+    let begin = BeginSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        finalize_ix_index: 1,
+        order_pdas: &[sell_token],
+        order_pda_bumps: &[0],
+        sell_token_accounts: &[sell_token],
+        pulls: &no_pulls(1),
+    };
+    // The finalize just carries a placeholder push matching the order in count.
+    let finalize = FinalizeSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        begin_ix_index: 0,
+        source_buffers: &[Pubkey::new_unique()],
+        destinations: &[Pubkey::new_unique()],
+        bumps: &[0],
+        amounts: &[0],
+    };
+    let instructions = vec![begin.into(), finalize.into()];
+
+    assert_instruction_error(
+        send(&mut svm, &payer, instructions),
+        InstructionError::InvalidAccountData,
     );
-    assert_instruction_error(send(&mut svm, tx), InstructionError::InvalidAccountData);
 }
 
 #[test]
@@ -297,19 +264,24 @@ fn rejects_sell_token_account_mismatch() {
 
     // Supply a different token account than the one the order's intent names.
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     let wrong_sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
-    let tx = settle_raw(
-        &svm,
+    let mut instructions = settle_and_pay(
+        &mut svm,
         &program_id,
         &payer,
-        &[order_pda],
-        &[wrong_sell_token],
-        &[intent.buy_token_account],
-        &[bump],
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[],
+        }],
     );
+    replace_first_matching_account(
+        &mut instructions[usize::from(BEGIN_INDEX)],
+        &intent.sell_token_account,
+        wrong_sell_token,
+    );
+
     assert_settlement_error(
-        send(&mut svm, tx),
+        send(&mut svm, &payer, instructions),
         SettlementError::SellTokenAccountMismatch,
     );
 }
@@ -317,15 +289,21 @@ fn rejects_sell_token_account_mismatch() {
 #[test]
 fn rejects_sell_token_owner_mismatch() {
     let (mut svm, program_id, payer) = setup();
-    let mint = token::create_mint(&mut svm, &payer);
+    let sell_mint = token::create_mint(&mut svm, &payer);
+    let buy_mint = token::create_mint(&mut svm, &payer);
 
     let other_owner = Pubkey::new_unique();
-    let sell_token = token::create_token_account(&mut svm, &payer, &mint, &other_owner);
-    let intent = sample_intent(payer.pubkey(), sell_token, 1);
+    let sell_token = token::create_token_account(&mut svm, &payer, &sell_mint, &other_owner);
+    let buy_token = token::create_token_account(&mut svm, &payer, &buy_mint, &payer.pubkey());
+
+    let intent = OrderIntent {
+        buy_token_account: buy_token,
+        ..sample_intent(payer.pubkey(), sell_token, 1)
+    };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
 
-    let tx = build_settlement_from_orders_with_placeholders(
-        &svm,
+    let instructions = settle_and_pay(
+        &mut svm,
         &program_id,
         &payer,
         &[InitializedIntent {
@@ -333,7 +311,10 @@ fn rejects_sell_token_owner_mismatch() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(send(&mut svm, tx), SettlementError::SellTokenOwnerMismatch);
+    assert_settlement_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::SellTokenOwnerMismatch,
+    );
 }
 
 #[test]
@@ -341,11 +322,17 @@ fn rejects_non_token_sell_account() {
     let (mut svm, program_id, payer) = setup();
 
     let non_token = Pubkey::new_unique();
-    let intent = sample_intent(payer.pubkey(), non_token, 1);
+    let buy_mint = token::create_mint(&mut svm, &payer);
+    let buy_token = token::create_token_account(&mut svm, &payer, &buy_mint, &payer.pubkey());
+
+    let intent = OrderIntent {
+        buy_token_account: buy_token,
+        ..sample_intent(payer.pubkey(), non_token, 1)
+    };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
 
-    let tx = build_settlement_from_orders_with_placeholders(
-        &svm,
+    let instructions = settle_and_pay(
+        &mut svm,
         &program_id,
         &payer,
         &[InitializedIntent {
@@ -353,7 +340,10 @@ fn rejects_non_token_sell_account() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(send(&mut svm, tx), SettlementError::SellTokenAccountInvalid);
+    assert_settlement_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::SellTokenAccountInvalid,
+    );
 }
 
 #[test]
@@ -361,7 +351,7 @@ fn rejects_duplicate_orders() {
     let (mut svm, program_id, payer) = setup();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    let tx = settle_and_pay(
+    let instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -377,7 +367,7 @@ fn rejects_duplicate_orders() {
         ],
     );
     assert_settlement_error(
-        send(&mut svm, tx),
+        send(&mut svm, &payer, instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
 }
@@ -442,19 +432,26 @@ fn rejects_orders_in_wrong_address_order() {
         data,
     };
 
-    // One zero-amount push per order, paying each order's buy token account,
-    // aligned with begin's decreasing order. `BeginSettle` checks only the
-    // destinations, so the placeholder pushes never run (begin rejects the
-    // ordering first).
-    let tx = build_settlement_with_placeholder_pushes(
-        &svm,
-        &program_id,
-        &payer,
-        begin,
-        &[orders[0].2, orders[1].2],
-    );
+    // One placeholder zero-amount push per order, paying each order's buy token
+    // account and aligned with begin's decreasing order. `BeginSettle` rejects
+    // the ordering before the pushes execute, so only the destinations and their
+    // count matter, not the source buffers they'd draw from.
+    let source_buffers: Vec<Pubkey> = orders.iter().map(|_| Pubkey::new_unique()).collect();
+    let destinations: Vec<Pubkey> = orders.iter().map(|&(_, _, buy, _)| buy).collect();
+    let bumps = vec![0u8; orders.len()];
+    let amounts = vec![0u64; orders.len()];
+    let finalize = Instruction::from(FinalizeSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        begin_ix_index: BEGIN_INDEX.into(),
+        source_buffers: &source_buffers,
+        destinations: &destinations,
+        bumps: &bumps,
+        amounts: &amounts,
+    });
+    let instructions = vec![begin, finalize];
     assert_settlement_error(
-        send(&mut svm, tx),
+        send(&mut svm, &payer, instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
 }
@@ -462,17 +459,15 @@ fn rejects_orders_in_wrong_address_order() {
 #[test]
 fn rejects_cancelled_order() {
     let (mut svm, program_id, payer) = setup();
-    let mint = token::create_mint(&mut svm, &payer);
+
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
 
     // There's no cancel instruction yet, and `CreateOrder` always writes an
     // active order, so write the PDA directly with the `cancelled` flag set. The
     // account still sits at the canonical PDA holding a matching intent, so it
     // clears the provenance check and the cancelled flag is what trips the
     // rejection.
-    let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
-    let intent = sample_intent(payer.pubkey(), sell_token, 0);
     let (order_pda, _bump) = find_order_pda(&program_id, &intent.uid());
-
     let data: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
         cancelled: true,
         amount_withdrawn: 0,
@@ -493,8 +488,8 @@ fn rejects_cancelled_order() {
     )
     .expect("placing a cancelled order at its canonical PDA should succeed");
 
-    let tx = build_settlement_from_orders_with_placeholders(
-        &svm,
+    let instructions = settle_and_pay(
+        &mut svm,
         &program_id,
         &payer,
         &[InitializedIntent {
@@ -502,7 +497,10 @@ fn rejects_cancelled_order() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(send(&mut svm, tx), SettlementError::OrderCancelled);
+    assert_settlement_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::OrderCancelled,
+    );
 }
 
 #[test]
@@ -516,8 +514,8 @@ fn rejects_expired_order() {
     let after_expiration = i64::from(valid_to) + 1;
     set_unix_timestamp(&mut svm, after_expiration);
 
-    let tx = build_settlement_from_orders_with_placeholders(
-        &svm,
+    let instructions = settle_and_pay(
+        &mut svm,
         &program_id,
         &payer,
         &[InitializedIntent {
@@ -525,7 +523,10 @@ fn rejects_expired_order() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(send(&mut svm, tx), SettlementError::OrderExpired);
+    assert_settlement_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::OrderExpired,
+    );
 }
 
 #[test]
@@ -538,7 +539,7 @@ fn settles_order_at_exact_valid_to() {
         .build();
     set_unix_timestamp(&mut svm, i64::from(valid_to));
 
-    let tx = settle_and_pay(
+    let instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -547,7 +548,7 @@ fn settles_order_at_exact_valid_to() {
             pulls: &[],
         }],
     );
-    send(&mut svm, tx).expect("an order is still settleable at exactly valid_to");
+    send(&mut svm, &payer, instructions).expect("an order is still settleable at exactly valid_to");
 }
 
 #[test]
@@ -565,7 +566,7 @@ fn pulls_funds_to_destination() {
         token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
 
     let amount = 2_000_000;
-    let tx = settle_and_pay(
+    let instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -577,7 +578,8 @@ fn pulls_funds_to_destination() {
             }],
         }],
     );
-    send(&mut svm, tx).expect("a pull within the approved delegation should succeed");
+    send(&mut svm, &payer, instructions)
+        .expect("a pull within the approved delegation should succeed");
 
     assert_eq!(token::balance(&svm, &destination), amount);
     assert_eq!(token::balance(&svm, &sell_token), initial_amount - amount);
@@ -603,7 +605,7 @@ fn pulls_to_multiple_destinations() {
 
     let pulled0 = 300_000;
     let pulled1 = 100_000;
-    let tx = settle_and_pay(
+    let instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -621,7 +623,7 @@ fn pulls_to_multiple_destinations() {
             ],
         }],
     );
-    send(&mut svm, tx).expect("multiple pulls from one order should succeed");
+    send(&mut svm, &payer, instructions).expect("multiple pulls from one order should succeed");
 
     assert_eq!(token::balance(&svm, &dest0), pulled0);
     assert_eq!(token::balance(&svm, &dest1), pulled1);
@@ -672,7 +674,7 @@ fn pulls_from_multiple_orders() {
 
     let pulled_first = 42_000;
     let pulled_second = 67_000;
-    let tx = settle_and_pay(
+    let instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -693,7 +695,7 @@ fn pulls_from_multiple_orders() {
             },
         ],
     );
-    send(&mut svm, tx).expect("pulls from several orders should succeed");
+    send(&mut svm, &payer, instructions).expect("pulls from several orders should succeed");
 
     assert_eq!(token::balance(&svm, &dest_first), pulled_first);
     assert_eq!(token::balance(&svm, &dest_second), pulled_second);
@@ -725,10 +727,11 @@ fn zero_pulls_moves_nothing() {
 
     // `settle_and_pay` builds exactly the settlement this test needs: begin
     // settles the order with no pulls, and finalize pushes a zero amount from the
-    // buy buffer (created on demand) to the buy token account. Because it returns
-    // the transaction, we can capture its account keys before submitting to
-    // inspect the issued token instructions.
-    let tx = settle_and_pay(
+    // buy buffer (created on demand) to the buy token account. Build the
+    // transaction by hand rather than via `send`, so the account keys used to
+    // interpret the recorded token instructions come straight from the message
+    // that was executed instead of a separately compiled copy.
+    let instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -737,8 +740,16 @@ fn zero_pulls_moves_nothing() {
             pulls: &[],
         }],
     );
-    let account_keys = tx.message.account_keys.clone();
-    let transaction = send(&mut svm, tx).expect("settling without pulling should succeed");
+    let transaction = Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[&payer],
+        svm.latest_blockhash(),
+    );
+    let account_keys = transaction.message.account_keys.clone();
+    let transaction = svm
+        .send_transaction(transaction)
+        .expect("settling without pulling should succeed");
 
     // No token instruction references the sell token account (the sell mint's
     // only account here): the lone token transfer is the buy-side push, which
@@ -752,25 +763,28 @@ fn rejects_wrong_state_pda() {
     let (mut svm, program_id, payer) = setup();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
-    let not_the_state_pda = Pubkey::new_unique();
-
-    let tx = build_settlement_with_placeholder_pushes(
-        &svm,
+    let mut instructions = settle_and_pay(
+        &mut svm,
         &program_id,
         &payer,
-        BeginSettleRaw {
-            program_id,
-            state_pda: not_the_state_pda,
-            finalize_ix_index: FINALIZE_INDEX.into(),
-            order_pdas: &[order_pda],
-            order_pda_bumps: &[bump],
-            sell_token_accounts: &[intent.sell_token_account],
-            pulls: &no_pulls(1),
-        },
-        &[],
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[],
+        }],
     );
-    assert_settlement_error(send(&mut svm, tx), SettlementError::StateAccountMismatch);
+
+    // Swap the state PDA account `BeginSettle` references for a bogus one.
+    let (state_pda, _bump) = find_state_pda(&program_id);
+    replace_first_matching_account(
+        &mut instructions[usize::from(BEGIN_INDEX)],
+        &state_pda,
+        Pubkey::new_unique(),
+    );
+
+    assert_settlement_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::StateAccountMismatch,
+    );
 }
 
 #[test]
@@ -778,23 +792,28 @@ fn rejects_wrong_token_program() {
     let (mut svm, program_id, payer) = setup();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-
-    // The builder always fills in the SPL Token program, so we swap the
-    // token-program account out afterwards.
-    let mut begin: Instruction = BeginSettle {
-        program_id,
-        finalize_ix_index: FINALIZE_INDEX.into(),
-        orders: &[InitializedIntent {
+    let mut instructions = settle_and_pay(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
             intent: &intent,
             pulls: &[],
         }],
-    }
-    .into();
-    let token_account_index = 2;
-    begin.accounts[token_account_index] = AccountMeta::new_readonly(Pubkey::new_unique(), false);
+    );
 
-    let tx = build_settlement_with_placeholder_pushes(&svm, &program_id, &payer, begin, &[]);
-    assert_instruction_error(send(&mut svm, tx), InstructionError::IncorrectProgramId);
+    // Swap the SPL Token program account `BeginSettle` references for a bogus
+    // one.
+    replace_first_matching_account(
+        &mut instructions[usize::from(BEGIN_INDEX)],
+        &SPL_TOKEN_PROGRAM_ID,
+        Pubkey::new_unique(),
+    );
+
+    assert_instruction_error(
+        send(&mut svm, &payer, instructions),
+        InstructionError::IncorrectProgramId,
+    );
 }
 
 #[test]
@@ -814,8 +833,8 @@ fn rejects_pull_delegated_to_incorrect_address() {
     let destination =
         token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
 
-    let tx = build_settlement_from_orders_with_placeholders(
-        &svm,
+    let instructions = settle_and_pay(
+        &mut svm,
         &program_id,
         &payer,
         &[InitializedIntent {
@@ -827,7 +846,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
         }],
     );
     assert_instruction_error(
-        send(&mut svm, tx),
+        send(&mut svm, &payer, instructions),
         InstructionError::Custom(TokenError::OwnerMismatch as u32),
     );
 }
@@ -855,8 +874,8 @@ fn rejects_pull_exceeding_delegation() {
     let destination =
         token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
 
-    let tx = build_settlement_from_orders_with_placeholders(
-        &svm,
+    let instructions = settle_and_pay(
+        &mut svm,
         &program_id,
         &payer,
         &[InitializedIntent {
@@ -868,7 +887,7 @@ fn rejects_pull_exceeding_delegation() {
         }],
     );
     assert_instruction_error(
-        send(&mut svm, tx),
+        send(&mut svm, &payer, instructions),
         InstructionError::Custom(TokenError::InsufficientFunds as u32),
     );
     assert_eq!(token::balance(&svm, &sell_token), initial_amount);
@@ -882,25 +901,24 @@ fn rejects_extra_account() {
     let (mut svm, program_id, payer) = setup();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    // A well-formed single-order, no-transfer settlement...
-    let mut begin: Instruction = BeginSettle {
-        program_id,
-        finalize_ix_index: FINALIZE_INDEX.into(),
-        orders: &[InitializedIntent {
+    let mut instructions = settle_and_pay(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
             intent: &intent,
             pulls: &[],
         }],
-    }
-    .into();
-    // ...with one extra account appended, so the account count no longer matches
-    // the `2n + T` the instruction data implies.
-    begin
+    );
+
+    // Append one extra account to `BeginSettle`, so the account count no longer
+    // matches the `2n + T` the instruction data implies.
+    instructions[usize::from(BEGIN_INDEX)]
         .accounts
         .push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
 
-    let tx = build_settlement_with_placeholder_pushes(&svm, &program_id, &payer, begin, &[]);
     assert_settlement_error(
-        send(&mut svm, tx),
+        send(&mut svm, &payer, instructions),
         SettlementError::AccountCountNotMatchingOrderCount,
     );
 }

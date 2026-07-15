@@ -9,7 +9,6 @@ pub mod buffer;
 pub mod lookup_table;
 pub mod order;
 pub mod pda;
-pub mod settlement;
 pub mod token;
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -142,8 +141,32 @@ pub fn signed_tx(
     )
 }
 
-/// Submit `tx`, surfacing only the transaction-level error on failure (dropping
-/// the success metadata's error wrapper).
-pub fn send(svm: &mut LiteSVM, tx: Transaction) -> Result<TransactionMetadata, TransactionError> {
+/// In `instruction`, repoint the account currently set to `from` at `to`. Tests
+/// use it to corrupt one account of an otherwise-valid instruction; it panics if
+/// `instruction` doesn't reference `from`, so a stale swap fails loudly rather
+/// than silently testing nothing.
+pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubkey, to: Pubkey) {
+    let meta = instruction
+        .accounts
+        .iter_mut()
+        .find(|meta| meta.pubkey == *from)
+        .unwrap_or_else(|| panic!("instruction should reference {from}"));
+    meta.pubkey = to;
+}
+
+/// Assemble `instructions` into a transaction signed by `payer` and submit it,
+/// surfacing only the transaction-level error on failure (dropping the success
+/// metadata's error wrapper).
+pub fn send(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+) -> Result<TransactionMetadata, TransactionError> {
+    let tx = Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    );
     svm.send_transaction(tx).map_err(|e| e.err)
 }
