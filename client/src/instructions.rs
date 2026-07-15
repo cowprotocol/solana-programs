@@ -15,10 +15,10 @@ use settlement_interface::{
 // We want the client to provide all instruction builders.
 pub use settlement_interface::instruction::settle::{FinalizeSettle, Pull};
 
-/// An order to settle together with the funds to pull from it: `intent`
-/// identifies the order and `pulls` lists the [`Pull`]s to make from its sell
-/// token account.
-pub struct SettledOrder<'a> {
+/// An order ready to be settled, together with the funds to pull from it:
+/// `intent` identifies the order and `pulls` lists the [`Pull`]s to make from
+/// its sell token account.
+pub struct InitializedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub pulls: &'a [Pull],
 }
@@ -27,7 +27,7 @@ pub struct SettledOrder<'a> {
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub finalize_ix_index: u16,
-    pub orders: &'a [SettledOrder<'a>],
+    pub orders: &'a [InitializedIntent<'a>],
 }
 
 impl From<BeginSettle<'_>> for Instruction {
@@ -145,9 +145,9 @@ mod tests {
             let program_id = Pubkey::new_unique();
             // No pulls here: this test only checks that orders are derived and
             // laid out correctly.
-            let orders: Vec<SettledOrder> = intents
+            let orders: Vec<InitializedIntent> = intents
                 .iter()
-                .map(|intent| SettledOrder { intent, pulls: &[] })
+                .map(|intent| InitializedIntent { intent, pulls: &[] })
                 .collect();
             let ix = Instruction::from(BeginSettle {
                 program_id,
