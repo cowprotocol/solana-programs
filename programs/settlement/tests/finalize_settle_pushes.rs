@@ -1,11 +1,6 @@
 //! Integration tests for the fund-push list carried by `FinalizeSettle`.
 
-use crate::common::{
-    order::OrderBuilder,
-    send,
-    settlement::{BEGIN_INDEX, FINALIZE_INDEX},
-    setup, to_instruction_error, token,
-};
+use crate::common::{order::OrderBuilder, send, setup, to_instruction_error, token};
 use settlement_client::instructions::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent,
 };
@@ -18,6 +13,13 @@ use solana_sdk::{
 };
 
 mod common;
+
+/// Position of `BeginSettle` in the `[BeginSettle, FinalizeSettle]` pair the
+/// tests in this file build; the finalize sits right after it. Kept in sync with
+/// the `assert_eq!(index, FINALIZE_INDEX)` checks that a rejection came from the
+/// finalize.
+const BEGIN_INDEX: u8 = 0;
+const FINALIZE_INDEX: u8 = 1;
 
 /// Build the `[begin, finalize]` instructions where `finalize` is a pre-built
 /// `FinalizeSettle` at [`FINALIZE_INDEX`] and `begin` settles `orders` (with no

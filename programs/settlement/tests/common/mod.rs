@@ -9,7 +9,6 @@ pub mod buffer;
 pub mod lookup_table;
 pub mod order;
 pub mod pda;
-pub mod settlement;
 pub mod token;
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -140,6 +139,19 @@ pub fn signed_tx(
         &[fee_payer, owner],
         svm.latest_blockhash(),
     )
+}
+
+/// In `instruction`, repoint the account currently set to `from` at `to`. Tests
+/// use it to corrupt one account of an otherwise-valid instruction; it panics if
+/// `instruction` doesn't reference `from`, so a stale swap fails loudly rather
+/// than silently testing nothing.
+pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubkey, to: Pubkey) {
+    let meta = instruction
+        .accounts
+        .iter_mut()
+        .find(|meta| meta.pubkey == *from)
+        .unwrap_or_else(|| panic!("instruction should reference {from}"));
+    meta.pubkey = to;
 }
 
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
