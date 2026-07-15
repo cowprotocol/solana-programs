@@ -256,9 +256,8 @@ Differences with Ethereum:
 A settlement transaction is split into multiple instructions. All settlement operations occur between a `BeginSettle` and a `FinalizeSettle` instruction with the exception of arbitrary interactions, which can take place at any point of a transaction. Except for that, the order of instructions in the transaction is arbitrary.
 
 - `BeginSettle`: Snapshots each order's receiver token account, spender token account, and withdrawal balances. Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
-- `Push`: It references a unique SPL transfer token instruction between `BeginSettle` and `FinalizeSettle` that sends the proceeds of an order to its buy token account.
 - (arbitrary interactions): Any instruction from the solver. This could be a token transfer, an AMM swap, or anything else.
-- `FinalizeSettle`: Reads balances again, computes deltas against the snapshots, validates clearing/limit prices, updates `amount_received` and order status, revokes solver approvals. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
+- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. Reads balances again, computes deltas against the snapshots, validates clearing/limit prices, updates `amount_received` and order status, revokes solver approvals. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
 
 Additionally, a settlement transaction will include the batch number as part of the instruction bytes of `BeginSettle`.
 

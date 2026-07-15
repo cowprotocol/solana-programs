@@ -47,6 +47,7 @@ fn send_settlement(
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: 0,
+        orders: &[],
     };
     let tx = Transaction::new_signed_with_payer(
         &[begin.into(), finalize.into()],
