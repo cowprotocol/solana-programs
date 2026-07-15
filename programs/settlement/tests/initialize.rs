@@ -33,7 +33,7 @@ fn happy_path_initializes_state_pda_with_discriminator() {
     assert_eq!(
         account.data,
         state::DISCRIMINATOR,
-        "state PDA must hold only the Anchor-style discriminator"
+        "state PDA must hold only the discriminator"
     );
 
     let rent = svm.minimum_balance_for_rent_exemption(state::SIZE);
