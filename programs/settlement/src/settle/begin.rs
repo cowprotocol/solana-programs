@@ -234,7 +234,7 @@ fn process_order(
             sell_token_account,
             destination,
             state_account,
-            u64::from_be_bytes(*amount),
+            u64::from_le_bytes(*amount),
         )
         .invoke_signed(core::slice::from_ref(state_pda_signer))?;
     }

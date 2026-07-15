@@ -75,7 +75,7 @@ impl From<BeginSettle<'_>> for Instruction {
         let amounts: Vec<u8> = order
             .iter()
             .flat_map(|&i| pulls[i].iter())
-            .flat_map(|pull| pull.amount.to_be_bytes())
+            .flat_map(|pull| pull.amount.to_le_bytes())
             .collect();
         let data = [
             &[SettlementInstruction::BeginSettle.discriminator()][..],
@@ -435,9 +435,9 @@ mod tests {
                 &[0xa1, 0xb1][..], // bumps
                 &[2, 1][..],       // counts
                 // amounts
-                &hex!("0000000000000102")[..],
-                &hex!("0000000000000304")[..],
-                &hex!("0000000000000506")[..],
+                &hex!("0201000000000000")[..],
+                &hex!("0403000000000000")[..],
+                &hex!("0605000000000000")[..],
             ]
             .concat(),
         );
@@ -589,8 +589,8 @@ mod tests {
             [0x01],       // order count
             [0xab],       // bump
             [0x02],       // transfer count
-            0x1122u64.to_be_bytes(),
-            0x3344u64.to_be_bytes(),
+            0x1122u64.to_le_bytes(),
+            0x3344u64.to_le_bytes(),
         ];
 
         let BeginSettleInput { orders, .. } =
@@ -605,7 +605,7 @@ mod tests {
             .destinations
             .iter()
             .zip(order.amounts)
-            .map(|(destination, amount)| (destination.address(), u64::from_be_bytes(*amount)))
+            .map(|(destination, amount)| (destination.address(), u64::from_le_bytes(*amount)))
             .collect();
         assert_eq!(transfers, vec![(&dest0, 0x1122), (&dest1, 0x3344)]);
         assert!(orders.next().is_none());
@@ -690,8 +690,8 @@ mod tests {
             [0x01], // order count
             [0xab], // bump
             [0x01], // count says one, but two amounts/destinations exist
-            0u64.to_be_bytes(),
-            0u64.to_be_bytes(),
+            0u64.to_le_bytes(),
+            0u64.to_le_bytes(),
         ];
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
