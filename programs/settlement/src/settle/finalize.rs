@@ -9,7 +9,7 @@ use settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::buffer::buffer_pda_signer_seeds,
+    pda::buffer::validate_buffer_pda,
     SettlementError, SettlementInstruction,
 };
 
@@ -42,7 +42,7 @@ pub fn process_finalize_settle(
 
     // `BeginSettle` (which the counterpart check above guarantees ran) already
     // validated the push count and destinations. `push_funds` adds the only
-    // remaining check: each push draws from the canonical buffer for its mint.
+    // remaining check: each push draws from the buffer for its mint.
 
     validate_token_account(input.token_program_account)?;
 
@@ -58,7 +58,7 @@ pub fn process_finalize_settle(
 
 /// Push each order's proceeds out of the settlement's buffers, signing each
 /// transfer as the canonical state PDA (the buffers' SPL authority). Each push's
-/// source must be the canonical buffer for its destination's mint; pairing the
+/// source must be the derived buffer for its destination's mint; pairing the
 /// destination to an order is `BeginSettle`'s job.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(
@@ -75,17 +75,7 @@ fn push_funds<'a>(
                 .map_err(|_| SettlementError::InvalidBuyTokenAccount)?;
             *destination.mint()
         };
-        // Re-derive the buffer from the carried bump (one hash, not a full
-        // search). A buffer exists only at its canonical address, so a wrong
-        // bump yields an address the transfer can't draw from.
-        let derived = Address::create_program_address(
-            &buffer_pda_signer_seeds(mint.as_array(), &[push.bump]),
-            program_id,
-        )
-        .map_err(|_| SettlementError::PushSourceNotBuffer)?;
-        if push.source_buffer.address() != &derived {
-            return Err(SettlementError::PushSourceNotBuffer.into());
-        }
+        validate_buffer_pda(program_id, push.source_buffer, &mint, push.bump)?;
 
         Transfer::new(
             push.source_buffer,
