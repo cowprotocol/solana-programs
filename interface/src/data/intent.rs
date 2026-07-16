@@ -87,7 +87,7 @@ pub struct OrderIntent {
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
 /// each divider belongs to the cell on its right. The byte range is
-/// annotated below. Amounts and `valid_to` are big-endian encoded.
+/// annotated below. Amounts and `valid_to` are little-endian encoded.
 ///
 /// ```text
 ///                                                                                              partially_fillable ─────┐
@@ -178,9 +178,9 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *owner = intent.owner.to_bytes();
         *buy_token = intent.buy_token_account.to_bytes();
         *sell_token = intent.sell_token_account.to_bytes();
-        *sell_amount = intent.sell_amount.to_be_bytes();
-        *buy_amount = intent.buy_amount.to_be_bytes();
-        *valid_to = intent.valid_to.to_be_bytes();
+        *sell_amount = intent.sell_amount.to_le_bytes();
+        *buy_amount = intent.buy_amount.to_le_bytes();
+        *valid_to = intent.valid_to.to_le_bytes();
         *kind = [intent.kind as u8];
         *partially_fillable = [intent.partially_fillable as u8];
         *app_data = intent.app_data;
@@ -226,9 +226,9 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             owner: Pubkey::new_from_array(*owner),
             buy_token_account: Pubkey::new_from_array(*buy_token),
             sell_token_account: Pubkey::new_from_array(*sell_token),
-            sell_amount: u64::from_be_bytes(*sell_amount),
-            buy_amount: u64::from_be_bytes(*buy_amount),
-            valid_to: u32::from_be_bytes(*valid_to),
+            sell_amount: u64::from_le_bytes(*sell_amount),
+            buy_amount: u64::from_le_bytes(*buy_amount),
+            valid_to: u32::from_le_bytes(*valid_to),
             kind: match kind {
                 [0] => OrderKind::Sell,
                 [1] => OrderKind::Buy,
@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn uid_digest_regression() {
         let intent = sample_intent(OrderKind::Buy, true);
-        let expected = hex!("091d7e1959ac6f7a400a91f1dcd9ce436f8f53e2b7a1d968acb08f79d3c1231d");
+        let expected = hex!("7ce7c6a74671090771fa33851387444064aca759ce55b80708723076722f5e00");
         assert_eq!(intent.uid(), Hash::from(expected));
     }
 
@@ -482,12 +482,12 @@ mod tests {
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            // sell_amount (0x0123_4567_89ab_cdef, BE u64)
-            0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
-            // buy_amount (0xfedc_ba98_7654_3210, BE u64)
-            0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10,
-            // valid_to (0xdead_beef, BE u32)
-            0xde, 0xad, 0xbe, 0xef,
+            // sell_amount (0x0123_4567_89ab_cdef, LE u64)
+            0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+            // buy_amount (0xfedc_ba98_7654_3210, LE u64)
+            0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
+            // valid_to (0xdead_beef, LE u32)
+            0xef, 0xbe, 0xad, 0xde,
             // kind (Buy = 1)
             0x01,
             // partially_fillable (true = 1)
