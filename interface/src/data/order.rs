@@ -51,7 +51,7 @@ pub struct OrderAccount {
     pub intent: OrderIntent,
 }
 
-/// Canonical 199-byte representation of an [`OrderAccount`]. The bytes
+/// Canonical 200-byte representation of an [`OrderAccount`]. The bytes
 /// written to/read from the order PDA's data area.
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
@@ -60,31 +60,36 @@ pub struct OrderAccount {
 /// [`EncodedOrderIntent`]; see that type's docs for its inner layout.
 ///
 /// ```text
-/// ┌──── cancelled
-/// ┌┬───────┬───────┬───────────────────────────────┬─────────────────...─────────────────┐
-/// ││amount_│amount_│                               │                                     │
-/// ││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
-/// ││drawn  │ceived │                               │                                     │
-/// └┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
-/// 0 1      9       17                              49                ...                 199
+///  ┌──── discriminator
+///  │┌─── cancelled
+///  ┌┬┬───────┬───────┬───────────────────────────────┬─────────────────...─────────────────┐
+///  ││|amount_│amount_│                               │                                     │
+///  │││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
+///  │││drawn  │ceived │                               │                                     │
+///  └┴┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
+/// 0 1 2       10      18                              50                ...               200
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
 
 impl EncodedOrderAccount {
     // Per-field widths, derived from the `OrderAccount` field types.
+    const W_DISCRIMINATOR: usize = size_of::<u8>();
     const W_CANCELLED: usize = size_of::<bool>();
     const W_AMOUNT_WITHDRAWN: usize = size_of::<u64>();
     const W_AMOUNT_RECEIVED: usize = size_of::<u64>();
     const W_CREATED_BY: usize = size_of::<Pubkey>();
     const W_INTENT: usize = EncodedOrderIntent::SIZE;
 
-    pub const SIZE: usize = 199;
+    pub const SIZE: usize = 200;
+
+    /// Single-byte account discriminator. See [`crate::SettlementAccount`].
+    pub const DISCRIMINATOR: u8 = crate::SettlementAccount::OrderAccount.discriminator();
 
     /// Decode the account body and compute the embedded intent's UID in one
     /// shot, mirroring [`EncodedOrderIntent::decode_and_hash`]. Decoding
-    /// validates the intent; returns [`ProgramError::InvalidAccountData`] on a
-    /// decode error.
+    /// validates the discriminator and the intent; returns
+    /// [`ProgramError::InvalidAccountData`] on a decode error.
     pub fn decode_and_hash(bytes: &[u8; Self::SIZE]) -> Result<(OrderAccount, Hash), ProgramError> {
         let order_account = OrderAccount::try_from(*bytes)?;
         // The order UID is the hash of the intent's canonical bytes. Decoding
@@ -111,14 +116,23 @@ pub fn write_account(
     created_by: &Pubkey,
     encoded_intent: &[u8; EncodedOrderIntent::SIZE],
 ) {
-    let (cancelled_slot, amount_withdrawn_slot, amount_received_slot, created_by_slot, intent_slot) = mut_array_refs![
+    let (
+        discriminator_slot,
+        cancelled_slot,
+        amount_withdrawn_slot,
+        amount_received_slot,
+        created_by_slot,
+        intent_slot,
+    ) = mut_array_refs![
         buffer,
+        EncodedOrderAccount::W_DISCRIMINATOR,
         EncodedOrderAccount::W_CANCELLED,
         EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
         EncodedOrderAccount::W_AMOUNT_RECEIVED,
         EncodedOrderAccount::W_CREATED_BY,
         EncodedOrderAccount::W_INTENT
     ];
+    *discriminator_slot = [EncodedOrderAccount::DISCRIMINATOR];
     *cancelled_slot = [cancelled as u8];
     *amount_withdrawn_slot = amount_withdrawn.to_le_bytes();
     *amount_received_slot = amount_received.to_le_bytes();
@@ -151,14 +165,19 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
     type Error = ProgramError;
 
     fn try_from(bytes: [u8; EncodedOrderAccount::SIZE]) -> Result<Self, Self::Error> {
-        let (cancelled, amount_withdrawn, amount_received, created_by, intent) = array_refs![
+        let (discriminator, cancelled, amount_withdrawn, amount_received, created_by, intent) = array_refs![
             &bytes,
+            EncodedOrderAccount::W_DISCRIMINATOR,
             EncodedOrderAccount::W_CANCELLED,
             EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
             EncodedOrderAccount::W_AMOUNT_RECEIVED,
             EncodedOrderAccount::W_CREATED_BY,
             EncodedOrderAccount::W_INTENT
         ];
+
+        if *discriminator != [EncodedOrderAccount::DISCRIMINATOR] {
+            return Err(ProgramError::InvalidAccountData);
+        }
 
         Ok(OrderAccount {
             cancelled: match cancelled {
@@ -193,8 +212,9 @@ pub mod fixtures {
     };
 
     // Hardcoded but verified in a sanity-check test.
-    pub const CANCELLED_OFFSET: usize = 0;
-    pub const INTENT_OFFSET: usize = 49;
+    pub const DISCRIMINATOR_OFFSET: usize = 0;
+    pub const CANCELLED_OFFSET: usize = 1;
+    pub const INTENT_OFFSET: usize = 50;
 
     /// Hand-picked example order account wrapping [`sample_intent`].
     pub fn sample_account(cancelled: bool) -> OrderAccount {
@@ -232,7 +252,7 @@ pub mod fixtures {
 mod tests {
     use core::mem::size_of;
 
-    use super::fixtures::{sample_account, CANCELLED_OFFSET, INTENT_OFFSET};
+    use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
     use crate::data::intent::{
         fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
@@ -319,6 +339,15 @@ mod tests {
             first_differing_byte(&base, &changed_intent).expect("should differ in the intent slot"),
             INTENT_OFFSET
         );
+    }
+
+    #[test]
+    fn decode_rejects_wrong_discriminator() {
+        let mut bytes: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(sample_account(false)).into();
+        bytes[0] ^= 0xff;
+        let err = OrderAccount::try_from(bytes).expect_err("wrong discriminator must be rejected");
+        assert_eq!(err, ProgramError::InvalidAccountData);
     }
 
     #[test]
@@ -416,6 +445,7 @@ mod tests {
                 kind in arb_order_kind(),
                 partially_fillable in any::<bool>(),
             ) {
+                bytes[DISCRIMINATOR_OFFSET] = EncodedOrderAccount::DISCRIMINATOR;
                 bytes[CANCELLED_OFFSET] = cancelled as u8;
                 bytes[INTENT_OFFSET + KIND_OFFSET] = kind as u8;
                 bytes[INTENT_OFFSET + PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
