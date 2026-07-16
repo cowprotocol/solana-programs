@@ -2,10 +2,16 @@
 
 use std::ops::Deref;
 
-use pinocchio::{sysvars::instructions::Instructions, Address, ProgramResult};
+use pinocchio::{
+    cpi::{Seed, Signer},
+    error::ProgramError,
+    sysvars::instructions::Instructions,
+    AccountView, Address, ProgramResult,
+};
 use settlement_interface::{
-    instruction::settle::recover_counterpart, recover_discriminator, SettlementError,
-    SettlementInstruction,
+    instruction::{create_buffer::SPL_TOKEN_PROGRAM_ID, settle::recover_counterpart},
+    pda::state::state_pda_seeds,
+    recover_discriminator, SettlementError, SettlementInstruction,
 };
 
 mod begin;
@@ -41,4 +47,38 @@ fn validate_counterpart<T: Deref<Target = [u8]>>(
         return Err(SettlementError::MismatchedCounterpartDiscriminator.into());
     }
     Ok(())
+}
+
+/// Validate that `token_program_account` is the legacy SPL Token program, which
+/// every settlement transfer is issued against.
+#[must_use = "ignoring the output may lead to an unintended on-chain state"]
+fn validate_token_account(token_program_account: &AccountView) -> ProgramResult {
+    if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+    Ok(())
+}
+
+/// Validate that `state_pda_account` is the canonical state PDA and run `f` with
+/// a signer for it. Both settlement transfers move funds under the state PDA's
+/// authority, so it must sign each of them.
+///
+/// The signer only borrows its seed buffers, which are local to this frame;
+/// running `f` here rather than returning the signer keeps them alive for as
+/// long as `f` needs it.
+fn with_state_pda_signer(
+    program_id: &Address,
+    state_pda_account: &AccountView,
+    f: impl FnOnce(&Signer) -> ProgramResult,
+) -> ProgramResult {
+    let seeds = state_pda_seeds();
+    let (state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
+    if state_pda_account.address() != &state_pda {
+        return Err(SettlementError::StateAccountMismatch.into());
+    }
+
+    let [seed] = seeds;
+    let state_bump = [state_bump];
+    let signer_seeds = [seed, &state_bump].map(Seed::from);
+    f(&Signer::from(&signer_seeds))
 }
