@@ -3,7 +3,7 @@
 use std::ops::Deref;
 
 use pinocchio::{
-    cpi::{Seed, Signer},
+    cpi::Signer,
     error::ProgramError,
     sysvars::{
         clock::Clock,
@@ -20,13 +20,13 @@ use settlement_interface::{
         settle::{BeginSettleInput, SettledOrder, FINALIZE_FIXED_ACCOUNTS},
         InstructionInputParsing,
     },
-    pda::{order::order_pda_signer_seeds, state::state_pda_seeds},
+    pda::order::order_pda_signer_seeds,
     recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
 };
 
 use crate::processor::is_cpi_call;
 
-use super::validate_counterpart;
+use super::{validate_counterpart, validated_state_pda_signer};
 
 pub fn process_begin_settle(
     program_id: &Address,
@@ -170,16 +170,7 @@ fn settle_orders<'a>(
     }
 
     // Funds are pulled with the state PDA's delegation, so it must be the signer.
-    let seeds = state_pda_seeds();
-    let (state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
-    if state_pda_account.address() != &state_pda {
-        return Err(SettlementError::StateAccountMismatch.into());
-    }
-
-    let [seed] = seeds;
-    let state_bump = [state_bump];
-    let signer_seeds = [seed, &state_bump].map(Seed::from);
-    let state_pda_signer = Signer::from(&signer_seeds);
+    let state_pda_signer = validated_state_pda_signer(program_id, state_pda_account)?;
 
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.

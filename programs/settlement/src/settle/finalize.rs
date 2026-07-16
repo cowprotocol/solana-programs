@@ -1,10 +1,7 @@
 //! `FinalizeSettle` instruction handler.
 
 use pinocchio::{
-    cpi::{Seed, Signer},
-    error::ProgramError,
-    sysvars::instructions::Instructions,
-    AccountView, Address, ProgramResult,
+    error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
@@ -13,13 +10,13 @@ use settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::{buffer::buffer_pda_signer_seeds, state::state_pda_seeds},
+    pda::buffer::buffer_pda_signer_seeds,
     SettlementError, SettlementInstruction,
 };
 
 use crate::processor::is_cpi_call;
 
-use super::validate_counterpart;
+use super::{validate_counterpart, validated_state_pda_signer};
 
 pub fn process_finalize_settle(
     program_id: &Address,
@@ -73,16 +70,7 @@ fn push_funds<'a>(
     }
 
     // The buffers' SPL authority is the state PDA, so it must sign each transfer.
-    let seeds = state_pda_seeds();
-    let (state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
-    if state_pda_account.address() != &state_pda {
-        return Err(SettlementError::StateAccountMismatch.into());
-    }
-
-    let [seed] = seeds;
-    let state_bump = [state_bump];
-    let signer_seeds = [seed, &state_bump].map(Seed::from);
-    let state_pda_signer = Signer::from(&signer_seeds);
+    let state_pda_signer = validated_state_pda_signer(program_id, state_pda_account)?;
 
     for push in pushes.iter() {
         // Read the destination's mint; the borrow ends with this block, before
