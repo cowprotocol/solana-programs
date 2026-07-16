@@ -49,7 +49,7 @@
       "name": "create_buffer",
       "docs": [
         "Creates one or more per-token buffer PDAs (SPL token accounts) in a single instruction.",
-        "IDL MODELING NOTE: the real instruction accepts an unbounded number of (buffer_pda, mint) pairs as remaining accounts, one pair per buffer, with at least one pair required (CreateBuffer rejects zero buffers). Anchor's IDL grammar has no 'repeated group' construct, so this file only declares the index-0 template (buffer_pda_0/mint_0, unconditionally present); generate.mjs detects the trailing '_0'-indexed group and expands it into buffer_pda_1/mint_1 .. buffer_pda_31/mint_31 (all optional) before handing the IDL to codama. A transaction creating more than 32 buffers in one instruction (unlikely given transaction size/CU limits) would have trailing accounts this IDL doesn't name.",
+        "IDL MODELING NOTE: the real instruction accepts an unbounded number of (buffer_pda, mint) pairs as remaining accounts, one pair per buffer, with at least one pair required (CreateBuffer rejects zero buffers). Anchor's IDL grammar has no 'repeated group' construct, so this file only declares the guaranteed index-0 template (buffer_pda_0/mint_0). This instruction is solver/internal tooling only, not part of the public client surface, so buffers beyond the first are intentionally left unmodeled here: callers needing more than one buffer per transaction append the extra (buffer_pda, mint) account-meta pairs by hand after building the base instruction.",
         "Each buffer_pda_i must be the canonical PDA for seeds [\"settlement\", mint_i, \"buffer\"]."
       ],
       "discriminator": [4],
