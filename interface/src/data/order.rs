@@ -60,14 +60,14 @@ pub struct OrderAccount {
 /// [`EncodedOrderIntent`]; see that type's docs for its inner layout.
 ///
 /// ```text
-/// ┌──── discriminator
-/// │ ┌─── cancelled
-/// ┌──┬───────┬───────┬───────────────────────────────┬─────────────────...─────────────────┐
-/// │  │amount_│amount_│                               │                                     │
-/// │  │with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
-/// │  │drawn  │ceived │                               │                                     │
-/// └──┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
-/// 0  2       10      18                              50                ...               200
+///  ┌──── discriminator
+///  │┌─── cancelled
+///  ┌┬┬───────┬───────┬───────────────────────────────┬─────────────────...─────────────────┐
+///  ││|amount_│amount_│                               │                                     │
+///  │││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
+///  │││drawn  │ceived │                               │                                     │
+///  └┴┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
+/// 0 1 2       10      18                              50                ...               200
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
