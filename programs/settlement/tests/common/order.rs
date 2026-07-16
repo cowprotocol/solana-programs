@@ -48,27 +48,31 @@ pub fn create_order_pda(
 /// Builder that mints a valid settleable order on-chain and returns its intent.
 /// If nothing else is specified, it uses default parameters to build the order.
 /// Individual parameters can be changed before building the order.
+///
+/// `build` always creates real sell and buy token accounts. Each side gets its
+/// own freshly generated mint, so the two differ unless a test pins one with
+/// [`OrderBuilder::sell_mint`] / [`OrderBuilder::buy_mint`].
 pub struct OrderBuilder<'a> {
     svm: &'a mut LiteSVM,
     program_id: &'a Pubkey,
     payer: &'a Keypair,
     intent: OrderIntent,
+    sell_mint: Option<Pubkey>,
+    buy_mint: Option<Pubkey>,
 }
 
 impl<'a> OrderBuilder<'a> {
-    pub fn new(
-        svm: &'a mut LiteSVM,
-        program_id: &'a Pubkey,
-        payer: &'a Keypair,
-        mint: &'a Pubkey,
-    ) -> Self {
-        let sell_token = token::create_token_account(svm, payer, mint, &payer.pubkey());
-        let intent = sample_intent(payer.pubkey(), sell_token, 0);
+    pub fn new(svm: &'a mut LiteSVM, program_id: &'a Pubkey, payer: &'a Keypair) -> Self {
+        // The sell and buy token accounts are created at `build` time;
+        // `sample_intent`'s placeholder addresses stand in until then.
+        let intent = sample_intent(payer.pubkey(), Pubkey::default(), 0);
         Self {
             svm,
             program_id,
             payer,
             intent,
+            sell_mint: None,
+            buy_mint: None,
         }
     }
 
@@ -84,8 +88,34 @@ impl<'a> OrderBuilder<'a> {
         self
     }
 
+    /// Pin the mint of the order's sell token account. Defaults to a fresh mint.
+    pub fn sell_mint(mut self, mint: &Pubkey) -> Self {
+        self.sell_mint = Some(*mint);
+        self
+    }
+
+    /// Pin the mint of the order's buy token account. Defaults to a fresh mint.
+    pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
+        self.buy_mint = Some(*mint);
+        self
+    }
+
     pub fn build(self) -> OrderIntent {
-        create_order_pda(self.svm, self.program_id, self.payer, &self.intent);
-        self.intent
+        let Self {
+            svm,
+            program_id,
+            payer,
+            mut intent,
+            sell_mint,
+            buy_mint,
+        } = self;
+        let sell_mint = sell_mint.unwrap_or_else(|| token::create_mint(svm, payer));
+        intent.sell_token_account =
+            token::create_token_account(svm, payer, &sell_mint, &payer.pubkey());
+        let buy_mint = buy_mint.unwrap_or_else(|| token::create_mint(svm, payer));
+        intent.buy_token_account =
+            token::create_token_account(svm, payer, &buy_mint, &payer.pubkey());
+        create_order_pda(svm, program_id, payer, &intent);
+        intent
     }
 }

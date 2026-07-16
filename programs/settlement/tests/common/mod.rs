@@ -5,12 +5,13 @@
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
+pub mod buffer;
 pub mod lookup_table;
 pub mod order;
 pub mod pda;
 pub mod token;
 
-use litesvm::LiteSVM;
+use litesvm::{types::TransactionMetadata, LiteSVM};
 use settlement_client::settlement_interface::SettlementError;
 use settlement_interface::Instruction;
 use solana_sdk::{
@@ -138,4 +139,34 @@ pub fn signed_tx(
         &[fee_payer, owner],
         svm.latest_blockhash(),
     )
+}
+
+/// In `instruction`, repoint the account currently set to `from` at `to`. Tests
+/// use it to corrupt one account of an otherwise-valid instruction; it panics if
+/// `instruction` doesn't reference `from`, so a stale swap fails loudly rather
+/// than silently testing nothing.
+pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubkey, to: Pubkey) {
+    let meta = instruction
+        .accounts
+        .iter_mut()
+        .find(|meta| meta.pubkey == *from)
+        .unwrap_or_else(|| panic!("instruction should reference {from}"));
+    meta.pubkey = to;
+}
+
+/// Assemble `instructions` into a transaction signed by `payer` and submit it,
+/// surfacing only the transaction-level error on failure (dropping the success
+/// metadata's error wrapper).
+pub fn send(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+) -> Result<TransactionMetadata, TransactionError> {
+    let tx = Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    );
+    svm.send_transaction(tx).map_err(|e| e.err)
 }

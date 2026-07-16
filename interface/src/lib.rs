@@ -136,6 +136,18 @@ pub enum SettlementError {
     /// `BeginSettle`'s state account isn't the canonical settlement state PDA,
     /// which must sign the pulls as the user's token delegate.
     StateAccountMismatch = 18,
+    /// `FinalizeSettle`'s push-account count doesn't match its instruction
+    /// data: each push contributes a source buffer and a destination account,
+    /// so the count must be twice the number of push amounts.
+    AccountCountNotMatchingPushCount = 19,
+    /// `BeginSettle`: the number of pushes carried by the paired `FinalizeSettle`
+    /// doesn't equal the number of settled orders. Each order must be paid by
+    /// exactly one push.
+    SettledOrderPushCountMismatch = 20,
+    /// `BeginSettle`: a paired `FinalizeSettle` push doesn't send its proceeds
+    /// to the order's buy token account; its destination differs from the
+    /// `buy_token_account` in the order's intent.
+    PushDestinationMismatch = 21,
 }
 
 impl From<SettlementError> for u32 {
