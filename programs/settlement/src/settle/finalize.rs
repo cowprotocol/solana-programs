@@ -13,7 +13,10 @@ use settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::{buffer::buffer_pda_signer_seeds, state::state_pda_seeds},
+    pda::{
+        buffer::buffer_pda_signer_seeds,
+        state::{state_pda_seeds, state_pda_signer_seeds},
+    },
     SettlementError, SettlementInstruction,
 };
 
@@ -73,15 +76,13 @@ fn push_funds<'a>(
     }
 
     // The buffers' SPL authority is the state PDA, so it must sign each transfer.
-    let seeds = state_pda_seeds();
-    let (state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
+    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
     if state_pda_account.address() != &state_pda {
         return Err(SettlementError::StateAccountMismatch.into());
     }
 
-    let [seed] = seeds;
     let state_bump = [state_bump];
-    let signer_seeds = [seed, &state_bump].map(Seed::from);
+    let signer_seeds = state_pda_signer_seeds(&state_bump).map(Seed::from);
     let state_pda_signer = Signer::from(&signer_seeds);
 
     for push in pushes.iter() {

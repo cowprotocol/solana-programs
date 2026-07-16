@@ -14,6 +14,13 @@ pub fn state_pda_seeds<'a>() -> [&'a [u8]; 1] {
     [SETTLEMENT_SEED]
 }
 
+/// Canonical seeds for signing as the settlement state PDA with `bump`. The
+/// on-chain settlement handlers use this to construct the CPI signer.
+pub fn state_pda_signer_seeds(bump: &[u8; 1]) -> [&[u8]; 2] {
+    let [seed] = state_pda_seeds();
+    [seed, bump]
+}
+
 /// Derive the canonical settlement state PDA address (and bump).
 pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&state_pda_seeds(), program_id)

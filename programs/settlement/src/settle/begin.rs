@@ -20,7 +20,10 @@ use settlement_interface::{
         settle::{BeginSettleInput, SettledOrder, FINALIZE_FIXED_ACCOUNTS},
         InstructionInputParsing,
     },
-    pda::{order::order_pda_signer_seeds, state::state_pda_seeds},
+    pda::{
+        order::order_pda_signer_seeds,
+        state::{state_pda_seeds, state_pda_signer_seeds},
+    },
     recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
 };
 
@@ -170,15 +173,13 @@ fn settle_orders<'a>(
     }
 
     // Funds are pulled with the state PDA's delegation, so it must be the signer.
-    let seeds = state_pda_seeds();
-    let (state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
+    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
     if state_pda_account.address() != &state_pda {
         return Err(SettlementError::StateAccountMismatch.into());
     }
 
-    let [seed] = seeds;
     let state_bump = [state_bump];
-    let signer_seeds = [seed, &state_bump].map(Seed::from);
+    let signer_seeds = state_pda_signer_seeds(&state_bump).map(Seed::from);
     let state_pda_signer = Signer::from(&signer_seeds);
 
     // Orders must be passed strictly increasing by address; this rejects
