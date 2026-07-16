@@ -76,9 +76,6 @@ pub fn assert_instruction_error<T>(
         Some(TransactionError::InstructionError(0, expected))
     );
 }
-pub fn assert_settlement_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
-    assert_instruction_error(result, to_instruction_error(expected));
-}
 
 /// Place a fresh, rent-exempt account holding `data` and owned by `owner` at a
 /// new address, and return it. Lets a test populate an arbitrary account (e.g.

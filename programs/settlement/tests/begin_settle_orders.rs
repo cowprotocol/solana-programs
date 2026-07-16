@@ -18,9 +18,9 @@
 //! whose output is a properly built instruction.
 
 use crate::common::{
-    assert_instruction_error, assert_settlement_error, buffer, create_account,
+    assert_instruction_error, buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
-    replace_first_matching_account, send, set_unix_timestamp, setup, token,
+    replace_first_matching_account, send, set_unix_timestamp, setup, to_instruction_error, token,
 };
 use litesvm::LiteSVM;
 use litesvm_token::spl_token::error::TokenError;
@@ -42,7 +42,7 @@ use solana_sdk::{
     instruction::{AccountMeta, InstructionError},
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::Transaction,
+    transaction::{Transaction, TransactionError},
 };
 
 mod common;
@@ -52,6 +52,18 @@ mod common;
 /// the tests that reach into `instructions[BEGIN_INDEX]` to corrupt the begin.
 const BEGIN_INDEX: u8 = 0;
 const FINALIZE_INDEX: u8 = 1;
+
+/// Assert the transaction failed in `BeginSettle` (at [`BEGIN_INDEX`]) with
+/// `expected`.
+fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
+    assert_eq!(
+        result.err(),
+        Some(TransactionError::InstructionError(
+            BEGIN_INDEX,
+            to_instruction_error(expected),
+        )),
+    );
+}
 
 /// A list of empty transfer lists, one per order. Used for settling `n` orders
 /// without pulling any funds.
@@ -165,7 +177,7 @@ fn rejects_wrong_bump() {
         amounts: &[0],
     };
     let instructions = vec![begin.into(), finalize.into()];
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrderNotCanonical,
     );
@@ -213,7 +225,7 @@ fn rejects_fabricated_program_owned_account() {
     };
     let instructions = vec![begin.into(), finalize.into()];
 
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrderNotCanonical,
     );
@@ -280,7 +292,7 @@ fn rejects_sell_token_account_mismatch() {
         wrong_sell_token,
     );
 
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::SellTokenAccountMismatch,
     );
@@ -311,7 +323,7 @@ fn rejects_sell_token_owner_mismatch() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::SellTokenOwnerMismatch,
     );
@@ -340,7 +352,7 @@ fn rejects_non_token_sell_account() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::SellTokenAccountInvalid,
     );
@@ -366,7 +378,7 @@ fn rejects_duplicate_orders() {
             },
         ],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
@@ -450,7 +462,7 @@ fn rejects_orders_in_wrong_address_order() {
         amounts: &amounts,
     });
     let instructions = vec![begin, finalize];
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
@@ -497,7 +509,7 @@ fn rejects_cancelled_order() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrderCancelled,
     );
@@ -523,7 +535,7 @@ fn rejects_expired_order() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrderExpired,
     );
@@ -781,7 +793,7 @@ fn rejects_wrong_state_pda() {
         Pubkey::new_unique(),
     );
 
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::StateAccountMismatch,
     );
@@ -917,7 +929,7 @@ fn rejects_extra_account() {
         .accounts
         .push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
 
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::AccountCountNotMatchingOrderCount,
     );
