@@ -307,12 +307,11 @@ mod tests {
         assert_eq!(ix_program_id, program_id);
         assert_eq!(
             data,
-            [
-                &[SettlementInstruction::BeginSettle.discriminator()][..],
-                &hex!("1337")[..], // counterpart index
-                &[0][..],          // order count
-            ]
-            .concat(),
+            ix_data![
+                [SettlementInstruction::BeginSettle.discriminator()],
+                hex!("1337"), // counterpart index
+                [0],          // order count
+            ],
         );
         // No orders: the three fixed accounts (sysvar, state PDA, token program).
         assert_eq!(accounts.len(), 3);
@@ -352,14 +351,13 @@ mod tests {
         // Bumps follow the sorted order: the low PDA's bump comes first.
         assert_eq!(
             data,
-            [
-                &[SettlementInstruction::BeginSettle.discriminator()][..],
-                &hex!("1337")[..],          // counterpart index
-                &[2][..],                   // order count
-                &[low_bump, high_bump][..], // bumps
-                &[0, 0][..],                // transfer counts (both zero)
-            ]
-            .concat(),
+            ix_data![
+                [SettlementInstruction::BeginSettle.discriminator()],
+                hex!("1337"),          // counterpart index
+                [2],                   // order count
+                [low_bump, high_bump], // bumps
+                [0, 0],                // transfer counts (both zero)
+            ],
         );
 
         let expected: Vec<Pubkey> = vec![
@@ -428,18 +426,17 @@ mod tests {
 
         assert_eq!(
             data,
-            [
-                &[SettlementInstruction::BeginSettle.discriminator()][..],
-                &hex!("1337")[..], // counterpart index
-                &[2][..],          // order count
-                &[0xa1, 0xb1][..], // bumps
-                &[2, 1][..],       // counts
+            ix_data![
+                [SettlementInstruction::BeginSettle.discriminator()],
+                hex!("1337"), // counterpart index
+                [2],          // order count
+                [0xa1, 0xb1], // bumps
+                [2, 1],       // counts
                 // amounts
-                &hex!("0000000000000102")[..],
-                &hex!("0000000000000304")[..],
-                &hex!("0000000000000506")[..],
-            ]
-            .concat(),
+                hex!("0000000000000102"),
+                hex!("0000000000000304"),
+                hex!("0000000000000506"),
+            ],
         );
 
         let expected: Vec<Pubkey> = vec![
