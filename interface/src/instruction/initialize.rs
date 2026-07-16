@@ -54,7 +54,7 @@ impl From<Initialize> for Instruction {
 /// Parsed inputs of an `Initialize` instruction.
 pub struct InitializeInput<'a> {
     pub payer: &'a AccountView,
-    pub state_pda: &'a AccountView,
+    pub state_pda: &'a mut AccountView,
 }
 
 impl<'a> InstructionInputParsing<'a> for InitializeInput<'a> {

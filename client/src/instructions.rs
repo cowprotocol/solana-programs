@@ -334,7 +334,7 @@ mod tests {
                 prop_assert_eq!(push.source_buffer.address(), &expected.buffer);
                 prop_assert_eq!(push.destination.address(), &expected.destination);
                 prop_assert_eq!(push.bump, expected.bump);
-                prop_assert_eq!(u64::from_be_bytes(*push.amount), expected.amount);
+                prop_assert_eq!(u64::from_le_bytes(*push.amount), expected.amount);
             }
         }
     }
