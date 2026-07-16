@@ -163,7 +163,7 @@ fn pushes_several_orders_from_different_buffers() {
 }
 
 #[test]
-fn rejects_push_from_non_buffer_source() {
+fn rejects_push_if_buffer_does_not_match_mint() {
     let (mut svm, program_id, payer) = setup();
     let buy_mint = token::create_mint(&mut svm, &payer);
     let other_mint = token::create_mint(&mut svm, &payer);
