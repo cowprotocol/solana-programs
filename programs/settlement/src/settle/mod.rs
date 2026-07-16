@@ -2,10 +2,13 @@
 
 use std::ops::Deref;
 
-use pinocchio::{sysvars::instructions::Instructions, Address, ProgramResult};
+use pinocchio::{
+    cpi::Seed, error::ProgramError, sysvars::instructions::Instructions, AccountView, Address,
+    ProgramResult,
+};
 use settlement_interface::{
-    instruction::settle::recover_counterpart, recover_discriminator, SettlementError,
-    SettlementInstruction,
+    instruction::settle::recover_counterpart, pda::state::state_pda_seeds, recover_discriminator,
+    SettlementError, SettlementInstruction,
 };
 
 mod begin;
@@ -41,4 +44,35 @@ fn validate_counterpart<T: Deref<Target = [u8]>>(
         return Err(SettlementError::MismatchedCounterpartDiscriminator.into());
     }
     Ok(())
+}
+
+/// The seed material for the settlement state PDA signer.
+///
+/// A `Signer` is only a view over the seed buffers it borrows, so those buffers
+/// must outlive it. This owns the one runtime-derived seed (the bump) as plain
+/// bytes, which are safe to move out of the validating constructor; a reference
+/// turns into the `[Seed; 2]` array a `Signer` borrows via `.into()`.
+struct StatePdaSigner {
+    bump: [u8; 1],
+}
+
+impl<'a> From<&'a StatePdaSigner> for [Seed<'a>; 2] {
+    fn from(state_pda_signer: &'a StatePdaSigner) -> Self {
+        let [seed] = state_pda_seeds();
+        [seed, &state_pda_signer.bump].map(Seed::from)
+    }
+}
+
+/// Validate that `state_pda_account` is the canonical state PDA and capture its
+/// bump. The state PDA must sign each settlement transfer, as the token
+/// authority over the users' and buffers' accounts.
+fn validated_state_pda_signer(
+    program_id: &Address,
+    state_pda_account: &AccountView,
+) -> Result<StatePdaSigner, ProgramError> {
+    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
+    if state_pda_account.address() != &state_pda {
+        return Err(SettlementError::StateAccountMismatch.into());
+    }
+    Ok(StatePdaSigner { bump: [state_bump] })
 }

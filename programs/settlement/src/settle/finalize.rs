@@ -13,13 +13,13 @@ use settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::{buffer::buffer_pda_signer_seeds, state::state_pda_seeds},
+    pda::buffer::buffer_pda_signer_seeds,
     SettlementError, SettlementInstruction,
 };
 
 use crate::processor::is_cpi_call;
 
-use super::validate_counterpart;
+use super::{validate_counterpart, validated_state_pda_signer};
 
 pub fn process_finalize_settle(
     program_id: &Address,
@@ -72,16 +72,10 @@ fn push_funds<'a>(
         return Err(ProgramError::IncorrectProgramId);
     }
 
-    // The buffers' SPL authority is the state PDA, so it must sign each transfer.
-    let seeds = state_pda_seeds();
-    let (state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
-    if state_pda_account.address() != &state_pda {
-        return Err(SettlementError::StateAccountMismatch.into());
-    }
-
-    let [seed] = seeds;
-    let state_bump = [state_bump];
-    let signer_seeds = [seed, &state_bump].map(Seed::from);
+    // The `Signer` borrows `signer_seeds`, which borrows `state_pda_signer`, so
+    // all three stay in this frame until the transfers below complete.
+    let state_pda_signer = validated_state_pda_signer(program_id, state_pda_account)?;
+    let signer_seeds: [Seed; 2] = (&state_pda_signer).into();
     let state_pda_signer = Signer::from(&signer_seeds);
 
     for push in pushes.iter() {
