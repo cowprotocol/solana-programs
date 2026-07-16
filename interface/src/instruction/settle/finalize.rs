@@ -39,6 +39,13 @@ pub const FINALIZE_FIXED_ACCOUNTS: usize = 3;
 /// Required accounts:
 /// `[instructions_sysvar (R), state_pda (R), token_program (R)]` followed, per
 /// push, by `[source_buffer (W), destination (W)]`.
+///
+/// `FinalizeSettle` validates that each source is the canonical buffer for its
+/// destination's mint and executes the transfers; the order correspondence and
+/// that each destination is an order's buy token account are `BeginSettle`'s
+/// checks. So a push isn't aware of what orders are being paid, just the accounts
+/// to move funds between, the source's bump, and the amount. The same buffer may
+/// legitimately fund several pushes.
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
