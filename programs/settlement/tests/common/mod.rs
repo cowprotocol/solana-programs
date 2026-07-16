@@ -9,6 +9,7 @@ pub mod buffer;
 pub mod lookup_table;
 pub mod order;
 pub mod pda;
+pub mod settlement;
 pub mod token;
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
