@@ -3,7 +3,7 @@
 use std::ops::Deref;
 
 use pinocchio::{
-    cpi::{Seed, Signer},
+    cpi::Signer,
     error::ProgramError,
     sysvars::{
         clock::Clock,
@@ -16,20 +16,16 @@ use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
     data::order::EncodedOrderAccount,
     instruction::{
-        create_buffer::SPL_TOKEN_PROGRAM_ID,
         settle::{BeginSettleInput, SettledOrder, FINALIZE_FIXED_ACCOUNTS},
         InstructionInputParsing,
     },
-    pda::{
-        order::order_pda_signer_seeds,
-        state::{state_pda_seeds, state_pda_signer_seeds},
-    },
+    pda::order::order_pda_signer_seeds,
     recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
 };
 
 use crate::processor::is_cpi_call;
 
-use super::validate_counterpart;
+use super::{validate_counterpart, validate_token_account, with_state_pda_signer};
 
 pub fn process_begin_settle(
     program_id: &Address,
@@ -68,15 +64,17 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    settle_orders(
-        program_id,
-        input.token_program_account,
-        input.state_pda_account,
-        input.orders.iter(),
-        &finalize_ix,
-    )?;
+    validate_token_account(input.token_program_account)?;
 
-    Ok(())
+    with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
+        settle_orders(
+            program_id,
+            input.state_pda_account,
+            state_pda_signer,
+            input.orders.iter(),
+            &finalize_ix,
+        )
+    })
 }
 
 /// The destination address of each push carried by the paired `FinalizeSettle`,
@@ -147,10 +145,9 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
     Ok(())
 }
 
-/// Validate each order against its push, and pull user funds. This requires:
-/// - the legacy SPL Token program;
-/// - the canonical state PDA, which signs each transfer as the user's delegate;
-/// - orders strictly increasing by address, rejecting duplicates.
+/// Validate each order against its push, and pull user funds, signing the pulls
+/// as the canonical state PDA (the user's delegate). Orders must be strictly
+/// increasing by address, which rejects duplicates.
 ///
 /// Each order is paid by exactly one push. The orders and the finalize's pushes
 /// are both laid out sorted by order PDA, so order `i` is paid by push `i`, and
@@ -163,25 +160,11 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn settle_orders<'a>(
     program_id: &Address,
-    token_program_account: &AccountView,
     state_pda_account: &AccountView,
+    state_pda_signer: &Signer,
     orders: impl IntoIterator<Item = SettledOrder<'a>>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
-    if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
-
-    // Funds are pulled with the state PDA's delegation, so it must be the signer.
-    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
-    if state_pda_account.address() != &state_pda {
-        return Err(SettlementError::StateAccountMismatch.into());
-    }
-
-    let state_bump = [state_bump];
-    let signer_seeds = state_pda_signer_seeds(&state_bump).map(Seed::from);
-    let state_pda_signer = Signer::from(&signer_seeds);
-
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
     let mut previous: Option<&Address> = None;
@@ -209,7 +192,7 @@ fn settle_orders<'a>(
             push_destination,
             now,
             state_pda_account,
-            &state_pda_signer,
+            state_pda_signer,
         )?;
     }
 

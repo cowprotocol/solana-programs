@@ -1,28 +1,21 @@
 //! `FinalizeSettle` instruction handler.
 
 use pinocchio::{
-    cpi::{Seed, Signer},
-    error::ProgramError,
-    sysvars::instructions::Instructions,
-    AccountView, Address, ProgramResult,
+    cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
     instruction::{
-        create_buffer::SPL_TOKEN_PROGRAM_ID,
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::{
-        buffer::buffer_pda_signer_seeds,
-        state::{state_pda_seeds, state_pda_signer_seeds},
-    },
+    pda::buffer::buffer_pda_signer_seeds,
     SettlementError, SettlementInstruction,
 };
 
 use crate::processor::is_cpi_call;
 
-use super::validate_counterpart;
+use super::{validate_counterpart, validate_token_account, with_state_pda_signer};
 
 pub fn process_finalize_settle(
     program_id: &Address,
@@ -51,40 +44,29 @@ pub fn process_finalize_settle(
     // validated the push count and destinations. `push_funds` adds the only
     // remaining check: each push draws from the canonical buffer for its mint.
 
-    push_funds(
-        program_id,
-        input.token_program_account,
-        input.state_pda_account,
-        input.pushes,
-    )
+    validate_token_account(input.token_program_account)?;
+
+    with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
+        push_funds(
+            program_id,
+            input.state_pda_account,
+            state_pda_signer,
+            input.pushes,
+        )
+    })
 }
 
-/// Push each order's proceeds out of the settlement's buffers. Requires the
-/// legacy SPL Token program and the canonical state PDA, which signs each
-/// transfer as the buffers' SPL authority. Each push's source must be the
-/// canonical buffer for its destination's mint; pairing the destination to an
-/// order is `BeginSettle`'s job.
+/// Push each order's proceeds out of the settlement's buffers, signing each
+/// transfer as the canonical state PDA (the buffers' SPL authority). Each push's
+/// source must be the canonical buffer for its destination's mint; pairing the
+/// destination to an order is `BeginSettle`'s job.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(
     program_id: &Address,
-    token_program_account: &AccountView,
     state_pda_account: &AccountView,
+    state_pda_signer: &Signer,
     pushes: Pushes<'a>,
 ) -> ProgramResult {
-    if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
-
-    // The buffers' SPL authority is the state PDA, so it must sign each transfer.
-    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
-    if state_pda_account.address() != &state_pda {
-        return Err(SettlementError::StateAccountMismatch.into());
-    }
-
-    let state_bump = [state_bump];
-    let signer_seeds = state_pda_signer_seeds(&state_bump).map(Seed::from);
-    let state_pda_signer = Signer::from(&signer_seeds);
-
     for push in pushes.iter() {
         // Read the destination's mint; the borrow ends with this block, before
         // the transfer reuses the account.
@@ -111,7 +93,7 @@ fn push_funds<'a>(
             state_pda_account,
             u64::from_le_bytes(*push.amount),
         )
-        .invoke_signed(core::slice::from_ref(&state_pda_signer))?;
+        .invoke_signed(core::slice::from_ref(state_pda_signer))?;
     }
 
     Ok(())
