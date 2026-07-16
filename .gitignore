@@ -1,3 +1,6 @@
 /target
 proptest-regressions/
 .cargo-root/
+node_modules/
+pnpm-lock.yaml
+generated/

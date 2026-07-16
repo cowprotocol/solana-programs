@@ -1,0 +1,18 @@
+{
+  "name": "idl",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.30.3",
+  "dependencies": {
+    "@codama/nodes-from-anchor": "^1.5.2",
+    "@codama/renderers-js": "^2.3.0",
+    "codama": "^1.9.0"
+  }
+}
