@@ -12,12 +12,15 @@
 use crate::common::{
     buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
-    send,
+    replace_first_matching_account, send,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token,
 };
 use settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
-use settlement_client::settlement_interface::{Instruction, SettlementError};
+use settlement_client::settlement_interface::{
+    instruction::settle::SPL_TOKEN_PROGRAM_ID, pda::state::find_state_pda, Instruction,
+    SettlementError,
+};
 use solana_sdk::{
     instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signature::Signer,
     transaction::TransactionError,
@@ -216,6 +219,59 @@ fn rejects_push_from_substituted_source() {
     assert_finalize_error(
         send(&mut svm, &payer, instructions),
         to_instruction_error(SettlementError::PushSourceNotBuffer),
+    );
+}
+
+#[test]
+fn rejects_wrong_token_program() {
+    let (mut svm, program_id, payer) = setup();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        mint: Pubkey::new_unique(),
+        amount: 0,
+    }];
+
+    // Swap the SPL Token program account `FinalizeSettle` references for a bogus
+    // one. `BeginSettle` runs first against its own (untouched) token-program
+    // account and passes; the finalize's own check is what rejects.
+    let mut instructions = finalize(&program_id, &orders);
+    replace_first_matching_account(
+        &mut instructions[usize::from(FINALIZE_INDEX)],
+        &SPL_TOKEN_PROGRAM_ID,
+        Pubkey::new_unique(),
+    );
+
+    assert_finalize_error(
+        send(&mut svm, &payer, instructions),
+        InstructionError::IncorrectProgramId,
+    );
+}
+
+#[test]
+fn rejects_wrong_state_pda() {
+    let (mut svm, program_id, payer) = setup();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        mint: Pubkey::new_unique(),
+        amount: 0,
+    }];
+
+    // Swap the state PDA account `FinalizeSettle` references for a bogus one.
+    // `BeginSettle`'s own state PDA account is untouched, so it passes; the
+    // finalize's check is what rejects.
+    let mut instructions = finalize(&program_id, &orders);
+    let (state_pda, _bump) = find_state_pda(&program_id);
+    replace_first_matching_account(
+        &mut instructions[usize::from(FINALIZE_INDEX)],
+        &state_pda,
+        Pubkey::new_unique(),
+    );
+
+    assert_finalize_error(
+        send(&mut svm, &payer, instructions),
+        to_instruction_error(SettlementError::StateAccountMismatch),
     );
 }
 
