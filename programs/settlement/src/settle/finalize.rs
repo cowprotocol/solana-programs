@@ -108,7 +108,7 @@ fn push_funds<'a>(
             push.source_buffer,
             push.destination,
             state_pda_account,
-            u64::from_be_bytes(*push.amount),
+            u64::from_le_bytes(*push.amount),
         )
         .invoke_signed(core::slice::from_ref(&state_pda_signer))?;
     }
