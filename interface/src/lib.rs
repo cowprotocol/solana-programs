@@ -114,20 +114,32 @@ pub enum SettlementError {
     /// `BeginSettle`'s state account isn't the canonical settlement state PDA,
     /// which must sign the pulls as the user's token delegate.
     StateAccountMismatch = 18,
+    /// `FinalizeSettle`'s push-account count doesn't match its instruction
+    /// data: each push contributes a source buffer and a destination account,
+    /// so the count must be twice the number of push amounts.
+    AccountCountNotMatchingPushCount = 19,
+    /// `BeginSettle`: the number of pushes carried by the paired `FinalizeSettle`
+    /// doesn't equal the number of settled orders. Each order must be paid by
+    /// exactly one push.
+    SettledOrderPushCountMismatch = 20,
+    /// `BeginSettle`: a paired `FinalizeSettle` push doesn't send its proceeds
+    /// to the order's buy token account; its destination differs from the
+    /// `buy_token_account` in the order's intent.
+    PushDestinationMismatch = 21,
     /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
-    OrderNotExpired = 19,
+    OrderNotExpired = 22,
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
-    ReclaimRecipientMismatch = 20,
+    ReclaimRecipientMismatch = 23,
     /// `ReclaimBuffer`'s `receiver` account isn't a signer, or doesn't match
     /// the `receiver` address recorded in the settlement state PDA.
-    ReceiverMismatch = 21,
+    ReceiverMismatch = 24,
     /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
     /// derived from its paired `mint`.
-    BufferNotCanonical = 22,
+    BufferNotCanonical = 25,
     /// A `ReclaimBuffer` `receiver_token_account` isn't the receiver's
     /// canonical associated token account for the buffer's mint.
-    ReceiverTokenAccountMismatch = 23,
+    ReceiverTokenAccountMismatch = 26,
 }
 
 impl From<SettlementError> for u32 {

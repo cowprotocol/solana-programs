@@ -126,17 +126,35 @@ pub fn delegated_amount(svm: &LiteSVM, account: &Pubkey) -> u64 {
         .delegated_amount
 }
 
-/// Assert that there was no token invocation in the transaction.
-pub fn assert_no_spl_token_invocation(transaction: &TransactionMetadata) {
-    let token_program = litesvm_token::spl_token::ID.to_string();
-    assert!(
-        !transaction
-            .logs
+/// Assert that no SPL Token instruction issued by the transaction references
+/// `account`. Each token transfer the program performs is a CPI recorded in
+/// `transaction.inner_instructions`. We can use that to check the token-program
+/// instructions, so a settlement that must leave one side untouched can prove
+/// no token instruction so much as named it.
+pub fn assert_no_token_instruction_touching(
+    transaction: &TransactionMetadata,
+    account_keys: &[Pubkey],
+    account: &Pubkey,
+) {
+    let token_program = Pubkey::new_from_array(litesvm_token::spl_token::ID.to_bytes());
+    for instruction in transaction
+        .inner_instructions
+        .iter()
+        .flatten()
+        .map(|inner| &inner.instruction)
+    {
+        if account_keys[usize::from(instruction.program_id_index)] != token_program {
+            continue;
+        }
+        let touches_account = instruction
+            .accounts
             .iter()
-            .any(|line| line.contains(&token_program) && line.contains("invoke")),
-        "expected no SPL Token invocation, but one ran; full tx logs:\n{:#?}",
-        transaction.logs,
-    );
+            .any(|&index| account_keys[usize::from(index)] == *account);
+        assert!(
+            !touches_account,
+            "expected no SPL Token instruction touching {account}, but one did",
+        );
+    }
 }
 
 /// Read the mint that `account` holds tokens of.

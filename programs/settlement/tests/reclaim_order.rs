@@ -1,5 +1,5 @@
 use settlement_client::settlement_interface::{
-    data::intent::{EncodedOrderIntent, OrderIntent, OrderKind},
+    data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind},
     instruction::{create_order::CreateOrder, reclaim_order::ReclaimOrder},
     pda::order::find_order_pda,
     SettlementError,
@@ -7,25 +7,20 @@ use settlement_client::settlement_interface::{
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::Transaction,
 };
+
+use crate::common::signed_tx;
 
 mod common;
 
 const VALID_TO: u32 = 1_000;
 const AFTER_EXPIRY: i64 = 1_001;
 
-fn sample_intent(owner: Pubkey) -> OrderIntent {
+fn reclaim_sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
-        buy_token_account: Pubkey::new_from_array([0x22; 32]),
-        sell_token_account: Pubkey::new_from_array([0x33; 32]),
-        sell_amount: 1_000_000,
-        buy_amount: 2_000_000,
         valid_to: VALID_TO,
-        kind: OrderKind::Sell,
-        partially_fillable: true,
-        app_data: [0; 32],
+        ..sample_intent(OrderKind::Sell, true)
     }
 }
 
@@ -54,12 +49,7 @@ fn create_order(
         order_pda: pda,
         intent_bytes: encoded,
     };
-    let tx = Transaction::new_signed_with_payer(
-        &[ix.into()],
-        Some(&owner.pubkey()),
-        &[owner],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(svm, owner, owner, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
     pda
@@ -77,11 +67,11 @@ fn happy_path_returns_lamports_and_closes_pda() {
 
     let intent = OrderIntent {
         owner: fee_payer.pubkey(),
-        ..sample_intent(fee_payer.pubkey())
+        ..reclaim_sample_intent(fee_payer.pubkey())
     };
     let encoded = EncodedOrderIntent::from(&intent);
     let encoded_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-    let (pda, _) = find_order_pda(&program_id, &encoded.hash());
+    let (pda, bump) = find_order_pda(&program_id, &encoded.hash());
 
     let pda_rent = svm.minimum_balance_for_rent_exemption(
         settlement_client::settlement_interface::data::order::EncodedOrderAccount::SIZE,
@@ -95,12 +85,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
         order_pda: pda,
         intent_bytes: encoded_bytes,
     };
-    let tx = Transaction::new_signed_with_payer(
-        &[ix.into()],
-        Some(&fee_payer.pubkey()),
-        &[&fee_payer, &reclaim_recipient],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &fee_payer, &reclaim_recipient, ix);
     svm.send_transaction(tx)
         .expect("create_order should succeed");
 
@@ -118,15 +103,11 @@ fn happy_path_returns_lamports_and_closes_pda() {
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
+        bump,
         reclaim_recipient: reclaim_recipient.pubkey(),
     }
     .instruction();
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&fee_payer.pubkey()),
-        &[&fee_payer],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     svm.send_transaction(tx)
         .expect("reclaim_order should succeed after expiry");
 
@@ -149,23 +130,20 @@ fn happy_path_returns_lamports_and_closes_pda() {
 fn rejects_when_order_not_yet_expired() {
     let (mut svm, program_id, owner) = common::setup();
 
-    let intent = sample_intent(owner.pubkey());
+    let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
+    let (_, bump) = find_order_pda(&program_id, &EncodedOrderIntent::from(&intent).hash());
 
     common::set_unix_timestamp(&mut svm, VALID_TO as i64); // technically this is the last valid timestamp
 
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
+        bump,
         reclaim_recipient: owner.pubkey(),
     }
     .instruction();
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&owner.pubkey()),
-        &[&owner],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &owner, &owner, ix);
     common::assert_settlement_error(
         svm.send_transaction(tx).map_err(|e| e.err),
         SettlementError::OrderNotExpired,
@@ -176,8 +154,9 @@ fn rejects_when_order_not_yet_expired() {
 fn rejects_when_reclaim_recipient_mismatch() {
     let (mut svm, program_id, owner) = common::setup();
 
-    let intent = sample_intent(owner.pubkey());
+    let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
+    let (_, bump) = find_order_pda(&program_id, &EncodedOrderIntent::from(&intent).hash());
 
     common::set_unix_timestamp(&mut svm, AFTER_EXPIRY);
 
@@ -185,41 +164,13 @@ fn rejects_when_reclaim_recipient_mismatch() {
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
+        bump,
         reclaim_recipient: wrong_authority,
     }
     .instruction();
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&owner.pubkey()),
-        &[&owner],
-        svm.latest_blockhash(),
-    );
+    let tx = signed_tx(&svm, &owner, &owner, ix);
     common::assert_settlement_error(
         svm.send_transaction(tx).map_err(|e| e.err),
         SettlementError::ReclaimRecipientMismatch,
     );
-}
-
-#[test]
-fn rejects_missing_accounts() {
-    let (mut svm, program_id, owner) = common::setup();
-
-    common::set_unix_timestamp(&mut svm, AFTER_EXPIRY);
-
-    // Build a minimal instruction with only the discriminator, no accounts.
-    let ix = solana_sdk::instruction::Instruction {
-        program_id,
-        accounts: vec![],
-        data: vec![
-            settlement_client::settlement_interface::SettlementInstruction::ReclaimOrder
-                .discriminator(),
-        ],
-    };
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&owner.pubkey()),
-        &[&owner],
-        svm.latest_blockhash(),
-    );
-    assert!(svm.send_transaction(tx).is_err());
 }

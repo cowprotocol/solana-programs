@@ -1,38 +1,34 @@
 //! `ReclaimOrder` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use pinocchio::{
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, ProgramResult,
+};
 use settlement_interface::{
-    data::order::{EncodedOrderAccount, OrderAccount},
+    data::order::OrderAccount,
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
     SettlementError,
 };
 
-use crate::processor::get_timestamp;
-
 pub fn process_reclaim_order(
-    _program_id: &pinocchio::Address,
+    program_id: &pinocchio::Address,
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
     let ReclaimOrderInput {
         order_pda,
+        bump,
         reclaim_recipient,
     } = ReclaimOrderInput::parse(instruction_data, accounts)?;
 
-    let account = {
-        let data = order_pda.try_borrow()?;
-        let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
-            .try_into()
-            .map_err(|_| ProgramError::InvalidAccountData)?;
-        OrderAccount::try_from(*bytes)?
-    };
+    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
 
-    // Verify the reclaim_recipient account matches the one recorded in the order.
-    if reclaim_recipient.address().as_array() != &account.created_by.to_bytes() {
+    if reclaim_recipient.address() != &account.created_by {
         return Err(SettlementError::ReclaimRecipientMismatch.into());
     }
 
-    let now = get_timestamp()?;
+    let now = Clock::get()?.unix_timestamp;
     if now <= i64::from(account.intent.valid_to) {
         return Err(SettlementError::OrderNotExpired.into());
     }
@@ -53,10 +49,13 @@ pub fn process_reclaim_order(
 #[cfg(test)]
 mod tests {
     use pinocchio::Address;
+    use settlement_interface::data::order::EncodedOrderAccount;
     use settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
     };
+    use settlement_interface::pda::order::find_order_pda;
+    use settlement_interface::SettlementInstruction;
 
     use super::*;
 
@@ -76,8 +75,6 @@ mod tests {
 
     #[test]
     fn process_reclaim_order_rejects_mismatched_reclaim_recipient() {
-        let data = default_reclaim_data();
-
         let reclaim_recipient = fake_account(Address::new_unique());
 
         let order_data = OrderAccount {
@@ -85,41 +82,19 @@ mod tests {
             ..Default::default()
         };
 
+        // The order PDA must be canonical for `order_data.intent`, otherwise
+        // `load_from_pda` rejects it before the recipient check ever runs.
+        let (order_pda_address, bump) = find_order_pda(&PROGRAM_ID, &order_data.intent.uid());
+        let data = vec![SettlementInstruction::ReclaimOrder.discriminator(), bump];
+
         let order_pda = fake_account_with_data(
-            Address::new_unique(),
+            order_pda_address,
             &EncodedOrderAccount::from(order_data)[..],
         );
 
         assert_eq!(
             process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),
             Err(SettlementError::ReclaimRecipientMismatch.into()),
-        );
-    }
-
-    #[cfg(feature = "settlement-test-clock")]
-    #[test]
-    fn process_reclaim_order_rejects_not_yet_expired() {
-        let data = default_reclaim_data();
-
-        let reclaim_recipient = fake_account(Address::new_unique());
-
-        let order_data = OrderAccount {
-            intent: settlement_interface::data::intent::OrderIntent {
-                valid_to: 4_000_000_000,
-                ..Default::default()
-            },
-            created_by: *reclaim_recipient.address(),
-            ..Default::default()
-        };
-
-        let order_pda = fake_account_with_data(
-            Address::new_unique(),
-            &EncodedOrderAccount::from(order_data)[..],
-        );
-
-        assert_eq!(
-            process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),
-            Err(SettlementError::OrderNotExpired.into()),
         );
     }
 }

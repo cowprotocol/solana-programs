@@ -51,8 +51,9 @@ pub trait InstructionInputParsing<'a>: Sized {
 /// duplicating the unsafe initializer below.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
-    use solana_account_view::{AccountView, RuntimeAccount};
+    use solana_account_view::{AccountView, RuntimeAccount, MAX_PERMITTED_DATA_INCREASE};
     use solana_address::Address;
+    use std::{mem, ptr};
 
     /// Build an `AccountView` based on the input `RuntimeAccount` and whose
     /// data region is empty.
@@ -87,36 +88,73 @@ pub mod fixtures {
         unsafe { AccountView::new_unchecked(backing as *mut RuntimeAccount) }
     }
 
+    /// Adapted from pinocchio's crate-private test helper; kept structurally
+    /// close for comparison:
+    /// https://docs.rs/crate/pinocchio/0.11.1/source/src/sysvars/slot_hashes/test_utils.rs#120-160
+    ///
+    /// Allocate a heap-backed `AccountView` whose data region is initialized with
+    /// `data`, whose address is `address`, and whose borrow flag is `borrow_state`.
+    ///
+    /// The function also returns the backing `Vec<u64>` so the caller can keep it
+    /// alive for the duration of the test (otherwise the memory would be freed and
+    /// the raw pointer inside `AccountView` would dangle).
+    ///
+    /// # Safety
+    /// The caller must ensure the returned `AccountView` is used only for reading
+    /// or according to borrow rules because the Solana runtime invariants are not
+    /// fully enforced in this hand-rolled representation.
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "the function is mostly vendored and don't want to introduce unnecessary changes"
+    )]
+    pub unsafe fn make_account_view(
+        address: Address,
+        data: &[u8],
+        borrow_state: u8,
+    ) -> (AccountView, Vec<u64>) {
+        // pinocchio writes a hand-rolled `AccountLayout` mirror and casts the
+        // pointer to `*mut RuntimeAccount`, because inside that crate the
+        // account struct's fields are private and its tests cannot set them by
+        // name. Here we instead write a real `RuntimeAccount`, since
+        // `solana_account_view::RuntimeAccount` has public fields and a
+        // `Default` impl.
+        let hdr_size = mem::size_of::<RuntimeAccount>();
+        // we over-allocate by MAX_PERMITTED_DATA_INCREASE to prevent memory
+        //corruption in the unlikely case a runtime increases the account data size
+        let total = hdr_size + data.len() + MAX_PERMITTED_DATA_INCREASE;
+        let words = total.div_ceil(mem::size_of::<u64>());
+        let mut backing: Vec<u64> = vec![0u64; words];
+        assert!(
+            mem::align_of::<u64>() >= mem::align_of::<RuntimeAccount>(),
+            "`backing` should be properly aligned to store a `RuntimeAccount` instance"
+        );
+
+        let hdr_ptr = backing.as_mut_ptr() as *mut RuntimeAccount;
+        ptr::write(
+            hdr_ptr,
+            RuntimeAccount {
+                address,
+                borrow_state,
+                data_len: data.len() as u64,
+                ..Default::default()
+            },
+        );
+
+        ptr::copy_nonoverlapping(
+            data.as_ptr(),
+            (hdr_ptr as *mut u8).add(hdr_size),
+            data.len(),
+        );
+
+        (AccountView::new_unchecked(hdr_ptr), backing)
+    }
+
+    /// Create an account view storing the input data.
     pub fn fake_account_with_data(address: Address, data: &[u8]) -> AccountView {
-        // The RuntimeAccount struct actually functions as a header. If any data is included in the account, it should be placed in the bytes following the header.
-        // For this, we need to allocate some data on the heap to hold both the account and the data we want to store.
-        // We use Box::leak to prevent the memory from being deallocated after this function, which is fine for tests.
-        const HEADER: usize = core::mem::size_of::<RuntimeAccount>();
-
-        let buf = Box::leak(Box::<[u8]>::new_uninit_slice(
-            HEADER
-                .checked_add(data.len())
-                .expect("overflow when allocating account data"),
-        ));
-        let base = buf.as_mut_ptr() as *mut u8;
-
-        unsafe {
-            std::ptr::write(
-                base as *mut RuntimeAccount,
-                RuntimeAccount {
-                    address,
-                    borrow_state: solana_account_view::NOT_BORROWED, // allows for code to borrow this account to read its data
-                    is_signer: if data.is_empty() { 1 } else { 0 },
-                    data_len: data.len() as u64,
-                    ..Default::default()
-                },
-            );
-
-            // mostly equivalent to C's `memcpy`
-            std::ptr::copy_nonoverlapping(data.as_ptr(), base.add(HEADER), data.len());
-        }
-
-        unsafe { AccountView::new_unchecked(buf.as_mut_ptr() as *mut RuntimeAccount) }
+        let (account, backing) =
+            unsafe { make_account_view(address, data, solana_account_view::NOT_BORROWED) };
+        core::mem::forget(backing);
+        account
     }
 
     pub fn fake_account(address: Address) -> AccountView {
