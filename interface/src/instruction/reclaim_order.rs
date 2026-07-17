@@ -20,8 +20,8 @@ use crate::SettlementInstruction;
 
 /// Builder for a `ReclaimOrder` instruction.
 ///
-/// `order_pda` is the canonical order PDA to close, and `bump` is its
-/// canonical bump. `reclaim_recipient` must be the account recorded as
+/// `order_pda` is the order PDA to close, and `bump` is the bump needed
+/// to derive order_pda from its seed. `reclaim_recipient` must be the account recorded as
 /// `created_by` in the order PDA; it receives the recovered rent lamports.
 /// The instruction enforces no signature requirement: anyone may reclaim an
 /// expired order on behalf of its reclaim_recipient.
