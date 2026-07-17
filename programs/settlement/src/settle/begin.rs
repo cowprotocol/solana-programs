@@ -14,13 +14,13 @@ use pinocchio::{
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
-    data::order::EncodedOrderAccount,
+    data::order::OrderAccount,
     instruction::{
         create_buffer::SPL_TOKEN_PROGRAM_ID,
         settle::{BeginSettleInput, SettledOrder, FINALIZE_FIXED_ACCOUNTS},
         InstructionInputParsing,
     },
-    pda::{order::order_pda_signer_seeds, state::state_pda_seeds},
+    pda::state::state_pda_seeds,
     recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
 };
 
@@ -240,27 +240,11 @@ fn process_order(
         amounts,
     } = order;
 
-    // Decode the order body. Reading is safe regardless of who owns the
-    // account; the canonical-address check below is what proves provenance.
-    // The borrow is released at the end of this block, before any other
-    // account is touched.
-    let (cancelled, intent, uid) = {
-        let data = order_pda.try_borrow()?;
-        let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
-            .try_into()
-            .map_err(|_| ProgramError::InvalidAccountData)?;
-        let (account, uid) = EncodedOrderAccount::decode_and_hash(bytes)?;
-        (account.cancelled, account.intent, uid)
-    };
-
-    // Only at this point we can validate that the PDA is indeed a valid
-    // order PDA by seeing its address matches the computed one.
-    let expected =
-        Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
-            .map_err(|_| SettlementError::OrderNotCanonical)?;
-    if &expected != order_pda.address() {
-        return Err(SettlementError::OrderNotCanonical.into());
-    }
+    // Decode the order body and prove its provenance: `load_from_pda` checks
+    // that `order_pda` is the canonical order PDA for the intent it stores.
+    let OrderAccount {
+        cancelled, intent, ..
+    } = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
 
     if cancelled {
         return Err(SettlementError::OrderCancelled.into());

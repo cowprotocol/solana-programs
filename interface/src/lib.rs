@@ -22,6 +22,7 @@ pub enum SettlementInstruction {
     CreateOrder = 2,
     Initialize = 3,
     CreateBuffer = 4,
+    ReclaimOrder = 5,
 }
 
 impl SettlementInstruction {
@@ -102,9 +103,8 @@ pub enum SettlementError {
     /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
     /// owner.
     OwnerMismatch = 7,
-    /// A `BeginSettle` order account doesn't sit at the canonical order PDA
-    /// derived from the intent it stores and the supplied bump.
-    OrderNotCanonical = 8,
+    /// An account was provided that cannot be derived from the seeds recognized by the program
+    AccountNotDerivable = 8,
     /// `BeginSettle`'s order accounts aren't passed strictly increasing by
     /// address.
     OrdersNotStrictlyIncreasing = 9,
@@ -148,6 +148,11 @@ pub enum SettlementError {
     /// to the order's buy token account; its destination differs from the
     /// `buy_token_account` in the order's intent.
     PushDestinationMismatch = 21,
+    /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
+    OrderNotExpired = 22,
+    /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
+    /// `created_by` address recorded in the order.
+    ReclaimRecipientMismatch = 23,
 }
 
 impl From<SettlementError> for u32 {
