@@ -160,12 +160,12 @@ fn rejects_when_reclaim_recipient_mismatch() {
 
     common::set_unix_timestamp(&mut svm, AFTER_EXPIRY);
 
-    let wrong_authority = Pubkey::new_unique();
+    let wrong_recipient = Pubkey::new_unique();
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
         bump,
-        reclaim_recipient: wrong_authority,
+        reclaim_recipient: wrong_recipient,
     }
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
