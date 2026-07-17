@@ -62,12 +62,13 @@ impl OrderAccount {
         program_id: &Address,
         bump: u8,
     ) -> Result<Self, ProgramError> {
-        let data = order_pda.try_borrow()?;
-        let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
-            .try_into()
-            .map_err(|_| ProgramError::InvalidAccountData)?;
-        let (account, uid) = EncodedOrderAccount::decode_and_hash(bytes)?;
-        drop(data);
+   let (account, uid) = {
+       let data = order_pda.try_borrow()?;
+       let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
+           .try_into()
+           .map_err(|_| ProgramError::InvalidAccountData)?;
+       EncodedOrderAccount::decode_and_hash(bytes)?
+   };
 
         let expected =
             Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
