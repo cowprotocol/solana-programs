@@ -232,9 +232,6 @@ fn rejects_wrong_token_program() {
         amount: 0,
     }];
 
-    // Swap the SPL Token program account `FinalizeSettle` references for a bogus
-    // one. `BeginSettle` runs first against its own (untouched) token-program
-    // account and passes; the finalize's own check is what rejects.
     let mut instructions = finalize(&program_id, &orders);
     replace_first_matching_account(
         &mut instructions[usize::from(FINALIZE_INDEX)],
@@ -258,9 +255,6 @@ fn rejects_wrong_state_pda() {
         amount: 0,
     }];
 
-    // Swap the state PDA account `FinalizeSettle` references for a bogus one.
-    // `BeginSettle`'s own state PDA account is untouched, so it passes; the
-    // finalize's check is what rejects.
     let mut instructions = finalize(&program_id, &orders);
     let (state_pda, _bump) = find_state_pda(&program_id);
     replace_first_matching_account(
