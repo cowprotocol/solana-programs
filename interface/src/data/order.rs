@@ -57,7 +57,7 @@ pub struct OrderAccount {
 
 impl OrderAccount {
     /// Load and decode the order at the given PDA, and confirm
-    /// the PDA is reached by its own data and the provided bump
+    /// the PDA is derivable from its own data and the provided bump
     pub fn load_from_pda(
         order_pda: &AccountView,
         program_id: &Address,
