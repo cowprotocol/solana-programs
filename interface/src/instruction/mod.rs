@@ -12,6 +12,7 @@ use crate::{recover_discriminator, SettlementInstruction};
 pub mod create_buffer;
 pub mod create_order;
 pub mod initialize;
+pub mod reclaim_buffer;
 pub mod reclaim_order;
 pub mod settle;
 

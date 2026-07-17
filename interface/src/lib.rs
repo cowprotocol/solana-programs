@@ -23,6 +23,7 @@ pub enum SettlementInstruction {
     Initialize = 3,
     CreateBuffer = 4,
     ReclaimOrder = 5,
+    ReclaimBuffer = 6,
 }
 
 impl SettlementInstruction {
@@ -130,6 +131,15 @@ pub enum SettlementError {
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 23,
+    /// `ReclaimBuffer`'s `receiver` account isn't a signer, or doesn't match
+    /// the `receiver` address recorded in the settlement state PDA.
+    ReceiverMismatch = 24,
+    /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
+    /// derived from its paired `mint`.
+    BufferNotCanonical = 25,
+    /// A `ReclaimBuffer` `receiver_token_account` isn't the receiver's
+    /// canonical associated token account for the buffer's mint.
+    ReceiverTokenAccountMismatch = 26,
 }
 
 impl From<SettlementError> for u32 {

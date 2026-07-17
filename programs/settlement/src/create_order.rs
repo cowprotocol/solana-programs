@@ -66,7 +66,7 @@ mod tests {
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
     use settlement_interface::instruction::fixtures::{
-        fake_account, fake_account_from, fake_sequential_accounts,
+        fake_account_from, fake_account_with_data, fake_sequential_accounts,
     };
 
     use pinocchio::account::RuntimeAccount;
@@ -127,7 +127,7 @@ mod tests {
     fn process_create_order_rejects_nonsigner_owner() {
         let intent_bytes = valid_intent_bytes();
         let data = default_order_data(&intent_bytes);
-        let owner_account = fake_account(DEFAULT_OWNER);
+        let owner_account = fake_account_with_data(DEFAULT_OWNER, &[0, 0]);
 
         // Test setup: owner is not a signer.
         assert!(!owner_account.is_signer());

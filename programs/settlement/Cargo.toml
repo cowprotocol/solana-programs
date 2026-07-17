@@ -30,6 +30,7 @@ solana-address-lookup-table-interface = { workspace = true, features = ["bincode
 solana-instructions-sysvar.workspace = true
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
+spl-associated-token-account-interface.workspace = true
 
 [lints]
 workspace = true

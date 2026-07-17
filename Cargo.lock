@@ -3078,6 +3078,7 @@ dependencies = [
  "solana-instructions-sysvar",
  "solana-sdk",
  "solana-system-interface 3.2.0",
+ "spl-associated-token-account-interface",
 ]
 
 [[package]]

@@ -169,6 +169,7 @@ impl From<CreateBuffers<'_>> for Instruction {
 pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,
+    pub receiver: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
@@ -178,6 +179,41 @@ impl From<Initialize> for Instruction {
             program_id: builder.program_id,
             payer: builder.payer,
             state_pda,
+            receiver: builder.receiver,
+        }
+        .into()
+    }
+}
+
+/// Builder for a `ReclaimBuffer` instruction closing the buffer for each of
+/// `mints`.
+///
+/// **Warning:** any token balance still held by a buffer is burned, not
+/// recovered, before the buffer is closed. Only reclaim buffers expected to
+/// be empty, or to write off dust/dead balances — never one that might still
+/// hold funds of useful value.
+pub struct ReclaimBuffer<'a> {
+    pub program_id: Pubkey,
+    pub receiver: Pubkey,
+    pub mints: &'a [Pubkey],
+}
+
+impl From<ReclaimBuffer<'_>> for Instruction {
+    fn from(builder: ReclaimBuffer<'_>) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
+        let buffers: Vec<(Pubkey, Pubkey)> = builder
+            .mints
+            .iter()
+            .map(|mint| {
+                let (buffer_pda, _bump) = find_buffer_pda(&builder.program_id, mint);
+                (buffer_pda, *mint)
+            })
+            .collect();
+        settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
+            program_id: builder.program_id,
+            state_pda,
+            receiver: builder.receiver,
+            buffers: &buffers,
         }
         .into()
     }
