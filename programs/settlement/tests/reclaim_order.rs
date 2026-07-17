@@ -14,7 +14,6 @@ use crate::common::signed_tx;
 mod common;
 
 const VALID_TO: u32 = 1_000;
-const AFTER_EXPIRY: i64 = 1_001;
 
 fn reclaim_sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
@@ -98,7 +97,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
 
     let reclaim_recipient_before = common::lamports(&svm, &reclaim_recipient.pubkey());
 
-    common::set_unix_timestamp(&mut svm, AFTER_EXPIRY);
+    common::set_unix_timestamp(&mut svm, (VALID_TO + 1).into());
 
     let ix = ReclaimOrder {
         program_id,
@@ -158,7 +157,7 @@ fn rejects_when_reclaim_recipient_mismatch() {
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
     let (_, bump) = find_order_pda(&program_id, &EncodedOrderIntent::from(&intent).hash());
 
-    common::set_unix_timestamp(&mut svm, AFTER_EXPIRY);
+    common::set_unix_timestamp(&mut svm, (VALID_TO + 1).into());
 
     let wrong_recipient = Pubkey::new_unique();
     let ix = ReclaimOrder {

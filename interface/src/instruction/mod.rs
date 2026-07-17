@@ -50,7 +50,7 @@ pub trait InstructionInputParsing<'a>: Sized {
 /// duplicating the unsafe initializer below.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
-    use solana_account_view::{AccountView, RuntimeAccount, MAX_PERMITTED_DATA_INCREASE};
+    use solana_account_view::{AccountView, RuntimeAccount};
     use solana_address::Address;
     use std::{mem, ptr};
 
