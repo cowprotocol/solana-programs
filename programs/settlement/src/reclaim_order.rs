@@ -82,8 +82,6 @@ mod tests {
             ..Default::default()
         };
 
-        // The order PDA must be canonical for `order_data.intent`, otherwise
-        // `load_from_pda` rejects it before the recipient check ever runs.
         let (order_pda_address, bump) = find_order_pda(&PROGRAM_ID, &order_data.intent.uid());
         let data = vec![SettlementInstruction::ReclaimOrder.discriminator(), bump];
 
