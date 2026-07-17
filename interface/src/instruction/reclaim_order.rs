@@ -139,7 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn reclaim_order_input_rejects_nonempty_body() {
+    fn reclaim_order_input_rejects_extra_data() {
         let mut data = default_reclaim_data();
         data.push(0);
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
