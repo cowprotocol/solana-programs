@@ -73,9 +73,9 @@ impl OrderAccount {
 
         let expected =
             Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
-                .map_err(|_| SettlementError::OrderNotCanonical)?;
+                .map_err(|_| SettlementError::AccountNotDerivable)?;
         if &expected != order_pda.address() {
-            return Err(SettlementError::OrderNotCanonical.into());
+            return Err(SettlementError::AccountNotDerivable.into());
         }
 
         Ok(account)
@@ -451,7 +451,7 @@ mod tests {
 
             let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, bump)
                 .expect_err("a non-canonical address must be rejected");
-            assert_eq!(err, SettlementError::OrderNotCanonical.into());
+            assert_eq!(err, SettlementError::AccountNotDerivable.into());
         }
 
         #[test]
@@ -467,7 +467,7 @@ mod tests {
             let wrong_bump = bump.wrapping_sub(1);
             let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, wrong_bump)
                 .expect_err("a non-canonical bump must be rejected");
-            assert_eq!(err, SettlementError::OrderNotCanonical.into());
+            assert_eq!(err, SettlementError::AccountNotDerivable.into());
         }
 
         #[test]

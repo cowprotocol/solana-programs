@@ -167,7 +167,7 @@ fn rejects_wrong_bump() {
     let instructions = vec![begin.into(), finalize.into()];
     assert_settlement_error(
         send(&mut svm, &payer, instructions),
-        SettlementError::OrderNotCanonical,
+        SettlementError::AccountNotDerivable,
     );
 }
 
@@ -215,7 +215,7 @@ fn rejects_fabricated_program_owned_account() {
 
     assert_settlement_error(
         send(&mut svm, &payer, instructions),
-        SettlementError::OrderNotCanonical,
+        SettlementError::AccountNotDerivable,
     );
 }
 

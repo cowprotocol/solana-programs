@@ -103,9 +103,8 @@ pub enum SettlementError {
     /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
     /// owner.
     OwnerMismatch = 7,
-    /// A `BeginSettle` order account doesn't sit at the canonical order PDA
-    /// derived from the intent it stores and the supplied bump.
-    OrderNotCanonical = 8,
+    /// An account was provided that cannot be derived from the seeds recognized by the program
+    AccountNotDerivable = 8,
     /// `BeginSettle`'s order accounts aren't passed strictly increasing by
     /// address.
     OrdersNotStrictlyIncreasing = 9,
