@@ -11,8 +11,9 @@
 
 use solana_account_view::AccountView;
 use solana_address::Address;
-use solana_program_error::ProgramError;
+use solana_program_pack::Pack;
 use solana_pubkey::Pubkey;
+use spl_token_interface::state::Account as TokenAccount;
 
 use crate::pda::SETTLEMENT_SEED;
 use crate::SettlementError;
@@ -41,23 +42,35 @@ pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&buffer_pda_seeds(mint.as_array()), program_id)
 }
 
-/// Confirm `buffer` matches the derived buffer PDA for `mint` and `bump`.
-#[must_use = "ignoring the output means ignoring the validation result"]
-pub fn validate_buffer_pda(
-    program_id: &Address,
-    buffer: &AccountView,
-    mint: &Address,
-    bump: u8,
-) -> Result<(), ProgramError> {
-    let derived = Address::create_program_address(
-        &buffer_pda_signer_seeds(&mint.to_bytes(), &[bump]),
-        program_id,
-    )
-    .map_err(|_| SettlementError::PushSourceNotBuffer)?;
-    if buffer.address() != &derived {
-        return Err(SettlementError::PushSourceNotBuffer.into());
+#[allow(dead_code)]
+pub struct BufferTokenAccount(TokenAccount);
+
+impl BufferTokenAccount {
+    pub fn load_verified_from_pda(
+        program_id: &Address,
+        buffer: &AccountView,
+        bump: u8,
+    ) -> Result<BufferTokenAccount, SettlementError> {
+        // Read the destination's mint; the borrow ends with this block, before
+        // the transfer reuses the account.
+        let ta = TokenAccount::unpack_from_slice(
+            &buffer
+                .try_borrow()
+                .map_err(|_| SettlementError::PushSourceNotBuffer)?,
+        )
+        .map_err(|_| SettlementError::PushSourceNotBuffer)?;
+
+        let derived = Address::create_program_address(
+            &buffer_pda_signer_seeds(&ta.mint.to_bytes(), &[bump]),
+            program_id,
+        )
+        .map_err(|_| SettlementError::PushSourceNotBuffer)?;
+        if buffer.address() != &derived {
+            return Err(SettlementError::PushSourceNotBuffer.into());
+        }
+
+        Ok(BufferTokenAccount(ta))
     }
-    Ok(())
 }
 
 #[cfg(test)]

@@ -3102,6 +3102,7 @@ dependencies = [
  "solana-hash 3.1.0",
  "solana-instruction",
  "solana-program-error",
+ "solana-program-pack",
  "solana-pubkey 3.0.0",
  "solana-sdk-ids",
  "solana-sha256-hasher",

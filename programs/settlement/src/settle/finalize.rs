@@ -3,13 +3,13 @@
 use pinocchio::{
     cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
+use pinocchio_token::instructions::Transfer;
 use settlement_interface::{
     instruction::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::buffer::validate_buffer_pda,
+    pda::buffer::BufferTokenAccount,
     SettlementError, SettlementInstruction,
 };
 
@@ -68,14 +68,7 @@ fn push_funds<'a>(
     pushes: Pushes<'a>,
 ) -> ProgramResult {
     for push in pushes.iter() {
-        // Read the destination's mint; the borrow ends with this block, before
-        // the transfer reuses the account.
-        let mint = {
-            let destination = TokenAccount::from_account_view(push.destination)
-                .map_err(|_| SettlementError::InvalidBuyTokenAccount)?;
-            *destination.mint()
-        };
-        validate_buffer_pda(program_id, push.source_buffer, &mint, push.bump)?;
+        BufferTokenAccount::load_verified_from_pda(program_id, push.source_buffer, push.bump)?;
 
         Transfer::new(
             push.source_buffer,
