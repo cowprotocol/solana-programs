@@ -118,10 +118,8 @@ pub mod fixtures {
         // `solana_account_view::RuntimeAccount` has public fields and a
         // `Default` impl.
         let hdr_size = mem::size_of::<RuntimeAccount>();
-        // we over-allocate by MAX_PERMITTED_DATA_INCREASE to prevent memory
-        //corruption in the unlikely case a runtime increases the account data size
-        let total = hdr_size + data.len() + MAX_PERMITTED_DATA_INCREASE;
-        let words = total.div_ceil(mem::size_of::<u64>());
+        let total = hdr_size + data.len();
+        let words = total.div_ceil(8);
         let mut backing: Vec<u64> = vec![0u64; words];
         assert!(
             mem::align_of::<u64>() >= mem::align_of::<RuntimeAccount>(),
