@@ -12,6 +12,7 @@ use crate::{recover_discriminator, SettlementInstruction};
 pub mod create_buffer;
 pub mod create_order;
 pub mod initialize;
+pub mod reclaim_order;
 pub mod settle;
 
 /// Shared components for parsing generic instruction input.
@@ -51,6 +52,7 @@ pub trait InstructionInputParsing<'a>: Sized {
 pub mod fixtures {
     use solana_account_view::{AccountView, RuntimeAccount};
     use solana_address::Address;
+    use std::{mem, ptr};
 
     /// Build an `AccountView` based on the input `RuntimeAccount` and whose
     /// data region is empty.
@@ -85,11 +87,75 @@ pub mod fixtures {
         unsafe { AccountView::new_unchecked(backing as *mut RuntimeAccount) }
     }
 
+    /// Adapted from pinocchio's crate-private test helper; kept structurally
+    /// close for comparison:
+    /// https://docs.rs/crate/pinocchio/0.11.1/source/src/sysvars/slot_hashes/test_utils.rs#120-160
+    ///
+    /// Allocate a heap-backed `AccountView` whose data region is initialized with
+    /// `data`, whose address is `address`, and whose borrow flag is `borrow_state`.
+    ///
+    /// The function also returns the backing `Vec<u64>` so the caller can keep it
+    /// alive for the duration of the test (otherwise the memory would be freed and
+    /// the raw pointer inside `AccountView` would dangle).
+    ///
+    /// # Safety
+    /// The caller must ensure the returned `AccountView` is used only for reading
+    /// or according to borrow rules because the Solana runtime invariants are not
+    /// fully enforced in this hand-rolled representation.
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "the function is mostly vendored and don't want to introduce unnecessary changes"
+    )]
+    pub unsafe fn make_account_view(
+        address: Address,
+        data: &[u8],
+        borrow_state: u8,
+    ) -> (AccountView, Vec<u64>) {
+        // pinocchio writes a hand-rolled `AccountLayout` mirror and casts the
+        // pointer to `*mut RuntimeAccount`, because inside that crate the
+        // account struct's fields are private and its tests cannot set them by
+        // name. Here we instead write a real `RuntimeAccount`, since
+        // `solana_account_view::RuntimeAccount` has public fields and a
+        // `Default` impl.
+        let hdr_size = mem::size_of::<RuntimeAccount>();
+        let total = hdr_size + data.len();
+        let words = total.div_ceil(8);
+        let mut backing: Vec<u64> = vec![0u64; words];
+        assert!(
+            mem::align_of::<u64>() >= mem::align_of::<RuntimeAccount>(),
+            "`backing` should be properly aligned to store a `RuntimeAccount` instance"
+        );
+
+        let hdr_ptr = backing.as_mut_ptr() as *mut RuntimeAccount;
+        ptr::write(
+            hdr_ptr,
+            RuntimeAccount {
+                address,
+                borrow_state,
+                data_len: data.len() as u64,
+                ..Default::default()
+            },
+        );
+
+        ptr::copy_nonoverlapping(
+            data.as_ptr(),
+            (hdr_ptr as *mut u8).add(hdr_size),
+            data.len(),
+        );
+
+        (AccountView::new_unchecked(hdr_ptr), backing)
+    }
+
+    /// Create an account view storing the input data.
+    pub fn fake_account_with_data(address: Address, data: &[u8]) -> AccountView {
+        let (account, backing) =
+            unsafe { make_account_view(address, data, solana_account_view::NOT_BORROWED) };
+        core::mem::forget(backing);
+        account
+    }
+
     pub fn fake_account(address: Address) -> AccountView {
-        fake_account_from(RuntimeAccount {
-            address,
-            ..Default::default()
-        })
+        fake_account_with_data(address, &[])
     }
 
     pub fn fake_account_from_array(address_array: [u8; 32]) -> AccountView {

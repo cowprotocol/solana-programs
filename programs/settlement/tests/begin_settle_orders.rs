@@ -175,7 +175,7 @@ fn rejects_wrong_bump() {
     let instructions = vec![begin.into(), finalize.into()];
     assert_begin_error(
         send(&mut svm, &payer, instructions),
-        SettlementError::OrderNotCanonical,
+        SettlementError::AccountNotDerivable,
     );
 }
 
@@ -223,7 +223,7 @@ fn rejects_fabricated_program_owned_account() {
 
     assert_begin_error(
         send(&mut svm, &payer, instructions),
-        SettlementError::OrderNotCanonical,
+        SettlementError::AccountNotDerivable,
     );
 }
 
@@ -235,7 +235,7 @@ fn rejects_non_order_account_in_order_slot() {
     let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
 
     // Put a token account in the order slot. Its 165-byte data can't decode as a
-    // 199-byte order body, so it's rejected before the canonical-address check.
+    // order body, so it's rejected before the canonical-address check.
     // The client builder always references a real order PDA, so build the raw
     // instruction by hand; the bump is irrelevant, as the decode fails first.
     let begin = BeginSettleRaw {

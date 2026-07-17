@@ -22,14 +22,18 @@ use core::mem::size_of;
 
 use arrayref::{array_refs, mut_array_refs};
 use derive_more::Deref;
+use solana_account_view::AccountView;
+use solana_address::Address;
 use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::data::intent::{self, EncodedOrderIntent, OrderIntent};
+use crate::pda::order::order_pda_signer_seeds;
+use crate::SettlementError;
 
 /// Idiomatic representation of an order PDA's body.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct OrderAccount {
     /// `false` = the order is still active and can be filled; `true` = the
     /// order has been cancelled by the owner and must not be filled.
@@ -49,6 +53,33 @@ pub struct OrderAccount {
 
     /// The order intent stored in this PDA.
     pub intent: OrderIntent,
+}
+
+impl OrderAccount {
+    /// Load and decode the order at the given PDA, and confirm
+    /// the PDA is derivable from its own data and the provided bump
+    pub fn load_from_pda(
+        order_pda: &AccountView,
+        program_id: &Address,
+        bump: u8,
+    ) -> Result<Self, ProgramError> {
+        let (account, uid) = {
+            let data = order_pda.try_borrow()?;
+            let bytes: &[u8; EncodedOrderAccount::SIZE] = (&*data)
+                .try_into()
+                .map_err(|_| ProgramError::InvalidAccountData)?;
+            EncodedOrderAccount::decode_and_hash(bytes)?
+        };
+
+        let expected =
+            Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
+                .map_err(|_| SettlementError::AccountNotDerivable)?;
+        if &expected != order_pda.address() {
+            return Err(SettlementError::AccountNotDerivable.into());
+        }
+
+        Ok(account)
+    }
 }
 
 /// Canonical 200-byte representation of an [`OrderAccount`]. The bytes
@@ -386,6 +417,72 @@ mod tests {
         let err = EncodedOrderAccount::decode_and_hash(&bytes)
             .expect_err("decode_and_hash must propagate the try_from error");
         assert_eq!(err, ProgramError::InvalidAccountData);
+    }
+
+    mod load_from_pda {
+        use super::*;
+        use crate::instruction::fixtures::fake_account_with_data;
+        use crate::pda::order::find_order_pda;
+
+        const PROGRAM_ID: Address = Address::new_from_array([9; 32]);
+
+        #[test]
+        fn accepts_the_canonical_pda() {
+            let account = sample_account(false);
+            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
+            let order_pda = fake_account_with_data(
+                pda_address,
+                &EncodedOrderAccount::from(account.clone())[..],
+            );
+
+            let loaded = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, bump)
+                .expect("canonical PDA must load");
+            assert_eq!(loaded, account);
+        }
+
+        #[test]
+        fn rejects_a_non_canonical_address() {
+            let account = sample_account(false);
+            let (_, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
+            // An address unrelated to the intent's canonical seeds.
+            let wrong_address = Pubkey::new_from_array([0x42; 32]);
+            let order_pda =
+                fake_account_with_data(wrong_address, &EncodedOrderAccount::from(account)[..]);
+
+            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, bump)
+                .expect_err("a non-canonical address must be rejected");
+            assert_eq!(err, SettlementError::AccountNotDerivable.into());
+        }
+
+        #[test]
+        fn rejects_a_wrong_bump() {
+            let account = sample_account(false);
+            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
+            let order_pda =
+                fake_account_with_data(pda_address, &EncodedOrderAccount::from(account)[..]);
+
+            // Any bump other than the canonical one either derives a
+            // different address or fails to derive one at all (falling on
+            // curve); either way, the PDA can no longer be proven canonical.
+            let wrong_bump = bump.wrapping_sub(1);
+            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, wrong_bump)
+                .expect_err("a non-canonical bump must be rejected");
+            assert_eq!(err, SettlementError::AccountNotDerivable.into());
+        }
+
+        #[test]
+        fn propagates_decode_errors() {
+            let account = sample_account(false);
+            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
+            let mut bytes: [u8; EncodedOrderAccount::SIZE] =
+                EncodedOrderAccount::from(account).into();
+            bytes[CANCELLED_OFFSET] = 0xff;
+            let order_pda = fake_account_with_data(pda_address, &bytes);
+
+            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, bump)
+                .expect_err("a corrupt account must fail to decode");
+            assert_eq!(err, ProgramError::InvalidAccountData);
+        }
     }
 
     #[test]
