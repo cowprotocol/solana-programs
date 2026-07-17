@@ -41,6 +41,8 @@ pub fn process_reclaim_order(
             .checked_add(order_lamports)
             .ok_or(ProgramError::ArithmeticOverflow)?,
     );
+    // Closing an order also sets the lamport balance to zero, so we don't need to
+    // explicitly zero the account SOL balance.
     order_pda.close()?;
 
     Ok(())
