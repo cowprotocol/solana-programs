@@ -5,7 +5,7 @@
 This repository hosts the Solana implementation, currently in early development. The protocol is already live on Ethereum and other EVM chains; the Solidity contracts are at [cowprotocol/contracts](https://github.com/cowprotocol/contracts).
 
 > [!CAUTION]
-> These Solana programs are a work in progress and are **not ready for production use**. The code is unaudited, subject to change, and may contain significant vulnerabilities that could lead to loss of funds. Please do not deploy it to mainnet or rely on it with real assets. We're sharing it openly to develop in the open and welcome your feedback.
+> These Solana programs are a work in progress and are **not ready for production use**. The code is unaudited, subject to change, and may contain significant vulnerabilities that could lead to loss of funds. Please do not rely on it with real assets. Any deployment to mainnet is for testing purposes only. We're sharing it openly to develop in the open and welcome your feedback.
 
 ## Design
 
