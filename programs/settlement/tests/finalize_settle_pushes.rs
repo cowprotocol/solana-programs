@@ -10,9 +10,9 @@
 //! signed by the settlement state PDA that owns them.
 
 use crate::common::{
-    buffer, create_account,
+    assert_failed_in_cpi, buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
-    replace_first_matching_account, send,
+    replace_first_matching_account, send, send_expect_failure,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token,
 };
@@ -372,13 +372,16 @@ fn rejects_invalid_buy_token_account() {
     let mint = token::create_mint(&mut svm, &payer);
     let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
 
-    // The order's buy token account (the push destination) isn't a token account,
-    // so `FinalizeSettle` can't read its mint to derive the buffer. `BeginSettle`
-    // accepts it: the push destination still matches the intent's buy token.
+    // The order's buy token account (the push destination) isn't a token
+    // account. `BeginSettle` accepts it (the destination still matches the
+    // intent's buy token); the buffer for the mint exists, so the push clears
+    // `load_verified_from_pda` and the invalid destination only bites in the
+    // transfer.
     let not_a_token_account = Pubkey::new_unique();
     let mut intent = sample_intent(payer.pubkey(), sell_token, 0);
     intent.buy_token_account = not_a_token_account;
     create_order_pda(&mut svm, &program_id, &payer, &intent);
+    buffer::ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
     let orders = [FinalizedIntent {
         intent: &intent,
         mint,
@@ -386,8 +389,15 @@ fn rejects_invalid_buy_token_account() {
     }];
 
     let instructions = finalize(&program_id, &orders);
+    let failed = send_expect_failure(&mut svm, &payer, instructions);
+    // The rejection now happens one level down, inside the SPL transfer CPI,
+    // rather than in our program.
+    assert_failed_in_cpi(&failed);
+    // Kept deliberately failing: under the old destination-mint semantics our
+    // program returned `InvalidBuyTokenAccount` here. The new semantics never
+    // reads the destination, so this no longer holds — it marks the change.
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        Err::<(), _>(failed.err),
         to_instruction_error(SettlementError::InvalidBuyTokenAccount),
     );
 }
@@ -398,10 +408,9 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
     let mint = token::create_mint(&mut svm, &payer);
     let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
 
-    // Genuine token-account bytes: right length, a real mint at offset 0, so
-    // `from_account_view` would gladly read the mint. Assign those exact bytes
-    // to an account not owned by the token program, so it's not a valid
-    // token account.
+    // Genuine token-account bytes: right length, a real mint at offset 0.
+    // Assign those exact bytes to an account not owned by the token program, so
+    // it's not a valid token account.
     let genuine = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
     let token_shaped = svm
         .get_account(&genuine)
@@ -410,11 +419,12 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
     let impostor = create_account(&mut svm, &Pubkey::new_unique(), &token_shaped);
 
     // `BeginSettle` only checks the push destination matches the intent's buy
-    // token, so it accepts the impostor; `FinalizeSettle` rejects it when the
-    // owner check in `from_account_view` fails, before the mint is ever read.
+    // token, so it accepts the impostor; with the buffer present the push
+    // reaches the transfer, where the token program rejects the wrong owner.
     let mut intent = sample_intent(payer.pubkey(), sell_token, 0);
     intent.buy_token_account = impostor;
     create_order_pda(&mut svm, &program_id, &payer, &intent);
+    buffer::ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
     let orders = [FinalizedIntent {
         intent: &intent,
         mint,
@@ -422,8 +432,15 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
     }];
 
     let instructions = finalize(&program_id, &orders);
+    let failed = send_expect_failure(&mut svm, &payer, instructions);
+    // The rejection now happens one level down, inside the SPL transfer CPI,
+    // rather than in our program.
+    assert_failed_in_cpi(&failed);
+    // Kept deliberately failing: under the old destination-mint semantics our
+    // program returned `InvalidBuyTokenAccount` here. The new semantics never
+    // reads the destination, so this no longer holds — it marks the change.
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        Err::<(), _>(failed.err),
         to_instruction_error(SettlementError::InvalidBuyTokenAccount),
     );
 }

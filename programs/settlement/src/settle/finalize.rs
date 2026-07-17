@@ -58,7 +58,8 @@ pub fn process_finalize_settle(
 
 /// Push each order's proceeds out of the settlement's buffers, signing each
 /// transfer as the canonical state PDA (the buffers' SPL authority). Each push's
-/// source must be the derived buffer for its destination's mint; pairing the
+/// source must be the canonical buffer for the mint it holds; the SPL transfer
+/// then enforces that this mint matches the destination's, and pairing the
 /// destination to an order is `BeginSettle`'s job.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(

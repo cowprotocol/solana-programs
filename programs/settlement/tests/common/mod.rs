@@ -12,7 +12,10 @@ pub mod pda;
 pub mod settlement;
 pub mod token;
 
-use litesvm::{types::TransactionMetadata, LiteSVM};
+use litesvm::{
+    types::{FailedTransactionMetadata, TransactionMetadata},
+    LiteSVM,
+};
 use settlement_client::settlement_interface::SettlementError;
 use settlement_interface::Instruction;
 use solana_sdk::{
@@ -167,4 +170,41 @@ pub fn send(
         svm.latest_blockhash(),
     );
     svm.send_transaction(tx).map_err(|e| e.err)
+}
+
+/// Like [`send`], but for a transaction expected to fail: returns the full
+/// failure metadata (error plus logs and inner instructions) so a test can
+/// inspect *where* it failed, not just the error code.
+pub fn send_expect_failure(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+) -> FailedTransactionMetadata {
+    let tx = Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    );
+    svm.send_transaction(tx)
+        .expect_err("transaction should fail")
+}
+
+/// Assert the transaction failed one level down in a CPI, not in the top-level
+/// program. The runtime records every CPI it enters as an inner instruction
+/// tagged with its stack height, which it numbers from 1 for a top-level
+/// instruction, so a direct CPI runs at height 2. Reaching height 2 before the
+/// transaction fails means execution descended into a CPI.
+pub fn assert_failed_in_cpi(failed: &FailedTransactionMetadata) {
+    let entered_cpi = failed
+        .meta
+        .inner_instructions
+        .iter()
+        .flatten()
+        .any(|inner| inner.stack_height >= 2);
+    assert!(
+        entered_cpi,
+        "expected the failure to descend into a CPI (stack height >= 2), logs:\n{}",
+        failed.meta.pretty_logs(),
+    );
 }

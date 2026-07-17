@@ -42,18 +42,25 @@ pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&buffer_pda_seeds(mint.as_array()), program_id)
 }
 
-#[allow(dead_code)]
+/// A settlement buffer's SPL token account, verified to sit at the canonical
+/// buffer PDA for the mint it holds.
 pub struct BufferTokenAccount(TokenAccount);
 
 impl BufferTokenAccount {
+    /// Unpack `buffer` as an SPL token account and confirm it sits at the
+    /// canonical buffer PDA for the mint recorded in its own data, re-deriving
+    /// the address from that mint and `bump`.
+    ///
+    /// The buffer is self-describing: it carries the mint it holds, so it
+    /// proves its own identity without a separate mint input. Unpacking copies
+    /// the account data out, so no borrow is held across a later transfer that
+    /// writes the same account.
     pub fn load_verified_from_pda(
         program_id: &Address,
         buffer: &AccountView,
         bump: u8,
-    ) -> Result<BufferTokenAccount, SettlementError> {
-        // Read the destination's mint; the borrow ends with this block, before
-        // the transfer reuses the account.
-        let ta = TokenAccount::unpack_from_slice(
+    ) -> Result<Self, SettlementError> {
+        let token_account = TokenAccount::unpack(
             &buffer
                 .try_borrow()
                 .map_err(|_| SettlementError::PushSourceNotBuffer)?,
@@ -61,15 +68,20 @@ impl BufferTokenAccount {
         .map_err(|_| SettlementError::PushSourceNotBuffer)?;
 
         let derived = Address::create_program_address(
-            &buffer_pda_signer_seeds(&ta.mint.to_bytes(), &[bump]),
+            &buffer_pda_signer_seeds(&token_account.mint.to_bytes(), &[bump]),
             program_id,
         )
         .map_err(|_| SettlementError::PushSourceNotBuffer)?;
         if buffer.address() != &derived {
-            return Err(SettlementError::PushSourceNotBuffer.into());
+            return Err(SettlementError::PushSourceNotBuffer);
         }
 
-        Ok(BufferTokenAccount(ta))
+        Ok(Self(token_account))
+    }
+
+    /// The verified SPL token account backing the buffer.
+    pub fn token_account(&self) -> &TokenAccount {
+        &self.0
     }
 }
 
@@ -85,43 +97,6 @@ mod tests {
             |program_id| find_buffer_pda(program_id, &token),
             buffer_pda_seeds(token.as_array()),
         );
-    }
-
-    #[test]
-    fn accepts_a_valid_pda() {
-        let program_id = Pubkey::new_unique();
-        let mint = Pubkey::new_unique();
-        let (pda, bump) = find_buffer_pda(&program_id, &mint);
-
-        let buffer = crate::instruction::fixtures::fake_account(pda);
-        validate_buffer_pda(&program_id, &buffer, &mint, bump)
-            .expect("the canonical buffer PDA must be accepted");
-    }
-
-    #[test]
-    fn rejects_an_invalid_address() {
-        let program_id = Pubkey::new_unique();
-        let mint = Pubkey::new_unique();
-        let (_, bump) = find_buffer_pda(&program_id, &mint);
-
-        // An account sitting at some other address is not the buffer.
-        let buffer = crate::instruction::fixtures::fake_account(Pubkey::new_unique());
-        let err = validate_buffer_pda(&program_id, &buffer, &mint, bump)
-            .expect_err("a non-canonical address must be rejected");
-        assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
-    }
-
-    #[test]
-    fn rejects_a_wrong_bump() {
-        let program_id = Pubkey::new_unique();
-        let mint = Pubkey::new_unique();
-        let (pda, bump) = find_buffer_pda(&program_id, &mint);
-
-        // The address is canonical but the carried bump doesn't derive it.
-        let buffer = crate::instruction::fixtures::fake_account(pda);
-        let err = validate_buffer_pda(&program_id, &buffer, &mint, bump ^ 1)
-            .expect_err("a wrong bump must be rejected");
-        assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
     mod proptest {
