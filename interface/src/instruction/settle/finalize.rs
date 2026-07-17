@@ -35,8 +35,8 @@ pub const FINALIZE_FIXED_ACCOUNTS: usize = 3;
 /// the builder.
 ///
 /// Wire format (with `n` total pushes):
-/// `[discriminator=1][begin_ix_index: u16 BE][bump: u8 ×n][amount: u64 BE ×n]`.
-/// Accounts:
+/// `[discriminator=1][begin_ix_index: u16 LE][bump: u8 ×n][amount: u64 LE ×n]`.
+/// Required accounts:
 /// `[instructions_sysvar (R), state_pda (R), token_program (R)]` followed, per
 /// push, by `[source_buffer (W), destination (W)]`.
 ///
@@ -69,9 +69,9 @@ impl From<FinalizeSettle<'_>> for Instruction {
         } = builder;
 
         let data: Vec<u8> = core::iter::once(SettlementInstruction::FinalizeSettle.discriminator())
-            .chain(begin_ix_index.to_be_bytes())
+            .chain(begin_ix_index.to_le_bytes())
             .chain(bumps.iter().copied())
-            .chain(amounts.iter().flat_map(|amount| amount.to_be_bytes()))
+            .chain(amounts.iter().flat_map(|amount| amount.to_le_bytes()))
             .collect();
 
         let mut accounts = vec![
@@ -92,7 +92,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
     }
 }
 
-/// A single fund push parsed from `FinalizeSettle`: move `amount` (big-endian
+/// A single fund push parsed from `FinalizeSettle`: move `amount` (little-endian
 /// `u64`) from `source_buffer` to `destination`. `bump` is `source_buffer`'s
 /// claimed canonical buffer bump, which the program re-derives against.
 pub struct Push<'a> {
@@ -111,7 +111,7 @@ pub struct Pushes<'a> {
     /// `[source_buffer, destination]` per push, flattened.
     push_accounts: &'a [AccountView],
     bumps: &'a [u8],
-    /// One push amount (big-endian `u64`) per push, parallel to `bumps`.
+    /// One push amount (little-endian `u64`) per push, parallel to `bumps`.
     amounts: &'a [[u8; 8]],
 }
 
@@ -181,7 +181,7 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
         };
 
         // The body after the begin index is, per push, a bump byte (all `n`
-        // first) then a big-endian `u64` amount: `9 * n` bytes. Unlike
+        // first) then a little-endian `u64` amount: `9 * n` bytes. Unlike
         // `BeginSettle`, there's no explicit count byte, so `n` is recovered as
         // `body.len() / 9`; a body that isn't a whole number of these 9-byte
         // pushes can't be parsed into the push layout at all (and would otherwise
@@ -267,7 +267,7 @@ mod tests {
             data,
             ix_data![
                 [SettlementInstruction::FinalizeSettle.discriminator()],
-                hex!("1337"), // counterpart index
+                hex!("3713"), // counterpart index (little-endian)
             ],
         );
         // No pushes: the three fixed accounts (sysvar, state PDA, token program).
@@ -303,11 +303,11 @@ mod tests {
             ix.data,
             ix_data![
                 [SettlementInstruction::FinalizeSettle.discriminator()],
-                hex!("1337"), // counterpart index
+                hex!("3713"), // counterpart index (little-endian)
                 [0xa1, 0xb1], // bumps
-                // amounts
-                hex!("0000000001020304"),
-                hex!("0000000005060708"),
+                // amounts (little-endian)
+                hex!("0403020100000000"),
+                hex!("0807060500000000"),
             ],
         );
 
@@ -349,7 +349,7 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0x13, 0x37], // begin index
+            [0x37, 0x13], // begin index, little-endian
         ];
         let FinalizeSettleInput {
             begin_ix_index,
@@ -388,8 +388,8 @@ mod tests {
             [SettlementInstruction::FinalizeSettle.discriminator()],
             [0x13, 0x37], // begin index
             [0xfe, 0xfd], // bumps
-            0x1122u64.to_be_bytes(),
-            0x3344u64.to_be_bytes(),
+            0x1122u64.to_le_bytes(),
+            0x3344u64.to_le_bytes(),
         ];
 
         let FinalizeSettleInput { pushes, .. } =
@@ -402,7 +402,7 @@ mod tests {
                     push.source_buffer.address(),
                     push.destination.address(),
                     push.bump,
-                    u64::from_be_bytes(*push.amount),
+                    u64::from_le_bytes(*push.amount),
                 )
             })
             .collect();
@@ -430,7 +430,7 @@ mod tests {
             let source = Address::new_from_array([i as u8; 32]);
             let dest = Address::new_from_array([(i + PUSH_COUNT) as u8; 32]);
             let bump = (i + 2 * PUSH_COUNT) as u8;
-            let amount = u64::from_be_bytes([(i + 3 * PUSH_COUNT) as u8; 8]);
+            let amount = u64::from_le_bytes([(i + 3 * PUSH_COUNT) as u8; 8]);
             expected.push(ExpectedPush {
                 source,
                 dest,
@@ -452,7 +452,7 @@ mod tests {
             accounts.push(fake_account(push.source));
             accounts.push(fake_account(push.dest));
             bump_bytes.push(push.bump);
-            amount_bytes.extend_from_slice(&push.amount.to_be_bytes());
+            amount_bytes.extend_from_slice(&push.amount.to_le_bytes());
         }
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
@@ -470,7 +470,7 @@ mod tests {
             assert_eq!(push.source_buffer.address(), &expected.source);
             assert_eq!(push.destination.address(), &expected.dest);
             assert_eq!(push.bump, expected.bump);
-            assert_eq!(u64::from_be_bytes(*push.amount), expected.amount);
+            assert_eq!(u64::from_le_bytes(*push.amount), expected.amount);
         }
     }
 
@@ -508,7 +508,7 @@ mod tests {
             [SettlementInstruction::FinalizeSettle.discriminator()],
             [13, 37], // begin index
             [0xff],   // the push's bump
-            31337u64.to_be_bytes(),
+            31337u64.to_le_bytes(),
         ];
 
         // Too few: only one push account follows the fixed accounts.
@@ -533,7 +533,7 @@ mod tests {
         let mut accounts = fake_sequential_accounts::<FINALIZE_FIXED_ACCOUNTS>();
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [13, 37],                 // begin index
+            [37, 13],                 // begin index
             [0xff],                   // the push's bump
             [0x11, 0x22, 0x33, 0x44], // a partial push (4 bytes)
         ];

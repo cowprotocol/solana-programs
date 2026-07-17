@@ -1,7 +1,8 @@
 //! `Initialize` instruction handler.
 
-use pinocchio::{AccountView, Address, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use settlement_interface::{
+    data::state,
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
 };
@@ -25,11 +26,17 @@ pub fn process_initialize(
         program_id,
         payer,
         pda: state_pda,
-        size: 0,
+        size: state::SIZE as u64,
         owner: program_id,
         seeds: state_pda_seeds(),
     }
     .create()?;
+
+    let mut buffer = state_pda.try_borrow_mut()?;
+    let buffer: &mut [u8; state::SIZE] = (&mut *buffer)
+        .try_into()
+        .map_err(|_| ProgramError::AccountDataTooSmall)?;
+    state::write_account(buffer);
 
     Ok(())
 }
