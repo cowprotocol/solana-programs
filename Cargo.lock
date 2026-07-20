@@ -882,6 +882,7 @@ dependencies = [
  "clap",
  "settlement-client",
  "solana-commitment-config",
+ "solana-hash 3.1.0",
  "solana-instruction",
  "solana-program-pack",
  "solana-pubkey 3.0.0",
