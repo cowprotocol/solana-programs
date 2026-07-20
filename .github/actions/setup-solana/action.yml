@@ -19,7 +19,7 @@ runs:
     # https://github.com/solana-program/actions/blob/35ddfe2d2a4a0ab4681f77eaad39efc22c7d1be2/install-solana/action.yml#L19-L27
     - name: Cache Solana toolchain
       id: cache-solana
-      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ~/.local/share/solana/install/releases
