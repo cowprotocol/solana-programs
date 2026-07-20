@@ -27,7 +27,8 @@ pub struct InitializedIntent<'a> {
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub finalize_ix_index: u16,
-    /// The off-chain auction this settlement executes, carried for the indexer.
+    /// The off-chain auction this settlement executes, carried so it can be tied
+    /// back to its auction off-chain.
     pub auction_id: i64,
     pub orders: &'a [InitializedIntent<'a>],
 }

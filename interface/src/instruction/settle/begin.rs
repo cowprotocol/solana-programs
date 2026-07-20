@@ -48,7 +48,8 @@ pub struct BeginSettle<'a> {
     pub state_pda: Pubkey,
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes. Carried in the
-    /// instruction data for the indexer to read back, unused on-chain.
+    /// instruction data so the settlement can be tied back to its auction
+    /// off-chain, unused on-chain.
     pub auction_id: i64,
     pub order_pdas: &'a [Pubkey],
     pub order_pda_bumps: &'a [u8],
@@ -201,7 +202,8 @@ impl<'a> SettledOrders<'a> {
 pub struct BeginSettleInput<'a> {
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes, read from the instruction
-    /// data. Not validated on-chain: it's carried for the indexer.
+    /// data. Not validated on-chain: it's carried only so the settlement can be
+    /// tied back to its auction off-chain.
     pub auction_id: i64,
     pub instructions_sysvar_account: &'a AccountView,
     pub state_pda_account: &'a AccountView,
@@ -227,8 +229,9 @@ impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
-        // Fixed-width auction id, carried for the indexer between the counterpart
-        // index and the per-order pull layout.
+        // Fixed-width auction id, carried between the counterpart index and the
+        // per-order pull layout so the settlement can be tied to its auction
+        // off-chain.
         let (auction_id, body) = body
             .split_first_chunk::<8>()
             .ok_or(ProgramError::InvalidInstructionData)?;
