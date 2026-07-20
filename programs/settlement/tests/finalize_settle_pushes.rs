@@ -40,6 +40,7 @@ fn build_settlement(
     let begin = BeginSettle {
         program_id: *program_id,
         finalize_ix_index: FINALIZE_INDEX.into(),
+        auction_id: 0,
         orders: &begin_orders,
     };
     vec![begin.into(), finalize.into()]

@@ -38,6 +38,7 @@ fn run_sequence(
             AbstractInstruction::Init(idx) => BeginSettle {
                 program_id: *program_id,
                 finalize_ix_index: *idx,
+                auction_id: 0,
                 orders: &[],
             }
             .into(),
@@ -187,6 +188,7 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let mut begin: Instruction = BeginSettle {
         program_id,
         finalize_ix_index: 1,
+        auction_id: 0,
         orders: &[],
     }
     .into();
@@ -224,6 +226,7 @@ fn rejects_counterpart_instruction_in_different_program() {
     let begin = BeginSettle {
         program_id,
         finalize_ix_index: 1,
+        auction_id: 0,
         orders: &[],
     }
     .into();
@@ -286,6 +289,7 @@ fn rejects_cpi_call_to_begin_settle() {
         BeginSettle {
             program_id: settlement_id,
             finalize_ix_index: 1,
+            auction_id: 0,
             orders: &[],
         },
     );
@@ -348,6 +352,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
     let begin = BeginSettle {
         program_id,
         finalize_ix_index: 1,
+        auction_id: 0,
         orders: &[],
     };
     // Uses the settlement program, but no data: `recover_discriminator` fails
@@ -388,6 +393,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
     let begin = BeginSettle {
         program_id,
         finalize_ix_index: 1,
+        auction_id: 0,
         orders: &[],
     };
     // Same program as `begin`, with a valid discriminator but no trailing

@@ -32,6 +32,7 @@ fn program_can_be_invoked() {
             BeginSettle {
                 program_id,
                 finalize_ix_index: 1,
+                auction_id: 0,
                 orders: &[],
             }
             .into(),
