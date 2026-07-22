@@ -15,7 +15,7 @@ use settlement_interface::{
 
 use crate::processor::is_cpi_call;
 
-use super::{validate_counterpart, validate_token_account, with_state_pda_signer};
+use super::{validate_counterpart, validate_token_program_account, with_state_pda_signer};
 
 pub fn process_finalize_settle(
     program_id: &Address,
@@ -44,7 +44,7 @@ pub fn process_finalize_settle(
     // validated the push count and destinations. `push_funds` adds the only
     // remaining check: each push draws from the buffer for its mint.
 
-    validate_token_account(input.token_program_account)?;
+    validate_token_program_account(input.token_program_account)?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
         push_funds(

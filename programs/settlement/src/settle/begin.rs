@@ -23,7 +23,7 @@ use settlement_interface::{
 
 use crate::processor::is_cpi_call;
 
-use super::{validate_counterpart, validate_token_account, with_state_pda_signer};
+use super::{validate_counterpart, validate_token_program_account, with_state_pda_signer};
 
 pub fn process_begin_settle(
     program_id: &Address,
@@ -62,7 +62,7 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    validate_token_account(input.token_program_account)?;
+    validate_token_program_account(input.token_program_account)?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
         settle_orders(

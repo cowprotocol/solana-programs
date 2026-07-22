@@ -52,7 +52,7 @@ fn validate_counterpart<T: Deref<Target = [u8]>>(
 /// Validate that `token_program_account` is the legacy SPL Token program, which
 /// every settlement transfer is issued against.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn validate_token_account(token_program_account: &AccountView) -> ProgramResult {
+fn validate_token_program_account(token_program_account: &AccountView) -> ProgramResult {
     if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
         return Err(ProgramError::IncorrectProgramId);
     }
