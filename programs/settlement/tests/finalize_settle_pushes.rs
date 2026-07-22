@@ -248,10 +248,16 @@ fn rejects_wrong_token_program() {
 #[test]
 fn rejects_wrong_state_pda() {
     let (mut svm, program_id, payer) = setup();
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    // A well-formed push (matching mint and funded buffer) so that push-account
+    // validation passes and the wrong state PDA is the sole remaining fault.
+    let mint = token::create_mint(&mut svm, &payer);
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_mint(&mint)
+        .build();
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, 1_000);
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint,
         amount: 0,
     }];
 

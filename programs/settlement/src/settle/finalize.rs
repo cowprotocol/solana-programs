@@ -41,42 +41,48 @@ pub fn process_finalize_settle(
     )?;
 
     // `BeginSettle` (which the counterpart check above guarantees ran) already
-    // validated the push count and destinations. `push_funds` adds the only
-    // remaining check: each push draws from the buffer for its mint.
+    // validated the push count and destinations.
 
-    validate_token_program_account(input.token_program_account)?;
+    validate_push_accounts(program_id, input.token_program_account, &input.pushes)?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
-        push_funds(
-            program_id,
-            input.state_pda_account,
-            state_pda_signer,
-            input.pushes,
-        )
+        push_funds(input.state_pda_account, state_pda_signer, &input.pushes)
     })
 }
 
-/// Push each order's proceeds out of the settlement's buffers, signing each
-/// transfer as the canonical state PDA (the buffers' SPL authority). Each push's
-/// source must be the derived buffer for its destination's mint; pairing the
-/// destination to an order is `BeginSettle`'s job.
+/// Validate the accounts every push transfers against the SPL Token program,
+/// and, for each push, that its source is the canonical buffer PDA for its
+/// destination's mint. Pairing the destination to an order is `BeginSettle`'s job.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn push_funds<'a>(
+fn validate_push_accounts(
     program_id: &Address,
-    state_pda_account: &AccountView,
-    state_pda_signer: &Signer,
-    pushes: Pushes<'a>,
+    token_program_account: &AccountView,
+    pushes: &Pushes,
 ) -> ProgramResult {
+    validate_token_program_account(token_program_account)?;
+
     for push in pushes.iter() {
-        // Read the destination's mint; the borrow ends with this block, before
-        // the transfer reuses the account.
+        // Read the destination's mint; the borrow ends with this block.
         let mint = {
             let destination = TokenAccount::from_account_view(push.destination)
                 .map_err(|_| SettlementError::InvalidBuyTokenAccount)?;
             *destination.mint()
         };
         validate_buffer_pda(program_id, push.source_buffer, &mint, push.bump)?;
+    }
 
+    Ok(())
+}
+
+/// Push each order's proceeds out of the settlement's buffers, signing each
+/// transfer as the canonical state PDA (the buffers' SPL authority).
+#[must_use = "ignoring the output may lead to an unintended on-chain state"]
+fn push_funds(
+    state_pda_account: &AccountView,
+    state_pda_signer: &Signer,
+    pushes: &Pushes,
+) -> ProgramResult {
+    for push in pushes.iter() {
         Transfer::new(
             push.source_buffer,
             push.destination,
