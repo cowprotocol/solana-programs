@@ -88,6 +88,30 @@ impl<'a> OrderBuilder<'a> {
         self
     }
 
+    /// Set the order's sell amount (exact or maximum depending on `kind`).
+    pub fn sell_amount(mut self, sell_amount: u64) -> Self {
+        self.intent.sell_amount = sell_amount;
+        self
+    }
+
+    /// Set the order's buy amount (exact or minimum depending on `kind`).
+    pub fn buy_amount(mut self, buy_amount: u64) -> Self {
+        self.intent.buy_amount = buy_amount;
+        self
+    }
+
+    /// Set the order's kind (`Sell` or `Buy`). Defaults to `Sell`.
+    pub fn kind(mut self, kind: OrderKind) -> Self {
+        self.intent.kind = kind;
+        self
+    }
+
+    /// Set whether the order may be filled partially. Defaults to `true`.
+    pub fn partially_fillable(mut self, partially_fillable: bool) -> Self {
+        self.intent.partially_fillable = partially_fillable;
+        self
+    }
+
     /// Pin the mint of the order's sell token account. Defaults to a fresh mint.
     pub fn sell_mint(mut self, mint: &Pubkey) -> Self {
         self.sell_mint = Some(*mint);

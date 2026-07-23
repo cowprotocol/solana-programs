@@ -155,11 +155,16 @@ pub enum SettlementError {
     /// (wrong data length or not owned by the token program), so its mint can't
     /// be read to derive the buffer.
     InvalidBuyTokenAccount = 23,
+    /// `BeginSettle`: a settled order's executed price (`amount_out/amount_in`)
+    /// is worse than the order's limit price (`buy_amount/sell_amount`).
+    LimitPriceViolated = 24,
+    /// `BeginSettle`: an order's pull amounts sum to more than `u64::MAX`.
+    PullAmountOverflow = 25,
     /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
-    OrderNotExpired = 24,
+    OrderNotExpired = 26,
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
-    ReclaimRecipientMismatch = 25,
+    ReclaimRecipientMismatch = 27,
 }
 
 impl From<SettlementError> for u32 {

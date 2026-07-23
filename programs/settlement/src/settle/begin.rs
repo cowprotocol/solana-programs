@@ -4,6 +4,7 @@ use std::ops::Deref;
 
 use pinocchio::{
     cpi::Signer,
+    error::ProgramError,
     sysvars::{
         clock::Clock,
         instructions::{Instructions, IntrospectedInstruction},
@@ -13,9 +14,9 @@ use pinocchio::{
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
-    data::order::OrderAccount,
+    data::{intent::OrderIntent, order::OrderAccount},
     instruction::{
-        settle::{BeginSettleInput, SettledOrder, FINALIZE_FIXED_ACCOUNTS},
+        settle::{finalize_push_amounts, BeginSettleInput, SettledOrder, FINALIZE_FIXED_ACCOUNTS},
         InstructionInputParsing,
     },
     recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
@@ -101,6 +102,19 @@ fn push_destinations<'a>(
         })
 }
 
+/// The paired pushes `BeginSettle` settles against: each push's destination
+/// (read from the finalize's account metas) with the amount it pays in (read
+/// from the finalize's instruction data), in push order.
+fn finalize_pushes<'a>(
+    finalize_ix: &'a IntrospectedInstruction<'a>,
+) -> Result<impl Iterator<Item = (&'a Address, u64)>, ProgramError> {
+    let amounts = finalize_push_amounts(finalize_ix.get_instruction_data())?;
+    Ok(
+        push_destinations(finalize_ix)
+            .zip(amounts.iter().map(|amount| u64::from_le_bytes(*amount))),
+    )
+}
+
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
 /// `BeginSettle`/`FinalizeSettle` of this program may appear strictly between
 /// `current_index` and `finalize_ix_index`. The bounds themselves are excluded.
@@ -169,9 +183,10 @@ fn settle_orders<'a>(
 
     let now = Clock::get()?.unix_timestamp;
 
-    // Pull one push destination per order; running out mid-loop means fewer pushes
-    // than orders. A leftover push (more pushes than orders) is caught after.
-    let mut destinations = push_destinations(finalize_ix);
+    // Pull one push (destination and amount) per order; running out mid-loop
+    // means fewer pushes than orders. A leftover push (more pushes than orders)
+    // is caught after.
+    let mut pushes = finalize_pushes(finalize_ix)?;
 
     for order in orders {
         let order_pda = order.order_pda;
@@ -180,21 +195,21 @@ fn settle_orders<'a>(
         }
         previous = Some(order_pda.address());
 
-        let push_destination = destinations
+        let push = pushes
             .next()
             .ok_or(SettlementError::SettledOrderPushCountMismatch)?;
 
         process_order(
             program_id,
             order,
-            push_destination,
+            push,
             now,
             state_pda_account,
             state_pda_signer,
         )?;
     }
 
-    if destinations.next().is_some() {
+    if pushes.next().is_some() {
         return Err(SettlementError::SettledOrderPushCountMismatch.into());
     }
 
@@ -204,12 +219,12 @@ fn settle_orders<'a>(
 /// Validate a single order, process its pulls, and confirm its push pays it.
 /// This checks that the order is valid, settleable, and that `push_destination`
 /// matches the buy token account. Once the order passes those checks, its pulls
-/// are executed.
+/// are executed and its settlement limit price is validated against the intent.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order(
     program_id: &Address,
     order: SettledOrder<'_>,
-    push_destination: &Address,
+    (push_destination, push_amount): (&Address, u64),
     now: i64,
     state_account: &AccountView,
     state_pda_signer: &Signer,
@@ -259,16 +274,47 @@ fn process_order(
         }
     }
 
-    // Pull the configured amounts out of the sell token account. The state
-    // PDA is the SPL delegate, so it signs each transfer via `signer`.
+    // Pull the configured amounts out of the sell token account, summing them
+    // into `amount_in` as we go. The state PDA is the SPL delegate, so it signs
+    // each transfer via `signer`.
+    let mut amount_in: u64 = 0;
     for (destination, amount) in destinations.iter().zip(amounts) {
-        Transfer::new(
-            sell_token_account,
-            destination,
-            state_account,
-            u64::from_le_bytes(*amount),
-        )
-        .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+        let amount = u64::from_le_bytes(*amount);
+        amount_in = amount_in
+            .checked_add(amount)
+            .ok_or(SettlementError::PullAmountOverflow)?;
+        Transfer::new(sell_token_account, destination, state_account, amount)
+            .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+    }
+
+    validate_limit_price(&intent, amount_in, push_amount)?;
+
+    Ok(())
+}
+
+/// Check a settlement's executed price for one order against its limit, using
+/// the total pulled from the sell account (`amount_in`) and what the paired push
+/// pays in (`amount_out`). The check is local, so a favorable price in another
+/// settlement never excuses a bad one here.
+#[must_use = "ignoring the output may lead to an unintended on-chain state"]
+fn validate_limit_price(
+    intent: &OrderIntent,
+    amount_in: u64,
+    amount_out: u64,
+) -> Result<(), SettlementError> {
+    // Limit price: the executed price must be at least the order's limit,
+    //   amount_out / amount_in >= buy_amount / sell_amount,
+    // rearranged division-free to avoid rounding.
+    // Every factor is a `u64`, so each product is at most `u64::MAX^2 < u128::MAX`;
+    // the `expect`s document that the widening multiplication can never overflow.
+    let lhs = u128::from(amount_out)
+        .checked_mul(u128::from(intent.sell_amount))
+        .expect("u64 * u64 always fits in u128");
+    let rhs = u128::from(intent.buy_amount)
+        .checked_mul(u128::from(amount_in))
+        .expect("u64 * u64 always fits in u128");
+    if lhs < rhs {
+        return Err(SettlementError::LimitPriceViolated);
     }
 
     Ok(())
@@ -282,33 +328,132 @@ fn address_matches_pubkey(address: &Address, pubkey: &Pubkey) -> bool {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use settlement_interface::data::intent::OrderKind;
     use settlement_interface::instruction::fixtures::fake_account;
+    use settlement_interface::instruction::settle::fixtures::arb_pushes;
     use settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
     use settlement_interface::instruction::InstructionInputParsing;
     use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
-    /// Strategy producing `count` random pushes as the parallel
-    /// `(source_buffers, destinations, bumps, amounts)` lists the `FinalizeSettle`
-    /// builder takes.
-    fn arb_pushes(
-        count: impl Into<prop::collection::SizeRange>,
-    ) -> impl Strategy<Value = (Vec<Pubkey>, Vec<Pubkey>, Vec<u8>, Vec<u64>)> {
-        prop::collection::vec(
-            (
-                any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
-                any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
-                any::<u8>(),
-                any::<u64>(),
-            ),
-            count,
-        )
-        .prop_map(|pushes| {
-            let source_buffers = pushes.iter().map(|&(source, ..)| source).collect();
-            let destinations = pushes.iter().map(|&(_, dest, ..)| dest).collect();
-            let bumps = pushes.iter().map(|&(.., bump, _)| bump).collect();
-            let amounts = pushes.iter().map(|&(.., amount)| amount).collect();
-            (source_buffers, destinations, bumps, amounts)
-        })
+    /// The largest value any amount can take on-chain (an SPL amount is a `u64`).
+    const MAX: u64 = u64::MAX;
+
+    fn intent_with(
+        kind: OrderKind,
+        partially_fillable: bool,
+        sell_amount: u64,
+        buy_amount: u64,
+    ) -> OrderIntent {
+        OrderIntent {
+            sell_amount,
+            buy_amount,
+            ..sample_intent(kind, partially_fillable)
+        }
+    }
+
+    /// A `validate_limit_price` scenario: the amount pulled from the sell
+    /// account (`a_in`) and paid in by the push (`a_out`), plus the order's
+    /// limit (`sell`, `buy`).
+    struct Case {
+        a_in: u64,
+        a_out: u64,
+        sell: u64,
+        buy: u64,
+    }
+
+    /// Concrete settlements whose executed price meets or beats the order's
+    /// limit, so the check accepts them.
+    #[test]
+    fn accepts_prices_at_or_above_limit() {
+        #[rustfmt::skip]
+        let cases = [
+            // Full fill exactly at the limit price.
+            Case { a_in: 1_000, a_out: 2_000, sell: 1_000, buy: 2_000 },
+            // Full fill paying one token above the required amount.
+            Case { a_in: 1_000, a_out: 2_001, sell: 1_000, buy: 2_000 },
+            // Partial fill exactly at the limit price.
+            Case { a_in: 500, a_out: 1_000, sell: 1_000, buy: 2_000 },
+            // Taking in one token less.
+            Case { a_in: 999, a_out: 2_000, sell: 1_000, buy: 2_000 },
+            // Nothing pulled, nothing paid.
+            Case { a_in: 0, a_out: 0, sell: 1_000, buy: 2_000 },
+            // User gets free money!
+            Case { a_in: 0, a_out: 1_337, sell: 1_000, buy: 2_000 },
+            // Donation by the user.
+            Case { a_in: 0, a_out: 1_337, sell: 1_337, buy: 0 },
+            // The largest products the check can form, `u64::MAX * u64::MAX`.
+            Case { a_in: MAX, a_out: MAX, sell: MAX, buy: MAX },
+            // Pulling one token less at the maximal price beats the limit.
+            Case { a_in: MAX - 1, a_out: MAX, sell: MAX, buy: MAX },
+        ];
+
+        for Case {
+            a_in,
+            a_out,
+            sell,
+            buy,
+        } in cases
+        {
+            let intent = intent_with(OrderKind::Sell, true, sell, buy);
+            assert_eq!(
+                validate_limit_price(&intent, a_in, a_out),
+                Ok(()),
+                "in={a_in} out={a_out} sell={sell} buy={buy}",
+            );
+        }
+    }
+
+    /// Concrete settlements whose executed price falls below the order's limit,
+    /// so the check rejects them.
+    #[test]
+    fn rejects_prices_below_limit() {
+        #[rustfmt::skip]
+        let cases = [
+            // Full fill paying one token less than required.
+            Case { a_in: 1_000, a_out: 1_999, sell: 1_000, buy: 2_000 },
+            // Partial fill paying one token less than required.
+            Case { a_in: 500, a_out: 999, sell: 1_000, buy: 2_000 },
+            // Tokens pulled but nothing paid in return.
+            Case { a_in: 1, a_out: 0, sell: 1_000, buy: 2_000 },
+            // Price far below the limit.
+            Case { a_in: 1, a_out: 1, sell: 1, buy: 1_000_000 },
+            // User wants free money, can't take funds from order.
+            Case { a_in: 1, a_out: 1_337, sell: 0, buy: MAX },
+            // Straight-out stealing.
+            Case { a_in: 42, a_out: 0, sell: 31_337, buy: 31_337 },
+            // Paying one token less than the maximal amount must be caught,
+            // not wrap around to acceptance.
+            Case { a_in: MAX, a_out: MAX - 1, sell: MAX, buy: MAX },
+        ];
+
+        for Case {
+            a_in,
+            a_out,
+            sell,
+            buy,
+        } in cases
+        {
+            let intent = intent_with(OrderKind::Sell, true, sell, buy);
+            assert_eq!(
+                validate_limit_price(&intent, a_in, a_out),
+                Err(SettlementError::LimitPriceViolated),
+                "in={a_in} out={a_out} sell={sell} buy={buy}",
+            );
+        }
+    }
+
+    proptest! {
+        /// The limit-price check never panics for any intent and any `u64`
+        /// amounts: each product is `u64 * u64`, always within `u128`.
+        #[test]
+        fn validate_limit_price_never_panics(
+            intent in arb_order_intent(),
+            amount_in in any::<u64>(),
+            push_amount in any::<u64>(),
+        ) {
+            let _ = validate_limit_price(&intent, amount_in, push_amount);
+        }
     }
 
     /// Encode `ix` as the introspected instruction from the instructions
@@ -350,14 +495,13 @@ mod tests {
     }
 
     proptest! {
-        /// `BeginSettle` reads a paired `FinalizeSettle`'s push destinations by
-        /// introspection through `push_destinations`, while `FinalizeSettle`
-        /// reads its own pushes via `FinalizeSettleInput` (off the instruction
-        /// data + accounts).
-        /// For any well-formed finalize the two must recover the same push
-        /// count and the same destination for every push.
+        /// `BeginSettle` settles against a paired `FinalizeSettle`'s pushes via
+        /// `finalize_pushes`: each destination (from the account metas) paired
+        /// with its amount (from the instruction data). For any well-formed
+        /// finalize those pairs must match both the builder's inputs and what
+        /// `FinalizeSettleInput` parses from the same instruction.
         #[test]
-        fn push_destinations_output_matches_finalize_parser(
+        fn finalize_pushes_matches_parser(
             program_id in any::<[u8; 32]>(),
             state_pda in any::<[u8; 32]>(),
             begin_ix_index in any::<u16>(),
@@ -373,19 +517,31 @@ mod tests {
                 amounts: &amounts,
             });
 
-            let introspected = introspected_instruction(&ix);
-            let introspected_destinations: Vec<Address> =
-                push_destinations(&introspected).copied().collect();
+            let introspected_instruction = introspected_instruction(&ix);
+            let introspected: Vec<(Address, u64)> = finalize_pushes(&introspected_instruction)
+                .expect("well-formed finalize data")
+                .map(|(&destination, amount)| (destination, amount))
+                .collect();
 
             let mut accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
-            let parsed = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &mut accounts)
                 .expect("a well-formed finalize parses");
-            let parsed_destinations: Vec<Address> =
-                parsed.pushes.iter().map(|push| *push.destination.address()).collect();
+            let parsed: Vec<(Address, u64)> = parsed_raw
+                .pushes
+                .iter()
+                .map(|push| (*push.destination.address(), u64::from_le_bytes(*push.amount)))
+                .collect();
 
-            prop_assert_eq!(&introspected_destinations, &destinations);
-            prop_assert_eq!(&parsed_destinations, &destinations);
+            // The builder's inputs, the ground truth both views should recover.
+            let expected: Vec<(Address, u64)> = destinations
+                .iter()
+                .map(|destination| Address::new_from_array(destination.to_bytes()))
+                .zip(amounts.iter().copied())
+                .collect();
+
+            prop_assert_eq!(&introspected, &expected);
+            prop_assert_eq!(&parsed, &expected);
         }
     }
 }
