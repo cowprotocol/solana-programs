@@ -9,6 +9,7 @@ pub mod buffer;
 pub mod lookup_table;
 pub mod order;
 pub mod pda;
+pub mod settlement;
 pub mod token;
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -75,9 +76,6 @@ pub fn assert_instruction_error<T>(
         result.err(),
         Some(TransactionError::InstructionError(0, expected))
     );
-}
-pub fn assert_settlement_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
-    assert_instruction_error(result, to_instruction_error(expected));
 }
 
 /// Place a fresh, rent-exempt account holding `data` and owned by `owner` at a

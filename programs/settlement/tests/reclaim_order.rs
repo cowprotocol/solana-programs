@@ -9,7 +9,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 
-use crate::common::signed_tx;
+use crate::common::{assert_instruction_error, signed_tx, to_instruction_error};
 
 mod common;
 
@@ -143,9 +143,9 @@ fn rejects_when_order_not_yet_expired() {
     }
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
-    common::assert_settlement_error(
+    assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        SettlementError::OrderNotExpired,
+        to_instruction_error(SettlementError::OrderNotExpired),
     );
 }
 
@@ -168,8 +168,8 @@ fn rejects_when_reclaim_recipient_mismatch() {
     }
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
-    common::assert_settlement_error(
+    assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        SettlementError::ReclaimRecipientMismatch,
+        to_instruction_error(SettlementError::ReclaimRecipientMismatch),
     );
 }

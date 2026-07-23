@@ -18,9 +18,11 @@
 //! whose output is a properly built instruction.
 
 use crate::common::{
-    assert_instruction_error, assert_settlement_error, buffer, create_account,
+    assert_instruction_error, buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
-    replace_first_matching_account, send, set_unix_timestamp, setup, token,
+    replace_first_matching_account, send, set_unix_timestamp,
+    settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
+    setup, to_instruction_error, token,
 };
 use litesvm::LiteSVM;
 use litesvm_token::spl_token::error::TokenError;
@@ -42,16 +44,22 @@ use solana_sdk::{
     instruction::{AccountMeta, InstructionError},
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::Transaction,
+    transaction::{Transaction, TransactionError},
 };
 
 mod common;
 
-/// Position of `BeginSettle` in the `[BeginSettle, FinalizeSettle]` pair the
-/// tests in this file build; the finalize sits right after it. Kept in sync with
-/// the tests that reach into `instructions[BEGIN_INDEX]` to corrupt the begin.
-const BEGIN_INDEX: u8 = 0;
-const FINALIZE_INDEX: u8 = 1;
+/// Assert the transaction failed in `BeginSettle` (at [`BEGIN_INDEX`]) with
+/// `expected`.
+fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
+    assert_eq!(
+        result.err(),
+        Some(TransactionError::InstructionError(
+            BEGIN_INDEX,
+            to_instruction_error(expected),
+        )),
+    );
+}
 
 /// A list of empty transfer lists, one per order. Used for settling `n` orders
 /// without pulling any funds.
@@ -167,7 +175,7 @@ fn rejects_wrong_bump() {
         amounts: &[0],
     };
     let instructions = vec![begin.into(), finalize.into()];
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::AccountNotDerivable,
     );
@@ -216,7 +224,7 @@ fn rejects_fabricated_program_owned_account() {
     };
     let instructions = vec![begin.into(), finalize.into()];
 
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::AccountNotDerivable,
     );
@@ -284,7 +292,7 @@ fn rejects_sell_token_account_mismatch() {
         wrong_sell_token,
     );
 
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::SellTokenAccountMismatch,
     );
@@ -315,7 +323,7 @@ fn rejects_sell_token_owner_mismatch() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::SellTokenOwnerMismatch,
     );
@@ -344,7 +352,7 @@ fn rejects_non_token_sell_account() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::SellTokenAccountInvalid,
     );
@@ -370,7 +378,7 @@ fn rejects_duplicate_orders() {
             },
         ],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
@@ -455,7 +463,7 @@ fn rejects_orders_in_wrong_address_order() {
         amounts: &amounts,
     });
     let instructions = vec![begin, finalize];
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
@@ -502,7 +510,7 @@ fn rejects_cancelled_order() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrderCancelled,
     );
@@ -528,7 +536,7 @@ fn rejects_expired_order() {
             pulls: &[],
         }],
     );
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrderExpired,
     );
@@ -786,7 +794,7 @@ fn rejects_wrong_state_pda() {
         Pubkey::new_unique(),
     );
 
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::StateAccountMismatch,
     );
@@ -922,8 +930,83 @@ fn rejects_extra_account() {
         .accounts
         .push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
 
-    assert_settlement_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::AccountCountNotMatchingOrderCount,
+    );
+}
+
+#[test]
+fn rejects_push_to_wrong_destination() {
+    let (mut svm, program_id, payer) = setup();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        mint: Pubkey::new_unique(),
+        amount: 100,
+    }];
+
+    let mut finalize = Instruction::from(FinalizeSettle {
+        program_id,
+        begin_ix_index: BEGIN_INDEX.into(),
+        orders: &orders,
+    });
+    // Redirect the push to an account that isn't the order's buy token account.
+    // Accounts: `[sysvar, state, token_program, source, destination]`.
+    let destination_index = 4;
+    finalize.accounts[destination_index].pubkey = Pubkey::new_unique();
+
+    let instructions = build_settlement(&program_id, &orders, finalize);
+    assert_begin_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::PushDestinationMismatch,
+    );
+}
+
+#[test]
+fn rejects_fewer_pushes_than_orders() {
+    let (mut svm, program_id, payer) = setup();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        mint: Pubkey::new_unique(),
+        amount: 100,
+    }];
+
+    // A finalize carrying no pushes, paired with a begin settling one order.
+    let finalize = FinalizeSettle {
+        program_id,
+        begin_ix_index: BEGIN_INDEX.into(),
+        orders: &[],
+    };
+
+    let instructions = build_settlement(&program_id, &orders, finalize);
+    assert_begin_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::SettledOrderPushCountMismatch,
+    );
+}
+
+#[test]
+fn rejects_more_pushes_than_orders() {
+    let (mut svm, program_id, payer) = setup();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+
+    // A finalize that pushes to one order, paired with a begin that settles none,
+    // so the extra push has no order to account for it.
+    let finalize = FinalizeSettle {
+        program_id,
+        begin_ix_index: BEGIN_INDEX.into(),
+        orders: &[FinalizedIntent {
+            intent: &intent,
+            mint: Pubkey::new_unique(),
+            amount: 0,
+        }],
+    };
+
+    let instructions = build_settlement(&program_id, &[], finalize);
+    assert_begin_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::SettledOrderPushCountMismatch,
     );
 }

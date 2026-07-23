@@ -9,9 +9,13 @@
 //! settlement state PDA (see [`crate::pda::state`]), the single authority
 //! controlling every buffer.
 
+use solana_account_view::AccountView;
+use solana_address::Address;
+use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::pda::SETTLEMENT_SEED;
+use crate::SettlementError;
 
 /// Trailing seed identifying the buffer PDAs.
 pub const BUFFER_SEED: &[u8] = b"buffer";
@@ -26,9 +30,34 @@ pub fn buffer_pda_seeds(mint: &[u8; 32]) -> [&[u8]; 3] {
     [SETTLEMENT_SEED, mint, BUFFER_SEED]
 }
 
+/// Canonical seeds for re-deriving the buffer PDA for `mint` with `bump`.
+pub fn buffer_pda_signer_seeds<'a>(mint: &'a [u8; 32], bump: &'a [u8; 1]) -> [&'a [u8]; 4] {
+    let [s0, s1, s2] = buffer_pda_seeds(mint);
+    [s0, s1, s2, bump]
+}
+
 /// Derive the canonical buffer PDA address (and bump) for the token `mint`.
 pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&buffer_pda_seeds(mint.as_array()), program_id)
+}
+
+/// Confirm `buffer` matches the derived buffer PDA for `mint` and `bump`.
+#[must_use = "ignoring the output means ignoring the validation result"]
+pub fn validate_buffer_pda(
+    program_id: &Address,
+    buffer: &AccountView,
+    mint: &Address,
+    bump: u8,
+) -> Result<(), ProgramError> {
+    let derived = Address::create_program_address(
+        &buffer_pda_signer_seeds(&mint.to_bytes(), &[bump]),
+        program_id,
+    )
+    .map_err(|_| SettlementError::PushSourceNotBuffer)?;
+    if buffer.address() != &derived {
+        return Err(SettlementError::PushSourceNotBuffer.into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -43,6 +72,43 @@ mod tests {
             |program_id| find_buffer_pda(program_id, &token),
             buffer_pda_seeds(token.as_array()),
         );
+    }
+
+    #[test]
+    fn accepts_a_valid_pda() {
+        let program_id = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let (pda, bump) = find_buffer_pda(&program_id, &mint);
+
+        let buffer = crate::instruction::fixtures::fake_account(pda);
+        validate_buffer_pda(&program_id, &buffer, &mint, bump)
+            .expect("the canonical buffer PDA must be accepted");
+    }
+
+    #[test]
+    fn rejects_an_invalid_address() {
+        let program_id = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let (_, bump) = find_buffer_pda(&program_id, &mint);
+
+        // An account sitting at some other address is not the buffer.
+        let buffer = crate::instruction::fixtures::fake_account(Pubkey::new_unique());
+        let err = validate_buffer_pda(&program_id, &buffer, &mint, bump)
+            .expect_err("a non-canonical address must be rejected");
+        assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
+    }
+
+    #[test]
+    fn rejects_a_wrong_bump() {
+        let program_id = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let (pda, bump) = find_buffer_pda(&program_id, &mint);
+
+        // The address is canonical but the carried bump doesn't derive it.
+        let buffer = crate::instruction::fixtures::fake_account(pda);
+        let err = validate_buffer_pda(&program_id, &buffer, &mint, bump ^ 1)
+            .expect_err("a wrong bump must be rejected");
+        assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
     mod proptest {

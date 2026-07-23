@@ -1,14 +1,21 @@
 //! `FinalizeSettle` instruction handler.
 
-use pinocchio::{sysvars::instructions::Instructions, AccountView, Address, ProgramResult};
+use pinocchio::{
+    cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
+};
+use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
-    instruction::{settle::FinalizeSettleInput, InstructionInputParsing},
+    instruction::{
+        settle::{FinalizeSettleInput, Pushes},
+        InstructionInputParsing,
+    },
+    pda::buffer::validate_buffer_pda,
     SettlementError, SettlementInstruction,
 };
 
 use crate::processor::is_cpi_call;
 
-use super::validate_counterpart;
+use super::{validate_counterpart, validate_token_program_account, with_state_pda_signer};
 
 pub fn process_finalize_settle(
     program_id: &Address,
@@ -31,9 +38,53 @@ pub fn process_finalize_settle(
         current_index,
         input.begin_ix_index,
         SettlementInstruction::BeginSettle,
-    )
+    )?;
 
-    // Some checks are carried out by `BeginSettle` and we don't repeat them
-    // under the assumption that the counterpart exists and, since it's a
-    // `BeginSettle`, it performs the checks.
+    // `BeginSettle` (which the counterpart check above guarantees ran) already
+    // validated the push count and destinations. `push_funds` adds the only
+    // remaining check: each push draws from the buffer for its mint.
+
+    validate_token_program_account(input.token_program_account)?;
+
+    with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
+        push_funds(
+            program_id,
+            input.state_pda_account,
+            state_pda_signer,
+            input.pushes,
+        )
+    })
+}
+
+/// Push each order's proceeds out of the settlement's buffers, signing each
+/// transfer as the canonical state PDA (the buffers' SPL authority). Each push's
+/// source must be the derived buffer for its destination's mint; pairing the
+/// destination to an order is `BeginSettle`'s job.
+#[must_use = "ignoring the output may lead to an unintended on-chain state"]
+fn push_funds<'a>(
+    program_id: &Address,
+    state_pda_account: &AccountView,
+    state_pda_signer: &Signer,
+    pushes: Pushes<'a>,
+) -> ProgramResult {
+    for push in pushes.iter() {
+        // Read the destination's mint; the borrow ends with this block, before
+        // the transfer reuses the account.
+        let mint = {
+            let destination = TokenAccount::from_account_view(push.destination)
+                .map_err(|_| SettlementError::InvalidBuyTokenAccount)?;
+            *destination.mint()
+        };
+        validate_buffer_pda(program_id, push.source_buffer, &mint, push.bump)?;
+
+        Transfer::new(
+            push.source_buffer,
+            push.destination,
+            state_pda_account,
+            u64::from_le_bytes(*push.amount),
+        )
+        .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+    }
+
+    Ok(())
 }
