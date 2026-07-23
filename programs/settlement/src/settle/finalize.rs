@@ -65,7 +65,7 @@ fn push_funds<'a>(
     program_id: &Address,
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
-    pushes: Pushes<'a>,
+    pushes: Pushes<'a, AccountView>,
 ) -> ProgramResult {
     for push in pushes.iter() {
         // Read the destination's mint; the borrow ends with this block, before

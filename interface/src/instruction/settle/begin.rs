@@ -2,7 +2,6 @@
 
 use std::vec;
 
-use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -124,12 +123,12 @@ impl From<BeginSettle<'_>> for Instruction {
 
 /// A single settled order, resulted from parsing `BeginSettle`, together with
 /// the funds to pull from its sell token account.
-pub struct SettledOrder<'a> {
-    pub order_pda: &'a AccountView,
-    pub sell_token_account: &'a AccountView,
+pub struct SettledOrder<'a, A> {
+    pub order_pda: &'a A,
+    pub sell_token_account: &'a A,
     pub bump: u8,
     /// Destination accounts for this order's transfers.
-    pub destinations: &'a [AccountView],
+    pub destinations: &'a [A],
     /// Transfer amounts (little-endian `u64`), one per destination.
     pub amounts: &'a [[u8; 8]],
 }
@@ -137,13 +136,13 @@ pub struct SettledOrder<'a> {
 /// Struct storing accounts, bumps, transfer counts, and amounts from parsing the
 /// input of BeginSettle. The parsing step that created this struct guarantees
 /// that there aren't missing elements or that they are assigned incorrectly.
-pub struct SettledOrders<'a> {
+pub struct SettledOrders<'a, A> {
     /// Order accounts, laid out per order as
     /// [order_accounts_1,  order_accounts_2, ...] where
     /// - each order_accounts is a series of accounts:
     ///   `order_pda_N, sell_token_account_N, destination_N_1, destination_N_2, ..., destination_N_M`
     /// - and M is `counts[N]`
-    order_accounts: &'a [AccountView],
+    order_accounts: &'a [A],
     bumps: &'a [u8],
     /// One transfer count per order, parallel to `bumps`.
     counts: &'a [u8],
@@ -152,13 +151,13 @@ pub struct SettledOrders<'a> {
     amounts: &'a [[u8; 8]],
 }
 
-impl<'a> SettledOrders<'a> {
+impl<'a, A> SettledOrders<'a, A> {
     /// Returns an iterator yielding one [`SettledOrder`] per step.
     #[allow(
         clippy::arithmetic_side_effects,
         reason = "offsets are bounded by tx limits"
     )]
-    pub fn iter(&self) -> impl Iterator<Item = SettledOrder<'a>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = SettledOrder<'a, A>> + '_ {
         let order_count = self.bumps.len();
         let mut i = 0usize;
         let mut account_offset = 0usize;
@@ -199,28 +198,25 @@ impl<'a> SettledOrders<'a> {
 /// `accounts` but **not validated** against runtime context except confirming
 /// that the discriminator matches the desired input and that the number of
 /// accounts and bumps is consistent.
-pub struct BeginSettleInput<'a> {
+pub struct BeginSettleInput<'a, A> {
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes, read from the instruction
     /// data. Not validated on-chain: it's carried only so the settlement can be
     /// tied back to its auction off-chain.
     pub auction_id: i64,
-    pub instructions_sysvar_account: &'a AccountView,
-    pub state_pda_account: &'a AccountView,
-    pub token_program_account: &'a AccountView,
-    pub orders: SettledOrders<'a>,
+    pub instructions_sysvar_account: &'a A,
+    pub state_pda_account: &'a A,
+    pub token_program_account: &'a A,
+    pub orders: SettledOrders<'a, A>,
 }
 
 /// This implementation defines how instruction bytes and accounts are laid out
 /// in the transaction. It's the source of truth for deciding where the data
 /// is stored.
-impl<'a> InstructionInputParsing<'a> for BeginSettleInput<'a> {
+impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
-    fn parse_body(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         let (finalize_ix_index, body) = recover_counterpart(instruction_data)?;
 
         let [instructions_sysvar_account, state_pda_account, token_program_account, order_accounts @ ..] =
@@ -299,6 +295,7 @@ mod tests {
     };
     use crate::instruction::settle::tests::ix_data;
     use hex_literal::hex;
+    use solana_account_view::AccountView;
     use solana_address::Address;
 
     /// The fixed accounts every `BeginSettle` carries before its order accounts:
