@@ -1,8 +1,10 @@
-//! Integration tests for the limit-price check `BeginSettle` runs on a
-//! settlement. Each test settles one order in a minimal `[BeginSettle,
-//! FinalizeSettle]` pair, pulling `amount_in` of its sell token and pushing
-//! `amount_out` of its buy token, and asserts the settlement either succeeds or
-//! is rejected with the expected error.
+//! Integration tests for the per-order amount checks `BeginSettle` runs on a
+//! settlement: the limit price, the sell/buy caps, and the fill-or-kill
+//! requirement, plus the cumulative fill tracking that enforces the caps across
+//! several settlements. Each test settles one or more orders in a minimal
+//! `[BeginSettle, FinalizeSettle]` pair, pulling `amount_in` of the sell token
+//! and pushing `amount_out` of the buy token, and asserts the settlement either
+//! succeeds or is rejected with the expected error.
 
 use crate::common::{
     buffer,
@@ -16,6 +18,8 @@ use settlement_client::instructions::{
 };
 use settlement_client::settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
+    data::order::{EncodedOrderAccount, OrderAccount},
+    pda::order::find_order_pda,
     Instruction, SettlementError,
 };
 use solana_sdk::{
@@ -34,6 +38,21 @@ fn assert_settlement_error(result: Result<(), TransactionError>, expected: Settl
             to_instruction_error(expected),
         )),
     );
+}
+
+/// Read `intent`'s order PDA and return its persisted `(amount_withdrawn,
+/// amount_received)` cumulative fill totals.
+fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent) -> (u64, u64) {
+    let (order_pda, _bump) = find_order_pda(program_id, &intent.uid());
+    let data = svm
+        .get_account(&order_pda)
+        .expect("the order account exists")
+        .data;
+    let bytes: [u8; EncodedOrderAccount::SIZE] = data
+        .try_into()
+        .expect("order account has the expected size");
+    let order = OrderAccount::try_from(bytes).expect("valid order account");
+    (order.amount_withdrawn, order.amount_received)
 }
 
 /// Do everything required to settle the input intent with the specified in/out
@@ -330,5 +349,199 @@ fn multiple_pulls_below_the_limit_are_rejected() {
             &[(&intent, &[300_000, 200_000, 100_000], 1_199_999)],
         ),
         SettlementError::LimitPriceViolated,
+    );
+}
+
+// --- Fill amounts (caps, fill-or-kill, cumulative) -----------------------
+
+#[test]
+fn sell_order_cannot_exceed_its_sell_amount() {
+    let (mut svm, program_id, payer) = setup();
+
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .sell_amount(1_000_000)
+        .buy_amount(2_000_000)
+        .build();
+
+    // Pull 1_500_000 > the 1_000_000 sell amount, paid to match the limit price
+    // so only the sell cap can reject it.
+    assert_settlement_error(
+        settle(&mut svm, &program_id, &payer, &intent, 1_500_000, 3_000_000),
+        SettlementError::FillExceedsOrderAmount,
+    );
+}
+
+#[test]
+fn buy_order_cannot_exceed_its_buy_amount() {
+    let (mut svm, program_id, payer) = setup();
+
+    // Buy up to 1_000_000, spending at most 2_000_000.
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Buy)
+        .sell_amount(2_000_000)
+        .buy_amount(1_000_000)
+        .build();
+
+    // Receive 1_500_000 > the 1_000_000 buy amount, spending within the limit.
+    assert_settlement_error(
+        settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 1_500_000),
+        SettlementError::FillExceedsOrderAmount,
+    );
+}
+
+#[test]
+fn fill_or_kill_order_must_be_filled_completely() {
+    let (mut svm, program_id, payer) = setup();
+
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .partially_fillable(false)
+        .sell_amount(1_000_000)
+        .buy_amount(2_000_000)
+        .build();
+
+    // Selling only half a fill-or-kill order isn't allowed, even at the limit.
+    assert_settlement_error(
+        settle(&mut svm, &program_id, &payer, &intent, 500_000, 1_000_000),
+        SettlementError::OrderNotFullyFilled,
+    );
+}
+
+#[test]
+fn partially_fillable_order_fills_across_settlements() {
+    let (mut svm, program_id, payer) = setup();
+
+    // Sell up to 1_000_000 for at least 2_000_000: a 2:1 limit.
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .partially_fillable(true)
+        .sell_amount(1_000_000)
+        .buy_amount(2_000_000)
+        .build();
+
+    // Two settlements that together fill the order exactly, each at the limit.
+    settle(&mut svm, &program_id, &payer, &intent, 400_000, 800_000)
+        .expect("the first partial fill should be accepted");
+    // The first fill's totals are persisted to the order PDA.
+    assert_eq!(order_fill(&svm, &program_id, &intent), (400_000, 800_000));
+
+    settle(&mut svm, &program_id, &payer, &intent, 600_000, 1_200_000)
+        .expect("a second fill completing the order should be accepted");
+    // The second fill accumulates onto the first.
+    assert_eq!(
+        order_fill(&svm, &program_id, &intent),
+        (1_000_000, 2_000_000)
+    );
+
+    // The buy token account accumulates both settlements' proceeds.
+    assert_eq!(token::balance(&svm, &intent.buy_token_account), 2_000_000);
+}
+
+#[test]
+fn order_cannot_be_overfilled_across_settlements() {
+    let (mut svm, program_id, payer) = setup();
+
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .partially_fillable(true)
+        .sell_amount(1_000_000)
+        .buy_amount(2_000_000)
+        .build();
+
+    // Fill 600_000 first; the order PDA now records 600_000 withdrawn.
+    settle(&mut svm, &program_id, &payer, &intent, 600_000, 1_200_000)
+        .expect("the first partial fill should be accepted");
+
+    // A second 500_000 pull would take 1_100_000 in total, past the sell amount.
+    assert_settlement_error(
+        settle(&mut svm, &program_id, &payer, &intent, 500_000, 1_000_000),
+        SettlementError::FillExceedsOrderAmount,
+    );
+}
+
+#[test]
+fn buy_order_cannot_be_overfilled_across_settlements() {
+    let (mut svm, program_id, payer) = setup();
+
+    // Buy up to 1_000_000, spending at most 2_000_000: a 2:1 limit.
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Buy)
+        .partially_fillable(true)
+        .sell_amount(2_000_000)
+        .buy_amount(1_000_000)
+        .build();
+
+    // Buy 600_000 first (spending 1_200_000 at the limit); the order PDA now
+    // records 600_000 received.
+    settle(&mut svm, &program_id, &payer, &intent, 1_200_000, 600_000)
+        .expect("the first partial buy should be accepted");
+
+    // Buying another 500_000 would total 1_100_000, past the buy amount, even
+    // though this settlement's spend stays within the limit price.
+    assert_settlement_error(
+        settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 500_000),
+        SettlementError::FillExceedsOrderAmount,
+    );
+}
+
+#[test]
+fn fill_or_kill_order_cannot_be_settled_twice() {
+    let (mut svm, program_id, payer) = setup();
+
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .partially_fillable(false)
+        .sell_amount(1_000_000)
+        .buy_amount(2_000_000)
+        .build();
+
+    // A full fill-or-kill fill is accepted once.
+    settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 2_000_000)
+        .expect("a full fill-or-kill fill should be accepted");
+
+    // Advance the blockhash so the identical second attempt (same amounts to the
+    // same accounts) isn't rejected as a duplicate transaction before it runs.
+    svm.expire_blockhash();
+
+    // Settling it again would take more than the sell amount in total.
+    assert_settlement_error(
+        settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 2_000_000),
+        SettlementError::FillExceedsOrderAmount,
+    );
+}
+
+#[test]
+fn settlement_rejected_when_one_order_exceeds_its_amount() {
+    let (mut svm, program_id, payer) = setup();
+
+    // The cap is per order: one order settled within its amount can't excuse
+    // another pulled past its sell amount in the same settlement.
+    let ok = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .partially_fillable(true)
+        .sell_amount(1_000_000)
+        .buy_amount(2_000_000)
+        .build();
+    let overfilled = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .partially_fillable(false)
+        .sell_amount(1_000_000)
+        .buy_amount(2_000_000)
+        .build();
+
+    assert_settlement_error(
+        settle_all(
+            &mut svm,
+            &program_id,
+            &payer,
+            &[
+                // Within its amount and at the limit.
+                (&ok, &[400_000], 800_000),
+                // Pulls 1_500_000 > its 1_000_000 sell amount.
+                (&overfilled, &[1_500_000], 3_000_000),
+            ],
+        ),
+        SettlementError::FillExceedsOrderAmount,
     );
 }

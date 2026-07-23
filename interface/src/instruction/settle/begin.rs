@@ -36,7 +36,7 @@ pub struct Pull {
 /// `[discriminator=0][finalize_ix_index: u16 LE][n: u8][bump×n][transfer_count×n]
 /// [amount: u64 LE ×T]`.
 /// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
-/// (R)]` followed, per order, by `[order_pda (R), sell_token_account (W),
+/// (R)]` followed, per order, by `[order_pda (W), sell_token_account (W),
 /// destination (W)...]`.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
@@ -98,8 +98,9 @@ impl From<BeginSettle<'_>> for Instruction {
             AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
         ];
         for &i in &order {
-            // Read-only account for the order.
-            accounts.push(AccountMeta::new_readonly(order_pdas[i], false));
+            // Writable account for the order: `BeginSettle` updates its filled
+            // amounts (`amount_withdrawn`/`amount_received`).
+            accounts.push(AccountMeta::new(order_pdas[i], false));
             // Writable accounts settling the order: its sell token account and the
             // recipient of each transfer.
             accounts.push(AccountMeta::new(sell_token_accounts[i], false));
@@ -119,7 +120,7 @@ impl From<BeginSettle<'_>> for Instruction {
 /// A single settled order, resulted from parsing `BeginSettle`, together with
 /// the funds to pull from its sell token account.
 pub struct SettledOrder<'a> {
-    pub order_pda: &'a AccountView,
+    pub order_pda: &'a mut AccountView,
     pub sell_token_account: &'a AccountView,
     pub bump: u8,
     /// Destination accounts for this order's transfers.
@@ -137,7 +138,7 @@ pub struct SettledOrders<'a> {
     /// - each order_accounts is a series of accounts:
     ///   `order_pda_N, sell_token_account_N, destination_N_1, destination_N_2, ..., destination_N_M`
     /// - and M is `counts[N]`
-    order_accounts: &'a [AccountView],
+    order_accounts: &'a mut [AccountView],
     bumps: &'a [u8],
     /// One transfer count per order, parallel to `bumps`.
     counts: &'a [u8],
@@ -147,33 +148,39 @@ pub struct SettledOrders<'a> {
 }
 
 impl<'a> SettledOrders<'a> {
-    /// Returns an iterator yielding one [`SettledOrder`] per step.
+    /// Returns an iterator yielding one [`SettledOrder`] per step. Each order's
+    /// `order_pda` is handed out mutably (so `BeginSettle` can update its filled
+    /// amounts), so the items borrow the iterator and must be processed one at a
+    /// time rather than collected.
     #[allow(
         clippy::arithmetic_side_effects,
         reason = "offsets are bounded by tx limits"
     )]
-    pub fn iter(&self) -> impl Iterator<Item = SettledOrder<'a>> + '_ {
-        let order_count = self.bumps.len();
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = SettledOrder<'_>> + '_ {
+        let bumps = self.bumps;
+        let counts = self.counts;
+        let amounts = self.amounts;
+        // Cursor over the remaining order accounts; each step splits one order's
+        // `[order_pda, sell_token_account, destinations..count]` off the front.
+        let mut rest: &mut [AccountView] = self.order_accounts;
         let mut i = 0usize;
-        let mut account_offset = 0usize;
         let mut amount_offset = 0usize;
         std::iter::from_fn(move || {
-            if i >= order_count {
+            if i >= bumps.len() {
                 return None;
             }
-            let bump = self.bumps[i];
-            let count = usize::from(self.counts[i]);
+            let bump = bumps[i];
+            let count = usize::from(counts[i]);
             i += 1;
 
-            let order_pda = &self.order_accounts[account_offset];
-            let sell_token_account = &self.order_accounts[account_offset + 1];
-            let dest_start = account_offset + 2;
-            let dest_end = dest_start + count;
-            let destinations = &self.order_accounts[dest_start..dest_end];
-            account_offset = dest_end;
+            let taken = core::mem::take(&mut rest);
+            let (order_pda, tail) = taken.split_first_mut()?;
+            let (sell_token_account, tail) = tail.split_first_mut()?;
+            let (destinations, remainder) = tail.split_at_mut(count);
+            rest = remainder;
 
             let amount_end = amount_offset + count;
-            let amounts = &self.amounts[amount_offset..amount_end];
+            let order_amounts = &amounts[amount_offset..amount_end];
             amount_offset = amount_end;
 
             Some(SettledOrder {
@@ -181,7 +188,7 @@ impl<'a> SettledOrders<'a> {
                 sell_token_account,
                 bump,
                 destinations,
-                amounts,
+                amounts: order_amounts,
             })
         })
     }
@@ -371,8 +378,8 @@ mod tests {
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts and the order PDAs are read-only; only the sell
-        // token accounts are writable, following the sorted order.
+        // The fixed accounts are read-only; each order PDA (updated with its
+        // filled amounts) and sell token account are writable, in sorted order.
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -380,7 +387,12 @@ mod tests {
             .collect();
         assert_eq!(
             writable,
-            vec![low_sell_token_account, high_sell_token_account],
+            vec![
+                low_order_pda,
+                low_sell_token_account,
+                high_order_pda,
+                high_sell_token_account,
+            ],
         );
         assert!(accounts.iter().all(|account| !account.is_signer));
     }
@@ -453,14 +465,17 @@ mod tests {
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts and the order PDAs are read-only; sell and
-        // destination accounts are writable for the transfer.
+        // The fixed accounts are read-only; each order PDA (updated with its
+        // filled amounts), sell, and destination accounts are writable.
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
             .map(|account| account.pubkey)
             .collect();
-        assert_eq!(writable, vec![sell_a, dest_a0, dest_a1, sell_b, dest_b0]);
+        assert_eq!(
+            writable,
+            vec![order_a, sell_a, dest_a0, dest_a1, order_b, sell_b, dest_b0],
+        );
         assert!(accounts.iter().all(|account| !account.is_signer));
     }
 
@@ -483,13 +498,13 @@ mod tests {
         let BeginSettleInput {
             finalize_ix_index,
             instructions_sysvar_account,
-            orders,
+            mut orders,
             token_program_account,
             state_pda_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
-        assert_eq!(orders.iter().count(), 0);
+        assert_eq!(orders.iter_mut().count(), 0);
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
     }
@@ -544,7 +559,7 @@ mod tests {
         let BeginSettleInput {
             finalize_ix_index,
             instructions_sysvar_account,
-            orders,
+            mut orders,
             state_pda_account,
             token_program_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
@@ -553,7 +568,7 @@ mod tests {
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
 
-        let mut orders = orders.iter();
+        let mut orders = orders.iter_mut();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
@@ -590,10 +605,10 @@ mod tests {
             0x3344u64.to_le_bytes(),
         ];
 
-        let BeginSettleInput { orders, .. } =
+        let BeginSettleInput { mut orders, .. } =
             BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        let mut orders = orders.iter();
+        let mut orders = orders.iter_mut();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
@@ -643,16 +658,20 @@ mod tests {
             [0u8; ORDER_COUNT],
         ];
 
-        let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        let orders: Vec<_> = parsed.orders.iter().collect();
+        let mut parsed =
+            BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        assert_eq!(orders.len(), ORDER_COUNT);
-        for (order, (order_pda, sell_token, bump)) in orders.iter().zip(&expected) {
+        // Each order borrows the iterator, so only one is live at a time:
+        // compare it against `expected` as it's yielded, without collecting.
+        let mut orders = parsed.orders.iter_mut();
+        for (order_pda, sell_token, bump) in &expected {
+            let order = orders.next().expect("an order per expected entry");
             assert_eq!(order.order_pda.address(), order_pda);
             assert_eq!(order.sell_token_account.address(), sell_token);
             assert_eq!(order.bump, *bump);
             assert_eq!(order.destinations.len(), 0);
         }
+        assert!(orders.next().is_none());
     }
 
     #[test]

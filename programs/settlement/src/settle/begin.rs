@@ -14,9 +14,15 @@ use pinocchio::{
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use settlement_interface::{
-    data::{intent::OrderIntent, order::OrderAccount},
+    data::{
+        intent::{OrderIntent, OrderKind},
+        order::{EncodedOrderAccount, OrderAccount},
+    },
     instruction::{
-        settle::{finalize_push_amounts, BeginSettleInput, SettledOrder, FINALIZE_FIXED_ACCOUNTS},
+        settle::{
+            finalize_push_amounts, BeginSettleInput, SettledOrder, SettledOrders,
+            FINALIZE_FIXED_ACCOUNTS,
+        },
         InstructionInputParsing,
     },
     recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
@@ -35,7 +41,7 @@ pub fn process_begin_settle(
         return Err(SettlementError::CalledViaCpi.into());
     }
 
-    let input = BeginSettleInput::parse(instruction_data, accounts)?;
+    let mut input = BeginSettleInput::parse(instruction_data, accounts)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
     // any address since parsing doesn't validate the input. We rely on the
@@ -70,7 +76,7 @@ pub fn process_begin_settle(
             program_id,
             input.state_pda_account,
             state_pda_signer,
-            input.orders.iter(),
+            &mut input.orders,
             &finalize_ix,
         )
     })
@@ -170,16 +176,16 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
 /// Further validation and the actual pulls are processed through
 /// [`process_order`].
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn settle_orders<'a>(
+fn settle_orders(
     program_id: &Address,
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
-    orders: impl IntoIterator<Item = SettledOrder<'a>>,
+    orders: &mut SettledOrders,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
-    let mut previous: Option<&Address> = None;
+    let mut previous: Option<Address> = None;
 
     let now = Clock::get()?.unix_timestamp;
 
@@ -188,12 +194,12 @@ fn settle_orders<'a>(
     // is caught after.
     let mut pushes = finalize_pushes(finalize_ix)?;
 
-    for order in orders {
-        let order_pda = order.order_pda;
-        if previous.is_some_and(|previous| order_pda.address() <= previous) {
+    for order in orders.iter_mut() {
+        let order_pda_address = *order.order_pda.address();
+        if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
         }
-        previous = Some(order_pda.address());
+        previous = Some(order_pda_address);
 
         let push = pushes
             .next()
@@ -239,11 +245,10 @@ fn process_order(
 
     // Decode the order body and prove its provenance: `load_from_pda` checks
     // that `order_pda` is the canonical order PDA for the intent it stores.
-    let OrderAccount {
-        cancelled, intent, ..
-    } = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
+    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
+    let intent = &account.intent;
 
-    if cancelled {
+    if account.cancelled {
         return Err(SettlementError::OrderCancelled.into());
     }
 
@@ -287,7 +292,22 @@ fn process_order(
             .invoke_signed(core::slice::from_ref(state_pda_signer))?;
     }
 
-    validate_limit_price(&intent, amount_in, push_amount)?;
+    validate_limit_price(intent, amount_in, push_amount)?;
+    let (amount_withdrawn, amount_received) = validated_final_amounts(
+        intent,
+        account.amount_withdrawn,
+        account.amount_received,
+        amount_in,
+        push_amount,
+    )?;
+
+    let updated: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+        amount_withdrawn,
+        amount_received,
+        ..account
+    })
+    .into();
+    order_pda.try_borrow_mut()?.copy_from_slice(&updated);
 
     Ok(())
 }
@@ -320,6 +340,41 @@ fn validate_limit_price(
     Ok(())
 }
 
+/// Fold this settlement's `amount_in`/`amount_out` into the order's stored
+/// cumulative totals `amount_withdrawn`/`amount_received` and check the result,
+/// returning the updated totals to persist. A `u64` overflow of either total is
+/// rejected, despite this in exceptional circumstances being reasonbable.
+/// The order never fills beyond its (`Sell`: sold; `Buy`: bought) amount; and a
+/// non-`partially_fillable` order must be filled completely. The other side is
+/// bounded by the limit price.
+fn validated_final_amounts(
+    intent: &OrderIntent,
+    amount_withdrawn: u64,
+    amount_received: u64,
+    amount_in: u64,
+    amount_out: u64,
+) -> Result<(u64, u64), SettlementError> {
+    let amount_withdrawn = amount_withdrawn
+        .checked_add(amount_in)
+        .ok_or(SettlementError::AmountWithdrawnOverflow)?;
+    let amount_received = amount_received
+        .checked_add(amount_out)
+        .ok_or(SettlementError::AmountReceivedOverflow)?;
+
+    let (filled, order_amount) = match intent.kind {
+        OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
+        OrderKind::Buy => (amount_received, intent.buy_amount),
+    };
+    if filled > order_amount {
+        return Err(SettlementError::FillExceedsOrderAmount);
+    }
+    if !intent.partially_fillable && filled != order_amount {
+        return Err(SettlementError::OrderNotFullyFilled);
+    }
+
+    Ok((amount_withdrawn, amount_received))
+}
+
 fn address_matches_pubkey(address: &Address, pubkey: &Pubkey) -> bool {
     address.as_array() == &pubkey.to_bytes()
 }
@@ -329,7 +384,6 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
     use settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
-    use settlement_interface::data::intent::OrderKind;
     use settlement_interface::instruction::fixtures::fake_account;
     use settlement_interface::instruction::settle::fixtures::arb_pushes;
     use settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
@@ -439,6 +493,364 @@ mod tests {
                 validate_limit_price(&intent, a_in, a_out),
                 Err(SettlementError::LimitPriceViolated),
                 "in={a_in} out={a_out} sell={sell} buy={buy}",
+            );
+        }
+    }
+
+    /// A `validated_final_amounts` scenario: the order's prior stored fill (`withdrawn`
+    /// sold, `received` bought), this settlement's `amount_in`/`amount_out`, and
+    /// the order's `sell`/`buy` amounts, `kind`, and fillability.
+    struct FillCase {
+        withdrawn: u64,
+        received: u64,
+        amount_in: u64,
+        amount_out: u64,
+        sell: u64,
+        buy: u64,
+        kind: OrderKind,
+        partially_fillable: bool,
+    }
+
+    /// Settlements the check accepts, returning the folded totals: within the
+    /// exact side's amount, and a fill-or-kill order filled completely.
+    #[test]
+    fn accepts_fills_within_amounts() {
+        let cases = [
+            // Fresh partial sell fill, within the sell amount.
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: 500,
+                amount_out: 1_000,
+                sell: 1_000,
+                buy: 2_000,
+                kind: OrderKind::Sell,
+                partially_fillable: true,
+            },
+            // A second fill completing the sell order.
+            FillCase {
+                withdrawn: 500,
+                received: 1_000,
+                amount_in: 500,
+                amount_out: 1_000,
+                sell: 1_000,
+                buy: 2_000,
+                kind: OrderKind::Sell,
+                partially_fillable: true,
+            },
+            // A `Sell` order tracks buy proceeds but isn't capped by them.
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: 500,
+                amount_out: 9_000,
+                sell: 1_000,
+                buy: 2_000,
+                kind: OrderKind::Sell,
+                partially_fillable: true,
+            },
+            // Fill-or-kill sell, filled exactly in one settlement.
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: 1_000,
+                amount_out: 2_000,
+                sell: 1_000,
+                buy: 2_000,
+                kind: OrderKind::Sell,
+                partially_fillable: false,
+            },
+            // Partial buy fill, within the buy amount.
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: 1_000,
+                amount_out: 500,
+                sell: 2_000,
+                buy: 1_000,
+                kind: OrderKind::Buy,
+                partially_fillable: true,
+            },
+            // Fill-or-kill buy, filled exactly.
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: 2_000,
+                amount_out: 1_000,
+                sell: 2_000,
+                buy: 1_000,
+                kind: OrderKind::Buy,
+                partially_fillable: false,
+            },
+            // A no-op settlement on a partially fillable order.
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: 0,
+                amount_out: 0,
+                sell: 1_000,
+                buy: 2_000,
+                kind: OrderKind::Sell,
+                partially_fillable: true,
+            },
+            // Folding up to the maximal total without overflowing.
+            FillCase {
+                withdrawn: MAX - 1,
+                received: 0,
+                amount_in: 1,
+                amount_out: 0,
+                sell: MAX,
+                buy: 1,
+                kind: OrderKind::Sell,
+                partially_fillable: false,
+            },
+            // A degenerate zero-amount fill-or-kill order is trivially filled by
+            // a zero settlement (`filled == order_amount == 0`).
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: 0,
+                amount_out: 0,
+                sell: 0,
+                buy: 0,
+                kind: OrderKind::Sell,
+                partially_fillable: false,
+            },
+            // Sanity checks: this function only bounds the order's exact side, so
+            // the other side isn't capped and could reach `u64::MAX`: a `Sell`
+            // order never checks the buy side, a `Buy` order never checks the sell
+            // side. A real settlement's limit price rules these out, so they
+            // aren't expected to ever be relevant in an actual settlement.
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: 1_000,
+                amount_out: MAX,
+                sell: 1_000,
+                buy: 2_000,
+                kind: OrderKind::Sell,
+                partially_fillable: true,
+            },
+            FillCase {
+                withdrawn: 0,
+                received: 0,
+                amount_in: MAX,
+                amount_out: 1_000,
+                sell: 2_000,
+                buy: 1_000,
+                kind: OrderKind::Buy,
+                partially_fillable: true,
+            },
+        ];
+
+        for FillCase {
+            withdrawn,
+            received,
+            amount_in,
+            amount_out,
+            sell,
+            buy,
+            kind,
+            partially_fillable,
+        } in cases
+        {
+            let intent = intent_with(kind, partially_fillable, sell, buy);
+            let expected = (
+                withdrawn.checked_add(amount_in).expect("no overflow"),
+                received.checked_add(amount_out).expect("no overflow"),
+            );
+            assert_eq!(
+                validated_final_amounts(&intent, withdrawn, received, amount_in, amount_out),
+                Ok(expected),
+                "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out} sell={sell} buy={buy} kind={kind:?} pf={partially_fillable}",
+            );
+        }
+    }
+
+    /// Settlements the check rejects: the exact side over its amount, a fill-or-
+    /// kill order left partially filled, and a cumulative total that overflows.
+    #[test]
+    fn rejects_overfill_incomplete_fill_or_kill_or_overflow() {
+        use SettlementError::{
+            AmountReceivedOverflow, AmountWithdrawnOverflow, FillExceedsOrderAmount,
+            OrderNotFullyFilled,
+        };
+        let cases = [
+            // Sell one token over the sell amount.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: 0,
+                    amount_in: 1_001,
+                    amount_out: 0,
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
+                FillExceedsOrderAmount,
+            ),
+            // Buy one token over the buy amount.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: 0,
+                    amount_in: 0,
+                    amount_out: 1_001,
+                    sell: 2_000,
+                    buy: 1_000,
+                    kind: OrderKind::Buy,
+                    partially_fillable: true,
+                },
+                FillExceedsOrderAmount,
+            ),
+            // A second fill pushing the cumulative sell past the sell amount.
+            (
+                FillCase {
+                    withdrawn: 601,
+                    received: 0,
+                    amount_in: 400,
+                    amount_out: 0,
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
+                FillExceedsOrderAmount,
+            ),
+            // A second fill pushing the cumulative buy past the buy amount.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: 601,
+                    amount_in: 0,
+                    amount_out: 400,
+                    sell: 2_000,
+                    buy: 1_000,
+                    kind: OrderKind::Buy,
+                    partially_fillable: true,
+                },
+                FillExceedsOrderAmount,
+            ),
+            // Fill-or-kill sell left partially filled.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: 0,
+                    amount_in: 999,
+                    amount_out: 2_000,
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: false,
+                },
+                OrderNotFullyFilled,
+            ),
+            // Fill-or-kill buy left partially filled.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: 0,
+                    amount_in: 2_000,
+                    amount_out: 999,
+                    sell: 2_000,
+                    buy: 1_000,
+                    kind: OrderKind::Buy,
+                    partially_fillable: false,
+                },
+                OrderNotFullyFilled,
+            ),
+            // Fill-or-kill order not filled at all.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: 0,
+                    amount_in: 0,
+                    amount_out: 0,
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: false,
+                },
+                OrderNotFullyFilled,
+            ),
+            // A degenerate zero sell-amount order can't have anything pulled.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: 0,
+                    amount_in: 1,
+                    amount_out: 0,
+                    sell: 0,
+                    buy: 1_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
+                FillExceedsOrderAmount,
+            ),
+            // A degenerate zero buy-amount order can't have anything delivered.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: 0,
+                    amount_in: 0,
+                    amount_out: 1,
+                    sell: 1_000,
+                    buy: 0,
+                    kind: OrderKind::Buy,
+                    partially_fillable: true,
+                },
+                FillExceedsOrderAmount,
+            ),
+            // The cumulative withdrawn total overflows a `u64`.
+            (
+                FillCase {
+                    withdrawn: MAX,
+                    received: 0,
+                    amount_in: 1,
+                    amount_out: 0,
+                    sell: 42,
+                    buy: 1337,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
+                AmountWithdrawnOverflow,
+            ),
+            // The cumulative received total overflows a `u64`.
+            (
+                FillCase {
+                    withdrawn: 0,
+                    received: MAX,
+                    amount_in: 0,
+                    amount_out: 1,
+                    sell: 42,
+                    buy: 1337,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
+                AmountReceivedOverflow,
+            ),
+        ];
+
+        for (
+            FillCase {
+                withdrawn,
+                received,
+                amount_in,
+                amount_out,
+                sell,
+                buy,
+                kind,
+                partially_fillable,
+            },
+            error,
+        ) in cases
+        {
+            let intent = intent_with(kind, partially_fillable, sell, buy);
+            assert_eq!(
+                validated_final_amounts(&intent, withdrawn, received, amount_in, amount_out),
+                Err(error),
+                "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out} sell={sell} buy={buy} kind={kind:?} pf={partially_fillable}",
             );
         }
     }
