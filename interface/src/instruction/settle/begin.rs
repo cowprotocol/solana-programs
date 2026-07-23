@@ -305,8 +305,8 @@ mod tests {
     /// the instructions sysvar, the settlement state PDA, and the token program.
     const FIXED_ACCOUNTS: usize = 3;
 
-    /// A sample auction id whose little-endian bytes are visually distinct, so
-    /// the wire-layout assertions read clearly.
+    /// A placeholder auction id for the tests where its specific value is
+    /// incidental. The wire-layout tests spell out the literal bytes instead.
     const AUCTION_ID: i64 = 0x0102_0304_0506_0708;
 
     #[test]
@@ -321,7 +321,7 @@ mod tests {
             program_id,
             state_pda,
             finalize_ix_index: 0x1337,
-            auction_id: AUCTION_ID,
+            auction_id: 0x0102_0304_0506_0708,
             order_pdas: &[],
             order_pda_bumps: &[],
             sell_token_accounts: &[],
@@ -334,7 +334,7 @@ mod tests {
             ix_data![
                 [SettlementInstruction::BeginSettle.discriminator()],
                 hex!("3713"),             // counterpart index, little endian
-                AUCTION_ID.to_le_bytes(), // auction id, little endian
+                hex!("0807060504030201"), // auction id, little endian
                 [0],                      // order count
             ],
         );
@@ -507,7 +507,7 @@ mod tests {
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
             [0x37, 0x13],             // finalize index, little-endian
-            AUCTION_ID.to_le_bytes(), // auction id, little-endian
+            hex!("0807060504030201"), // auction id, little-endian
             [0x00],                   // order count
         ];
         let BeginSettleInput {
@@ -519,7 +519,7 @@ mod tests {
             state_pda_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
-        assert_eq!(auction_id, AUCTION_ID);
+        assert_eq!(auction_id, 0x0102_0304_0506_0708);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(orders.iter().count(), 0);
         assert_eq!(token_program_account.address(), &token_program);
