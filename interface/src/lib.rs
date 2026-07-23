@@ -160,11 +160,24 @@ pub enum SettlementError {
     LimitPriceViolated = 24,
     /// `BeginSettle`: an order's pull amounts sum to more than `u64::MAX`.
     PullAmountOverflow = 25,
+    /// `BeginSettle`: filling this order would consume more tokens than the
+    /// maximum the user is willing to trade on this intent.
+    /// Sell: `amount_in > sell_amount`; buy: `amount_out > buy_amount`.
+    FillExceedsOrderAmount = 26,
+    /// `BeginSettle`: a non-`partially_fillable` order isn't filled completely
+    /// Sell: `amount_in != sell_amount`; buy: total `amount_out != buy_amount`.
+    OrderNotFullyFilled = 27,
+    /// `BeginSettle`: the order's cumulative `amount_withdrawn` would exceed
+    /// `u64::MAX` once this settlement's pulls are added.
+    AmountWithdrawnOverflow = 28,
+    /// `BeginSettle`: the order's cumulative `amount_received` would exceed
+    /// `u64::MAX` once this settlement's push is added.
+    AmountReceivedOverflow = 29,
     /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
-    OrderNotExpired = 26,
+    OrderNotExpired = 30,
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
-    ReclaimRecipientMismatch = 27,
+    ReclaimRecipientMismatch = 31,
 }
 
 impl From<SettlementError> for u32 {
