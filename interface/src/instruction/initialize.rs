@@ -2,7 +2,6 @@
 //!
 //! Allocates the singleton settlement state PDA (see [`crate::pda::state`]).
 
-use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -52,18 +51,15 @@ impl From<Initialize> for Instruction {
 }
 
 /// Parsed inputs of an `Initialize` instruction.
-pub struct InitializeInput<'a> {
-    pub payer: &'a AccountView,
-    pub state_pda: &'a mut AccountView,
+pub struct InitializeInput<'a, A> {
+    pub payer: &'a A,
+    pub state_pda: &'a mut A,
 }
 
-impl<'a> InstructionInputParsing<'a> for InitializeInput<'a> {
+impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::Initialize;
 
-    fn parse_body(
-        instruction_data: &[u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &[u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -107,6 +103,7 @@ mod tests {
     use super::fixtures::{initialize_data, NUM_ACCOUNTS};
     use super::*;
     use crate::instruction::fixtures::{fake_account_from_array, fake_sequential_accounts};
+    use solana_account_view::AccountView;
     use solana_address::Address;
 
     #[test]
