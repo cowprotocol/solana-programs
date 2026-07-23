@@ -19,8 +19,8 @@ pub mod settle;
 ///
 /// Implementations declare which [`SettlementInstruction`] discriminator they
 /// belong to and parse the remaining instruction data and accounts. The
-/// discriminator check is shared via the default [`parse`] implementation; an
-/// impl only needs to provide [`parse_body`].
+/// discriminator check is shared via the default [`Self::parse`] implementation;
+/// an impl only needs to provide [`Self::parse_body`].
 pub trait InstructionInputParsing<'a>: Sized {
     const DISCRIMINATOR: SettlementInstruction;
 
@@ -59,7 +59,7 @@ pub mod fixtures {
     ///
     /// This is trickier to do than it should be. There's no safe initializer for
     /// `AccountView` in Pinocchio. The only initializer is:
-    /// https://docs.rs/solana-account-view/2.0.0/solana_account_view/struct.AccountView.html#method.new_unchecked
+    /// <https://docs.rs/solana-account-view/2.0.0/solana_account_view/struct.AccountView.html#method.new_unchecked>
     ///
     /// `AccountView::new_unchecked` requires (1) a pointer to an initialized
     /// `RuntimeAccount`, (2) immediately followed by exactly `data_len` bytes of
@@ -72,7 +72,7 @@ pub mod fixtures {
     /// a dropped `Box` or a returned stack slot would leave the pointer
     /// dangling. We ignore the memory leak since this function is only intended to
     /// use in tests.
-    /// https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak
+    /// <https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak>
     ///
     /// Every `AccountView` method is safe to call on the result. Header
     /// accessors read fields out of the `RuntimeAccount`. Data-region accessors
@@ -80,8 +80,8 @@ pub mod fixtures {
     /// primitive underneath them) defines as sound for any non-null, aligned
     /// pointer. This is true for us because the pointer itself comes boxed data
     /// and not some manual allocation.
-    /// https://docs.rs/crate/solana-account-view/2.0.0/source/src/lib.rs#98-295
-    /// https://doc.rust-lang.org/beta/core/slice/fn.from_raw_parts.html
+    /// <https://docs.rs/crate/solana-account-view/2.0.0/source/src/lib.rs#98-295>
+    /// <https://doc.rust-lang.org/beta/core/slice/fn.from_raw_parts.html>
     pub fn fake_account_from(runtime_account: RuntimeAccount) -> AccountView {
         let backing = Box::leak(Box::new(runtime_account));
         unsafe { AccountView::new_unchecked(backing as *mut RuntimeAccount) }
@@ -89,7 +89,7 @@ pub mod fixtures {
 
     /// Adapted from pinocchio's crate-private test helper; kept structurally
     /// close for comparison:
-    /// https://docs.rs/crate/pinocchio/0.11.1/source/src/sysvars/slot_hashes/test_utils.rs#120-160
+    /// <https://docs.rs/crate/pinocchio/0.11.1/source/src/sysvars/slot_hashes/test_utils.rs#120-160>
     ///
     /// Allocate a heap-backed `AccountView` whose data region is initialized with
     /// `data`, whose address is `address`, and whose borrow flag is `borrow_state`.
