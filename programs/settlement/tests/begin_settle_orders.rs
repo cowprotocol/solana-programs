@@ -96,6 +96,7 @@ fn settle_and_pay(
     let begin = BeginSettle {
         program_id: *program_id,
         finalize_ix_index: FINALIZE_INDEX.into(),
+        auction_id: 0,
         orders,
     };
     let finalize = FinalizeSettle {
@@ -158,6 +159,7 @@ fn rejects_wrong_bump() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         finalize_ix_index: 1,
+        auction_id: 0,
         order_pdas: &[order_pda],
         order_pda_bumps: &[bump ^ 0x01],
         sell_token_accounts: &[intent.sell_token_account],
@@ -203,6 +205,7 @@ fn rejects_fabricated_program_owned_account() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         finalize_ix_index: 1,
+        auction_id: 0,
         order_pdas: &[fake_order],
         order_pda_bumps: &[bump],
         sell_token_accounts: &[sell_token],
@@ -242,6 +245,7 @@ fn rejects_non_order_account_in_order_slot() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         finalize_ix_index: 1,
+        auction_id: 0,
         order_pdas: &[sell_token],
         order_pda_bumps: &[0],
         sell_token_accounts: &[sell_token],
@@ -420,6 +424,7 @@ fn rejects_orders_in_wrong_address_order() {
 
     let mut data = vec![SettlementInstruction::BeginSettle.discriminator()];
     data.extend_from_slice(&u16::from(FINALIZE_INDEX).to_le_bytes());
+    data.extend_from_slice(&0i64.to_le_bytes()); // auction id
     data.push(orders.len() as u8);
     data.extend(orders.iter().map(|&(_, _, _, bump)| bump));
     // No transfers: one zero transfer-count byte per order.

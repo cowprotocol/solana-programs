@@ -27,6 +27,9 @@ pub struct InitializedIntent<'a> {
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub finalize_ix_index: u16,
+    /// The off-chain auction this settlement executes, carried so it can be tied
+    /// back to its auction off-chain.
+    pub auction_id: i64,
     pub orders: &'a [InitializedIntent<'a>],
 }
 
@@ -48,6 +51,7 @@ impl From<BeginSettle<'_>> for Instruction {
             program_id: builder.program_id,
             state_pda,
             finalize_ix_index: builder.finalize_ix_index,
+            auction_id: builder.auction_id,
             order_pdas: &order_pdas,
             order_pda_bumps: &bumps,
             sell_token_accounts: &sell_token_accounts,
@@ -218,6 +222,7 @@ mod tests {
             let ix = Instruction::from(BeginSettle {
                 program_id,
                 finalize_ix_index,
+                auction_id: 0,
                 orders: &orders,
             });
 
