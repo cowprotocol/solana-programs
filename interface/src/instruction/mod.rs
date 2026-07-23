@@ -14,12 +14,18 @@ pub mod initialize;
 pub mod reclaim_order;
 pub mod settle;
 
-/// Shared components for parsing generic instruction input.
+/// Shared components for parsing an instruction's input (data fields and
+/// accounts).
 ///
 /// Implementations declare which [`SettlementInstruction`] discriminator they
 /// belong to and parse the remaining instruction data and accounts. The
 /// discriminator check is shared via the default [`parse`] implementation; an
 /// impl only needs to provide [`parse_body`].
+///
+/// Parsing accounts is purely positional: they are picked out by their index in
+/// the slice, never by inspecting them. The account type `A` is left generic so
+/// the same layout can be parsed from any account representation, on-chain
+/// (`solana_account_view::AccountView`) or off-chain.
 pub trait InstructionInputParsing<'a, A>: Sized {
     const DISCRIMINATOR: SettlementInstruction;
 
