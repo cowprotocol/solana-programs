@@ -30,6 +30,14 @@ fmt-check:
 lint:
     cargo clippy --workspace --all-targets --all-features -- --deny=warnings
 
+# Generate the crate documentation.
+doc:
+    cargo doc --workspace --no-deps --all-features
+
+# Check that the documentation builds with no warnings, including private docs.
+doc-check:
+    cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]'
+
 # Build the settlement program using solana-verify's reproducible Docker build.
 # Installs solana-verify via cargo if not already present (same as CI).
 build-verified:
@@ -39,4 +47,4 @@ build-verified:
 deploy programid keypair: build-verified
     solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
 
-all: build test lint fmt-check
+all: build test lint fmt-check doc-check
