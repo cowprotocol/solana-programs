@@ -61,6 +61,20 @@ fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: Settleme
     );
 }
 
+/// Assert the solver's payment clears the order's limit price for the amount
+/// pulled. Guards these happy-path tests against a payment silently chosen
+/// below the limit.
+fn sanity_check_clears_limit(intent: &OrderIntent, pulled: u64, paid: u64) {
+    let proceeds = u128::from(paid).strict_mul(u128::from(intent.sell_amount));
+    let required = u128::from(intent.buy_amount).strict_mul(u128::from(pulled));
+    assert!(
+        proceeds >= required,
+        "test setup error: paid {paid} for {pulled} pulled must clear the {}/{} limit",
+        intent.buy_amount,
+        intent.sell_amount,
+    );
+}
+
 /// A list of empty transfer lists, one per order. Used for settling `n` orders
 /// without pulling any funds.
 fn no_pulls(n: usize) -> Vec<&'static [Pull]> {
@@ -68,27 +82,44 @@ fn no_pulls(n: usize) -> Vec<&'static [Pull]> {
 }
 
 /// Build the `[BeginSettle, FinalizeSettle]` instructions settling `orders` and
-/// paying each one: the finalize pushes a zero amount from each order's canonical
-/// buy-token buffer to its buy token account, lining up one-to-one with the
-/// orders so `BeginSettle`'s push pass passes. The buffer for each order's buy
-/// mint is created on demand (hence `&mut svm`, unlike the other builders). Use
-/// it for settlements expected to succeed. (Real push amounts are exercised in
-/// `finalize_settle_pushes.rs`.)
+/// paying each one a zero amount: the finalize pushes zero from each order's
+/// canonical buy-token buffer to its buy token account, lining up one-to-one
+/// with the orders so `BeginSettle`'s push pass passes. The buffer for each
+/// order's buy mint is created on demand (hence `&mut svm`, unlike the other
+/// builders). Use it for settlements expected to succeed whose orders pull
+/// nothing (so the limit price is trivially met). Real push amounts are
+/// exercised by [`settle_and_pay_amounts`] and `finalize_settle_pushes.rs`.
 fn settle_and_pay(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     orders: &[InitializedIntent],
 ) -> Vec<Instruction> {
+    settle_and_pay_amounts(svm, program_id, payer, orders, &vec![0; orders.len()])
+}
+
+/// Build the `[BeginSettle, FinalizeSettle]` instructions settling `orders` and
+/// paying each one a real buy `amount`, funding each order's buy-token buffer
+/// with that amount first so the push can draw from it. `push_amounts` is
+/// parallel to `orders`. Use it for round-trip settlements that pull sell tokens
+/// and must therefore pay enough buy tokens to clear the order's limit price.
+fn settle_and_pay_amounts(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    orders: &[InitializedIntent],
+    push_amounts: &[u64],
+) -> Vec<Instruction> {
     let settled: Vec<FinalizedIntent> = orders
         .iter()
-        .map(|order| {
+        .zip(push_amounts)
+        .map(|(order, &amount)| {
             let buy_mint = token::mint_of(svm, &order.intent.buy_token_account);
-            buffer::ensure_buffer_exists(svm, program_id, payer, &buy_mint);
+            buffer::ensure_funded(svm, program_id, payer, &buy_mint, amount);
             FinalizedIntent {
                 intent: order.intent,
                 mint: buy_mint,
-                amount: 0,
+                amount,
             }
         })
         .collect();
@@ -564,8 +595,13 @@ fn pulls_funds_to_destination() {
     let (mut svm, program_id, payer) = setup();
     let sell_mint = token::create_mint(&mut svm, &payer);
 
+    // Sell 2_000_000 for at least 4_000_000 at limit price.
+    let amount = 2_000_000;
+    let paid = 4_000_000;
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .sell_mint(&sell_mint)
+        .sell_amount(amount)
+        .buy_amount(paid)
         .build();
     let sell_token = intent.sell_token_account;
     let initial_amount = 42_000_000;
@@ -573,8 +609,7 @@ fn pulls_funds_to_destination() {
     let destination =
         token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
 
-    let amount = 2_000_000;
-    let instructions = settle_and_pay(
+    let instructions = settle_and_pay_amounts(
         &mut svm,
         &program_id,
         &payer,
@@ -585,9 +620,10 @@ fn pulls_funds_to_destination() {
                 amount,
             }],
         }],
+        &[paid],
     );
     send(&mut svm, &payer, instructions)
-        .expect("a pull within the approved delegation should succeed");
+        .expect("a pull within the approved delegation, paid at the limit, should succeed");
 
     assert_eq!(token::balance(&svm, &destination), amount);
     assert_eq!(token::balance(&svm, &sell_token), initial_amount - amount);
@@ -613,7 +649,9 @@ fn pulls_to_multiple_destinations() {
 
     let pulled0 = 300_000;
     let pulled1 = 100_000;
-    let instructions = settle_and_pay(
+    let paid = 800_000;
+    sanity_check_clears_limit(&intent, pulled0 + pulled1, paid);
+    let instructions = settle_and_pay_amounts(
         &mut svm,
         &program_id,
         &payer,
@@ -630,6 +668,7 @@ fn pulls_to_multiple_destinations() {
                 },
             ],
         }],
+        &[paid],
     );
     send(&mut svm, &payer, instructions).expect("multiple pulls from one order should succeed");
 
@@ -682,7 +721,11 @@ fn pulls_from_multiple_orders() {
 
     let pulled_first = 42_000;
     let pulled_second = 67_000;
-    let instructions = settle_and_pay(
+    let paid_first = 2 * pulled_first;
+    let paid_second = 2 * pulled_second;
+    sanity_check_clears_limit(&first, pulled_first, paid_first);
+    sanity_check_clears_limit(&second, pulled_second, paid_second);
+    let instructions = settle_and_pay_amounts(
         &mut svm,
         &program_id,
         &payer,
@@ -702,6 +745,7 @@ fn pulls_from_multiple_orders() {
                 }],
             },
         ],
+        &[paid_first, paid_second],
     );
     send(&mut svm, &payer, instructions).expect("pulls from several orders should succeed");
 
@@ -714,6 +758,47 @@ fn pulls_from_multiple_orders() {
     assert_eq!(
         token::balance(&svm, &second.sell_token_account),
         initial_amount_second - pulled_second
+    );
+}
+
+#[test]
+fn rejects_pulls_summing_beyond_u64() {
+    let (mut svm, program_id, payer) = setup();
+    let sell_mint = token::create_mint(&mut svm, &payer);
+
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_mint(&sell_mint)
+        .build();
+    let sell_token = intent.sell_token_account;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 1);
+    let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
+    let dest1 = token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
+
+    // Two pulls whose declared amounts sum is larger than `u64::MAX`.
+    // No real token account could hold this, but a solver can craft the
+    // instruction data, so the sum must reject it rather than wrap.
+    let instructions = settle_and_pay_amounts(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[
+                Pull {
+                    destination: dest0,
+                    amount: 1,
+                },
+                Pull {
+                    destination: dest1,
+                    amount: u64::MAX,
+                },
+            ],
+        }],
+        &[0],
+    );
+    assert_begin_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::PullAmountOverflow,
     );
 }
 
@@ -1003,5 +1088,35 @@ fn rejects_more_pushes_than_orders() {
     assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::SettledOrderPushCountMismatch,
+    );
+}
+
+#[test]
+fn rejects_partial_push_amount_in_finalize_settle() {
+    let (mut svm, program_id, payer) = setup();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        mint: Pubkey::new_unique(),
+        amount: 100,
+    }];
+
+    let mut finalize = Instruction::from(FinalizeSettle {
+        program_id,
+        begin_ix_index: BEGIN_INDEX.into(),
+        orders: &orders,
+    });
+    // Drop one byte from the finalize intstruction so the trailing amount is no
+    // longer a whole `u64`. `BeginSettle` reads the finalize's push amounts, so
+    // it rejects the malformed encoding before the finalize instruction runs.
+    finalize.data.pop();
+
+    let instructions = build_settlement(&program_id, &orders, finalize);
+    assert_eq!(
+        send(&mut svm, &payer, instructions).err(),
+        Some(TransactionError::InstructionError(
+            BEGIN_INDEX,
+            InstructionError::InvalidInstructionData,
+        )),
     );
 }
