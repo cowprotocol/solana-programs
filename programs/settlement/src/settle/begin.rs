@@ -302,16 +302,15 @@ fn validate_limit_price(
     amount_in: u64,
     amount_out: u64,
 ) -> Result<(), SettlementError> {
-    // Limit price: the executed price must be at least the order's limit,
-    //   amount_out / amount_in >= buy_amount / sell_amount,
+    // Limit price: the executed price must be at least the order's limit, that is,
+    //   amount_out >= amount_in * (buy_amount / sell_amount),
     // rearranged division-free to avoid rounding.
-    // Every factor is a `u64`, so each product is at most `u64::MAX^2 < u128::MAX`;
-    // the `expect`s document that the widening multiplication can never overflow.
+    // Every factor is a `u64`, so each product is at most `u64::MAX^2 < u128::MAX`.
     let lhs = u128::from(amount_out)
         .checked_mul(u128::from(intent.sell_amount))
         .expect("u64 * u64 always fits in u128");
-    let rhs = u128::from(intent.buy_amount)
-        .checked_mul(u128::from(amount_in))
+    let rhs = u128::from(amount_in)
+        .checked_mul(u128::from(intent.buy_amount))
         .expect("u64 * u64 always fits in u128");
     if lhs < rhs {
         return Err(SettlementError::LimitPriceViolated);
