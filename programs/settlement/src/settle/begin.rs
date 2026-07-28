@@ -707,7 +707,7 @@ mod tests {
                     },
                 ),
                 Ok(expected),
-                "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out} sell={sell} buy={buy} kind={kind:?} pf={partially_fillable}",
+                "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out}\nintent={intent:?}",
             );
         }
     }
@@ -905,7 +905,7 @@ mod tests {
                     },
                 ),
                 Err(error),
-                "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out} sell={sell} buy={buy} kind={kind:?} pf={partially_fillable}",
+                "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out}\nintent={intent:?}",
             );
         }
     }
