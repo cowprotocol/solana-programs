@@ -109,10 +109,7 @@ fn finalize_pushes<'a>(
     finalize_ix: &'a IntrospectedInstruction<'a>,
 ) -> Result<impl Iterator<Item = (&'a Address, u64)>, ProgramError> {
     let amounts = finalize_push_amounts(finalize_ix.get_instruction_data())?;
-    Ok(
-        push_destinations(finalize_ix)
-            .zip(amounts.iter().map(|amount| u64::from_le_bytes(*amount))),
-    )
+    Ok(push_destinations(finalize_ix).zip(amounts))
 }
 
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
@@ -529,7 +526,7 @@ mod tests {
             let parsed: Vec<(Address, u64)> = parsed_raw
                 .pushes
                 .iter()
-                .map(|push| (*push.destination.address(), u64::from_le_bytes(*push.amount)))
+                .map(|push| (*push.destination.address(), push.amount))
                 .collect();
 
             // The builder's inputs, the ground truth both views should recover.
