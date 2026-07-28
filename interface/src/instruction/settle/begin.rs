@@ -403,8 +403,7 @@ mod tests {
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts are read-only; each order PDA (updated with its
-        // filled amounts) and sell token account are writable, in sorted order.
+        // The fixed accounts are read-only; the rest are writable and should be sorted
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -492,8 +491,7 @@ mod tests {
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts are read-only; each order PDA (updated with its
-        // filled amounts), sell, and destination accounts are writable.
+        // The fixed accounts are read-only; the rest are writable
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
