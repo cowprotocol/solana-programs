@@ -17,8 +17,9 @@ use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
 /// program.
 pub const FINALIZE_FIXED_ACCOUNTS: usize = 3;
 
-/// Split a `FinalizeSettle` body (the bytes after the begin-index counterpart)
-/// into its per-push bumps and amounts.
+/// Split the instruction bytes from `FinalizeSettle` that remain after all
+/// constant-size data has been extracted. The result is an array of per-push
+/// bumps and amounts.
 fn split_pushes(body: &[u8]) -> Result<(&[u8], &[[u8; 8]]), ProgramError> {
     // The body is `9 * n` bytes: `n` bump bytes followed by `n` little-endian
     // `u64` amounts. A body that isn't a whole number of these 9-byte pushes
