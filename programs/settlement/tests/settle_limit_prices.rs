@@ -18,7 +18,7 @@ use settlement_client::instructions::{
 };
 use settlement_client::settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
-    data::order::{EncodedOrderAccount, OrderAccount},
+    data::order::OrderAccount,
     pda::order::find_order_pda,
     SettlementError,
 };
@@ -48,10 +48,7 @@ fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent) -> (u64,
         .get_account(&order_pda)
         .expect("the order account exists")
         .data;
-    let bytes: [u8; EncodedOrderAccount::SIZE] = data
-        .try_into()
-        .expect("order account has the expected size");
-    let order = OrderAccount::try_from(bytes).expect("valid order account");
+    let order = OrderAccount::try_from(&data[..]).expect("valid order account");
     (order.amount_withdrawn, order.amount_received)
 }
 
