@@ -251,18 +251,18 @@ mod tests {
                 &INSTRUCTIONS_SYSVAR_ID,
             );
 
-            // Each order borrows the iterator, so only one is live at a time:
-            // compare it against `expected` as it's yielded, without collecting.
-            let mut orders = parsed.orders.iter_mut();
-            for (order_pda, sell_token, bump) in &expected {
-                let order = orders
-                    .next()
-                    .ok_or_else(|| TestCaseError::fail("fewer parsed orders than expected"))?;
-                prop_assert_eq!(order.order_pda.address(), order_pda);
-                prop_assert_eq!(order.sell_token_account.address(), sell_token);
-                prop_assert_eq!(order.bump, *bump);
-            }
-            prop_assert!(orders.next().is_none());
+            let actual: Vec<(Pubkey, Pubkey, u8)> = parsed
+                .orders
+                .iter_mut()
+                .map(|order| {
+                    (
+                        *order.order_pda.address(),
+                        *order.sell_token_account.address(),
+                        order.bump,
+                    )
+                })
+                .collect();
+            prop_assert_eq!(actual, expected);
         }
 
         // `FinalizeSettle` derives each order's source buffer from its mint and
