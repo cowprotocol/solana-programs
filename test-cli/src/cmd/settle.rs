@@ -15,10 +15,9 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use spl_associated_token_account_interface::{
-    address::get_associated_token_address_with_program_id,
     instruction::create_associated_token_account_idempotent,
 };
-use std::{collections::{HashMap, HashSet}, ops::Add};
+use std::collections::HashMap;
 
 use crate::token::{ResolvedToken, resolve_token_from_account};
 
@@ -80,6 +79,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         program_id: ctx.program_id,
         finalize_ix_index,
         orders: &initialized_intents,
+        auction_id: 0
     };
 
     let push_amounts = compute_push_amounts(&intents, &sources);

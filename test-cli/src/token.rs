@@ -17,6 +17,8 @@ use spl_token_interface::state::{Account as TokenAccount, Mint};
 /// Replace with a proper on-chain registry or quote-API lookup when available.
 struct KnownToken {
     mint: Pubkey,
+    // leaving this here because chances are it will be needed later
+    #[allow(dead_code)]
     decimals: u8,
 }
 
