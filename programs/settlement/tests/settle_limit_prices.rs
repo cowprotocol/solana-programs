@@ -16,7 +16,7 @@ use settlement_client::instructions::{
 };
 use settlement_client::settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
-    Instruction, SettlementError,
+    SettlementError,
 };
 use solana_sdk::{
     pubkey::Pubkey,
@@ -100,18 +100,18 @@ fn settle_all(
         });
     }
 
-    let begin = Instruction::from(BeginSettle {
+    let begin = BeginSettle {
         program_id: *program_id,
         finalize_ix_index: FINALIZE_INDEX.into(),
         orders: &initialized,
-    });
-    let finalize = Instruction::from(FinalizeSettle {
+    };
+    let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         orders: &finalized,
-    });
+    };
     let tx = Transaction::new_signed_with_payer(
-        &[begin, finalize],
+        &[begin.into(), finalize.into()],
         Some(&payer.pubkey()),
         &[payer],
         svm.latest_blockhash(),

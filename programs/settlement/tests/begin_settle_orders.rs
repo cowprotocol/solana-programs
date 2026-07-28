@@ -479,7 +479,7 @@ fn rejects_orders_in_wrong_address_order() {
     let destinations: Vec<Pubkey> = orders.iter().map(|&(_, _, buy, _)| buy).collect();
     let bumps = vec![0u8; orders.len()];
     let amounts = vec![0u64; orders.len()];
-    let finalize = Instruction::from(FinalizeSettleRaw {
+    let finalize = FinalizeSettleRaw {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: BEGIN_INDEX.into(),
@@ -487,8 +487,8 @@ fn rejects_orders_in_wrong_address_order() {
         destinations: &destinations,
         bumps: &bumps,
         amounts: &amounts,
-    });
-    let instructions = vec![begin, finalize];
+    };
+    let instructions = vec![begin, finalize.into()];
     assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
