@@ -115,10 +115,7 @@ fn finalize_pushes<'a>(
     finalize_ix: &'a IntrospectedInstruction<'a>,
 ) -> Result<impl Iterator<Item = (&'a Address, u64)>, ProgramError> {
     let amounts = finalize_push_amounts(finalize_ix.get_instruction_data())?;
-    Ok(
-        push_destinations(finalize_ix)
-            .zip(amounts.iter().map(|amount| u64::from_le_bytes(*amount))),
-    )
+    Ok(push_destinations(finalize_ix).zip(amounts))
 }
 
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
@@ -322,16 +319,15 @@ fn validate_limit_price(
     amount_in: u64,
     amount_out: u64,
 ) -> Result<(), SettlementError> {
-    // Limit price: the executed price must be at least the order's limit,
-    //   amount_out / amount_in >= buy_amount / sell_amount,
+    // Limit price: the executed price must be at least the order's limit, that is,
+    //   amount_out >= amount_in * (buy_amount / sell_amount),
     // rearranged division-free to avoid rounding.
-    // Every factor is a `u64`, so each product is at most `u64::MAX^2 < u128::MAX`;
-    // the `expect`s document that the widening multiplication can never overflow.
+    // Every factor is a `u64`, so each product is at most `u64::MAX^2 < u128::MAX`.
     let lhs = u128::from(amount_out)
         .checked_mul(u128::from(intent.sell_amount))
         .expect("u64 * u64 always fits in u128");
-    let rhs = u128::from(intent.buy_amount)
-        .checked_mul(u128::from(amount_in))
+    let rhs = u128::from(amount_in)
+        .checked_mul(u128::from(intent.buy_amount))
         .expect("u64 * u64 always fits in u128");
     if lhs < rhs {
         return Err(SettlementError::LimitPriceViolated);
@@ -942,7 +938,7 @@ mod tests {
             let parsed: Vec<(Address, u64)> = parsed_raw
                 .pushes
                 .iter()
-                .map(|push| (*push.destination.address(), u64::from_le_bytes(*push.amount)))
+                .map(|push| (*push.destination.address(), push.amount))
                 .collect();
 
             // The builder's inputs, the ground truth both views should recover.

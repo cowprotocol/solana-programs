@@ -20,7 +20,7 @@ use settlement_client::settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
     data::order::{EncodedOrderAccount, OrderAccount},
     pda::order::find_order_pda,
-    Instruction, SettlementError,
+    SettlementError,
 };
 use solana_sdk::{
     pubkey::Pubkey,
@@ -119,18 +119,19 @@ fn settle_all(
         });
     }
 
-    let begin = Instruction::from(BeginSettle {
+    let begin = BeginSettle {
         program_id: *program_id,
         finalize_ix_index: FINALIZE_INDEX.into(),
+        auction_id: 0,
         orders: &initialized,
-    });
-    let finalize = Instruction::from(FinalizeSettle {
+    };
+    let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         orders: &finalized,
-    });
+    };
     let tx = Transaction::new_signed_with_payer(
-        &[begin, finalize],
+        &[begin.into(), finalize.into()],
         Some(&payer.pubkey()),
         &[payer],
         svm.latest_blockhash(),
@@ -243,66 +244,63 @@ fn buy_order_below_limit_price_is_rejected() {
 
 // --- Per-order locality --------------------------------------------------
 
-#[test]
-fn sell_settlement_rejected_when_one_order_below_limit() {
+/// Settle a generous order (well above its limit) against a violating one (just
+/// below its own), both of the given kinds and on a shared token pair, and
+/// assert the whole settlement is rejected for the violation.
+fn assert_locality_rejected(generous_kind: OrderKind, violating_kind: OrderKind) {
+    // Order has a 2:1 limit.
+    const SELL_AMOUNT: u64 = 900_000;
+    const BUY_AMOUNT: u64 = 1_800_000;
+
     let (mut svm, program_id, payer) = setup();
+    let sell_mint = token::create_mint(&mut svm, &payer);
+    let buy_mint = token::create_mint(&mut svm, &payer);
 
-    // The check is per order: a fill well above one order's limit can't excuse
-    // another order settled below its own.
-    let generous = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .sell_amount(1_000_000)
-        .buy_amount(2_000_000)
-        .build();
-    let violating = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .sell_amount(900_000)
-        .buy_amount(1_800_000)
-        .build();
+    // Both orders are partially fillable and trade the shared token pair at the
+    // same limit; only their kind and fill (below) differ.
+    let mut order = |kind| {
+        OrderBuilder::new(&mut svm, &program_id, &payer)
+            .kind(kind)
+            .partially_fillable(true)
+            .sell_mint(&sell_mint)
+            .buy_mint(&buy_mint)
+            .sell_amount(SELL_AMOUNT)
+            .buy_amount(BUY_AMOUNT)
+            .build()
+    };
+    let generous = order(generous_kind);
+    let violating = order(violating_kind);
 
-    assert_settlement_error(
-        settle_all(
-            &mut svm,
-            &program_id,
-            &payer,
-            &[
-                // Far above its 2:1 limit: 1_000_000 out for 250_000 in.
-                (&generous, &[250_000], 1_000_000),
-                // One token short of its 2:1 limit: 599_999 out for 300_000 in.
-                (&violating, &[300_000], 599_999),
-            ],
-        ),
-        SettlementError::LimitPriceViolated,
+    let result = settle_all(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[
+            // Far above the 2:1 limit.
+            (&generous, &[250_000], 1_000_000),
+            // One token short of the 600_000 the 300_000 pull requires.
+            (&violating, &[300_000], 599_999),
+        ],
+    );
+    assert_eq!(
+        result.err(),
+        Some(TransactionError::InstructionError(
+            BEGIN_INDEX,
+            to_instruction_error(SettlementError::LimitPriceViolated),
+        )),
+        "generous={generous_kind:?} violating={violating_kind:?}",
     );
 }
 
 #[test]
-fn buy_settlement_rejected_when_one_order_below_limit() {
-    let (mut svm, program_id, payer) = setup();
-
-    let generous = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .kind(OrderKind::Buy)
-        .sell_amount(2_400_000)
-        .buy_amount(800_000)
-        .build();
-    let violating = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .kind(OrderKind::Buy)
-        .sell_amount(2_000_000)
-        .buy_amount(500_000)
-        .build();
-
-    assert_settlement_error(
-        settle_all(
-            &mut svm,
-            &program_id,
-            &payer,
-            &[
-                // Far above its 3:1 limit: buy 400_000 spending only 600_000.
-                (&generous, &[600_000], 400_000),
-                // One token over its 4:1 limit: buy 200_000 spending 800_001.
-                (&violating, &[400_001], 100_000),
-            ],
-        ),
-        SettlementError::LimitPriceViolated,
-    );
+fn settlement_rejected_when_one_order_below_limit() {
+    // The check is per order: one order far above its limit can't excuse another
+    // below its own. Sweep every buy/sell combination on a shared token pair.
+    for generous_kind in [OrderKind::Sell, OrderKind::Buy] {
+        for violating_kind in [OrderKind::Sell, OrderKind::Buy] {
+            assert_locality_rejected(generous_kind, violating_kind);
+        }
+    }
 }
 
 // --- Multiple pulls ------------------------------------------------------

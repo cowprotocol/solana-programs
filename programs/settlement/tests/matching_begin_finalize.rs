@@ -38,6 +38,7 @@ fn run_sequence(
             AbstractInstruction::Init(idx) => BeginSettle {
                 program_id: *program_id,
                 finalize_ix_index: *idx,
+                auction_id: 0,
                 orders: &[],
             }
             .into(),
@@ -187,6 +188,7 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let mut begin: Instruction = BeginSettle {
         program_id,
         finalize_ix_index: 1,
+        auction_id: 0,
         orders: &[],
     }
     .into();
@@ -195,11 +197,10 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
         program_id,
         begin_ix_index: 0,
         orders: &[],
-    }
-    .into();
+    };
 
     let tx = Transaction::new_signed_with_payer(
-        &[begin, finalize],
+        &[begin, finalize.into()],
         Some(&payer.pubkey()),
         &[&payer],
         svm.latest_blockhash(),
@@ -224,9 +225,9 @@ fn rejects_counterpart_instruction_in_different_program() {
     let begin = BeginSettle {
         program_id,
         finalize_ix_index: 1,
+        auction_id: 0,
         orders: &[],
-    }
-    .into();
+    };
     // We build a transaction that looks like a valid finalize_settle but
     // calling a different program. It doesn't really matter what program
     // we use here because execution isn't expected to reach this point.
@@ -234,10 +235,9 @@ fn rejects_counterpart_instruction_in_different_program() {
         program_id: solana_system_interface::program::ID,
         begin_ix_index: 0,
         orders: &[],
-    }
-    .into();
+    };
 
-    let instructions = [begin, stranger];
+    let instructions = [begin.into(), stranger.into()];
     let expected_failing_instruction_index = 0;
     let tx = Transaction::new_signed_with_payer(
         &instructions,
@@ -286,6 +286,7 @@ fn rejects_cpi_call_to_begin_settle() {
         BeginSettle {
             program_id: settlement_id,
             finalize_ix_index: 1,
+            auction_id: 0,
             orders: &[],
         },
     );
@@ -348,6 +349,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
     let begin = BeginSettle {
         program_id,
         finalize_ix_index: 1,
+        auction_id: 0,
         orders: &[],
     };
     // Uses the settlement program, but no data: `recover_discriminator` fails
@@ -388,6 +390,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
     let begin = BeginSettle {
         program_id,
         finalize_ix_index: 1,
+        auction_id: 0,
         orders: &[],
     };
     // Same program as `begin`, with a valid discriminator but no trailing

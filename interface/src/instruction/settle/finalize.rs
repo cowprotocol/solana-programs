@@ -17,9 +17,10 @@ use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
 /// program.
 pub const FINALIZE_FIXED_ACCOUNTS: usize = 3;
 
-/// Split a `FinalizeSettle` body (the bytes after the begin-index counterpart)
-/// into its per-push bumps and amounts.
-fn split_pushes(body: &[u8]) -> Result<(&[u8], &[[u8; 8]]), ProgramError> {
+/// Split the instruction bytes from `FinalizeSettle` that remain after all
+/// constant-size data has been extracted into the per-push bump bytes and the
+/// raw little-endian amount chunks.
+fn split_push_bytes(body: &[u8]) -> Result<(&[u8], &[[u8; 8]]), ProgramError> {
     // The body is `9 * n` bytes: `n` bump bytes followed by `n` little-endian
     // `u64` amounts. A body that isn't a whole number of these 9-byte pushes
     // can't be parsed into the push layout (and would otherwise leave `bumps`
@@ -35,6 +36,14 @@ fn split_pushes(body: &[u8]) -> Result<(&[u8], &[[u8; 8]]), ProgramError> {
     Ok((bumps, amounts))
 }
 
+/// Like [`split_push_bytes`], but yields the amounts already decoded as `u64`s
+/// so callers streaming the amounts don't each re-decode the little-endian
+/// bytes. The decoding is lazy, so nothing is allocated.
+fn split_pushes(body: &[u8]) -> Result<(&[u8], impl Iterator<Item = u64> + '_), ProgramError> {
+    let (bumps, amounts) = split_push_bytes(body)?;
+    Ok((bumps, amounts.iter().copied().map(u64::from_le_bytes)))
+}
+
 /// The push amounts, in push order, carried by a `FinalizeSettle` instruction,
 /// recovered from its full instruction data alone (discriminator included, as
 /// returned by instruction introspection).
@@ -42,7 +51,9 @@ fn split_pushes(body: &[u8]) -> Result<(&[u8], &[[u8; 8]]), ProgramError> {
 /// This function doesn't otherwise check that the instruction is consistent
 /// with a `FinalizeSettle` instruction. For example, the discriminator field is
 /// ignored.
-pub fn finalize_push_amounts(instruction_data: &[u8]) -> Result<&[[u8; 8]], ProgramError> {
+pub fn finalize_push_amounts(
+    instruction_data: &[u8],
+) -> Result<impl Iterator<Item = u64> + '_, ProgramError> {
     let (_discriminator, rest) = recover_discriminator(instruction_data)?;
     let (_begin_ix_index, body) = recover_counterpart(rest)?;
     let (_bumps, amounts) = split_pushes(body)?;
@@ -124,14 +135,14 @@ impl From<FinalizeSettle<'_>> for Instruction {
     }
 }
 
-/// A single fund push parsed from `FinalizeSettle`: move `amount` (little-endian
-/// `u64`) from `source_buffer` to `destination`. `bump` is `source_buffer`'s
-/// claimed canonical buffer bump, which the program re-derives against.
+/// A single fund push parsed from `FinalizeSettle`: move `amount` from
+/// `source_buffer` to `destination`. `bump` is `source_buffer`'s claimed
+/// canonical buffer bump, which the program re-derives against.
 pub struct Push<'a> {
     pub source_buffer: &'a AccountView,
     pub destination: &'a AccountView,
     pub bump: u8,
-    pub amount: &'a [u8; 8],
+    pub amount: u64,
 }
 
 /// Struct storing accounts, bumps, and amounts from parsing the input of
@@ -162,7 +173,7 @@ impl<'a> Pushes<'a> {
                 return None;
             }
             let bump = self.bumps[i];
-            let amount = &self.amounts[i];
+            let amount = u64::from_le_bytes(self.amounts[i]);
             i += 1;
 
             let source_buffer = &self.push_accounts[account_offset];
@@ -212,7 +223,7 @@ impl<'a> InstructionInputParsing<'a> for FinalizeSettleInput<'a> {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
-        let (bumps, amounts) = split_pushes(body)?;
+        let (bumps, amounts) = split_push_bytes(body)?;
         let push_count = bumps.len();
 
         // Each push contributes a source buffer and a destination account, so
@@ -423,7 +434,7 @@ mod tests {
                     push.source_buffer.address(),
                     push.destination.address(),
                     push.bump,
-                    u64::from_le_bytes(*push.amount),
+                    push.amount,
                 )
             })
             .collect();
@@ -491,7 +502,7 @@ mod tests {
             assert_eq!(push.source_buffer.address(), &expected.source);
             assert_eq!(push.destination.address(), &expected.dest);
             assert_eq!(push.bump, expected.bump);
-            assert_eq!(u64::from_le_bytes(*push.amount), expected.amount);
+            assert_eq!(push.amount, expected.amount);
         }
     }
 
@@ -578,7 +589,7 @@ mod tests {
         });
 
         let recovered = finalize_push_amounts(&ix.data).expect("valid finalize data");
-        let decoded: Vec<u64> = recovered.iter().map(|a| u64::from_le_bytes(*a)).collect();
+        let decoded: Vec<u64> = recovered.collect();
         assert_eq!(decoded, amounts);
     }
 
@@ -593,8 +604,8 @@ mod tests {
             bumps: &[],
             amounts: &[],
         });
-        let amounts = finalize_push_amounts(&ix.data).expect("valid empty finalize data");
-        assert!(amounts.is_empty());
+        let mut amounts = finalize_push_amounts(&ix.data).expect("valid empty finalize data");
+        assert!(amounts.next().is_none());
     }
 
     #[test]
@@ -610,8 +621,8 @@ mod tests {
         });
         ix.data.pop();
         assert_eq!(
-            finalize_push_amounts(&ix.data),
-            Err(ProgramError::InvalidInstructionData),
+            finalize_push_amounts(&ix.data).err(),
+            Some(ProgramError::InvalidInstructionData),
         );
     }
 
@@ -654,17 +665,18 @@ mod tests {
         #[test]
         fn finalize_push_amounts_matches_parser(ix in arb_finalize_instruction(0..=16usize)) {
             // Recovered from the instruction data alone.
-            let recovered = finalize_push_amounts(&ix.data).expect("well-formed finalize data");
+            let recovered: Vec<u64> =
+                finalize_push_amounts(&ix.data).expect("well-formed finalize data").collect();
 
             // Read by the full parser from the same data plus its accounts.
             let mut accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|meta| fake_account(meta.pubkey)).collect();
             let parsed = FinalizeSettleInput::parse(&ix.data, &mut accounts)
                 .expect("a well-formed finalize parses");
-            let parsed_amounts: Vec<[u8; 8]> =
-                parsed.pushes.iter().map(|push| *push.amount).collect();
+            let parsed_amounts: Vec<u64> =
+                parsed.pushes.iter().map(|push| push.amount).collect();
 
-            prop_assert_eq!(recovered, parsed_amounts.as_slice());
+            prop_assert_eq!(recovered, parsed_amounts);
         }
     }
 }
