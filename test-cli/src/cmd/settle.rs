@@ -300,9 +300,9 @@ fn compute_pulls(intents: &[ResolvedIntent], sinks: &mut HashMap<Pubkey, Vec<Pul
         let mut to_pull = intent.data.sell_amount;
         sinks.entry(intent.sell.mint).and_modify(|d| {
             while to_pull > 0 {
-                let last = d.len() - 1;
+                let last = d.len().saturating_sub(1);
                 if d[last].amount <= to_pull {
-                    to_pull -= d[last].amount;
+                    to_pull = to_pull.saturating_sub(d[last].amount);
                     p.push(d.pop().unwrap());
                 } else {
                     p.push(Pull { destination: d[last].destination, amount: to_pull });

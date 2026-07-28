@@ -150,7 +150,7 @@ fn fetch_ta_data(rpc: &RpcClient, token_account: &Pubkey) -> anyhow::Result<Toke
     let data = rpc
         .get_account_data(token_account);
 
-    if let Err(_) = data {
+    if data.is_err() {
         return Ok(TokenAccount::default());
     }
 
