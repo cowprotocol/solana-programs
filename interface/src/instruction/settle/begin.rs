@@ -712,17 +712,19 @@ mod tests {
         let mut parsed =
             BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        // Each order borrows the iterator, so only one is live at a time:
-        // compare it against `expected` as it's yielded, without collecting.
-        let mut orders = parsed.orders.iter_mut();
-        for (order_pda, sell_token, bump) in &expected {
-            let order = orders.next().expect("an order per expected entry");
-            assert_eq!(order.order_pda.address(), order_pda);
-            assert_eq!(order.sell_token_account.address(), sell_token);
-            assert_eq!(order.bump, *bump);
-            assert_eq!(order.destinations.len(), 0);
-        }
-        assert!(orders.next().is_none());
+        let actual: Vec<(Address, Address, u8)> = parsed
+            .orders
+            .iter_mut()
+            .map(|order| {
+                assert_eq!(order.destinations.len(), 0);
+                (
+                    *order.order_pda.address(),
+                    *order.sell_token_account.address(),
+                    order.bump,
+                )
+            })
+            .collect();
+        assert_eq!(actual, expected);
     }
 
     #[test]
