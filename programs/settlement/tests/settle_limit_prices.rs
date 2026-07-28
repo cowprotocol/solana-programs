@@ -103,6 +103,7 @@ fn settle_all(
     let begin = BeginSettle {
         program_id: *program_id,
         finalize_ix_index: FINALIZE_INDEX.into(),
+        auction_id: 0,
         orders: &initialized,
     };
     let finalize = FinalizeSettle {
