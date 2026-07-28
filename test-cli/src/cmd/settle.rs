@@ -38,9 +38,6 @@ struct ResolvedIntent {
     /// The original order from the user
     data: OrderIntent,
 
-    /// Weight for determining how much of the output an order should get
-    contribution_score: u64,
-
     /// All the information about the sell account's TA and Mint
     sell: ResolvedToken,
 
@@ -52,14 +49,9 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let intents = resolve_intents(&ctx, &args)?;
 
     let mut all_ixs: Vec<Instruction> = vec![];
-    let (sell_amount_pulled, buy_amount_pushed) =
-        prepare_setup_ixs(&ctx, &args, &intents, &mut all_ixs)?;
+    let sell_amount_pulled = prepare_setup_ixs(&ctx, &args, &intents, &mut all_ixs)?;
 
-    let mut sinks = compute_sinks(&ctx, &sell_amount_pulled, &buy_amount_pushed)?;
-
-    // TODO: later this will be computed by a function that takes into account swap outputs
-    // but for now the source amount that can be sent as output is just the same as the buffer output
-    let sources = sinks.iter().map(|(a, s)| (*a, s[0].amount)).collect();
+    let mut sinks = compute_sinks(&ctx, &sell_amount_pulled);
 
     let pulls = compute_pulls(&intents, &mut sinks);
 
@@ -71,9 +63,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
 
     let begin_ix_index = all_ixs.len() as u16;
     let finalize_ix_index = begin_ix_index
-        .saturating_add(1)
-        // TODO: later add mid txs
-        .saturating_add(0u16);
+        .saturating_add(1);
 
     let begin_ix = BeginSettle {
         program_id: ctx.program_id,
@@ -82,15 +72,13 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         auction_id: 0
     };
 
-    let push_amounts = compute_push_amounts(&intents, &sources);
-
+    // Send exactly each order's buy amount; any surplus tokens stay in the buffers.
     let settled: Vec<FinalizedIntent> = intents
         .iter()
-        .zip(push_amounts.iter())
-        .map(|(intent, &amount)| FinalizedIntent {
+        .map(|intent| FinalizedIntent {
             intent: &intent.data,
             mint: intent.buy.mint,
-            amount,
+            amount: intent.data.buy_amount,
         })
         .collect();
 
@@ -108,7 +96,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     } else {
         Some(send_settle_transaction(&ctx, &all_ixs)?)
     };
-    print_settlement_summary(sig.as_ref(), &intents, &push_amounts);
+    print_settlement_summary(sig.as_ref(), &intents);
 
     Ok(())
 }
@@ -131,11 +119,6 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
                 sell: resolve_token_from_account(&ctx.rpc, &ctx.payer.pubkey(), &intent.sell_token_account)?,
                 buy: resolve_token_from_account(&ctx.rpc, &ctx.payer.pubkey(), &intent.buy_token_account)?,
 
-                // for now: the contribution score weighting is based on the buy amount the user requests
-                // clamped to at least 1 in case the user requests 0 in their order to prevent edge cases where all orders have buy_amount 0)
-                // in a real circumstance, this should be based on the native price of the sell_amount
-                contribution_score: intent.buy_amount.max(1),
-
                 data: intent,
             })
         })
@@ -153,7 +136,7 @@ fn prepare_setup_ixs(
     args: &SettleArgs,
     intents: &[ResolvedIntent],
     all_ixs: &mut Vec<Instruction>,
-) -> anyhow::Result<(HashMap<Pubkey, u64>, HashMap<Pubkey, u64>)> {
+) -> anyhow::Result<HashMap<Pubkey, u64>> {
     let mut sell_amount_pulled: HashMap<Pubkey, u64> = HashMap::new();
     let mut buy_amount_pushed: HashMap<Pubkey, u64> = HashMap::new();
     let mut mint_buffers_to_create: Vec<Pubkey> = Vec::new();
@@ -201,92 +184,24 @@ fn prepare_setup_ixs(
         );
     }
 
-    Ok((sell_amount_pulled, buy_amount_pushed))
+    Ok(sell_amount_pulled)
 }
 
-/// Compute aggregate pull destinations that will be needed for a settlement. Includes stuff
-/// like buffer PDAs and, once swap routing exists, exchange routes.
+/// Compute the pull destinations for a settlement. Every sold token is pulled
+/// into its mint's buffer PDA; tokens beyond what's needed to satisfy the
+/// orders simply stay in the buffer. Once swap routing exists this will also
+/// include exchange routes.
 fn compute_sinks(
     ctx: &Context,
     sell_amount_pulled: &HashMap<Pubkey, u64>,
-    buy_amount_pushed: &HashMap<Pubkey, u64>,
-) -> anyhow::Result<HashMap<Pubkey, Vec<Pull>>> {
-    let mut sinks: HashMap<Pubkey, Vec<Pull>> = HashMap::new();
-
-    // start with CoWs. Create a sink that pulls in tokens that don't need to be 
-    // traded (aka, min(pulled, pushed)) because they are already going to be consumed by another order
-    // and it is assumed that trading is always less efficient than direct matching.
-    // this could be 0: if so, it will be populated in the loop later.
-    for key in sell_amount_pulled.keys().chain(buy_amount_pushed.keys()) {
-        // entry() avoids computing the difference twice for keys in both maps
-        sinks.entry(*key).or_insert_with(|| {
-            let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, key);
-            vec![Pull {
-                destination: buffer_pda,
-                amount: *sell_amount_pulled.get(key).unwrap_or(&0).min(buy_amount_pushed.get(key).unwrap_or(&0)),
-            }]
-        });
-    }
-
-    // TODO: later we would add exchanges needed for any tokens that still need a swap
-
-    // distribute surplus: 
-    for (sell_token, total_sell_amount) in sell_amount_pulled.iter() {
-        let d = sinks
-            .get_mut(sell_token)
-            .expect("sink seeded for every sell mint in the CoW loop above");
-
-        let sunk_total: u64 = d.iter().map(|p| p.amount).sum();
-        let surplus = total_sell_amount.saturating_sub(sunk_total);
-
-        if surplus > 0 {
-            // edge case: if no sinks were needed (this could happen if the destination side order
-            // requested a buy_amount of 0 tokens), send all the surplus to the buffer for distribution
-            if sunk_total == 0 {
-                d[0].amount = surplus;
-            } else {
-                // we want to send tokens proportionally to each sink
-                let weights: Vec<u64> = d.iter().map(|p| p.amount).collect();
-                for (pull, increment) in d.iter_mut().zip(distribute_proportionally(&weights, surplus)) {
-                    pull.amount = pull.amount.saturating_add(increment);
-                }
-            }
-        }
-
-        // finally, sort for more efficient pull matching later
-        d.sort_unstable_by_key(|p| std::cmp::Reverse(p.amount));
-    }
-
-    Ok(sinks)
-}
-
-/// Distribute `extra` proportionally across `weights` (each entry's current
-/// amount), using largest-remainder rounding so the increments sum to
-/// exactly `extra`.
-fn distribute_proportionally(weights: &[u64], extra: u64) -> Vec<u64> {
-    let total_weight: u128 = weights.iter().map(|&w| w as u128).sum();
-    let extra128 = extra as u128;
-
-    let mut increments: Vec<u64> = weights
+) -> HashMap<Pubkey, Vec<Pull>> {
+    sell_amount_pulled
         .iter()
-        .map(|&w| extra128.saturating_mul(w as u128).checked_div(total_weight).unwrap_or(0) as u64)
-        .collect();
-
-    let sum: u64 = increments.iter().fold(0u64, |acc, &s| acc.saturating_add(s));
-    let leftover = extra.saturating_sub(sum) as usize;
-    if leftover > 0 {
-        let mut fracs: Vec<(usize, u128)> = weights
-            .iter()
-            .enumerate()
-            .map(|(j, &w)| (j, extra128.saturating_mul(w as u128).checked_rem(total_weight).unwrap_or(0)))
-            .collect();
-        fracs.sort_by_key(|a| std::cmp::Reverse(a.1));
-        for k in 0..leftover {
-            increments[fracs[k].0] = increments[fracs[k].0].saturating_add(1);
-        }
-    }
-
-    increments
+        .map(|(mint, &amount)| {
+            let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, mint);
+            (*mint, vec![Pull { destination: buffer_pda, amount }])
+        })
+        .collect()
 }
 
 /// Carve each order's required pull amount out of the shared per-mint sink
@@ -318,40 +233,6 @@ fn compute_pulls(intents: &[ResolvedIntent], sinks: &mut HashMap<Pubkey, Vec<Pul
     pulls
 }
 
-/// Computed buy amounts: each order receives from the total available output tokens weighted proportional
-/// to its contribution_score
-fn compute_push_amounts(
-    intents: &[ResolvedIntent],
-    sources: &HashMap<Pubkey, u64>
-) -> Vec<u64> {
-    let mut orders_by_mint: HashMap<Pubkey, Vec<usize>> = HashMap::new();
-    for (i, intent) in intents.iter().enumerate() {
-        orders_by_mint.entry(intent.buy.mint).or_default().push(i);
-    }
-
-    let mut result = vec![0u64; intents.len()];
-
-    for (mint, indices) in &orders_by_mint {
-        let avail = *sources.get(mint).unwrap_or(&0);
-        if avail == 0 {
-            continue;
-        }
-
-        // we distribute based on contribution score
-        // NOTE: technically its possible if contribution_score is not scaled to the expected buy_amount,
-        // the output token could be insufficient for a user. In this case, it can be decided that that particular
-        // order would be unsolvable, or it has to truncate. but since right now it *is* based on buy_amount, we are fine with
-        // this simple calculation
-        let weights: Vec<u64> = indices.iter().map(|&i| intents[i].contribution_score).collect();
-
-        for (&order_idx, share) in indices.iter().zip(distribute_proportionally(&weights, avail)) {
-            result[order_idx] = share;
-        }
-    }
-
-    result
-}
-
 fn send_settle_transaction(ctx: &Context, all_ixs: &[Instruction]) -> anyhow::Result<Signature> {
     let blockhash = ctx.rpc.get_latest_blockhash().context("fetch blockhash")?;
     let tx =
@@ -361,23 +242,18 @@ fn send_settle_transaction(ctx: &Context, all_ixs: &[Instruction]) -> anyhow::Re
         .context("settle transaction failed")
 }
 
-fn print_settlement_summary(sig: Option<&Signature>, intents: &[ResolvedIntent], push_amounts: &[u64]) {
+fn print_settlement_summary(sig: Option<&Signature>, intents: &[ResolvedIntent]) {
     match sig {
         Some(sig) => println!("settle: {sig}"),
         None => println!("settle: dry run (transaction not sent)"),
     }
-    for (i, (intent, &pushed)) in intents.iter().zip(push_amounts.iter()).enumerate() {
+    for (i, intent) in intents.iter().enumerate() {
         println!(
-            "  order {i}: pulled {} (sell {}), pushed {} (buy {}){}",
+            "  order {i}: pulled {} (sell {}), pushed {} (buy {})",
             intent.data.sell_amount,
             intent.sell.mint,
-            pushed,
+            intent.data.buy_amount,
             intent.buy.mint,
-            if pushed > intent.data.buy_amount {
-                format!(" [+{} surplus]", pushed.saturating_sub(intent.data.buy_amount))
-            } else {
-                String::new()
-            },
         );
     }
 }
@@ -423,26 +299,4 @@ fn parse_order_input(ctx: &Context, s: &str) -> anyhow::Result<Pubkey> {
     let (pda, _) =
         settlement_client::settlement_interface::pda::order::find_order_pda(&ctx.program_id, &uid);
     Ok(pda)
-}
-
-/// # TODO
-/// Wire up the Orca Whirlpools SDK (e.g. `orca-whirlpools-client`) to build
-/// the real `swap` instruction. The function signature is ready; only the body
-/// needs filling in once the dependency is added. For CoW settlements
-/// (opposite-direction orders), no swap is needed — call this only when
-/// the signer lacks the buy tokens and cannot cover them via CoW matching.
-#[allow(dead_code)]
-fn orca_swap(
-    sell_mint: &Pubkey,
-    buy_mint: &Pubkey,
-    _input_ata: &Pubkey,
-    _output_ata: &Pubkey,
-    _authority: &Pubkey,
-) -> anyhow::Result<Instruction> {
-    anyhow::bail!(
-        "swap from {} to {} required; Orca Whirlpool integration is not yet implemented — \
-         add the orca-whirlpools-client crate and fill in `orca_swap` in settle.rs",
-        sell_mint,
-        buy_mint,
-    )
 }
