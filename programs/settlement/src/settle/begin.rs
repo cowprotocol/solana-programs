@@ -339,7 +339,7 @@ fn validate_limit_price(
 /// Fold this settlement's `amount_in`/`amount_out` into the order's stored
 /// cumulative totals `amount_withdrawn`/`amount_received` and check the result,
 /// returning the updated totals to persist. A `u64` overflow of either total is
-/// rejected, despite this in exceptional circumstances being reasonbable.
+/// rejected, despite this in exceptional circumstances being reasonable.
 /// The order never fills beyond its (`Sell`: sold; `Buy`: bought) amount; and a
 /// non-`partially_fillable` order must be filled completely. The other side is
 /// bounded by the limit price.
