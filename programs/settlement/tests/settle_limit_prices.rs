@@ -402,7 +402,7 @@ fn fill_or_kill_order_must_be_filled_completely() {
     // Selling only half a fill-or-kill order isn't allowed, even at the limit.
     assert_settlement_error(
         settle(&mut svm, &program_id, &payer, &intent, 500_000, 1_000_000),
-        SettlementError::OrderNotFullyFilled,
+        SettlementError::OrderNotExactlyFilled,
     );
 }
 
@@ -502,10 +502,12 @@ fn fill_or_kill_order_cannot_be_settled_twice() {
     // same accounts) isn't rejected as a duplicate transaction before it runs.
     svm.expire_blockhash();
 
-    // Settling it again would take more than the sell amount in total.
+    // Settling it again would take more than the sell amount in total. Being
+    // fill-or-kill, the resulting cumulative fill isn't exactly the order's
+    // amount, so it's rejected as not exactly filled.
     assert_settlement_error(
         settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 2_000_000),
-        SettlementError::FillExceedsOrderAmount,
+        SettlementError::OrderNotExactlyFilled,
     );
 }
 
@@ -536,10 +538,12 @@ fn settlement_rejected_when_one_order_exceeds_its_amount() {
             &[
                 // Within its amount and at the limit.
                 (&ok, &[400_000], 800_000),
-                // Pulls 1_500_000 > its 1_000_000 sell amount.
+                // Pulls 1_500_000 > its 1_000_000 sell amount. Being
+                // fill-or-kill, this over-fill is rejected as not exactly
+                // filled rather than as an over-fill.
                 (&overfilled, &[1_500_000], 3_000_000),
             ],
         ),
-        SettlementError::FillExceedsOrderAmount,
+        SettlementError::OrderNotExactlyFilled,
     );
 }

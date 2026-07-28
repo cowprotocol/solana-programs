@@ -361,11 +361,10 @@ fn validated_final_amounts(
         OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
         OrderKind::Buy => (amount_received, intent.buy_amount),
     };
-    if filled > order_amount {
-        return Err(SettlementError::FillExceedsOrderAmount);
-    }
     if filled != order_amount && !intent.partially_fillable {
-        return Err(SettlementError::OrderNotFullyFilled);
+        return Err(SettlementError::OrderNotExactlyFilled);
+    } else if filled > order_amount {
+        return Err(SettlementError::FillExceedsOrderAmount);
     }
 
     Ok((amount_withdrawn, amount_received))
@@ -669,7 +668,7 @@ mod tests {
     fn rejects_overfill_incomplete_fill_or_kill_or_overflow() {
         use SettlementError::{
             AmountReceivedOverflow, AmountWithdrawnOverflow, FillExceedsOrderAmount,
-            OrderNotFullyFilled,
+            OrderNotExactlyFilled,
         };
         let cases = [
             // Sell one token over the sell amount.
@@ -740,7 +739,7 @@ mod tests {
                     kind: OrderKind::Sell,
                     partially_fillable: false,
                 },
-                OrderNotFullyFilled,
+                OrderNotExactlyFilled,
             ),
             // Fill-or-kill buy left partially filled.
             (
@@ -754,7 +753,7 @@ mod tests {
                     kind: OrderKind::Buy,
                     partially_fillable: false,
                 },
-                OrderNotFullyFilled,
+                OrderNotExactlyFilled,
             ),
             // Fill-or-kill order not filled at all.
             (
@@ -768,7 +767,7 @@ mod tests {
                     kind: OrderKind::Sell,
                     partially_fillable: false,
                 },
-                OrderNotFullyFilled,
+                OrderNotExactlyFilled,
             ),
             // A degenerate zero sell-amount order can't have anything pulled.
             (
