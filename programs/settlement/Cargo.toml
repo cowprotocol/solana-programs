@@ -24,6 +24,7 @@ arrayref.workspace = true
 litesvm.workspace = true
 litesvm-token.workspace = true
 proptest.workspace = true
+serde_json.workspace = true
 settlement-client.workspace = true
 settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-address-lookup-table-interface = { workspace = true, features = ["bincode"] }
