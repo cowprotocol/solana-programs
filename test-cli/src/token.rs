@@ -130,7 +130,11 @@ pub fn resolve_token_from_account(
             mint_data: fetch_mint_data(rpc, &token_account.mint)?,
         })
     } else if let Ok(mint) = Mint::unpack(&account.data) {
-        let ata = get_associated_token_address_with_program_id(owner, token_account_or_mint, &spl_token_interface::id());
+        let ata = get_associated_token_address_with_program_id(
+            owner,
+            token_account_or_mint,
+            &spl_token_interface::id(),
+        );
         Ok(ResolvedToken {
             ta: ata,
             ta_data: fetch_ta_data(rpc, &ata)?,
@@ -147,8 +151,7 @@ pub fn resolve_token_from_account(
 }
 
 fn fetch_ta_data(rpc: &RpcClient, token_account: &Pubkey) -> anyhow::Result<TokenAccount> {
-    let data = rpc
-        .get_account_data(token_account);
+    let data = rpc.get_account_data(token_account);
 
     if data.is_err() {
         return Ok(TokenAccount::default());
@@ -164,7 +167,6 @@ fn fetch_ta_data(rpc: &RpcClient, token_account: &Pubkey) -> anyhow::Result<Toke
 }
 
 fn fetch_mint_data(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<Mint> {
-
     let data = rpc
         .get_account_data(mint)
         .with_context(|| format!("mint account {mint} not found"))?;
@@ -172,8 +174,6 @@ fn fetch_mint_data(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<Mint> {
     if let Ok(mint_data) = Mint::unpack(&data) {
         Ok(mint_data)
     } else {
-        Err(anyhow::anyhow!(
-            "account {mint} is not a mint"
-        ))
+        Err(anyhow::anyhow!("account {mint} is not a mint"))
     }
 }

@@ -2,9 +2,12 @@ use anyhow::Context as _;
 use clap::Args;
 use settlement_client::{
     instructions::{
-        BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull
-    }, settlement_interface::{
-        Pubkey, data::{intent::OrderIntent, order::EncodedOrderAccount}, pda::buffer::find_buffer_pda,
+        BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
+    },
+    settlement_interface::{
+        data::{intent::OrderIntent, order::EncodedOrderAccount},
+        pda::buffer::find_buffer_pda,
+        Pubkey,
     },
 };
 use solana_hash::Hash;
@@ -14,12 +17,10 @@ use solana_sdk::{
     signature::{Signature, Signer},
     transaction::Transaction,
 };
-use spl_associated_token_account_interface::{
-    instruction::create_associated_token_account_idempotent,
-};
+use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
 use std::collections::HashMap;
 
-use crate::token::{ResolvedToken, resolve_token_from_account};
+use crate::token::{resolve_token_from_account, ResolvedToken};
 
 use super::Context;
 
@@ -58,18 +59,20 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let initialized_intents: Vec<_> = intents
         .iter()
         .zip(pulls.iter())
-        .map(|(intent, pulls)| InitializedIntent { intent: &intent.data, pulls })
+        .map(|(intent, pulls)| InitializedIntent {
+            intent: &intent.data,
+            pulls,
+        })
         .collect();
 
     let begin_ix_index = all_ixs.len() as u16;
-    let finalize_ix_index = begin_ix_index
-        .saturating_add(1);
+    let finalize_ix_index = begin_ix_index.saturating_add(1);
 
     let begin_ix = BeginSettle {
         program_id: ctx.program_id,
         finalize_ix_index,
         orders: &initialized_intents,
-        auction_id: 0
+        auction_id: 0,
     };
 
     // Send exactly each order's buy amount; any surplus tokens stay in the buffers.
@@ -116,8 +119,16 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
         .into_iter()
         .map(|intent| {
             Ok(ResolvedIntent {
-                sell: resolve_token_from_account(&ctx.rpc, &ctx.payer.pubkey(), &intent.sell_token_account)?,
-                buy: resolve_token_from_account(&ctx.rpc, &ctx.payer.pubkey(), &intent.buy_token_account)?,
+                sell: resolve_token_from_account(
+                    &ctx.rpc,
+                    &ctx.payer.pubkey(),
+                    &intent.sell_token_account,
+                )?,
+                buy: resolve_token_from_account(
+                    &ctx.rpc,
+                    &ctx.payer.pubkey(),
+                    &intent.buy_token_account,
+                )?,
 
                 data: intent,
             })
@@ -199,7 +210,13 @@ fn compute_sinks(
         .iter()
         .map(|(mint, &amount)| {
             let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, mint);
-            (*mint, vec![Pull { destination: buffer_pda, amount }])
+            (
+                *mint,
+                vec![Pull {
+                    destination: buffer_pda,
+                    amount,
+                }],
+            )
         })
         .collect()
 }
@@ -207,7 +224,10 @@ fn compute_sinks(
 /// Carve each order's required pull amount out of the shared per-mint sink
 /// pool, depleting `sinks` as we go. Whatever remains per mint afterward
 /// feeds `compute_push_amounts`.
-fn compute_pulls(intents: &[ResolvedIntent], sinks: &mut HashMap<Pubkey, Vec<Pull>>) -> Vec<Vec<Pull>> {
+fn compute_pulls(
+    intents: &[ResolvedIntent],
+    sinks: &mut HashMap<Pubkey, Vec<Pull>>,
+) -> Vec<Vec<Pull>> {
     let mut pulls = Vec::with_capacity(intents.len());
     for intent in intents {
         let mut p = Vec::with_capacity(1);
@@ -220,7 +240,10 @@ fn compute_pulls(intents: &[ResolvedIntent], sinks: &mut HashMap<Pubkey, Vec<Pul
                     to_pull = to_pull.saturating_sub(d[last].amount);
                     p.push(d.pop().unwrap());
                 } else {
-                    p.push(Pull { destination: d[last].destination, amount: to_pull });
+                    p.push(Pull {
+                        destination: d[last].destination,
+                        amount: to_pull,
+                    });
                     d[last].amount = d[last].amount.saturating_sub(to_pull);
                     to_pull = 0;
                 }
@@ -235,8 +258,12 @@ fn compute_pulls(intents: &[ResolvedIntent], sinks: &mut HashMap<Pubkey, Vec<Pul
 
 fn send_settle_transaction(ctx: &Context, all_ixs: &[Instruction]) -> anyhow::Result<Signature> {
     let blockhash = ctx.rpc.get_latest_blockhash().context("fetch blockhash")?;
-    let tx =
-        Transaction::new_signed_with_payer(all_ixs, Some(&ctx.payer.pubkey()), &[&ctx.payer], blockhash);
+    let tx = Transaction::new_signed_with_payer(
+        all_ixs,
+        Some(&ctx.payer.pubkey()),
+        &[&ctx.payer],
+        blockhash,
+    );
     ctx.rpc
         .send_and_confirm_transaction(&tx)
         .context("settle transaction failed")
@@ -250,10 +277,7 @@ fn print_settlement_summary(sig: Option<&Signature>, intents: &[ResolvedIntent])
     for (i, intent) in intents.iter().enumerate() {
         println!(
             "  order {i}: pulled {} (sell {}), pushed {} (buy {})",
-            intent.data.sell_amount,
-            intent.sell.mint,
-            intent.data.buy_amount,
-            intent.buy.mint,
+            intent.data.sell_amount, intent.sell.mint, intent.data.buy_amount, intent.buy.mint,
         );
     }
 }
@@ -292,8 +316,11 @@ fn parse_order_input(ctx: &Context, s: &str) -> anyhow::Result<Pubkey> {
     // convert a string into a hash. We might want to move this into a proper function later.
     let mut bytes = [0u8; 32];
     for (i, piece) in s.as_bytes().chunks(2).enumerate() {
-        bytes[i] = u8::from_str_radix(std::str::from_utf8(piece).expect("Should return to utf8 string"), 16)
-            .with_context(|| format!("invalid hex in UID '{s}' at byte {i}"))?;
+        bytes[i] = u8::from_str_radix(
+            std::str::from_utf8(piece).expect("Should return to utf8 string"),
+            16,
+        )
+        .with_context(|| format!("invalid hex in UID '{s}' at byte {i}"))?;
     }
     let uid = Hash::new_from_array(bytes);
     let (pda, _) =

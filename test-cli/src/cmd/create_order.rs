@@ -109,8 +109,9 @@ fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<Par
     let sell_amount =
         spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell.mint_data.decimals)
             .map_err(|_| anyhow::anyhow!("invalid sell amount: {sell_amount_str}"))?;
-    let buy_amount = spl_token::try_ui_amount_into_amount(buy_amount_str.to_string(), buy.mint_data.decimals)
-        .map_err(|_| anyhow::anyhow!("invalid buy amount: {buy_amount_str}"))?;
+    let buy_amount =
+        spl_token::try_ui_amount_into_amount(buy_amount_str.to_string(), buy.mint_data.decimals)
+            .map_err(|_| anyhow::anyhow!("invalid buy amount: {buy_amount_str}"))?;
 
     Ok(ParsedOrder {
         kind,
