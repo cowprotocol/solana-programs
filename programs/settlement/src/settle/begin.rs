@@ -364,7 +364,7 @@ fn validated_final_amounts(
     if filled > order_amount {
         return Err(SettlementError::FillExceedsOrderAmount);
     }
-    if !intent.partially_fillable && filled != order_amount {
+    if filled != order_amount && !intent.partially_fillable {
         return Err(SettlementError::OrderNotFullyFilled);
     }
 
