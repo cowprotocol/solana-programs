@@ -163,9 +163,7 @@ impl<'a> SettledOrders<'a> {
         reason = "offsets are bounded by tx limits"
     )]
     pub fn iter_mut(&mut self) -> impl Iterator<Item = SettledOrder<'_>> + '_ {
-        let bumps = self.bumps;
-        let counts = self.counts;
-        let amounts = self.amounts;
+        let (bumps, counts, amounts) = (self.bumps, self.counts, self.amounts);
         // Cursor over the remaining order accounts; each step splits one order's
         // `[order_pda, sell_token_account, destinations..count]` off the front.
         let mut rest: &mut [AccountView] = self.order_accounts;
