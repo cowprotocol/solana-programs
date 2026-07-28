@@ -289,13 +289,18 @@ fn process_order(
             .invoke_signed(core::slice::from_ref(state_pda_signer))?;
     }
 
-    validate_limit_price(intent, amount_in, push_amount)?;
+    let executed = SettlementAmounts {
+        amount_in,
+        amount_out: push_amount,
+    };
+    validate_limit_price(intent, &executed)?;
     let (amount_withdrawn, amount_received) = validated_final_amounts(
         intent,
-        account.amount_withdrawn,
-        account.amount_received,
-        amount_in,
-        push_amount,
+        PriorFill {
+            amount_withdrawn: account.amount_withdrawn,
+            amount_received: account.amount_received,
+        },
+        &executed,
     )?;
 
     let updated: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
@@ -309,6 +314,20 @@ fn process_order(
     Ok(())
 }
 
+/// The amounts one order moves in a single settlement: `amount_in` pulled from
+/// its sell token account, `amount_out` paid in by the paired push.
+struct SettlementAmounts {
+    amount_in: u64,
+    amount_out: u64,
+}
+
+/// An order's cumulative fill totals before this settlement, read from its
+/// stored [`OrderAccount`].
+struct PriorFill {
+    amount_withdrawn: u64,
+    amount_received: u64,
+}
+
 /// Check a settlement's executed price for one order against its limit, using
 /// the total pulled from the sell account (`amount_in`) and what the paired push
 /// pays in (`amount_out`). The check is local, so a favorable price in another
@@ -316,9 +335,12 @@ fn process_order(
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn validate_limit_price(
     intent: &OrderIntent,
-    amount_in: u64,
-    amount_out: u64,
+    executed: &SettlementAmounts,
 ) -> Result<(), SettlementError> {
+    let &SettlementAmounts {
+        amount_in,
+        amount_out,
+    } = executed;
     // Limit price: the executed price must be at least the order's limit, that is,
     //   amount_out >= amount_in * (buy_amount / sell_amount),
     // rearranged division-free to avoid rounding.
@@ -345,11 +367,17 @@ fn validate_limit_price(
 /// bounded by the limit price.
 fn validated_final_amounts(
     intent: &OrderIntent,
-    amount_withdrawn: u64,
-    amount_received: u64,
-    amount_in: u64,
-    amount_out: u64,
+    prior: PriorFill,
+    executed: &SettlementAmounts,
 ) -> Result<(u64, u64), SettlementError> {
+    let PriorFill {
+        amount_withdrawn,
+        amount_received,
+    } = prior;
+    let &SettlementAmounts {
+        amount_in,
+        amount_out,
+    } = executed;
     let amount_withdrawn = amount_withdrawn
         .checked_add(amount_in)
         .ok_or(SettlementError::AmountWithdrawnOverflow)?;
@@ -446,7 +474,13 @@ mod tests {
         {
             let intent = intent_with(OrderKind::Sell, true, sell, buy);
             assert_eq!(
-                validate_limit_price(&intent, a_in, a_out),
+                validate_limit_price(
+                    &intent,
+                    &SettlementAmounts {
+                        amount_in: a_in,
+                        amount_out: a_out,
+                    },
+                ),
                 Ok(()),
                 "in={a_in} out={a_out} sell={sell} buy={buy}",
             );
@@ -485,7 +519,13 @@ mod tests {
         {
             let intent = intent_with(OrderKind::Sell, true, sell, buy);
             assert_eq!(
-                validate_limit_price(&intent, a_in, a_out),
+                validate_limit_price(
+                    &intent,
+                    &SettlementAmounts {
+                        amount_in: a_in,
+                        amount_out: a_out,
+                    },
+                ),
                 Err(SettlementError::LimitPriceViolated),
                 "in={a_in} out={a_out} sell={sell} buy={buy}",
             );
@@ -655,7 +695,17 @@ mod tests {
                 received.checked_add(amount_out).expect("no overflow"),
             );
             assert_eq!(
-                validated_final_amounts(&intent, withdrawn, received, amount_in, amount_out),
+                validated_final_amounts(
+                    &intent,
+                    PriorFill {
+                        amount_withdrawn: withdrawn,
+                        amount_received: received,
+                    },
+                    &SettlementAmounts {
+                        amount_in,
+                        amount_out,
+                    },
+                ),
                 Ok(expected),
                 "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out} sell={sell} buy={buy} kind={kind:?} pf={partially_fillable}",
             );
@@ -843,7 +893,17 @@ mod tests {
         {
             let intent = intent_with(kind, partially_fillable, sell, buy);
             assert_eq!(
-                validated_final_amounts(&intent, withdrawn, received, amount_in, amount_out),
+                validated_final_amounts(
+                    &intent,
+                    PriorFill {
+                        amount_withdrawn: withdrawn,
+                        amount_received: received,
+                    },
+                    &SettlementAmounts {
+                        amount_in,
+                        amount_out,
+                    },
+                ),
                 Err(error),
                 "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out} sell={sell} buy={buy} kind={kind:?} pf={partially_fillable}",
             );
@@ -859,7 +919,13 @@ mod tests {
             amount_in in any::<u64>(),
             push_amount in any::<u64>(),
         ) {
-            let _ = validate_limit_price(&intent, amount_in, push_amount);
+            let _ = validate_limit_price(
+                &intent,
+                &SettlementAmounts {
+                    amount_in,
+                    amount_out: push_amount,
+                },
+            );
         }
     }
 
