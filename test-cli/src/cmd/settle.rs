@@ -12,7 +12,7 @@ use settlement_client::{
 };
 use solana_hash::Hash;
 use solana_instruction::Instruction;
-use solana_rpc_client::rpc_client::RpcClient;
+use solana_rpc_client::{api::config::UiTransactionEncoding, rpc_client::RpcClient};
 use solana_sdk::{
     signature::{Signature, Signer},
     transaction::Transaction,
@@ -96,12 +96,48 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     all_ixs.push(begin_ix.into());
     all_ixs.push(finalize_ix.into());
 
-    let sig = if args.dry_run {
-        None
+    let blockhash = ctx.rpc.get_latest_blockhash().context("fetch blockhash")?;
+    let tx = Transaction::new_signed_with_payer(
+        &all_ixs,
+        Some(&ctx.payer.pubkey()),
+        &[&ctx.payer],
+        blockhash,
+    );
+
+    let (units_consumed, result) = if args.dry_run {
+        let simulate_result = ctx
+            .rpc
+            .simulate_transaction(&tx)
+            .with_context(|| "dry run simulation of settlement transaction failed")?;
+        (
+            simulate_result
+                .value
+                .units_consumed
+                .expect("simulation result doesn't include units units_consumed"),
+            None,
+        )
     } else {
-        Some(send_settle_transaction(&ctx, &all_ixs)?)
+        let sig = ctx
+            .rpc
+            .send_and_confirm_transaction(&tx)
+            .context("settle transaction failed")?;
+
+        let tx_info = ctx
+            .rpc
+            .get_transaction(&sig, UiTransactionEncoding::Json)
+            .expect("could not pull data of finalized transaction");
+
+        (
+            tx_info
+                .transaction
+                .meta
+                .with_context(|| "transaction {sig} has no context")?
+                .compute_units_consumed
+                .expect("transaction meta doesn't include compute_units_consumed"),
+            Some(sig),
+        )
     };
-    print_settlement_summary(sig.as_ref(), &intents);
+    print_settlement_summary(result.as_ref(), units_consumed, &intents);
 
     Ok(())
 }
@@ -291,23 +327,14 @@ fn compute_pulls(
     Ok(pulls)
 }
 
-fn send_settle_transaction(ctx: &Context, all_ixs: &[Instruction]) -> anyhow::Result<Signature> {
-    let blockhash = ctx.rpc.get_latest_blockhash().context("fetch blockhash")?;
-    let tx = Transaction::new_signed_with_payer(
-        all_ixs,
-        Some(&ctx.payer.pubkey()),
-        &[&ctx.payer],
-        blockhash,
-    );
-    ctx.rpc
-        .send_and_confirm_transaction(&tx)
-        .context("settle transaction failed")
-}
-
-fn print_settlement_summary(sig: Option<&Signature>, intents: &[ResolvedIntent]) {
+fn print_settlement_summary(
+    sig: Option<&Signature>,
+    units_consumed: u64,
+    intents: &[ResolvedIntent],
+) {
     match sig {
-        Some(sig) => println!("settle: {sig}"),
-        None => println!("settle: dry run (transaction not sent)"),
+        Some(sig) => println!("settle: {sig} ({units_consumed} CU)"),
+        None => println!("settle: dry run (simulated success, {units_consumed} CU)"),
     }
     for (i, intent) in intents.iter().enumerate() {
         println!(
