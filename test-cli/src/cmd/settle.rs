@@ -54,7 +54,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
 
     let mut sinks = compute_sinks(&ctx, &sell_amount_pulled);
 
-    let pulls = compute_pulls(&intents, &mut sinks);
+    let pulls = compute_pulls(&intents, &mut sinks)?;
 
     let initialized_intents: Vec<_> = intents
         .iter()
@@ -66,7 +66,9 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .collect();
 
     let begin_ix_index = all_ixs.len() as u16;
-    let finalize_ix_index = begin_ix_index.saturating_add(1);
+    let finalize_ix_index = begin_ix_index
+        .checked_add(1)
+        .context("too many instructions: begin/finalize index overflow")?;
 
     let begin_ix = BeginSettle {
         program_id: ctx.program_id,
@@ -162,9 +164,13 @@ fn prepare_setup_ixs(
 
         // accumulates the sell and buy amounts (inserts if the key doesn't exist)
         let sell_tally_entry = sell_amount_pulled.entry(intent.sell.mint).or_default();
-        *sell_tally_entry = sell_tally_entry.saturating_add(intent.data.sell_amount);
+        *sell_tally_entry = sell_tally_entry
+            .checked_add(intent.data.sell_amount)
+            .with_context(|| format!("total sell amount overflow for mint {}", intent.sell.mint))?;
         let buy_tally_entry = buy_amount_pushed.entry(intent.buy.mint).or_default();
-        *buy_tally_entry = buy_tally_entry.saturating_add(intent.data.buy_amount);
+        *buy_tally_entry = buy_tally_entry
+            .checked_add(intent.data.buy_amount)
+            .with_context(|| format!("total buy amount overflow for mint {}", intent.buy.mint))?;
 
         if intent.sell.ta_data.owner == Pubkey::default() {
             let named_intent = &args.orders[i];
@@ -226,33 +232,40 @@ fn compute_sinks(
 fn compute_pulls(
     intents: &[ResolvedIntent],
     sinks: &mut HashMap<Pubkey, Vec<Pull>>,
-) -> Vec<Vec<Pull>> {
+) -> anyhow::Result<Vec<Vec<Pull>>> {
     let mut pulls = Vec::with_capacity(intents.len());
     for intent in intents {
         let mut p = Vec::with_capacity(1);
 
         let mut to_pull = intent.data.sell_amount;
-        sinks.entry(intent.sell.mint).and_modify(|d| {
+        if let Some(d) = sinks.get_mut(&intent.sell.mint) {
             while to_pull > 0 {
-                let last = d.len().saturating_sub(1);
-                if d[last].amount <= to_pull {
-                    to_pull = to_pull.saturating_sub(d[last].amount);
-                    p.push(d.pop().unwrap());
+                let last = d
+                    .last_mut()
+                    .context("sink exhausted while computing pulls")?;
+                if last.amount <= to_pull {
+                    to_pull = to_pull
+                        .checked_sub(last.amount)
+                        .context("pull amount underflow")?;
+                    p.push(d.pop().expect("just accessed via last_mut"));
                 } else {
                     p.push(Pull {
-                        destination: d[last].destination,
+                        destination: last.destination,
                         amount: to_pull,
                     });
-                    d[last].amount = d[last].amount.saturating_sub(to_pull);
+                    last.amount = last
+                        .amount
+                        .checked_sub(to_pull)
+                        .context("pull amount underflow")?;
                     to_pull = 0;
                 }
             }
-        });
+        }
 
         pulls.push(p);
     }
 
-    pulls
+    Ok(pulls)
 }
 
 fn send_settle_transaction(ctx: &Context, all_ixs: &[Instruction]) -> anyhow::Result<Signature> {
