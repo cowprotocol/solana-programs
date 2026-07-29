@@ -290,7 +290,7 @@ fn fetch_order_intent(
     let pda = parse_order_input(ctx, s)?;
     let data = rpc
         .get_account_data(&pda)
-        .with_context(|| format!("order account {pda} not found on-chain"))?;
+        .with_context(|| format!("failed to get order account data for {pda}"))?;
     let bytes: [u8; EncodedOrderAccount::SIZE] = data.as_slice().try_into().map_err(|_| {
         anyhow::anyhow!(
             "unexpected account data length {} for order at {pda}",
