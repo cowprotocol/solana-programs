@@ -34,8 +34,8 @@ lint:
 doc:
     cargo doc --workspace --no-deps --all-features
 
-# Check that the documentation builds with no warnings, including private docs.
-doc-check:
+# Generate extended documentation for devs. Fails on warnings, so we catch documentation issues early.
+doc-dev:
     cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]'
 
 # Build the settlement program using solana-verify's reproducible Docker build.
@@ -47,4 +47,4 @@ build-verified:
 deploy programid keypair: build-verified
     solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
 
-all: build test lint fmt-check doc-check
+all: build test lint fmt-check doc-dev
