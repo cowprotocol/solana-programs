@@ -13,7 +13,9 @@
         "Creates the singleton settlement state PDA. Succeeds only once.",
         "Non-standard discriminator: this program uses a single instruction-selector byte (see SettlementInstruction in the Rust source), not Anchor's usual 8-byte sighash. The `discriminator` below reflects the real on-chain bytes."
       ],
-      "discriminator": [3],
+      "discriminator": [
+        3
+      ],
       "accounts": [
         {
           "name": "payer",
@@ -30,7 +32,18 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [115, 101, 116, 116, 108, 101, 109, 101, 110, 116]
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
               }
             ]
           },
@@ -52,7 +65,9 @@
         "IDL MODELING NOTE: the real instruction accepts an unbounded number of (buffer_pda, mint) pairs as remaining accounts, one pair per buffer, with at least one pair required (CreateBuffer rejects zero buffers). Anchor's IDL grammar has no 'repeated group' construct, so this file only declares the guaranteed index-0 template (buffer_pda_0/mint_0). This instruction is solver/internal tooling only, not part of the public client surface, so buffers beyond the first are intentionally left unmodeled here: callers needing more than one buffer per transaction append the extra (buffer_pda, mint) account-meta pairs by hand after building the base instruction.",
         "Each buffer_pda_i must be the canonical PDA for seeds [\"settlement\", mint_i, \"buffer\"]."
       ],
-      "discriminator": [4],
+      "discriminator": [
+        4
+      ],
       "accounts": [
         {
           "name": "payer",
@@ -74,7 +89,18 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [115, 101, 116, 116, 108, 101, 109, 101, 110, 116]
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
               },
               {
                 "kind": "account",
@@ -82,7 +108,14 @@
               },
               {
                 "kind": "const",
-                "value": [98, 117, 102, 102, 101, 114]
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
               }
             ]
           },
@@ -105,7 +138,9 @@
         "Allocates a per-order PDA and writes the initial OrderAccount body.",
         "order_pda's canonical seeds are [\"settlement\", sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the Anchor PDA-seed grammar (const / arg / account) can describe."
       ],
-      "discriminator": [2],
+      "discriminator": [
+        2
+      ],
       "accounts": [
         {
           "name": "owner",
@@ -149,10 +184,12 @@
       "name": "begin_settle",
       "docs": [
         "Pulls funds for a batch of orders. Must be paired in the same transaction with a FinalizeSettle at `finalize_ix_index`.",
-        "IDL LIMITATION: only the fixed-size prefix (finalize_ix_index) is represented as a typed argument. After it, the real wire format is `[order_count: u8][bump; order_count][transfer_count; order_count][amount: u64 BE; sum(transfer_count)]` \u2014 a hand-packed layout with no Borsh length prefixes and a trailing array whose length depends on the sum of an earlier array. This has no representation in the Anchor/Borsh/IDL type grammar (no vec/array type can express 'shared count governs several sibling arrays' or 'length = sum of another field'), so it is intentionally left out of `args` rather than mislabeled as `bytes` (which would imply a Borsh Vec<u8> length prefix that isn't actually present and would make a generic decoder misparse it). Anchor/Solscan-style tooling will only decode the discriminator and finalize_ix_index for this instruction; the remainder needs bespoke client logic.",
+        "IDL LIMITATION: only the fixed-size prefix (finalize_ix_index, auction_id) is represented as typed arguments. After it, the real wire format is `[order_count: u8][bump; order_count][transfer_count; order_count][amount: u64 LE; sum(transfer_count)]` — a hand-packed layout with no Borsh length prefixes and a trailing array whose length depends on the sum of an earlier array. This has no representation in the Anchor/Borsh/IDL type grammar (no vec/array type can express 'shared count governs several sibling arrays' or 'length = sum of another field'), so it is intentionally left out of `args` rather than mislabeled as `bytes` (which would imply a Borsh Vec<u8> length prefix that isn't actually present and would make a generic decoder misparse it). Anchor/Solscan-style tooling will only decode the discriminator, finalize_ix_index, and auction_id for this instruction; the remainder needs bespoke client logic.",
         "Per-order accounts follow the 3 shared accounts below as a repeated remaining-accounts group: [order_pda (readonly), sell_token_account (writable), destination (writable) x transfer_count], sorted by ascending order_pda address."
       ],
-      "discriminator": [0],
+      "discriminator": [
+        0
+      ],
       "accounts": [
         {
           "name": "instructions_sysvar",
@@ -176,6 +213,13 @@
           "docs": [
             "Index of the paired FinalizeSettle in this transaction. Little-endian, matching standard Borsh/Anchor u16 decoding."
           ]
+        },
+        {
+          "name": "auction_id",
+          "type": "i64",
+          "docs": [
+            "The off-chain auction this settlement executes. Carried in the instruction data so the settlement can be tied back to its auction off-chain, unused on-chain."
+          ]
         }
       ]
     },
@@ -183,13 +227,26 @@
       "name": "finalize_settle",
       "docs": [
         "Validates that a BeginSettle at `begin_ix_index` exists and points back at this instruction. Must not be called via CPI.",
-        "Non-standard discriminator, see the note on `initialize`."
+        "Non-standard discriminator, see the note on `initialize`.",
+        "Per-push accounts follow the 3 shared accounts below as a repeated remaining-accounts group: [source_buffer (writable), destination (writable)] x number of pushes."
       ],
-      "discriminator": [1],
+      "discriminator": [
+        1
+      ],
       "accounts": [
         {
           "name": "instructions_sysvar",
           "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "state_pda",
+          "docs": [
+            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority."
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
@@ -201,23 +258,62 @@
           ]
         }
       ]
+    },
+    {
+      "name": "reclaim_order",
+      "docs": [
+        "Closes an expired order PDA and returns its rent lamports to the created_by account recorded in the order body. The instruction may only be executed after the order's valid_to timestamp has elapsed.",
+        "No signature requirement: anyone may reclaim an expired order on behalf of its reclaim_recipient."
+      ],
+      "discriminator": [
+        5
+      ],
+      "accounts": [
+        {
+          "name": "order_pda",
+          "writable": true,
+          "docs": [
+            "The order PDA to close."
+          ]
+        },
+        {
+          "name": "reclaim_recipient",
+          "writable": true,
+          "docs": [
+            "Must match the created_by address recorded in the order; receives the recovered rent lamports."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "bump",
+          "type": "u8",
+          "docs": [
+            "order_pda's canonical bump, used to prove it's the canonical order PDA for the intent it stores."
+          ]
+        }
+      ]
     }
   ],
   "accounts": [
     {
       "name": "OrderAccount",
-      "discriminator": [128]
+      "discriminator": [
+        128
+      ]
     },
     {
       "name": "SettlementState",
-      "discriminator": [129]
+      "discriminator": [
+        129
+      ]
     }
   ],
   "types": [
     {
       "name": "OrderAccount",
       "docs": [
-        "Body of an order PDA, created by create_order. 200 bytes total: 1-byte discriminator + 199 bytes of fields below."
+        "Idiomatic representation of an order PDA's body."
       ],
       "type": {
         "kind": "struct",
@@ -255,14 +351,15 @@
         "Body of the singleton settlement state PDA. Carries no fields beyond the 1-byte discriminator; its existence and address are what matter."
       ],
       "type": {
-        "kind": "struct",
-        "fields": []
+        "kind": "struct"
       }
     },
     {
       "name": "OrderIntent",
       "docs": [
-        "Canonical 150-byte order intent. Also the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds, and the exact wire format of create_order's `intent` argument. Field order and encoding here are load-bearing: they must match this program's Rust definition exactly."
+        "Canonical order intent. Also the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds,",
+        "and the exact wire format of create_order's `intent` argument. Field order and encoding here are load-bearing: they",
+        "must match this program's Rust definition exactly."
       ],
       "type": {
         "kind": "struct",
@@ -373,8 +470,8 @@
     },
     {
       "code": 8,
-      "name": "OrderNotCanonical",
-      "msg": "A BeginSettle order account doesn't sit at the canonical order PDA derived from the intent it stores and the supplied bump."
+      "name": "AccountNotDerivable",
+      "msg": "An account was provided that cannot be derived from the seeds recognized by the program"
     },
     {
       "code": 9,
@@ -399,7 +496,7 @@
     {
       "code": 13,
       "name": "AccountCountNotMatchingOrderCount",
-      "msg": "BeginSettle's order-account count doesn't match the structure its instruction data expects."
+      "msg": "BeginSettle's order-account count doesn't match the structure its instruction data expects: n orders each contribute an order PDA and a sell token account, plus one destination account per transfer."
     },
     {
       "code": 14,
@@ -425,6 +522,41 @@
       "code": 18,
       "name": "StateAccountMismatch",
       "msg": "BeginSettle's state account isn't the canonical settlement state PDA, which must sign the pulls as the user's token delegate."
+    },
+    {
+      "code": 19,
+      "name": "AccountCountNotMatchingPushCount",
+      "msg": "FinalizeSettle's push-account count doesn't match its instruction data: each push contributes a source buffer and a destination account, so the count must be twice the number of push amounts."
+    },
+    {
+      "code": 20,
+      "name": "SettledOrderPushCountMismatch",
+      "msg": "BeginSettle: the number of pushes carried by the paired FinalizeSettle doesn't equal the number of settled orders. Each order must be paid by exactly one push."
+    },
+    {
+      "code": 21,
+      "name": "PushDestinationMismatch",
+      "msg": "BeginSettle: a paired FinalizeSettle push doesn't send its proceeds to the order's buy token account; its destination differs from the buy_token_account in the order's intent."
+    },
+    {
+      "code": 22,
+      "name": "PushSourceNotBuffer",
+      "msg": "FinalizeSettle: a push doesn't draw funds from the canonical buffer for its destination's mint."
+    },
+    {
+      "code": 23,
+      "name": "InvalidBuyTokenAccount",
+      "msg": "FinalizeSettle: a push's destination isn't a valid SPL token account (wrong data length or not owned by the token program), so its mint can't be read to derive the buffer."
+    },
+    {
+      "code": 24,
+      "name": "OrderNotExpired",
+      "msg": "ReclaimOrder was called before the order's valid_to has elapsed."
+    },
+    {
+      "code": 25,
+      "name": "ReclaimRecipientMismatch",
+      "msg": "ReclaimOrder's reclaim_recipient account doesn't match the created_by address recorded in the order."
     }
   ]
 }

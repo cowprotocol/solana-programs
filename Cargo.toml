@@ -19,6 +19,7 @@ solana-program-pack = "3"
 solana-rpc-client = "3"
 derive_more = { version = "1", features = ["deref"] }
 hex-literal = "1"
+jsonschema = "0.30"
 litesvm = "0.12.0"
 litesvm-token = "0.12.0"
 num_enum = "0.7"
@@ -26,6 +27,7 @@ pinocchio = "0.11.1"
 pinocchio-system = "0.6"
 pinocchio-token = "0.6"
 proptest = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 settlement-client = { path = "client" }
 settlement-interface = { path = "interface" }
 solana-account-view = "2"
@@ -43,6 +45,7 @@ solana-system-interface = "3"
 spl-associated-token-account-interface = { version = "2" }
 spl-token = "9"
 spl-token-interface = "2"
+syn = { version = "2", features = ["full"] }
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.
