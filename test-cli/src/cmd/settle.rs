@@ -292,9 +292,9 @@ fn compute_pulls(
     intents: &[ResolvedIntent],
     sinks: &mut HashMap<Pubkey, Vec<Pull>>,
 ) -> anyhow::Result<Vec<Vec<Pull>>> {
-    let mut pulls = Vec::with_capacity(intents.len());
+    let mut pulls = vec![];
     for intent in intents {
-        let mut p = Vec::with_capacity(1);
+        let mut p = vec![];
 
         let mut to_pull = intent.data.sell_amount;
         if let Some(d) = sinks.get_mut(&intent.sell.mint) {
