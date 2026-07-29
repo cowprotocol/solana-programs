@@ -18,7 +18,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::token::{resolve_token_from_account, ResolvedToken};
 
@@ -142,6 +142,35 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
     Ok(intents)
 }
 
+/// Tally `amount` for `mint` in `tally`. The first time a mint is seen, also
+/// check whether its buffer PDA already exists on-chain and register it for
+/// creation if not.
+fn tally_and_register_buffer(
+    ctx: &Context,
+    tally: &mut HashMap<Pubkey, u64>,
+    mint_buffers_to_create: &mut HashSet<Pubkey>,
+    mint: Pubkey,
+    amount: u64,
+) -> anyhow::Result<()> {
+    match tally.get(&mint) {
+        Some(cur_amount) => {
+            let new_amount = cur_amount
+                .checked_add(amount)
+                .with_context(|| format!("trade amount tally overflow for mint {mint}"))?;
+            tally.insert(mint, new_amount);
+        }
+        None => {
+            let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, &mint);
+            if ctx.rpc.get_account(&buffer_pda).is_err() {
+                mint_buffers_to_create.insert(mint);
+            }
+            tally.insert(mint, amount);
+        }
+    }
+
+    Ok(())
+}
+
 /// Create any missing signer ATAs and buffer PDAs before the settle tx, and
 /// tally up the total sell/buy amount per mint across all orders.
 fn prepare_setup_ixs(
@@ -152,25 +181,25 @@ fn prepare_setup_ixs(
 ) -> anyhow::Result<HashMap<Pubkey, u64>> {
     let mut sell_amount_pulled: HashMap<Pubkey, u64> = HashMap::new();
     let mut buy_amount_pushed: HashMap<Pubkey, u64> = HashMap::new();
-    let mut mint_buffers_to_create: Vec<Pubkey> = Vec::new();
+    let mut mint_buffers_to_create: HashSet<Pubkey> = HashSet::new();
 
     for (i, intent) in intents.iter().enumerate() {
-        if !buy_amount_pushed.contains_key(&intent.buy.mint) {
-            let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, &intent.buy.mint);
-            if ctx.rpc.get_account(&buffer_pda).is_err() {
-                mint_buffers_to_create.push(intent.buy.mint);
-            }
-        }
-
-        // accumulates the sell and buy amounts (inserts if the key doesn't exist)
-        let sell_tally_entry = sell_amount_pulled.entry(intent.sell.mint).or_default();
-        *sell_tally_entry = sell_tally_entry
-            .checked_add(intent.data.sell_amount)
-            .with_context(|| format!("total sell amount overflow for mint {}", intent.sell.mint))?;
-        let buy_tally_entry = buy_amount_pushed.entry(intent.buy.mint).or_default();
-        *buy_tally_entry = buy_tally_entry
-            .checked_add(intent.data.buy_amount)
-            .with_context(|| format!("total buy amount overflow for mint {}", intent.buy.mint))?;
+        // for both the buy and sell token: we need to tally the total transfer amounts
+        // if this is the first time we are seeing the token, we should also check the buffer account, and create it if necessary.
+        tally_and_register_buffer(
+            ctx,
+            &mut sell_amount_pulled,
+            &mut mint_buffers_to_create,
+            intent.sell.mint,
+            intent.data.sell_amount,
+        )?;
+        tally_and_register_buffer(
+            ctx,
+            &mut buy_amount_pushed,
+            &mut mint_buffers_to_create,
+            intent.buy.mint,
+            intent.data.buy_amount,
+        )?;
 
         if intent.sell.ta_data.owner == Pubkey::default() {
             let named_intent = &args.orders[i];
@@ -195,7 +224,7 @@ fn prepare_setup_ixs(
             CreateBuffers {
                 program_id: ctx.program_id,
                 payer: ctx.payer.pubkey(),
-                mints: &mint_buffers_to_create,
+                mints: &mint_buffers_to_create.into_iter().collect::<Vec<_>>(),
             }
             .into(),
         );
