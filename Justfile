@@ -30,13 +30,13 @@ fmt-check:
 lint:
     cargo clippy --workspace --all-targets --all-features -- --deny=warnings
 
-# Generate the crate documentation.
-doc:
-    cargo doc --workspace --no-deps --all-features
+# Generate the crate documentation. Extra arguments are forwarded to `cargo doc` (e.g., `just doc --open`).
+doc *args:
+    cargo doc --workspace --no-deps --all-features {{ args }}
 
-# Generate extended documentation for devs. Fails on warnings, so we catch documentation issues early.
-doc-dev:
-    cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]'
+# Generate extended documentation for devs. Fails on warnings, so we catch documentation issues early. Extra arguments are forwarded to `cargo doc` (e.g., `just doc-dev --open`).
+doc-dev *args:
+    cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]' {{ args }}
 
 # Build the settlement program using solana-verify's reproducible Docker build.
 # Installs solana-verify via cargo if not already present (same as CI).
