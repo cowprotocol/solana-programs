@@ -124,14 +124,13 @@ fn pascal_to_snake(s: &str) -> String {
 }
 
 fn confirm_idl_match(idl: &Value, byte: u8, element_type: &str, idl_name: &str) {
-    let idl_element = find_item_in_idl(&idl, element_type, &idl_name).expect(&format!(
-        "IDL does not contain defined settlement element {idl_name}"
-    ));
+    let idl_element = find_item_in_idl(idl, element_type, idl_name)
+        .unwrap_or_else(|| panic!("IDL does not contain defined settlement element {idl_name}"));
 
     // confirm the discriminator matches
     let disc = idl_element["discriminator"]
         .as_array()
-        .expect(&format!("discriminator for {idl_name} should be an array"));
+        .unwrap_or_else(|| panic!("discriminator for {idl_name} should be an array"));
 
     assert_eq!(
         disc.len(),
@@ -184,7 +183,7 @@ fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, type_name: &str) {
         .expect("types must be an array")
         .iter()
         .find(|t| t["name"] == type_name)
-        .expect("IDL types[] must contain {type_name}");
+        .unwrap_or_else(|| panic!("IDL types[] must contain {type_name}"));
 
     let file = syn::parse_file(rust_file_name).expect("Rust source must parse");
     let rust_struct = file
@@ -194,21 +193,17 @@ fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, type_name: &str) {
             syn::Item::Struct(s) if s.ident == type_name => Some(s),
             _ => None,
         })
-        .expect("struct {struct_name} not found in Rust source");
+        .unwrap_or_else(|| panic!("struct {type_name} not found in Rust source"));
 
     // confirm the docs match
     let idl_docs: Vec<String> = type_in_idl["docs"]
         .as_array()
-        .expect("docs should be an array for {type_name}")
+        .unwrap_or_else(|| panic!("docs should be an array for {type_name}"))
         .iter()
         .map(|i| i.as_str().expect("doc item should be a string").to_string())
         .collect();
 
-    let rust_docs: Vec<String> = rust_struct
-        .attrs
-        .iter()
-        .filter_map(|attr| doc_attr_text(attr))
-        .collect();
+    let rust_docs: Vec<String> = rust_struct.attrs.iter().filter_map(doc_attr_text).collect();
 
     assert_eq!(
         idl_docs, rust_docs,
@@ -218,7 +213,7 @@ fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, type_name: &str) {
     // confirm fields match
     let idl_fields: Vec<String> = type_in_idl["type"]["fields"]
         .as_array()
-        .expect("struct type {type_name} should have a fields array")
+        .unwrap_or_else(|| panic!("struct type {type_name} should have a fields array"))
         .iter()
         .map(|f| {
             f["name"]
@@ -234,7 +229,7 @@ fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, type_name: &str) {
         .map(|f| {
             f.ident
                 .as_ref()
-                .expect("{struct_name} should have named fields")
+                .unwrap_or_else(|| panic!("{type_name} should have named fields"))
                 .to_string()
         })
         .collect();
@@ -242,7 +237,7 @@ fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, type_name: &str) {
     assert_eq!(
         idl_fields,
         rust_fields,
-        "OrderIntent's IDL field list/order must match the Rust struct (field order is load-bearing: it's the wire format)"
+        "{type_name}'s IDL field list/order must match the Rust struct (field order is load-bearing: it's the wire format)"
     );
 }
 
@@ -268,8 +263,13 @@ fn idl_matches_rust_errors() {
 
     let idl = idl();
     for rust_err in &rust_errors_type.variants {
-        let idl_err = find_item_in_idl(&idl, "errors", &rust_err.ident.to_string())
-            .expect("Settlement program error {rust_err} is not defined in IDL errors[]");
+        let idl_err =
+            find_item_in_idl(&idl, "errors", &rust_err.ident.to_string()).unwrap_or_else(|| {
+                panic!(
+                    "Settlement program error {} is not defined in IDL errors[]",
+                    rust_err.ident
+                )
+            });
 
         // the idl error's "code" should match up
         let rust_code = match &rust_err.discriminant {
