@@ -4,7 +4,6 @@
 //! initial body bytes; the PDA's storage layout lives in
 //! [`crate::data::order::EncodedOrderAccount`].
 
-use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -70,20 +69,17 @@ impl From<CreateOrder> for Instruction {
 }
 
 /// Parsed inputs of a `CreateOrder` instruction.
-pub struct CreateOrderInput<'a> {
+pub struct CreateOrderInput<'a, A> {
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
-    pub owner: &'a AccountView,
-    pub created_by: &'a AccountView,
-    pub order_pda: &'a mut AccountView,
+    pub owner: &'a A,
+    pub created_by: &'a A,
+    pub order_pda: &'a mut A,
 }
 
-impl<'a> InstructionInputParsing<'a> for CreateOrderInput<'a> {
+impl<'a, A> InstructionInputParsing<'a, A> for CreateOrderInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateOrder;
 
-    fn parse_body(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         // Body (discriminator already stripped): exactly the 150 intent bytes.
         if instruction_data.len() != EncodedOrderIntent::SIZE {
             return Err(ProgramError::InvalidInstructionData);
@@ -158,6 +154,7 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
+    use solana_account_view::AccountView;
     use solana_address::Address;
 
     #[test]

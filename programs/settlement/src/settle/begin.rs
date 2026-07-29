@@ -177,7 +177,7 @@ fn settle_orders(
     program_id: &Address,
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
-    orders: &mut SettledOrders,
+    orders: &mut SettledOrders<'_, AccountView>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
@@ -226,7 +226,7 @@ fn settle_orders(
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order(
     program_id: &Address,
-    order: SettledOrder<'_>,
+    order: SettledOrder<'_, AccountView>,
     (push_destination, push_amount): (&Address, u64),
     now: i64,
     state_account: &AccountView,
