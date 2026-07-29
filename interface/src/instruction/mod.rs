@@ -4,7 +4,6 @@
 //! settlement instructions, encoding their discriminator (see
 //! [`crate::SettlementInstruction`]) and laying out the required accounts.
 
-use solana_account_view::AccountView;
 use solana_program_error::ProgramError;
 
 use crate::{recover_discriminator, SettlementInstruction};
@@ -15,24 +14,24 @@ pub mod initialize;
 pub mod reclaim_order;
 pub mod settle;
 
-/// Shared components for parsing generic instruction input.
+/// Shared components for parsing an instruction's input (data fields and
+/// accounts).
 ///
 /// Implementations declare which [`SettlementInstruction`] discriminator they
 /// belong to and parse the remaining instruction data and accounts. The
 /// discriminator check is shared via the default [`parse`] implementation; an
 /// impl only needs to provide [`parse_body`].
-pub trait InstructionInputParsing<'a>: Sized {
+///
+/// Parsing accounts is purely positional: they are picked out by their index in
+/// the slice, never by inspecting them. The account type `A` is left generic so
+/// the same layout can be parsed from any account representation, on-chain
+/// (`solana_account_view::AccountView`) or off-chain.
+pub trait InstructionInputParsing<'a, A>: Sized {
     const DISCRIMINATOR: SettlementInstruction;
 
-    fn parse_body(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError>;
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError>;
 
-    fn parse(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         match recover_discriminator(instruction_data)? {
             (discriminator, remaining_data) if discriminator == Self::DISCRIMINATOR => {
                 Self::parse_body(remaining_data, accounts)
@@ -171,11 +170,12 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_account_view::AccountView;
 
     #[test]
     fn input_parsing_rejects_different_discriminator() {
         struct TestInputParsing {}
-        impl<'a> InstructionInputParsing<'a> for TestInputParsing {
+        impl<'a> InstructionInputParsing<'a, AccountView> for TestInputParsing {
             const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
             fn parse_body(
