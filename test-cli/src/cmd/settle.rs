@@ -316,7 +316,7 @@ fn parse_order_input(ctx: &Context, s: &str) -> anyhow::Result<Pubkey> {
         return Ok(pubkey);
     }
     anyhow::ensure!(
-        s.len() == 64,
+        s.len() == 64 && s.is_ascii(),
         "expected a base58 order PDA or a 64-char hex UID, got '{s}'"
     );
 
