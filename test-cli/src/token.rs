@@ -17,9 +17,6 @@ use spl_token_interface::state::{Account as TokenAccount, Mint};
 /// Replace with a proper on-chain registry or quote-API lookup when available.
 struct KnownToken {
     mint: Pubkey,
-    // leaving this here because chances are it will be needed later
-    #[allow(dead_code)]
-    decimals: u8,
 }
 
 const DEVNET_GENESIS_HASH: &str = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
@@ -31,7 +28,6 @@ static REGISTRY: &[(&str, &str, KnownToken)] = &[(
     "USDC",
     KnownToken {
         mint: pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"),
-        decimals: 6,
     },
 )];
 

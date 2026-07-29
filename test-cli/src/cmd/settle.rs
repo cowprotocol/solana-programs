@@ -281,11 +281,7 @@ fn print_settlement_summary(sig: Option<&Signature>, intents: &[ResolvedIntent])
     }
 }
 
-fn fetch_order_intent(
-    rpc: &RpcClient,
-    ctx: &Context,
-    s: &str,
-) -> anyhow::Result<OrderIntent> {
+fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result<OrderIntent> {
     let pda = parse_order_input(ctx, s)?;
     let data = rpc
         .get_account_data(&pda)
