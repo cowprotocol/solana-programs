@@ -85,7 +85,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
 
     // 2. Base58 mint or token-account address — fetches decimals from the mint, and possibly the token account owner.
     if let Ok(pubkey) = token_str.parse::<Pubkey>() {
-        return resolve_token_from_account(rpc, owner, &pubkey);
+        return interpret_token_from_user_input(rpc, owner, &pubkey);
     }
 
     // 3. Known symbol (e.g. `"USDC"`) — payer's ATA for the registered mint, RPC call required to get genesis hash (detecting the network).
@@ -117,7 +117,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
 /// If a token account is supplied, an additional call is required to retrieve the mint address.
 /// Then, the mint account data is decoded to retrieve important token information, such as the
 /// decimals.
-pub fn resolve_token_from_account(
+pub fn interpret_token_from_user_input(
     rpc: &RpcClient,
     owner: &Pubkey,
     token_account_or_mint: &Pubkey,

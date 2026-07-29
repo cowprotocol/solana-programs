@@ -19,7 +19,7 @@ use solana_sdk::{
 };
 use std::collections::{HashMap, HashSet};
 
-use crate::token::{resolve_token_from_account, ResolvedToken};
+use crate::token::{interpret_token_from_user_input, ResolvedToken};
 
 use super::Context;
 
@@ -157,12 +157,12 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
         .into_iter()
         .map(|intent| {
             Ok(ResolvedIntent {
-                sell: resolve_token_from_account(
+                sell: interpret_token_from_user_input(
                     &ctx.rpc,
                     &ctx.payer.pubkey(),
                     &intent.sell_token_account,
                 )?,
-                buy: resolve_token_from_account(
+                buy: interpret_token_from_user_input(
                     &ctx.rpc,
                     &ctx.payer.pubkey(),
                     &intent.buy_token_account,
