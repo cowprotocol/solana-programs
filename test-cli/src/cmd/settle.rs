@@ -17,7 +17,6 @@ use solana_sdk::{
     signature::{Signature, Signer},
     transaction::Transaction,
 };
-use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
 use std::collections::{HashMap, HashSet};
 
 use crate::token::{resolve_token_from_account, ResolvedToken};
@@ -201,21 +200,15 @@ fn prepare_setup_ixs(
             intent.data.buy_amount,
         )?;
 
-        if intent.sell.ta_data.owner == Pubkey::default() {
+        if intent.sell.create_ata_ix.is_some() {
             let named_intent = &args.orders[i];
             let ta = intent.sell.ta;
             anyhow::bail!("Order {named_intent}: sell account {ta} does not exist")
         }
 
-        if intent.buy.ta_data.owner == Pubkey::default() {
-            // as of right now, it may be necessary to create the buy token account if it doesn't exist yet
-            // here we assume it is an associated token account
-            all_ixs.push(create_associated_token_account_idempotent(
-                &ctx.payer.pubkey(),
-                &intent.data.owner,
-                &intent.buy.mint,
-                &spl_token_interface::id(),
-            ));
+        // as of right now, it may be necessary to create the buy token account if it doesn't exist yet
+        if let Some(create_ata_ix) = &intent.buy.create_ata_ix {
+            all_ixs.push(create_ata_ix(&ctx.payer.pubkey()));
         }
     }
 
