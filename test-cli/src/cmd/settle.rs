@@ -200,8 +200,7 @@ fn prepare_setup_ixs(
 
 /// Compute the pull destinations for a settlement. Every sold token is pulled
 /// into its mint's buffer PDA; tokens beyond what's needed to satisfy the
-/// orders simply stay in the buffer. Once swap routing exists this will also
-/// include exchange routes.
+/// orders simply stay in the buffer.
 fn compute_sinks(
     ctx: &Context,
     sell_amount_pulled: &HashMap<Pubkey, u64>,
