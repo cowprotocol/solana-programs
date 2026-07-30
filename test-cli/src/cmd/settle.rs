@@ -378,7 +378,7 @@ fn parse_order_input(ctx: &Context, s: &str) -> anyhow::Result<Pubkey> {
     let mut bytes = [0u8; 32];
     for (i, piece) in s.as_bytes().chunks(2).enumerate() {
         bytes[i] = u8::from_str_radix(
-            std::str::from_utf8(piece).expect("Should return to utf8 string"),
+            std::str::from_utf8(piece).context("Should return to utf8 string")?,
             16,
         )
         .with_context(|| format!("invalid hex in UID '{s}' at byte {i}"))?;
