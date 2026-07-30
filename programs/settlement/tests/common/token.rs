@@ -106,6 +106,12 @@ pub fn fund_and_delegate(
     );
 }
 
+pub fn supply(svm: &LiteSVM, mint: &Pubkey) -> u64 {
+    litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Mint>(svm, mint)
+        .expect("mint should exist and be a valid SPL token mint")
+        .supply
+}
+
 /// Read the SPL token balance of `account`.
 pub fn balance(svm: &LiteSVM, account: &Pubkey) -> u64 {
     litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, account)
