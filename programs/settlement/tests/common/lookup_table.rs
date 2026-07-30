@@ -56,7 +56,7 @@ fn seed_lookup_table(svm: &mut LiteSVM, addresses: Vec<Pubkey>) -> AddressLookup
 /// packet limit, up to the account-lock ceiling.
 ///
 /// This code is loosely based on:
-/// https://solana.com/developers/guides/advanced/lookup-tables#how-to-use-an-address-lookup-table-in-a-transaction
+/// <https://solana.com/developers/guides/advanced/lookup-tables#how-to-use-an-address-lookup-table-in-a-transaction>
 pub fn lookup_table_tx(
     svm: &mut LiteSVM,
     payer: &Keypair,
