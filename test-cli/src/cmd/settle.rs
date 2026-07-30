@@ -133,7 +133,9 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
                 .meta
                 .with_context(|| format!("transaction {sig} has no context"))?
                 .compute_units_consumed
-                .ok_or_else(|| anyhow::anyhow!("transaction meta doesn't include compute_units_consumed"))?,
+                .ok_or_else(|| {
+                    anyhow::anyhow!("transaction meta doesn't include compute_units_consumed")
+                })?,
             Some(sig),
         )
     };
