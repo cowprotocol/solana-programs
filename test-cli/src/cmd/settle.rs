@@ -113,7 +113,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
             simulate_result
                 .value
                 .units_consumed
-                .expect("simulation result doesn't include units units_consumed"),
+                .context("simulation result doesn't include units_consumed")?,
             None,
         )
     } else {
@@ -125,7 +125,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         let tx_info = ctx
             .rpc
             .get_transaction(&sig, UiTransactionEncoding::Json)
-            .expect("could not pull data of finalized transaction");
+            .context("could not pull data of finalized transaction")?;
 
         (
             tx_info
@@ -133,7 +133,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
                 .meta
                 .with_context(|| format!("transaction {sig} has no context"))?
                 .compute_units_consumed
-                .expect("transaction meta doesn't include compute_units_consumed"),
+                .ok_or_else(|| anyhow::anyhow!("transaction meta doesn't include compute_units_consumed"))?,
             Some(sig),
         )
     };
