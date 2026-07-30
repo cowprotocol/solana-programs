@@ -674,7 +674,8 @@ fn closes_sell_token_account_once_emptied_with_matching_close_authority() {
             }],
         }],
     );
-    send(&mut svm, &payer, instructions).expect("closing sell token account as part of settlement should succeed");
+    send(&mut svm, &payer, instructions)
+        .expect("closing sell token account as part of settlement should succeed");
 
     assert_eq!(token::balance(&svm, &destination), initial_amount);
     // The now-empty sell token account is closed, and its rent goes to the
@@ -718,7 +719,8 @@ fn leaves_sell_token_account_open_without_matching_close_authority() {
             }],
         }],
     );
-    send(&mut svm, &payer, instructions).expect("leaving sell token account open without authority should succeed");
+    send(&mut svm, &payer, instructions)
+        .expect("leaving sell token account open without authority should succeed");
 
     assert_eq!(token::balance(&svm, &destination), initial_amount);
     // The sell token account is empty but wasn't closed, since the state PDA
