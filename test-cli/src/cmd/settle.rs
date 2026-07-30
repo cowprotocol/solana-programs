@@ -65,9 +65,9 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         })
         .collect();
 
-    let begin_ix_index = all_ixs.len() as u16;
-    let finalize_ix_index = begin_ix_index
-        .checked_add(1)
+    let (begin_ix_index, finalize_ix_index) = u16::try_from(all_ixs.len())
+        .ok()
+        .and_then(|begin| Some((begin, begin.checked_add(1)?)))
         .context("too many instructions: begin/finalize index overflow")?;
 
     let begin_ix = BeginSettle {
