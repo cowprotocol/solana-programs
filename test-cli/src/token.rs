@@ -9,7 +9,10 @@ use solana_instruction::Instruction;
 use solana_program_pack::Pack;
 use solana_pubkey::pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
-use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
+use solana_sdk::account::ReadableAccount;
+use spl_associated_token_account_interface::address::{
+    get_associated_token_address, get_associated_token_address_with_program_id,
+};
 use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
 use spl_token_interface::native_mint;
 use spl_token_interface::state::{Account as TokenAccount, Mint};
@@ -40,9 +43,6 @@ fn known_token(genesis_hash: &str, symbol: &str) -> Option<&'static KnownToken> 
         .map(|(_, _, known)| known)
 }
 
-/// Builds the (idempotent) instruction that creates a token account, given the transaction fee payer.
-pub type CreateAtaIx = Box<dyn Fn(&Pubkey) -> Instruction>;
-
 pub struct ResolvedToken {
     /// SPL token account to use in the order (ATA if supplied program argument was a mint).
     pub ta: Pubkey,
@@ -50,16 +50,23 @@ pub struct ResolvedToken {
     pub mint: Pubkey,
     /// The actual mint data
     pub mint_data: Mint,
-    /// `Some` when `ta` does not yet exist on-chain. Call with the transaction
-    /// fee payer to build the instruction that creates it.
-    pub create_ata_ix: Option<CreateAtaIx>,
+    /// `Some(owner)` when `ta` does not yet exist on-chain. Call with the
+    /// transaction fee payer to build the instruction that creates it.
+    create_ata: Option<Pubkey>,
 }
 
-/// Builds a closure that creates `owner`'s ATA for `mint` when called with a fee payer.
-fn create_ata_closure(owner: Pubkey, mint: Pubkey) -> CreateAtaIx {
-    Box::new(move |payer: &Pubkey| {
-        create_associated_token_account_idempotent(payer, &owner, &mint, &spl_token_interface::id())
-    })
+impl ResolvedToken {
+    /// The idempotent instruction that creates `ta` (paid for by `payer`), or
+    /// `None` if the account already exists on-chain.
+    pub fn create_ata_ix(&self, payer: &Pubkey) -> Option<Instruction> {
+        let owner = self.create_ata?;
+        Some(create_associated_token_account_idempotent(
+            payer,
+            &owner,
+            &self.mint,
+            &spl_token_interface::id(),
+        ))
+    }
 }
 
 /// Resolve a user-supplied token string to a token account and decimal count.
@@ -77,8 +84,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
         return Ok(ResolvedToken {
             ta: wsol_ata,
             mint: wsol_mint,
-            create_ata_ix: (!ta_exists(rpc, &wsol_ata)?)
-                .then(|| create_ata_closure(*owner, wsol_mint)),
+            create_ata: determine_create_ata(rpc, &wsol_mint, owner)?,
             mint_data: fetch_mint_data(rpc, &wsol_mint)?,
         });
     }
@@ -101,7 +107,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
         );
         return Ok(ResolvedToken {
             ta: ata,
-            create_ata_ix: (!ta_exists(rpc, &ata)?).then(|| create_ata_closure(*owner, known.mint)),
+            create_ata: determine_create_ata(rpc, &known.mint, owner)?,
             mint: known.mint,
             mint_data: fetch_mint_data(rpc, &known.mint)?,
         });
@@ -111,6 +117,26 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
         "unknown token '{token_str}'; supported symbols: SOL, WSOL, USDC — \
          or provide a mint / token-account address"
     )
+}
+
+pub fn resolve_from_token_account(
+    rpc: &RpcClient,
+    token_account: &Pubkey,
+) -> anyhow::Result<ResolvedToken> {
+    let account = rpc
+        .get_account(token_account)
+        .with_context(|| format!("account {token_account} not found on-chain"))?;
+
+    let decoded_account = TokenAccount::unpack(account.data())
+        .with_context(|| format!("account {token_account} is not a token account"))?;
+
+    Ok(ResolvedToken {
+        ta: *token_account,
+        mint: decoded_account.mint,
+        mint_data: fetch_mint_data(rpc, &decoded_account.mint)?,
+        // The account was just fetched and unpacked above, so it already exists.
+        create_ata: None,
+    })
 }
 
 /// Resolve token information via a base58 address that may be either a token account or a mint.
@@ -138,7 +164,7 @@ pub fn interpret_token_from_user_input(
             mint: token_account.mint,
             mint_data: fetch_mint_data(rpc, &token_account.mint)?,
             // The account was just fetched and unpacked above, so it already exists.
-            create_ata_ix: None,
+            create_ata: None,
         })
     } else if let Ok(mint) = Mint::unpack(&account.data) {
         let ata = get_associated_token_address_with_program_id(
@@ -148,10 +174,9 @@ pub fn interpret_token_from_user_input(
         );
         Ok(ResolvedToken {
             ta: ata,
-            create_ata_ix: (!ta_exists(rpc, &ata)?)
-                .then(|| create_ata_closure(*owner, *token_account_or_mint)),
             mint_data: mint,
             mint: *token_account_or_mint,
+            create_ata: determine_create_ata(rpc, token_account_or_mint, owner)?,
         })
     } else {
         anyhow::bail!(
@@ -162,15 +187,21 @@ pub fn interpret_token_from_user_input(
     }
 }
 
-/// Whether a token account already exists on-chain.
-fn ta_exists(rpc: &RpcClient, token_account: &Pubkey) -> anyhow::Result<bool> {
-    let Ok(data) = rpc.get_account_data(token_account) else {
-        return Ok(false);
+/// Used to set `create_ata` on `ResolvedToken`. Returns the ATA `owner` when the
+/// account still needs to be created.
+fn determine_create_ata(
+    rpc: &RpcClient,
+    mint: &Pubkey,
+    owner: &Pubkey,
+) -> anyhow::Result<Option<Pubkey>> {
+    let token_account_address = get_associated_token_address(owner, mint);
+    let Ok(data) = rpc.get_account_data(&token_account_address) else {
+        return Ok(Some(*owner));
     };
 
     TokenAccount::unpack(&data)
-        .map(|_| true)
-        .map_err(|_| anyhow::anyhow!("account {token_account} is not a token account"))
+        .map(|_| None)
+        .map_err(|_| anyhow::anyhow!("account {token_account_address} is not a token account"))
 }
 
 fn fetch_mint_data(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<Mint> {

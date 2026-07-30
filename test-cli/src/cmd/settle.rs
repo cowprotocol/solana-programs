@@ -19,7 +19,7 @@ use solana_sdk::{
 };
 use std::collections::{HashMap, HashSet};
 
-use crate::token::{interpret_token_from_user_input, ResolvedToken};
+use crate::token::{resolve_from_token_account, ResolvedToken};
 
 use super::Context;
 
@@ -50,7 +50,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let intents = resolve_intents(&ctx, &args)?;
 
     let mut all_ixs: Vec<Instruction> = vec![];
-    let sell_amount_pulled = prepare_setup_ixs(&ctx, &args, &intents, &mut all_ixs)?;
+    let sell_amount_pulled = prepare_setup_ixs(&ctx, &intents, &mut all_ixs)?;
 
     let mut sinks = compute_sinks(&ctx, &sell_amount_pulled);
 
@@ -145,9 +145,12 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
 }
 
 /// Resolve each order input to its on-chain intent, then resolve the sell/buy
-/// token accounts for every order. Sorted largest-sell-first so that later
-/// the packing can be a bit more optimal for matching pull destinations with
-/// orders that can fill them.
+/// token accounts for every order to determine mint and anything else pertinent.
+/// Sorted largest-sell-first so that later the packing can be a bit more optimal
+/// for matching pull destinations with orders that can fill them.
+/// NOTE: Both `sell_token_account` and `buy_token_account` must exist as
+/// there is no on-chain mechanism to identify the mint account needed to create
+/// the ATA for the account if it doesn't exist
 fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<ResolvedIntent>> {
     let intents = args
         .orders
@@ -159,16 +162,8 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
         .into_iter()
         .map(|intent| {
             Ok(ResolvedIntent {
-                sell: interpret_token_from_user_input(
-                    &ctx.rpc,
-                    &ctx.payer.pubkey(),
-                    &intent.sell_token_account,
-                )?,
-                buy: interpret_token_from_user_input(
-                    &ctx.rpc,
-                    &ctx.payer.pubkey(),
-                    &intent.buy_token_account,
-                )?,
+                sell: resolve_from_token_account(&ctx.rpc, &intent.sell_token_account)?,
+                buy: resolve_from_token_account(&ctx.rpc, &intent.buy_token_account)?,
 
                 data: intent,
             })
@@ -213,7 +208,6 @@ fn tally_and_register_buffer(
 /// tally up the total sell/buy amount per mint across all orders.
 fn prepare_setup_ixs(
     ctx: &Context,
-    args: &SettleArgs,
     intents: &[ResolvedIntent],
     all_ixs: &mut Vec<Instruction>,
 ) -> anyhow::Result<HashMap<Pubkey, u64>> {
@@ -221,7 +215,7 @@ fn prepare_setup_ixs(
     let mut buy_amount_pushed: HashMap<Pubkey, u64> = HashMap::new();
     let mut mint_buffers_to_create: HashSet<Pubkey> = HashSet::new();
 
-    for (i, intent) in intents.iter().enumerate() {
+    for intent in intents {
         // for both the buy and sell token: we need to tally the total transfer amounts
         // if this is the first time we are seeing the token, we should also check the buffer account, and create it if necessary.
         tally_and_register_buffer(
@@ -238,17 +232,6 @@ fn prepare_setup_ixs(
             intent.buy.mint,
             intent.data.buy_amount,
         )?;
-
-        if intent.sell.create_ata_ix.is_some() {
-            let named_intent = &args.orders[i];
-            let ta = intent.sell.ta;
-            anyhow::bail!("Order {named_intent}: sell account {ta} does not exist")
-        }
-
-        // as of right now, it may be necessary to create the buy token account if it doesn't exist yet
-        if let Some(create_ata_ix) = &intent.buy.create_ata_ix {
-            all_ixs.push(create_ata_ix(&ctx.payer.pubkey()));
-        }
     }
 
     if !mint_buffers_to_create.is_empty() {

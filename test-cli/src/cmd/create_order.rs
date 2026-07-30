@@ -138,7 +138,8 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     let mut ixs = Vec::new();
 
     if sell_is_sol {
-        let (wsol_ata, wrap_ixs) = crate::instructions::wrap_sol(&ctx.payer.pubkey(), sell_amount)?;
+        let (wsol_ata, wrap_ixs) =
+            crate::instructions::wrap_sol(&ctx.rpc, &ctx.payer.pubkey(), sell_amount)?;
         assert_eq!(wsol_ata, sell.ta, "resolved WSOL ATA mismatch");
         ixs.extend(wrap_ixs);
     }
