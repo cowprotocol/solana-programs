@@ -160,6 +160,9 @@ pub enum SettlementError {
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 25,
+    /// A `BeginSettle` buy token account doesn't match the `buy_token_account`
+    /// recorded in the order's intent.
+    BuyTokenAccountMismatch = 26,
 }
 
 impl From<SettlementError> for u32 {
