@@ -2,7 +2,7 @@
 
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use settlement_interface::{
-    data::state,
+    data::state::*,
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
 };
@@ -14,7 +14,11 @@ pub fn process_initialize(
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    let InitializeInput { payer, state_pda } = InitializeInput::parse(instruction_data, accounts)?;
+    let InitializeInput {
+        payer,
+        state_pda,
+        receiver,
+    } = InitializeInput::parse(instruction_data, accounts)?;
 
     // There are no explicit account guards here: `create_canonical_pda` rejects
     // any `state_pda`  other than the address those seeds derive and guards
@@ -26,17 +30,17 @@ pub fn process_initialize(
         program_id,
         payer,
         pda: state_pda,
-        size: state::SIZE as u64,
+        size: EncodedStateAccount::SIZE as u64,
         owner: program_id,
         seeds: state_pda_seeds(),
     }
     .create()?;
 
     let mut buffer = state_pda.try_borrow_mut()?;
-    let buffer: &mut [u8; state::SIZE] = (&mut *buffer)
+    let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    state::write_account(buffer);
+    write_account(buffer, &receiver);
 
     Ok(())
 }
