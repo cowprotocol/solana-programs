@@ -131,7 +131,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
             tx_info
                 .transaction
                 .meta
-                .with_context(|| "transaction {sig} has no context")?
+                .with_context(|| format!("transaction {sig} has no context"))?
                 .compute_units_consumed
                 .expect("transaction meta doesn't include compute_units_consumed"),
             Some(sig),
