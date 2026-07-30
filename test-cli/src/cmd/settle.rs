@@ -294,25 +294,26 @@ fn compute_pulls(
 ) -> anyhow::Result<Vec<Vec<Pull>>> {
     let mut pulls = vec![];
     for intent in intents {
-        let mut p = vec![];
+        let mut pulls_for_intent = vec![];
 
         let mut to_pull = intent.data.sell_amount;
-        if let Some(d) = sinks.get_mut(&intent.sell.mint) {
+        if let Some(sinks_for_mint) = sinks.get_mut(&intent.sell.mint) {
             while to_pull > 0 {
-                let last = d
+                let sink_to_fill = sinks_for_mint
                     .last_mut()
                     .context("sink exhausted while computing pulls")?;
-                if last.amount <= to_pull {
+                if sink_to_fill.amount <= to_pull {
                     to_pull = to_pull
-                        .checked_sub(last.amount)
+                        .checked_sub(sink_to_fill.amount)
                         .context("pull amount underflow")?;
-                    p.push(d.pop().expect("just accessed via last_mut"));
+                    pulls_for_intent
+                        .push(sinks_for_mint.pop().expect("just accessed via last_mut"));
                 } else {
-                    p.push(Pull {
-                        destination: last.destination,
+                    pulls_for_intent.push(Pull {
+                        destination: sink_to_fill.destination,
                         amount: to_pull,
                     });
-                    last.amount = last
+                    sink_to_fill.amount = sink_to_fill
                         .amount
                         .checked_sub(to_pull)
                         .context("pull amount underflow")?;
@@ -321,7 +322,7 @@ fn compute_pulls(
             }
         }
 
-        pulls.push(p);
+        pulls.push(pulls_for_intent);
     }
 
     Ok(pulls)
