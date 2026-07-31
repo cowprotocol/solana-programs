@@ -377,7 +377,7 @@ fn print_settlement_summary(outcome: &SettleOutcome, intents: &[ResolvedIntent])
 }
 
 fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result<OrderIntent> {
-    let pda = parse_order_input(ctx, s)?;
+    let pda = parse_order_input(&ctx.program_id, s)?;
     let data = rpc
         .get_account_data(&pda)
         .with_context(|| format!("failed to get order account data for {pda}"))?;
@@ -393,7 +393,7 @@ fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result
 }
 
 /// Accept either a 64-char hex UID or a base58 pubkey (the PDA directly).
-fn parse_order_input(ctx: &Context, s: &str) -> anyhow::Result<Pubkey> {
+fn parse_order_input(program_id: &Pubkey, s: &str) -> anyhow::Result<Pubkey> {
     if let Ok(pubkey) = s.parse::<Pubkey>() {
         return Ok(pubkey);
     }
@@ -414,7 +414,7 @@ fn parse_order_input(ctx: &Context, s: &str) -> anyhow::Result<Pubkey> {
     }
     let uid = Hash::new_from_array(bytes);
     let (pda, _) =
-        settlement_client::settlement_interface::pda::order::find_order_pda(&ctx.program_id, &uid);
+        settlement_client::settlement_interface::pda::order::find_order_pda(&program_id, &uid);
     Ok(pda)
 }
 
