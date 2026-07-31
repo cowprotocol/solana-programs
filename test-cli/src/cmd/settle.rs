@@ -336,9 +336,7 @@ fn ensure_cow_balance(
 }
 
 /// Compute the pull destinations for a settlement: every order's full sell
-/// amount goes into the buffer PDA of its sell mint. The proceeds each user
-/// receives are their limit price (the order's buy amount), so any surplus
-/// simply stays in the buffers.
+/// amount goes into the buffer PDA of its sell mint.
 fn compute_pulls(ctx: &Context, intents: &[ResolvedIntent]) -> Vec<[Pull; 1]> {
     intents
         .iter()
