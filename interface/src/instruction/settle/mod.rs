@@ -10,7 +10,10 @@ mod begin;
 mod finalize;
 
 pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder};
-pub use finalize::{FinalizeSettle, FinalizeSettleInput, Push, Pushes, FINALIZE_FIXED_ACCOUNTS};
+pub use finalize::{
+    finalize_push_amounts, FinalizeSettle, FinalizeSettleInput, Push, Pushes,
+    FINALIZE_FIXED_ACCOUNTS,
+};
 
 /// Reads the first two bytes of a byte slice (instruction data) and
 /// interprets them as a little-endian u16, returning it together with the
@@ -24,6 +27,36 @@ pub fn recover_counterpart(instruction_data: &[u8]) -> Result<(u16, &[u8]), Prog
     match instruction_data {
         [b1, b2, rest @ ..] => Ok((u16::from_le_bytes([*b1, *b2]), rest)),
         _ => Err(ProgramError::InvalidInstructionData),
+    }
+}
+
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures {
+    use proptest::prelude::*;
+    use solana_pubkey::Pubkey;
+
+    /// Strategy producing `count` random pushes as the parallel
+    /// `(source_buffers, destinations, bumps, amounts)` lists the
+    /// [`FinalizeSettle`](super::FinalizeSettle) builder takes.
+    pub fn arb_pushes(
+        count: impl Into<prop::collection::SizeRange>,
+    ) -> impl Strategy<Value = (Vec<Pubkey>, Vec<Pubkey>, Vec<u8>, Vec<u64>)> {
+        prop::collection::vec(
+            (
+                any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
+                any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
+                any::<u8>(),
+                any::<u64>(),
+            ),
+            count,
+        )
+        .prop_map(|pushes| {
+            let source_buffers = pushes.iter().map(|&(source, ..)| source).collect();
+            let destinations = pushes.iter().map(|&(_, dest, ..)| dest).collect();
+            let bumps = pushes.iter().map(|&(.., bump, _)| bump).collect();
+            let amounts = pushes.iter().map(|&(.., amount)| amount).collect();
+            (source_buffers, destinations, bumps, amounts)
+        })
     }
 }
 
