@@ -13,7 +13,7 @@ use settlement_client::{
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_rpc_client::{
-    api::config::{RpcTransactionConfig, UiTransactionEncoding},
+    api::config::RpcTransactionConfig,
     rpc_client::RpcClient,
 };
 use solana_sdk::{
@@ -47,8 +47,7 @@ enum SettleOutcome {
     /// `--dry-run`: simulated without an error.
     Simulated { units_consumed: u64 },
 
-    /// `--dry-run`: the simulation itself reverted. The RPC call succeeds in this case,
-    /// so the error only shows up in the simulation result.
+    /// `--dry-run`: the simulation itself reverted.
     SimulationFailed {
         err: String,
         units_consumed: Option<u64>,
