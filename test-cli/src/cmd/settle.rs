@@ -181,9 +181,8 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
             .get_transaction_with_config(
                 &sig,
                 RpcTransactionConfig {
-                    encoding: Some(UiTransactionEncoding::Json),
                     commitment: Some(ctx.rpc.commitment()),
-                    max_supported_transaction_version: Some(0),
+                    ..Default::default()
                 },
             )
             .with_context(|| format!("could not pull data of confirmed transaction {sig}"))?;
