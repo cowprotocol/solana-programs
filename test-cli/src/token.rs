@@ -123,9 +123,14 @@ pub fn resolve_from_token_account(
     rpc: &RpcClient,
     token_account: &Pubkey,
 ) -> anyhow::Result<ResolvedToken> {
-    let account = rpc
-        .get_account(token_account)
-        .with_context(|| format!("account {token_account} not found on-chain"))?;
+    let account = rpc.get_account(token_account).with_context(|| {
+        format!(
+            "token account {token_account} not found on-chain
+    HELP: you can create this token account yourself:
+    $ spl-token create-account $MINT --owner $OWNER
+        "
+        )
+    })?;
 
     let decoded_account = TokenAccount::unpack(account.data())
         .with_context(|| format!("account {token_account} is not a token account"))?;
