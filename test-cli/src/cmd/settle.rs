@@ -12,10 +12,7 @@ use settlement_client::{
 };
 use solana_hash::Hash;
 use solana_instruction::Instruction;
-use solana_rpc_client::{
-    api::config::RpcTransactionConfig,
-    rpc_client::RpcClient,
-};
+use solana_rpc_client::{api::config::RpcTransactionConfig, rpc_client::RpcClient};
 use solana_sdk::{
     signature::{Signature, Signer},
     transaction::Transaction,
