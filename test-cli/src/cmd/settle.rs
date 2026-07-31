@@ -414,7 +414,7 @@ fn parse_order_input(program_id: &Pubkey, s: &str) -> anyhow::Result<Pubkey> {
     }
     let uid = Hash::new_from_array(bytes);
     let (pda, _) =
-        settlement_client::settlement_interface::pda::order::find_order_pda(&program_id, &uid);
+        settlement_client::settlement_interface::pda::order::find_order_pda(program_id, &uid);
     Ok(pda)
 }
 
@@ -483,5 +483,43 @@ mod tests {
         // A mint nobody sells has nothing in its buffer to push from.
         let bought = HashMap::from([(Pubkey::new_unique(), 1)]);
         assert!(ensure_cow_balance(&HashMap::new(), &bought).is_err());
+    }
+
+    #[test]
+    fn parse_order_input_passes_through_base58_pda() {
+        let pda = Pubkey::new_unique();
+        assert_eq!(
+            parse_order_input(&Pubkey::new_unique(), &pda.to_string()).unwrap(),
+            pda,
+        );
+    }
+
+    #[test]
+    fn parse_order_input_derives_pda_from_hex_uid() {
+        let program_id = Pubkey::new_unique();
+        let uid = Hash::new_from_array(*Pubkey::new_unique().as_array());
+        let (expected, _) =
+            settlement_client::settlement_interface::pda::order::find_order_pda(&program_id, &uid);
+
+        // `Hash`'s `Display` is base58, so spell the hex out from the raw bytes.
+        let hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hex.len(), 64);
+
+        assert_eq!(parse_order_input(&program_id, &hex).unwrap(), expected);
+    }
+
+    #[test]
+    fn parse_order_input_rejects_input_that_is_neither() {
+        // Not base58 (so not a pubkey) and not 64 chars long.
+        let err = parse_order_input(&Pubkey::new_unique(), "0x1234")
+            .expect_err("short non-base58 input is not a valid order reference")
+            .to_string();
+        assert!(err.contains("expected a base58 order PDA"), "{err}");
+
+        // Right length, but not hex.
+        let err = parse_order_input(&Pubkey::new_unique(), &"z".repeat(64))
+            .expect_err("64 non-hex chars are not a valid UID")
+            .to_string();
+        assert!(err.contains("invalid hex in UID"), "{err}");
     }
 }
