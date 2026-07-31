@@ -35,11 +35,14 @@ pub fn process_create_order(
         return Err(SettlementError::OwnerMismatch.into());
     }
 
-    // We want a single order per uid; `create_canonical_pda` derives the
-    // canonical bump and, by signing the creation with the order seeds, rejects
+    // We want a single order per uid; `CanonicalPda::create_idempotent` derives
+    // the canonical bump and, by signing the creation with the order seeds, rejects
     // any `order_pda` that isn't the canonical address. The rest of the code
     // can assume that if an account has data, then the bump is valid.
-    CanonicalPda {
+    // If the account already exists, the order creation still succeeds but
+    // nothing is written on-chain (so, for example, a cancelled order is still
+    // cancelled after recreating it).
+    let created = CanonicalPda {
         program_id,
         payer: created_by,
         pda: order_pda,
@@ -47,14 +50,15 @@ pub fn process_create_order(
         owner: program_id,
         seeds: order_pda_seeds(&intent_uid),
     }
-    .create()?;
+    .create_idempotent()?;
 
-    // Note: `intent_bytes` were validated before and are known to represent a valid intent.
-    let mut buffer = order_pda.try_borrow_mut()?;
-    let buffer: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *buffer)
-        .try_into()
-        .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    order::write_account(buffer, false, 0, 0, created_by.address(), &intent_bytes);
+    if created {
+        let mut order_data = order_pda.try_borrow_mut()?;
+        let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
+            .try_into()
+            .map_err(|_| ProgramError::AccountDataTooSmall)?;
+        order::write_account(order_data, false, 0, 0, created_by.address(), &intent_bytes);
+    }
 
     Ok(())
 }

@@ -3,8 +3,10 @@ use settlement_client::settlement_interface::{
     data::state, instruction::initialize::Initialize as InitializeRaw, pda::state::find_state_pda,
 };
 use solana_sdk::{
+    instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
+    transaction::TransactionError,
 };
 
 mod common;
@@ -107,5 +109,11 @@ fn rejects_initializing_twice() {
         payer: payer.pubkey(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::pda::assert_rejected_as_existing(&mut svm, tx);
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("re-initializing must be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, InstructionError::AccountAlreadyInitialized),
+    );
 }

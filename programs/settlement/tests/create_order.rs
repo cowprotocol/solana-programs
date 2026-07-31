@@ -206,7 +206,25 @@ fn rejects_non_canonical_bump_pda() {
 }
 
 #[test]
-fn rejects_creating_same_pda_twice() {
+fn recreating_same_order_is_idempotent() {
+    let (mut svm, program_id, fee_payer) = common::setup();
+    let intent = sample_intent(fee_payer.pubkey());
+    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+
+    common::pda::assert_recreate_is_noop(&mut svm, &pda, |svm| {
+        let ix = CreateOrder {
+            program_id,
+            owner: fee_payer.pubkey(),
+            created_by: fee_payer.pubkey(),
+            order_pda: pda,
+            intent_bytes: encoded,
+        };
+        signed_tx(svm, &fee_payer, &fee_payer, ix)
+    });
+}
+
+#[test]
+fn recreating_order_with_a_different_creator_is_noop() {
     let (mut svm, program_id, fee_payer) = common::setup();
     let another_fee_payer = Keypair::new_from_array([43; 32]);
     svm.airdrop(&another_fee_payer.pubkey(), 1_000_000_000)
@@ -215,7 +233,7 @@ fn rejects_creating_same_pda_twice() {
     let intent = sample_intent(fee_payer.pubkey());
     let (encoded, pda) = encode_and_derive(&intent, &program_id);
 
-    // First creation populates the PDA.
+    // First creation populates the PDA, recording `fee_payer` as `created_by`.
     let ix = CreateOrder {
         program_id,
         owner: fee_payer.pubkey(),
@@ -226,11 +244,13 @@ fn rejects_creating_same_pda_twice() {
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     svm.send_transaction(tx)
         .expect("first create_order should succeed");
+    let before = svm.get_account(&pda).expect("order PDA should exist");
 
     svm.expire_blockhash();
 
-    // For good measure, we change `created_by` to stress that the input
-    // account doesn't matter here.
+    // The second call uses a different `created_by`, but no rent is paid so the
+    // stored order (including its `created_by`) must be left byte-for-byte
+    // unchanged.
     let ix = CreateOrder {
         program_id,
         owner: fee_payer.pubkey(),
@@ -239,7 +259,11 @@ fn rejects_creating_same_pda_twice() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &another_fee_payer, &fee_payer, ix);
-    common::pda::assert_rejected_as_existing(&mut svm, tx);
+    svm.send_transaction(tx)
+        .expect("recreating an existing order should succeed as a no-op");
+
+    let after = svm.get_account(&pda).expect("order PDA should still exist");
+    assert_eq!(before, after, "redundant create must not modify the order");
 }
 
 #[test]
