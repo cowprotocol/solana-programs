@@ -403,6 +403,16 @@ fn batch_with_existing_buffer_passes_with_no_changes() {
         before, after,
         "the existing buffer in the batch must be left unchanged"
     );
+
+    // The other, fresh mint in the same batch must have been created.
+    let (fresh_buffer, _bump) = find_buffer_pda(&program_id, &fresh);
+    let fresh_account = get_spl_account::<TokenAccount>(&svm, &fresh_buffer)
+        .expect("the fresh buffer must be an initialized token account after the batch");
+    assert_eq!(
+        fresh_account.state,
+        AccountState::Initialized,
+        "the fresh buffer must be initialized"
+    );
 }
 
 #[test]
