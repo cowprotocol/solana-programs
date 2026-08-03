@@ -5,10 +5,15 @@
 
 use anyhow::Context as _;
 use settlement_client::settlement_interface::Pubkey;
+use solana_instruction::Instruction;
 use solana_program_pack::Pack;
 use solana_pubkey::pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
-use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
+use solana_sdk::account::ReadableAccount;
+use spl_associated_token_account_interface::address::{
+    get_associated_token_address, get_associated_token_address_with_program_id,
+};
+use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
 use spl_token_interface::native_mint;
 use spl_token_interface::state::{Account as TokenAccount, Mint};
 
@@ -17,7 +22,6 @@ use spl_token_interface::state::{Account as TokenAccount, Mint};
 /// Replace with a proper on-chain registry or quote-API lookup when available.
 struct KnownToken {
     mint: Pubkey,
-    decimals: u8,
 }
 
 const DEVNET_GENESIS_HASH: &str = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
@@ -29,7 +33,6 @@ static REGISTRY: &[(&str, &str, KnownToken)] = &[(
     "USDC",
     KnownToken {
         mint: pubkey!("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"),
-        decimals: 6,
     },
 )];
 
@@ -42,9 +45,28 @@ fn known_token(genesis_hash: &str, symbol: &str) -> Option<&'static KnownToken> 
 
 pub struct ResolvedToken {
     /// SPL token account to use in the order (ATA if supplied program argument was a mint).
-    pub account: Pubkey,
-    /// On-chain `decimals` value for the token's mint.
-    pub decimals: u8,
+    pub ta: Pubkey,
+    /// Mint address for the token.
+    pub mint: Pubkey,
+    /// The actual mint data
+    pub mint_data: Mint,
+    /// `Some(owner)` when `ta` does not yet exist on-chain. Call with the
+    /// transaction fee payer to build the instruction that creates it.
+    create_ata: Option<Pubkey>,
+}
+
+impl ResolvedToken {
+    /// The idempotent instruction that creates `ta` (paid for by `payer`), or
+    /// `None` if the account already exists on-chain.
+    pub fn create_ata_ix(&self, payer: &Pubkey) -> Option<Instruction> {
+        let owner = self.create_ata?;
+        Some(create_associated_token_account_idempotent(
+            payer,
+            &owner,
+            &self.mint,
+            &spl_token_interface::id(),
+        ))
+    }
 }
 
 /// Resolve a user-supplied token string to a token account and decimal count.
@@ -60,14 +82,16 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
             &spl_token_interface::id(),
         );
         return Ok(ResolvedToken {
-            account: wsol_ata,
-            decimals: native_mint::DECIMALS,
+            ta: wsol_ata,
+            mint: wsol_mint,
+            create_ata: determine_create_ata(rpc, &wsol_mint, owner)?,
+            mint_data: fetch_mint_data(rpc, &wsol_mint)?,
         });
     }
 
     // 2. Base58 mint or token-account address — fetches decimals from the mint, and possibly the token account owner.
     if let Ok(pubkey) = token_str.parse::<Pubkey>() {
-        return resolve_from_account(rpc, owner, &pubkey);
+        return interpret_token_from_user_input(rpc, owner, &pubkey);
     }
 
     // 3. Known symbol (e.g. `"USDC"`) — payer's ATA for the registered mint, RPC call required to get genesis hash (detecting the network).
@@ -82,8 +106,10 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
             &spl_token_interface::id(),
         );
         return Ok(ResolvedToken {
-            account: ata,
-            decimals: known.decimals,
+            ta: ata,
+            create_ata: determine_create_ata(rpc, &known.mint, owner)?,
+            mint: known.mint,
+            mint_data: fetch_mint_data(rpc, &known.mint)?,
         });
     }
 
@@ -93,11 +119,36 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
     )
 }
 
+pub fn resolve_from_token_account(
+    rpc: &RpcClient,
+    token_account: &Pubkey,
+) -> anyhow::Result<ResolvedToken> {
+    let account = rpc.get_account(token_account).with_context(|| {
+        format!(
+            "token account {token_account} not found on-chain
+    HELP: you can create this token account yourself:
+    $ spl-token create-account $MINT --owner $OWNER
+        "
+        )
+    })?;
+
+    let decoded_account = TokenAccount::unpack(account.data())
+        .with_context(|| format!("account {token_account} is not a token account"))?;
+
+    Ok(ResolvedToken {
+        ta: *token_account,
+        mint: decoded_account.mint,
+        mint_data: fetch_mint_data(rpc, &decoded_account.mint)?,
+        // The account was just fetched and unpacked above, so it already exists.
+        create_ata: None,
+    })
+}
+
 /// Resolve token information via a base58 address that may be either a token account or a mint.
 /// If a token account is supplied, an additional call is required to retrieve the mint address.
 /// Then, the mint account data is decoded to retrieve important token information, such as the
 /// decimals.
-fn resolve_from_account(
+pub fn interpret_token_from_user_input(
     rpc: &RpcClient,
     owner: &Pubkey,
     token_account_or_mint: &Pubkey,
@@ -114,17 +165,23 @@ fn resolve_from_account(
 
     if let Ok(token_account) = TokenAccount::unpack(&account.data) {
         Ok(ResolvedToken {
-            account: *token_account_or_mint,
-            decimals: fetch_mint_decimals(rpc, &token_account.mint)?,
+            ta: *token_account_or_mint,
+            mint: token_account.mint,
+            mint_data: fetch_mint_data(rpc, &token_account.mint)?,
+            // The account was just fetched and unpacked above, so it already exists.
+            create_ata: None,
         })
     } else if let Ok(mint) = Mint::unpack(&account.data) {
+        let ata = get_associated_token_address_with_program_id(
+            owner,
+            token_account_or_mint,
+            &spl_token_interface::id(),
+        );
         Ok(ResolvedToken {
-            account: get_associated_token_address_with_program_id(
-                owner,
-                token_account_or_mint,
-                &account.owner,
-            ),
-            decimals: mint.decimals,
+            ta: ata,
+            mint_data: mint,
+            mint: *token_account_or_mint,
+            create_ata: determine_create_ata(rpc, token_account_or_mint, owner)?,
         })
     } else {
         anyhow::bail!(
@@ -135,11 +192,31 @@ fn resolve_from_account(
     }
 }
 
-fn fetch_mint_decimals(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<u8> {
+/// Used to set `create_ata` on `ResolvedToken`. Returns the ATA `owner` when the
+/// account still needs to be created.
+fn determine_create_ata(
+    rpc: &RpcClient,
+    mint: &Pubkey,
+    owner: &Pubkey,
+) -> anyhow::Result<Option<Pubkey>> {
+    let token_account_address = get_associated_token_address(owner, mint);
+    let Ok(data) = rpc.get_account_data(&token_account_address) else {
+        return Ok(Some(*owner));
+    };
+
+    TokenAccount::unpack(&data)
+        .map(|_| None)
+        .map_err(|_| anyhow::anyhow!("account {token_account_address} is not a token account"))
+}
+
+fn fetch_mint_data(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<Mint> {
     let data = rpc
         .get_account_data(mint)
         .with_context(|| format!("mint account {mint} not found"))?;
-    Ok(Mint::unpack(&data)
-        .with_context(|| format!("failed to unpack mint {mint}"))?
-        .decimals)
+
+    if let Ok(mint_data) = Mint::unpack(&data) {
+        Ok(mint_data)
+    } else {
+        Err(anyhow::anyhow!("account {mint} is not a mint"))
+    }
 }
