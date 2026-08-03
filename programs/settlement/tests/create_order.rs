@@ -212,34 +212,16 @@ fn rejects_recreating_existing_order() {
     let intent = sample_intent(fee_payer.pubkey());
     let (encoded, pda) = encode_and_derive(&intent, &program_id);
 
-    let ix = CreateOrder {
-        program_id,
-        owner: fee_payer.pubkey(),
-        created_by: fee_payer.pubkey(),
-        order_pda: pda,
-        intent_bytes: encoded,
-    };
-    let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    svm.send_transaction(tx)
-        .expect("first create_order should succeed");
-
-    svm.expire_blockhash();
-
-    let ix = CreateOrder {
-        program_id,
-        owner: fee_payer.pubkey(),
-        created_by: fee_payer.pubkey(),
-        order_pda: pda,
-        intent_bytes: encoded,
-    };
-    let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    let err = svm
-        .send_transaction(tx)
-        .expect_err("recreating an existing order must be rejected");
-    assert_eq!(
-        err.err,
-        TransactionError::InstructionError(0, InstructionError::AccountAlreadyInitialized),
-    );
+    common::pda::assert_recreate_is_rejected(&mut svm, &pda, |svm| {
+        let ix = CreateOrder {
+            program_id,
+            owner: fee_payer.pubkey(),
+            created_by: fee_payer.pubkey(),
+            order_pda: pda,
+            intent_bytes: encoded,
+        };
+        signed_tx(svm, &fee_payer, &fee_payer, ix)
+    });
 }
 
 #[test]

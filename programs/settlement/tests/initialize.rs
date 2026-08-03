@@ -3,10 +3,8 @@ use settlement_client::settlement_interface::{
     data::state, instruction::initialize::Initialize as InitializeRaw, pda::state::find_state_pda,
 };
 use solana_sdk::{
-    instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::TransactionError,
 };
 
 mod common;
@@ -93,27 +91,13 @@ fn rejects_arbitrary_wrong_state_pda() {
 #[test]
 fn rejects_initializing_twice() {
     let (mut svm, program_id, payer) = common::setup();
+    let (state_pda, _bump) = find_state_pda(&program_id);
 
-    let ix = Initialize {
-        program_id,
-        payer: payer.pubkey(),
-    };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
-        .expect("first initialize should succeed");
-
-    svm.expire_blockhash();
-
-    let ix = Initialize {
-        program_id,
-        payer: payer.pubkey(),
-    };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    let err = svm
-        .send_transaction(tx)
-        .expect_err("re-initializing must be rejected");
-    assert_eq!(
-        err.err,
-        TransactionError::InstructionError(0, InstructionError::AccountAlreadyInitialized),
-    );
+    common::pda::assert_recreate_is_rejected(&mut svm, &state_pda, |svm| {
+        let ix = Initialize {
+            program_id,
+            payer: payer.pubkey(),
+        };
+        common::signed_tx(svm, &payer, &payer, ix)
+    });
 }

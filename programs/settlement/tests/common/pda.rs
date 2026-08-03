@@ -1,6 +1,6 @@
 //! Shared helper for PDA-related tests.
 
-use litesvm::LiteSVM;
+use litesvm::{types::TransactionResult, LiteSVM};
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,
@@ -51,14 +51,15 @@ pub fn assert_rejected_as_noncanonical(svm: &mut LiteSVM, tx: Transaction, pda: 
     );
 }
 
-/// Send the transaction built by `make_tx` twice and assert the second run is
-/// a no-op for the input account: both transactions succeed and the input
-/// account is byte-for-byte unchanged compared to the second.
-pub fn assert_recreate_is_noop(
+/// Send the transaction built by `make_tx` twice and assert the account it
+/// creates is byte-for-byte unchanged by the second run. The first transaction
+/// must succeed; the second is sent and its result returned so the caller can
+/// assert on the outcome (a no-op success or a revert).
+fn recreate_leaving_account_unchanged(
     svm: &mut LiteSVM,
     account: &Pubkey,
     make_tx: impl Fn(&LiteSVM) -> Transaction,
-) {
+) -> TransactionResult {
     let tx = make_tx(svm);
     svm.send_transaction(tx)
         .expect("first creation should succeed");
@@ -72,14 +73,44 @@ pub fn assert_recreate_is_noop(
     svm.expire_blockhash();
 
     let tx = make_tx(svm);
-    svm.send_transaction(tx)
-        .expect("recreating an existing account should succeed as a no-op");
+    // Note: the transaction may be reverting, we don't check that here.
+    let result = svm.send_transaction(tx);
+
     let after = svm
         .get_account(account)
         .expect("account should still exist");
-
     assert_eq!(
         before, after,
-        "redundant create must not modify the account"
+        "the second creation must not modify the account"
+    );
+
+    result
+}
+
+/// Send the transaction built by `make_tx` twice and assert the second run is
+/// a no-op for the input account: both transactions succeed and the input
+/// account is byte-for-byte unchanged compared to the second.
+pub fn assert_recreate_is_noop(
+    svm: &mut LiteSVM,
+    account: &Pubkey,
+    make_tx: impl Fn(&LiteSVM) -> Transaction,
+) {
+    recreate_leaving_account_unchanged(svm, account, make_tx)
+        .expect("recreating an existing account should succeed as a no-op");
+}
+
+/// Send the transaction built by `make_tx` twice and assert the second run is
+/// rejected because the account already exists: the first transaction succeeds,
+/// the second reverts with `AccountAlreadyInitialized`, and the account is left
+/// byte-for-byte unchanged.
+pub fn assert_recreate_is_rejected(
+    svm: &mut LiteSVM,
+    account: &Pubkey,
+    make_tx: impl Fn(&LiteSVM) -> Transaction,
+) {
+    let result = recreate_leaving_account_unchanged(svm, account, make_tx);
+    super::assert_instruction_error(
+        result.map_err(|meta| meta.err),
+        InstructionError::AccountAlreadyInitialized,
     );
 }
