@@ -79,7 +79,7 @@ impl<const N: usize> CanonicalPda<'_, N> {
 
     /// Create the canonical account, reverting with
     /// [`ProgramError::AccountAlreadyInitialized`] if it already exists.
-    #[must_use = "ignoring the output means processing continues without the PDA having been created"]
+    #[must_use = "ignoring the output means the PDA could be incorrectly set up"]
     pub fn create_new(self) -> ProgramResult {
         if self.create_idempotent()? {
             Ok(())
