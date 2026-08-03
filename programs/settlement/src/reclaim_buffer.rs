@@ -14,13 +14,9 @@ use pinocchio_token::{
     state::Account as TokenAccount,
 };
 use settlement_interface::{
-    data::state::{EncodedStateAccount, StateAccount},
-    instruction::{
-        create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
-        InstructionInputParsing,
-    },
-    pda::{buffer::buffer_pda_seeds, state::state_pda_seeds},
-    Pubkey, SettlementError,
+    Pubkey, SettlementError, data::state::{EncodedStateAccount, StateAccount}, instruction::{
+        InstructionInputParsing, create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
+    }, pda::{buffer::{buffer_pda_seeds, find_buffer_pda}, state::state_pda_seeds},
 };
 
 struct ReclaimBufferEntry {
@@ -75,9 +71,8 @@ pub fn process_reclaim_buffer(
     }
 
     for ReclaimBufferEntry { buffer_pda, mint } in buffers.iter().map(read_buffer_entry) {
-        let expected_buffer_pda =
-            Address::find_program_address(&buffer_pda_seeds(mint.address().as_array()), program_id)
-                .0;
+        let expected_buffer_pda = find_buffer_pda(program_id, mint.address()).0;
+        
         if buffer_pda.address() != &expected_buffer_pda {
             return Err(SettlementError::BufferNotCanonical.into());
         }
