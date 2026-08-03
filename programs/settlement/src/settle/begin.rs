@@ -388,16 +388,24 @@ mod tests {
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).
     const MAX: u64 = u64::MAX;
 
-    fn intent_with(
+    /// The order parameters that define an intent for these checks: the
+    /// order's `sell`/`buy` amounts, `kind`, and fillability. Grouping them
+    /// keeps a settlement's amounts visually separate from the order it fills.
+    #[derive(Debug)]
+    struct IntentSpec {
+        sell: u64,
+        buy: u64,
         kind: OrderKind,
         partially_fillable: bool,
-        sell_amount: u64,
-        buy_amount: u64,
-    ) -> OrderIntent {
-        OrderIntent {
-            sell_amount,
-            buy_amount,
-            ..sample_intent(kind, partially_fillable)
+    }
+
+    impl IntentSpec {
+        fn build(&self) -> OrderIntent {
+            OrderIntent {
+                sell_amount: self.sell,
+                buy_amount: self.buy,
+                ..sample_intent(self.kind, self.partially_fillable)
+            }
         }
     }
 
@@ -444,7 +452,13 @@ mod tests {
             buy,
         } in cases
         {
-            let intent = intent_with(OrderKind::Sell, true, sell, buy);
+            let intent = IntentSpec {
+                sell,
+                buy,
+                kind: OrderKind::Sell,
+                partially_fillable: true,
+            }
+            .build();
             assert_eq!(
                 validate_limit_price(&intent, a_in, a_out),
                 Ok(()),
@@ -483,7 +497,13 @@ mod tests {
             buy,
         } in cases
         {
-            let intent = intent_with(OrderKind::Sell, true, sell, buy);
+            let intent = IntentSpec {
+                sell,
+                buy,
+                kind: OrderKind::Sell,
+                partially_fillable: true,
+            }
+            .build();
             assert_eq!(
                 validate_limit_price(&intent, a_in, a_out),
                 Err(SettlementError::LimitPriceViolated),
@@ -492,18 +512,22 @@ mod tests {
         }
     }
 
-    /// A `validated_final_amounts` scenario: the order's prior stored fill (`withdrawn`
-    /// sold, `received` bought), this settlement's `amount_in`/`amount_out`, and
-    /// the order's `sell`/`buy` amounts, `kind`, and fillability.
+    /// A `validated_final_amounts` scenario: the order's prior stored fill
+    /// (`withdrawn` sold, `received` bought), this settlement's
+    /// `amount_in`/`amount_out`, and the `intent` being filled.
+    #[derive(Debug)]
     struct FillCase {
         withdrawn: u64,
         received: u64,
         amount_in: u64,
         amount_out: u64,
-        sell: u64,
-        buy: u64,
-        kind: OrderKind,
-        partially_fillable: bool,
+        intent: IntentSpec,
+    }
+
+    impl FillCase {
+        fn build(&self) -> OrderIntent {
+            self.intent.build()
+        }
     }
 
     /// Settlements the check accepts, returning the folded totals: within the
@@ -517,10 +541,12 @@ mod tests {
                 received: 0,
                 amount_in: 500,
                 amount_out: 1_000,
-                sell: 1_000,
-                buy: 2_000,
-                kind: OrderKind::Sell,
-                partially_fillable: true,
+                intent: IntentSpec {
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
             },
             // A second fill completing the sell order.
             FillCase {
@@ -528,10 +554,12 @@ mod tests {
                 received: 1_000,
                 amount_in: 500,
                 amount_out: 1_000,
-                sell: 1_000,
-                buy: 2_000,
-                kind: OrderKind::Sell,
-                partially_fillable: true,
+                intent: IntentSpec {
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
             },
             // A `Sell` order tracks buy proceeds but isn't capped by them.
             FillCase {
@@ -539,10 +567,12 @@ mod tests {
                 received: 0,
                 amount_in: 500,
                 amount_out: 9_000,
-                sell: 1_000,
-                buy: 2_000,
-                kind: OrderKind::Sell,
-                partially_fillable: true,
+                intent: IntentSpec {
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
             },
             // Fill-or-kill sell, filled exactly in one settlement.
             FillCase {
@@ -550,10 +580,12 @@ mod tests {
                 received: 0,
                 amount_in: 1_000,
                 amount_out: 2_000,
-                sell: 1_000,
-                buy: 2_000,
-                kind: OrderKind::Sell,
-                partially_fillable: false,
+                intent: IntentSpec {
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: false,
+                },
             },
             // Partial buy fill, within the buy amount.
             FillCase {
@@ -561,10 +593,12 @@ mod tests {
                 received: 0,
                 amount_in: 1_000,
                 amount_out: 500,
-                sell: 2_000,
-                buy: 1_000,
-                kind: OrderKind::Buy,
-                partially_fillable: true,
+                intent: IntentSpec {
+                    sell: 2_000,
+                    buy: 1_000,
+                    kind: OrderKind::Buy,
+                    partially_fillable: true,
+                },
             },
             // Fill-or-kill buy, filled exactly.
             FillCase {
@@ -572,10 +606,12 @@ mod tests {
                 received: 0,
                 amount_in: 2_000,
                 amount_out: 1_000,
-                sell: 2_000,
-                buy: 1_000,
-                kind: OrderKind::Buy,
-                partially_fillable: false,
+                intent: IntentSpec {
+                    sell: 2_000,
+                    buy: 1_000,
+                    kind: OrderKind::Buy,
+                    partially_fillable: false,
+                },
             },
             // A no-op settlement on a partially fillable order.
             FillCase {
@@ -583,10 +619,12 @@ mod tests {
                 received: 0,
                 amount_in: 0,
                 amount_out: 0,
-                sell: 1_000,
-                buy: 2_000,
-                kind: OrderKind::Sell,
-                partially_fillable: true,
+                intent: IntentSpec {
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
             },
             // Folding up to the maximal total without overflowing.
             FillCase {
@@ -594,10 +632,12 @@ mod tests {
                 received: 0,
                 amount_in: 1,
                 amount_out: 0,
-                sell: MAX,
-                buy: 1,
-                kind: OrderKind::Sell,
-                partially_fillable: false,
+                intent: IntentSpec {
+                    sell: MAX,
+                    buy: 1,
+                    kind: OrderKind::Sell,
+                    partially_fillable: false,
+                },
             },
             // A degenerate zero-amount fill-or-kill order is trivially filled by
             // a zero settlement (`filled == order_amount == 0`).
@@ -606,10 +646,12 @@ mod tests {
                 received: 0,
                 amount_in: 0,
                 amount_out: 0,
-                sell: 0,
-                buy: 0,
-                kind: OrderKind::Sell,
-                partially_fillable: false,
+                intent: IntentSpec {
+                    sell: 0,
+                    buy: 0,
+                    kind: OrderKind::Sell,
+                    partially_fillable: false,
+                },
             },
             // Sanity checks: this function only bounds the order's exact side, so
             // the other side isn't capped and could reach `u64::MAX`: a `Sell`
@@ -621,43 +663,47 @@ mod tests {
                 received: 0,
                 amount_in: 1_000,
                 amount_out: MAX,
-                sell: 1_000,
-                buy: 2_000,
-                kind: OrderKind::Sell,
-                partially_fillable: true,
+                intent: IntentSpec {
+                    sell: 1_000,
+                    buy: 2_000,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                },
             },
             FillCase {
                 withdrawn: 0,
                 received: 0,
                 amount_in: MAX,
                 amount_out: 1_000,
-                sell: 2_000,
-                buy: 1_000,
-                kind: OrderKind::Buy,
-                partially_fillable: true,
+                intent: IntentSpec {
+                    sell: 2_000,
+                    buy: 1_000,
+                    kind: OrderKind::Buy,
+                    partially_fillable: true,
+                },
             },
         ];
 
-        for FillCase {
-            withdrawn,
-            received,
-            amount_in,
-            amount_out,
-            sell,
-            buy,
-            kind,
-            partially_fillable,
-        } in cases
-        {
-            let intent = intent_with(kind, partially_fillable, sell, buy);
+        for case in cases {
+            let intent = case.build();
             let expected = (
-                withdrawn.checked_add(amount_in).expect("no overflow"),
-                received.checked_add(amount_out).expect("no overflow"),
+                case.withdrawn
+                    .checked_add(case.amount_in)
+                    .expect("no overflow"),
+                case.received
+                    .checked_add(case.amount_out)
+                    .expect("no overflow"),
             );
             assert_eq!(
-                validated_final_amounts(&intent, withdrawn, received, amount_in, amount_out),
+                validated_final_amounts(
+                    &intent,
+                    case.withdrawn,
+                    case.received,
+                    case.amount_in,
+                    case.amount_out,
+                ),
                 Ok(expected),
-                "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out} sell={sell} buy={buy} kind={kind:?} pf={partially_fillable}",
+                "{case:?}",
             );
         }
     }
@@ -678,10 +724,12 @@ mod tests {
                     received: 0,
                     amount_in: 1_001,
                     amount_out: 0,
-                    sell: 1_000,
-                    buy: 2_000,
-                    kind: OrderKind::Sell,
-                    partially_fillable: true,
+                    intent: IntentSpec {
+                        sell: 1_000,
+                        buy: 2_000,
+                        kind: OrderKind::Sell,
+                        partially_fillable: true,
+                    },
                 },
                 FillExceedsOrderAmount,
             ),
@@ -692,10 +740,12 @@ mod tests {
                     received: 0,
                     amount_in: 0,
                     amount_out: 1_001,
-                    sell: 2_000,
-                    buy: 1_000,
-                    kind: OrderKind::Buy,
-                    partially_fillable: true,
+                    intent: IntentSpec {
+                        sell: 2_000,
+                        buy: 1_000,
+                        kind: OrderKind::Buy,
+                        partially_fillable: true,
+                    },
                 },
                 FillExceedsOrderAmount,
             ),
@@ -706,10 +756,12 @@ mod tests {
                     received: 0,
                     amount_in: 400,
                     amount_out: 0,
-                    sell: 1_000,
-                    buy: 2_000,
-                    kind: OrderKind::Sell,
-                    partially_fillable: true,
+                    intent: IntentSpec {
+                        sell: 1_000,
+                        buy: 2_000,
+                        kind: OrderKind::Sell,
+                        partially_fillable: true,
+                    },
                 },
                 FillExceedsOrderAmount,
             ),
@@ -720,10 +772,12 @@ mod tests {
                     received: 601,
                     amount_in: 0,
                     amount_out: 400,
-                    sell: 2_000,
-                    buy: 1_000,
-                    kind: OrderKind::Buy,
-                    partially_fillable: true,
+                    intent: IntentSpec {
+                        sell: 2_000,
+                        buy: 1_000,
+                        kind: OrderKind::Buy,
+                        partially_fillable: true,
+                    },
                 },
                 FillExceedsOrderAmount,
             ),
@@ -734,10 +788,12 @@ mod tests {
                     received: 0,
                     amount_in: 999,
                     amount_out: 2_000,
-                    sell: 1_000,
-                    buy: 2_000,
-                    kind: OrderKind::Sell,
-                    partially_fillable: false,
+                    intent: IntentSpec {
+                        sell: 1_000,
+                        buy: 2_000,
+                        kind: OrderKind::Sell,
+                        partially_fillable: false,
+                    },
                 },
                 OrderNotExactlyFilled,
             ),
@@ -748,10 +804,12 @@ mod tests {
                     received: 0,
                     amount_in: 2_000,
                     amount_out: 999,
-                    sell: 2_000,
-                    buy: 1_000,
-                    kind: OrderKind::Buy,
-                    partially_fillable: false,
+                    intent: IntentSpec {
+                        sell: 2_000,
+                        buy: 1_000,
+                        kind: OrderKind::Buy,
+                        partially_fillable: false,
+                    },
                 },
                 OrderNotExactlyFilled,
             ),
@@ -762,10 +820,12 @@ mod tests {
                     received: 0,
                     amount_in: 0,
                     amount_out: 0,
-                    sell: 1_000,
-                    buy: 2_000,
-                    kind: OrderKind::Sell,
-                    partially_fillable: false,
+                    intent: IntentSpec {
+                        sell: 1_000,
+                        buy: 2_000,
+                        kind: OrderKind::Sell,
+                        partially_fillable: false,
+                    },
                 },
                 OrderNotExactlyFilled,
             ),
@@ -776,10 +836,12 @@ mod tests {
                     received: 0,
                     amount_in: 1,
                     amount_out: 0,
-                    sell: 0,
-                    buy: 1_000,
-                    kind: OrderKind::Sell,
-                    partially_fillable: true,
+                    intent: IntentSpec {
+                        sell: 0,
+                        buy: 1_000,
+                        kind: OrderKind::Sell,
+                        partially_fillable: true,
+                    },
                 },
                 FillExceedsOrderAmount,
             ),
@@ -790,10 +852,12 @@ mod tests {
                     received: 0,
                     amount_in: 0,
                     amount_out: 1,
-                    sell: 1_000,
-                    buy: 0,
-                    kind: OrderKind::Buy,
-                    partially_fillable: true,
+                    intent: IntentSpec {
+                        sell: 1_000,
+                        buy: 0,
+                        kind: OrderKind::Buy,
+                        partially_fillable: true,
+                    },
                 },
                 FillExceedsOrderAmount,
             ),
@@ -804,10 +868,12 @@ mod tests {
                     received: 0,
                     amount_in: 1,
                     amount_out: 0,
-                    sell: 42,
-                    buy: 1337,
-                    kind: OrderKind::Sell,
-                    partially_fillable: true,
+                    intent: IntentSpec {
+                        sell: 42,
+                        buy: 1337,
+                        kind: OrderKind::Sell,
+                        partially_fillable: true,
+                    },
                 },
                 AmountWithdrawnOverflow,
             ),
@@ -818,34 +884,29 @@ mod tests {
                     received: MAX,
                     amount_in: 0,
                     amount_out: 1,
-                    sell: 42,
-                    buy: 1337,
-                    kind: OrderKind::Sell,
-                    partially_fillable: true,
+                    intent: IntentSpec {
+                        sell: 42,
+                        buy: 1337,
+                        kind: OrderKind::Sell,
+                        partially_fillable: true,
+                    },
                 },
                 AmountReceivedOverflow,
             ),
         ];
 
-        for (
-            FillCase {
-                withdrawn,
-                received,
-                amount_in,
-                amount_out,
-                sell,
-                buy,
-                kind,
-                partially_fillable,
-            },
-            error,
-        ) in cases
-        {
-            let intent = intent_with(kind, partially_fillable, sell, buy);
+        for (case, error) in cases {
+            let intent = case.build();
             assert_eq!(
-                validated_final_amounts(&intent, withdrawn, received, amount_in, amount_out),
+                validated_final_amounts(
+                    &intent,
+                    case.withdrawn,
+                    case.received,
+                    case.amount_in,
+                    case.amount_out,
+                ),
                 Err(error),
-                "withdrawn={withdrawn} received={received} in={amount_in} out={amount_out} sell={sell} buy={buy} kind={kind:?} pf={partially_fillable}",
+                "{case:?}",
             );
         }
     }
