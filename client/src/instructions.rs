@@ -173,7 +173,7 @@ impl From<CreateBuffers<'_>> for Instruction {
 pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,
-    pub receiver: Pubkey,
+    pub reclaim_authority: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
@@ -183,7 +183,7 @@ impl From<Initialize> for Instruction {
             program_id: builder.program_id,
             payer: builder.payer,
             state_pda,
-            receiver: builder.receiver,
+            reclaim_authority: builder.reclaim_authority,
         }
         .into()
     }

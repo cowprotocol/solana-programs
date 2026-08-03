@@ -14,14 +14,14 @@ mod common;
 fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
-    let receiver = Pubkey::new_unique();
+    let reclaim_authority = Pubkey::new_unique();
 
     // `payer` is both the transaction fee payer and the account funding the
     // state PDA's rent.
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
-        receiver,
+        reclaim_authority,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -41,8 +41,8 @@ fn happy_path_initializes_state_pda_with_expected_data() {
 
     assert_eq!(
         &account.data[1..],
-        &receiver.to_bytes()[..],
-        "state PDA must store exactly the configured receiver"
+        &reclaim_authority.to_bytes()[..],
+        "state PDA must store exactly the configured reclaim_authority"
     );
 
     let rent = svm.minimum_balance_for_rent_exemption(EncodedStateAccount::SIZE);
@@ -66,7 +66,7 @@ fn funding_payer_can_differ_from_fee_payer() {
     let ix = Initialize {
         program_id,
         payer: funder.pubkey(),
-        receiver: Pubkey::new_unique(),
+        reclaim_authority: Pubkey::new_unique(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -92,7 +92,7 @@ fn rejects_arbitrary_wrong_state_pda() {
         program_id,
         payer: payer.pubkey(),
         state_pda: wrong_pda,
-        receiver: Pubkey::new_unique(),
+        reclaim_authority: Pubkey::new_unique(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
@@ -106,7 +106,7 @@ fn rejects_initializing_twice() {
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
-        receiver: Pubkey::new_unique(),
+        reclaim_authority: Pubkey::new_unique(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     svm.send_transaction(tx)
@@ -117,7 +117,7 @@ fn rejects_initializing_twice() {
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
-        receiver: Pubkey::new_unique(),
+        reclaim_authority: Pubkey::new_unique(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     common::pda::assert_rejected_as_existing(&mut svm, tx);

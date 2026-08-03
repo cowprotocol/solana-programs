@@ -17,7 +17,7 @@ pub fn process_initialize(
     let InitializeInput {
         payer,
         state_pda,
-        receiver,
+        reclaim_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
     // There are no explicit account guards here: `create_canonical_pda` rejects
@@ -40,7 +40,7 @@ pub fn process_initialize(
     let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    write_account(buffer, &receiver);
+    write_account(buffer, &reclaim_authority);
 
     Ok(())
 }
