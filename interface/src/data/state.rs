@@ -14,7 +14,7 @@ use solana_pubkey::Pubkey;
 use crate::SettlementAccount;
 
 /// Idiomatic representation of the state PDA's body.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StateAccount {
     /// Account configured at `Initialize` time that collects reclaimed
     /// buffer funds: it must sign `ReclaimBuffer`, receives each closed
@@ -33,7 +33,7 @@ pub struct StateAccount {
 ///  └┴───────────────────────────────┘
 /// 0 1                               33
 /// ```
-#[derive(Clone, Copy, Debug, Deref, Eq, PartialEq)]
+#[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedStateAccount([u8; Self::SIZE]);
 
 impl EncodedStateAccount {
