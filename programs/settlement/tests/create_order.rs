@@ -8,6 +8,7 @@ use settlement_client::settlement_interface::{
     SettlementError,
 };
 use solana_sdk::{
+    instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::{Transaction, TransactionError},
@@ -206,25 +207,43 @@ fn rejects_non_canonical_bump_pda() {
 }
 
 #[test]
-fn recreating_same_order_is_idempotent() {
+fn rejects_recreating_existing_order() {
     let (mut svm, program_id, fee_payer) = common::setup();
     let intent = sample_intent(fee_payer.pubkey());
     let (encoded, pda) = encode_and_derive(&intent, &program_id);
 
-    common::pda::assert_recreate_is_noop(&mut svm, &pda, |svm| {
-        let ix = CreateOrder {
-            program_id,
-            owner: fee_payer.pubkey(),
-            created_by: fee_payer.pubkey(),
-            order_pda: pda,
-            intent_bytes: encoded,
-        };
-        signed_tx(svm, &fee_payer, &fee_payer, ix)
-    });
+    let ix = CreateOrder {
+        program_id,
+        owner: fee_payer.pubkey(),
+        created_by: fee_payer.pubkey(),
+        order_pda: pda,
+        intent_bytes: encoded,
+    };
+    let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
+    svm.send_transaction(tx)
+        .expect("first create_order should succeed");
+
+    svm.expire_blockhash();
+
+    let ix = CreateOrder {
+        program_id,
+        owner: fee_payer.pubkey(),
+        created_by: fee_payer.pubkey(),
+        order_pda: pda,
+        intent_bytes: encoded,
+    };
+    let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("recreating an existing order must be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, InstructionError::AccountAlreadyInitialized),
+    );
 }
 
 #[test]
-fn recreating_order_with_a_different_creator_is_noop() {
+fn rejects_recreating_order_with_a_different_creator() {
     let (mut svm, program_id, fee_payer) = common::setup();
     let another_fee_payer = Keypair::new_from_array([43; 32]);
     svm.airdrop(&another_fee_payer.pubkey(), 1_000_000_000)
@@ -248,9 +267,9 @@ fn recreating_order_with_a_different_creator_is_noop() {
 
     svm.expire_blockhash();
 
-    // The second call uses a different `created_by`, but no rent is paid so the
-    // stored order (including its `created_by`) must be left byte-for-byte
-    // unchanged.
+    // The second call uses a different `created_by`, but the order already
+    // exists, so it must be rejected and leave the stored order (including its
+    // `created_by`) byte-for-byte unchanged.
     let ix = CreateOrder {
         program_id,
         owner: fee_payer.pubkey(),
@@ -259,11 +278,16 @@ fn recreating_order_with_a_different_creator_is_noop() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &another_fee_payer, &fee_payer, ix);
-    svm.send_transaction(tx)
-        .expect("recreating an existing order should succeed as a no-op");
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("recreating an existing order must be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, InstructionError::AccountAlreadyInitialized),
+    );
 
     let after = svm.get_account(&pda).expect("order PDA should still exist");
-    assert_eq!(before, after, "redundant create must not modify the order");
+    assert_eq!(before, after, "rejected create must not modify the order");
 }
 
 #[test]
