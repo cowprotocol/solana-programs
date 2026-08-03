@@ -49,9 +49,18 @@ impl<const N: usize> CanonicalPda<'_, N> {
     pub fn create_idempotent(self) -> Result<bool, ProgramError> {
         let (canonical, bump) = Address::find_program_address(&self.seeds, self.program_id);
 
-        // Ownership is how we check that we already initialized that address.
-        // Only our program can produce it, so it can't be initialized outside
-        // of this program.
+        // Verify whether the PDA is initialized.
+        // We do that through `owned_by` because only this program can set this
+        // property. This is more reliable than, for example, checking that the
+        // data is empty since some PDA may be initialized with zero size.
+        // We confirm the owner is the same, rather than checking that it isn't
+        // the system owner, to make sure we don't try to reuse the same address
+        // if the owner is a different parameter (execution continues and
+        // eventually reverts).
+        // Here we also assume that self.owner isn't the System Program, which
+        // is the default owner of all accounts that weren't initialized.
+        // We take the risk as this isn't user-specified input and there's no
+        // reason to actually assign a PDA to the System Program.
         if self.pda.address() == &canonical && self.pda.owned_by(self.owner) {
             return Ok(false);
         }
