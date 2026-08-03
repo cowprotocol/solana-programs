@@ -39,9 +39,6 @@ pub fn process_create_order(
     // the canonical bump and, by signing the creation with the order seeds, rejects
     // any `order_pda` that isn't the canonical address. The rest of the code
     // can assume that if an account has data, then the bump is valid.
-    // If the account already exists, the order creation still succeeds but
-    // nothing is written on-chain (so, for example, a cancelled order is still
-    // cancelled after recreating it).
     let created = CanonicalPda {
         program_id,
         payer: created_by,
@@ -52,6 +49,9 @@ pub fn process_create_order(
     }
     .create_idempotent()?;
 
+    // If the account already exists, the order creation still succeeds but
+    // nothing is written on-chain (so, for example, a cancelled order is still
+    // cancelled after recreating it).
     if created {
         let mut order_data = order_pda.try_borrow_mut()?;
         let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
