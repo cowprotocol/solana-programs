@@ -114,7 +114,7 @@ mod tests {
     #[test]
     fn encoding_is_discriminator_followed_by_receiver_bytes() {
         let account = sample_account();
-        let encoded = EncodedStateAccount::from(account);
+        let encoded = EncodedStateAccount::from(account.clone());
         assert_eq!(encoded[0], EncodedStateAccount::DISCRIMINATOR);
         assert_eq!(&encoded[1..], &account.receiver.to_bytes());
     }
@@ -147,7 +147,7 @@ mod tests {
             #[test]
             fn account_encode_roundtrip(bytes in any::<[u8; 32]>()) {
                 let account = StateAccount { receiver: Pubkey::new_from_array(bytes) };
-                let encoded = EncodedStateAccount::from(account);
+                let encoded = EncodedStateAccount::from(account.clone());
                 let decoded = StateAccount::try_from(encoded).expect("should decode after encoding");
                 prop_assert_eq!(decoded, account);
             }
@@ -159,7 +159,7 @@ mod tests {
                 encoded[1..].copy_from_slice(&bytes);
                 let encoded = EncodedStateAccount(encoded);
 
-                let decoded = StateAccount::try_from(encoded).expect("should decode from valid bytes");
+                let decoded = StateAccount::try_from(encoded.clone()).expect("should decode from valid bytes");
                 let re_encoded = EncodedStateAccount::from(decoded);
 
                 prop_assert_eq!(re_encoded, encoded);
