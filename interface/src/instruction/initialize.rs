@@ -60,8 +60,6 @@ impl From<Initialize> for Instruction {
 /// Parsed inputs of an `Initialize` instruction.
 pub struct InitializeInput<'a, A> {
     pub payer: &'a A,
-    /// Mutable so the handler can write `receiver` into its data area after
-    /// creating it.
     pub state_pda: &'a mut A,
     pub receiver: Pubkey,
 }
