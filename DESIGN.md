@@ -15,7 +15,7 @@ Once deployed, we will make the code at that account unchangeable.
 
 ## Buffer accounts
 
-Buffer accounts are token accounts that hold funds on behalf of the settlement contract.
+Buffer accounts are token accounts that hold funds on behalf of the settlement program throught the state PDA.
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to collect user funds, send out funds to the user, and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 

@@ -33,7 +33,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 ///
 /// The order doesn't need to be executable for it to be created. For
 /// example, the sell token account doesn't need to belong to the user or
-/// be a TOKEN account in the first place. This is checked at execution
+/// be an SPL token account in the first place. This is checked at execution
 /// time.
 ///
 /// Wire format: `[discriminator=2, ..150 intent bytes]`, 151 bytes.

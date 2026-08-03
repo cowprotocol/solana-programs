@@ -5,7 +5,7 @@
 //!
 //! Any account derived from [`crate::pda::order::find_order_pda`] that has
 //! already been created on-chain can be considered safe to use. Invalid
-//! address are rejected at creation time. In particular, if the PDA exists,
+//! addresses are rejected at creation time. In particular, if the PDA exists,
 //! the bump can be provided by the user without recomputing the canonical
 //! one.
 //!
@@ -27,7 +27,7 @@ pub fn order_pda_seeds(uid: &Hash) -> [&[u8]; 3] {
 
 /// Canonical seeds for signing as the order PDA at `uid` with `bump`. The
 /// on-chain `CreateOrder` handler uses this to construct the CPI signer.
-/// By design, order PDAs can be created only if it uses the canonical bump.
+/// By design, order PDAs can be created only if they use the canonical bump.
 /// Calling this function with another bump could lead to a theoretically
 /// valid PDA that however cannot and should not be instantiated.
 pub fn order_pda_signer_seeds<'a>(uid: &'a Hash, bump: &'a [u8; 1]) -> [&'a [u8]; 4] {
