@@ -196,9 +196,10 @@ mod tests {
             receiver,
         }
         .into();
-        let mut expected = vec![SettlementInstruction::Initialize.discriminator()];
-        expected.extend_from_slice(&receiver.to_bytes());
-        assert_eq!(data, expected);
+        assert_eq!(data.len(), EncodedStateAccount::SIZE);
+        assert_eq!(data[0], SettlementInstruction::Initialize.discriminator());
+        assert_eq!(&data[1..], &receiver.to_bytes());
+    }
     }
 
     #[test]
