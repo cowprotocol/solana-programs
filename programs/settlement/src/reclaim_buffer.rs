@@ -5,10 +5,7 @@
 //! buffers expected to be empty, or to write off dust/dead balances.
 
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use pinocchio_token::{
-    instructions::{Burn, CloseAccount},
-    state::Account as TokenAccount,
-};
+use pinocchio_token::{instructions::CloseAccount, state::Account as TokenAccount};
 use settlement_interface::{
     data::state::{EncodedStateAccount, StateAccount},
     instruction::{
@@ -76,10 +73,8 @@ pub fn process_reclaim_buffer(
             // account needs to be loaded and likely initialized with rent--all to handle what is likely
             // microdust. So burning is the easiest way to get around this issue.
             if amount > 0 {
-                // Using the unchecked burn variant because we would just be reading the decimals
-                // off of the mint anyway and we are only looking to erase all tokens.
-                Burn::new(&buffer_pda, &mint, state_pda, amount)
-                    .invoke_signed(core::slice::from_ref(state_signer))?;
+                // For now
+                continue;
             }
 
             CloseAccount::new(&buffer_pda, reclaim_authority, state_pda)

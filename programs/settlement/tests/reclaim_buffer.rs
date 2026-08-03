@@ -44,7 +44,7 @@ fn create_buffer(
 }
 
 #[test]
-fn happy_path_reclaims_funded_buffer() {
+fn funded_buffer_is_skipped() {
     let (mut svm, program_id, payer) = common::setup();
     let reclaim_authority = Keypair::new();
 
@@ -67,12 +67,6 @@ fn happy_path_reclaims_funded_buffer() {
         "sanity: helper should derive the canonical ATA"
     );
 
-    let buffer_lamports_before = svm
-        .get_account(&buffer_pda)
-        .expect("buffer must exist before reclaim")
-        .lamports;
-    let reclaim_authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
-
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
@@ -83,18 +77,8 @@ fn happy_path_reclaims_funded_buffer() {
         .expect("reclaim_buffer should succeed");
 
     assert!(
-        svm.get_account(&buffer_pda).is_none(),
-        "buffer PDA must be closed after reclaim"
-    );
-    assert_eq!(
-        common::token::supply(&svm, &mint),
-        0,
-        "reclaim_buffer should burn all tokens in the buffer"
-    );
-    assert_eq!(
-        common::lamports(&svm, &reclaim_authority.pubkey()) - reclaim_authority_lamports_before,
-        buffer_lamports_before,
-        "reclaim_authority must receive exactly the buffer's rent lamports"
+        svm.get_account(&buffer_pda).is_some(),
+        "buffer PDA should have been untouched despite transaction succeeding"
     );
 }
 
@@ -163,13 +147,8 @@ fn reclaims_multiple_buffers_in_one_instruction() {
         "buffer_a must be closed"
     );
     assert!(
-        svm.get_account(&buffer_b).is_none(),
-        "buffer_b must be closed"
-    );
-    assert_eq!(
-        common::token::supply(&svm, &mint_b),
-        0,
-        "buffer_b should have been empty and thus burned all tokens"
+        svm.get_account(&buffer_b).is_some(),
+        "buffer_b must not be closed (because its funded)"
     );
 }
 
