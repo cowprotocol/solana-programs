@@ -24,8 +24,7 @@ pub struct StateAccount {
 }
 
 /// Canonical 33-byte representation of a [`StateAccount`]: the discriminator
-/// byte followed by `receiver`'s bytes, the whole of the state PDA's data
-/// area.
+/// byte followed by `receiver`'s bytes.
 ///
 /// ```text
 ///  ┌──── discriminator
