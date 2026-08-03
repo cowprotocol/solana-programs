@@ -149,10 +149,6 @@ fn rejects_when_order_not_yet_expired() {
     );
 }
 
-// Recreating a reclaimed order isn't very useful yet: reclaim requires expiry,
-// so recreating the same intent just yields another already-expired, unfillable
-// order. We keep the test because on-chain-only orders will later be
-// reclaimable while still fillable, and then recreation becomes relevant.
 #[test]
 fn recreating_a_reclaimed_order_creates_it_fresh() {
     let (mut svm, program_id, owner) = common::setup();
