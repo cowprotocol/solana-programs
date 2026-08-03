@@ -33,7 +33,7 @@ pub struct StateAccount {
 ///  └┴───────────────────────────────┘
 /// 0 1                               33
 /// ```
-#[derive(Clone, Copy, Debug, Deref, Eq, PartialEq)]
+#[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedStateAccount([u8; Self::SIZE]);
 
 impl EncodedStateAccount {
