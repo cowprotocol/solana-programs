@@ -4,20 +4,22 @@
 //! recovered, before the buffer is closed. Callers should only reclaim
 //! buffers expected to be empty, or to write off dust/dead balances.
 
-use pinocchio::{
-    cpi::{Seed, Signer},
-    error::ProgramError,
-    AccountView, Address, ProgramResult,
-};
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use pinocchio_token::{
     instructions::{Burn, CloseAccount},
     state::Account as TokenAccount,
 };
 use settlement_interface::{
-    Pubkey, SettlementError, data::state::{EncodedStateAccount, StateAccount}, instruction::{
-        InstructionInputParsing, create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
-    }, pda::{buffer::{buffer_pda_seeds, find_buffer_pda}, state::state_pda_seeds},
+    data::state::{EncodedStateAccount, StateAccount},
+    instruction::{
+        create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
+        InstructionInputParsing,
+    },
+    pda::buffer::find_buffer_pda,
+    Pubkey, SettlementError,
 };
+
+use crate::processor::with_state_pda_signer;
 
 struct ReclaimBufferEntry {
     buffer_pda: AccountView,
@@ -36,7 +38,7 @@ pub fn process_reclaim_buffer(
 ) -> ProgramResult {
     let ReclaimBufferInput {
         state_pda,
-        receiver,
+        reclaim_authority,
         token_program,
         buffers,
     } = ReclaimBufferInput::parse(instruction_data, accounts)?;
@@ -45,58 +47,47 @@ pub fn process_reclaim_buffer(
         return Err(ProgramError::IncorrectProgramId);
     }
 
-    // The buffers' token authority is the settlement state PDA; it signs both
-    // the sweep transfer and the close of each buffer below.
-    let seeds = state_pda_seeds();
-    let (expected_state_pda, state_bump) = Address::find_program_address(&seeds, program_id);
-    if state_pda.address() != &expected_state_pda {
-        return Err(SettlementError::StateAccountMismatch.into());
-    }
-    let [seed] = seeds;
-    let state_bump = [state_bump];
-    let signer_seeds = [seed, &state_bump].map(Seed::from);
-    let state_signer = Signer::from(&signer_seeds);
-
-    // Only the `receiver` recorded in the state PDA at `Initialize` time may
-    // trigger a reclaim.
-    let receiver_pubkey: Pubkey = {
+    // Only the `reclaim_authority`may trigger a reclaim.
+    let reclaim_authority_pubkey: Pubkey = {
         let data = state_pda.try_borrow()?;
         let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
             .try_into()
             .map_err(|_| ProgramError::InvalidAccountData)?;
-        StateAccount::try_from(*bytes)?.receiver
+        StateAccount::try_from(*bytes)?.reclaim_authority
     };
-    if !receiver.is_signer() || receiver.address().as_array() != &receiver_pubkey.to_bytes() {
-        return Err(SettlementError::ReceiverMismatch.into());
+    if !reclaim_authority.is_signer() || reclaim_authority.address().as_array() != &reclaim_authority_pubkey.to_bytes() {
+        return Err(SettlementError::ReclaimAuthorityMismatch.into());
     }
 
-    for ReclaimBufferEntry { buffer_pda, mint } in buffers.iter().map(read_buffer_entry) {
-        let expected_buffer_pda = find_buffer_pda(program_id, mint.address()).0;
-        
-        if buffer_pda.address() != &expected_buffer_pda {
-            return Err(SettlementError::BufferNotCanonical.into());
+    with_state_pda_signer(program_id, state_pda, |state_signer| {
+        for ReclaimBufferEntry { buffer_pda, mint } in buffers.iter().map(read_buffer_entry) {
+            let expected_buffer_pda = find_buffer_pda(program_id, mint.address()).0;
+
+            if buffer_pda.address() != &expected_buffer_pda {
+                return Err(SettlementError::BufferNotCanonical.into());
+            }
+
+            let amount = TokenAccount::from_account_view(&buffer_pda)
+                .map_err(|_| ProgramError::InvalidAccountData)?
+                .amount();
+
+            // We can't close the account unless the balance is zero, so we burn any tokens we find.
+            // Sending the tokens to another account is much more complicated because the receiving
+            // account needs to be loaded and likely initialized with rent--all to handle what is likely
+            // microdust. So burning is the easiest way to get around this issue.
+            if amount > 0 {
+                // Using the unchecked burn variant because we would just be reading the decimals
+                // off of the mint anyway and we are only looking to erase all tokens.
+                Burn::new(&buffer_pda, &mint, state_pda, amount)
+                    .invoke_signed(core::slice::from_ref(state_signer))?;
+            }
+
+            CloseAccount::new(&buffer_pda, reclaim_authority, state_pda)
+                .invoke_signed(core::slice::from_ref(state_signer))?;
         }
 
-        let amount = TokenAccount::from_account_view(&buffer_pda)
-            .map_err(|_| ProgramError::InvalidAccountData)?
-            .amount();
-
-        // We can't close the account unless the balance is zero, so we burn any tokens we find.
-        // Sending the tokens to another account is much more complicated because the receiving
-        // account needs to be loaded and likely initialized with rent--all to handle what is likely
-        // microdust. So burning is the easiest way to get around this issue.
-        if amount > 0 {
-            // Using the unchecked burn variant because we would just be reading the decimals
-            // off of the mint anyway and we are only looking to erase all tokens.
-            Burn::new(&buffer_pda, &mint, state_pda, amount)
-                .invoke_signed(core::slice::from_ref(&state_signer))?;
-        }
-
-        CloseAccount::new(&buffer_pda, receiver, state_pda)
-            .invoke_signed(core::slice::from_ref(&state_signer))?;
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -108,6 +99,7 @@ mod tests {
     use settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
+    use settlement_interface::pda::state::state_pda_seeds;
 
     use super::*;
 
@@ -195,7 +187,7 @@ mod tests {
         ];
         assert_eq!(
             process_reclaim_buffer(&PROGRAM_ID, &mut accounts, &data),
-            Err(SettlementError::ReceiverMismatch.into()),
+            Err(SettlementError::ReclaimAuthorityMismatch.into()),
         );
     }
 

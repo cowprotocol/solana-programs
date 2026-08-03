@@ -198,7 +198,7 @@ impl From<Initialize> for Instruction {
 /// hold funds of useful value.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
-    pub receiver: Pubkey,
+    pub reclaim_authority: Pubkey,
     pub mints: &'a [Pubkey],
 }
 
@@ -216,7 +216,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
         settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
             program_id: builder.program_id,
             state_pda,
-            receiver: builder.receiver,
+            reclaim_authority: builder.reclaim_authority,
             buffers: &buffers,
         }
         .into()

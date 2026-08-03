@@ -182,7 +182,7 @@ pub enum SettlementError {
     ReclaimRecipientMismatch = 31,
     /// `ReclaimBuffer`'s `receiver` account isn't a signer, or doesn't match
     /// the `receiver` address recorded in the settlement state PDA.
-    ReceiverMismatch = 32,
+    ReclaimAuthorityMismatch = 32,
     /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
     /// derived from its paired `mint`.
     BufferNotCanonical = 33,

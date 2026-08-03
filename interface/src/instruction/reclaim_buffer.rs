@@ -46,7 +46,7 @@ use crate::SettlementInstruction;
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
-    pub receiver: Pubkey,
+    pub reclaim_authority: Pubkey,
     pub buffers: &'a [(Pubkey, Pubkey)],
 }
 
@@ -54,7 +54,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
     fn from(builder: ReclaimBuffer<'_>) -> Self {
         let mut accounts = vec![
             AccountMeta::new_readonly(builder.state_pda, false),
-            AccountMeta::new(builder.receiver, true),
+            AccountMeta::new(builder.reclaim_authority, true),
             AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
         ];
         for (buffer_pda, mint) in builder.buffers {
@@ -72,7 +72,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
 /// Parsed inputs of a `ReclaimBuffer` instruction.
 pub struct ReclaimBufferInput<'a, A> {
     pub state_pda: &'a A,
-    pub receiver: &'a A,
+    pub reclaim_authority: &'a A,
     pub token_program: &'a A,
     /// One `[buffer_pda, mint]` pair per buffer to close.
     pub buffers: &'a [[A; 2]],
@@ -88,7 +88,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
         // Accounts: [state_pda (R), receiver (W,S), token_program (R),
         // (buffer_pda (W), mint (W))...]. The three shared accounts come
         // first; the per-buffer pairs follow, one pair per buffer.
-        let [state_pda, receiver, token_program, rest @ ..] = accounts else {
+        let [state_pda, reclaim_authority, token_program, rest @ ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
         // Group the trailing accounts into `[buffer_pda, mint]` pairs. Each
@@ -103,7 +103,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
 
         Ok(Self {
             state_pda,
-            receiver,
+            reclaim_authority,
             token_program,
             buffers,
         })
@@ -129,7 +129,7 @@ pub mod fixtures {
         Instruction::from(ReclaimBuffer {
             program_id: zero,
             state_pda: zero,
-            receiver: zero,
+            reclaim_authority: zero,
             buffers: &[(zero, zero)],
         })
         .data
@@ -149,21 +149,21 @@ mod tests {
     fn reclaim_buffer_input_parses_valid_input() {
         let program_id = Address::new_from_array([1; 32]);
         let state_pda = Address::new_from_array([2; 32]);
-        let receiver = Address::new_from_array([3; 32]);
+        let reclaim_authority = Address::new_from_array([3; 32]);
         let buffer_pda = Address::new_from_array([4; 32]);
         let mint = Address::new_from_array([5; 32]);
 
         let data = Instruction::from(ReclaimBuffer {
             program_id,
             state_pda,
-            receiver,
+            reclaim_authority,
             buffers: &[(buffer_pda, mint)],
         })
         .data;
         let token_program = fake_account_from_array([7; 32]);
         let mut accounts = [
             fake_account(state_pda),
-            fake_account(receiver),
+            fake_account(reclaim_authority),
             token_program,
             fake_account(buffer_pda),
             fake_account(mint),
@@ -171,13 +171,13 @@ mod tests {
 
         let ReclaimBufferInput {
             state_pda: parsed_state_pda,
-            receiver: parsed_receiver,
+            reclaim_authority: parsed_receiver,
             token_program: parsed_token_program,
             buffers,
         } = ReclaimBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
 
         assert_eq!(*parsed_state_pda.address(), state_pda);
-        assert_eq!(*parsed_receiver.address(), receiver);
+        assert_eq!(*parsed_receiver.address(), reclaim_authority);
         assert_eq!(
             *parsed_token_program.address(),
             Address::new_from_array([7; 32])
@@ -191,7 +191,7 @@ mod tests {
     fn reclaim_buffer_input_parses_multiple_buffers() {
         let program_id = Address::new_from_array([1; 32]);
         let state_pda = Address::new_from_array([2; 32]);
-        let receiver = Address::new_from_array([3; 32]);
+        let reclaim_authority = Address::new_from_array([3; 32]);
         let token_program = Address::new_from_array([4; 32]);
         let buffer_a = Address::new_from_array([5; 32]);
         let mint_a = Address::new_from_array([6; 32]);
@@ -201,13 +201,13 @@ mod tests {
         let data = Instruction::from(ReclaimBuffer {
             program_id,
             state_pda,
-            receiver,
+            reclaim_authority,
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
         })
         .data;
         let mut accounts = [
             fake_account(state_pda),
-            fake_account(receiver),
+            fake_account(reclaim_authority),
             fake_account(token_program),
             fake_account(buffer_a),
             fake_account(mint_a),
@@ -277,13 +277,13 @@ mod tests {
     fn instruction_data_has_expected_layout() {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
-        let receiver = Pubkey::new_from_array([3; 32]);
+        let reclaim_authority = Pubkey::new_from_array([3; 32]);
         let buffer_pda = Pubkey::new_from_array([4; 32]);
         let mint = Pubkey::new_from_array([5; 32]);
         let Instruction { data, .. } = ReclaimBuffer {
             program_id,
             state_pda,
-            receiver,
+            reclaim_authority,
             buffers: &[(buffer_pda, mint)],
         }
         .into();
@@ -297,13 +297,13 @@ mod tests {
     fn single_buffer_has_expected_accounts() {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
-        let receiver = Pubkey::new_from_array([3; 32]);
+        let reclaim_authority = Pubkey::new_from_array([3; 32]);
         let buffer_pda = Pubkey::new_from_array([4; 32]);
         let mint = Pubkey::new_from_array([5; 32]);
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
-            receiver,
+            reclaim_authority,
             buffers: &[(buffer_pda, mint)],
         }
         .into();
@@ -314,7 +314,7 @@ mod tests {
         assert!(!accounts[0].is_writable);
         assert!(!accounts[0].is_signer);
         // receiver: writable, signer
-        assert_eq!(accounts[1].pubkey, receiver);
+        assert_eq!(accounts[1].pubkey, reclaim_authority);
         assert!(accounts[1].is_writable);
         assert!(accounts[1].is_signer);
         // token program: read-only
@@ -335,7 +335,7 @@ mod tests {
     fn multiple_buffers_append_pairs_after_shared_accounts() {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
-        let receiver = Pubkey::new_from_array([3; 32]);
+        let reclaim_authority = Pubkey::new_from_array([3; 32]);
         let buffer_a = Pubkey::new_from_array([4; 32]);
         let mint_a = Pubkey::new_from_array([5; 32]);
         let buffer_b = Pubkey::new_from_array([6; 32]);
@@ -343,7 +343,7 @@ mod tests {
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
-            receiver,
+            reclaim_authority,
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
         }
         .into();
@@ -360,11 +360,11 @@ mod tests {
     fn empty_buffers_has_only_shared_accounts() {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
-        let receiver = Pubkey::new_from_array([3; 32]);
+        let reclaim_authority = Pubkey::new_from_array([3; 32]);
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
-            receiver,
+            reclaim_authority,
             buffers: &[],
         }
         .into();

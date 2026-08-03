@@ -12,13 +12,13 @@ use spl_associated_token_account_interface::address::get_associated_token_addres
 
 mod common;
 
-/// Initialize the settlement state PDA with `receiver` as the configured
-/// receiver.
-fn initialize(svm: &mut litesvm::LiteSVM, program_id: &Pubkey, payer: &Keypair, receiver: Pubkey) {
+/// Initialize the settlement state PDA with `reclaim_authority` as the configured
+/// reclaim_authority.
+fn initialize(svm: &mut litesvm::LiteSVM, program_id: &Pubkey, payer: &Keypair, reclaim_authority: Pubkey) {
     let ix = Initialize {
         program_id: *program_id,
         payer: payer.pubkey(),
-        receiver,
+        reclaim_authority,
     };
     let tx = common::signed_tx(svm, payer, payer, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -46,9 +46,9 @@ fn create_buffer(
 #[test]
 fn happy_path_reclaims_funded_buffer() {
     let (mut svm, program_id, payer) = common::setup();
-    let receiver = Keypair::new();
+    let reclaim_authority = Keypair::new();
 
-    initialize(&mut svm, &program_id, &payer, receiver.pubkey());
+    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
 
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
@@ -57,13 +57,13 @@ fn happy_path_reclaims_funded_buffer() {
     let amount = 1_000;
     common::token::mint_to(&mut svm, &payer, &mint, &buffer_pda, amount);
 
-    // Pre-create the receiver's ATA: the program only validates its address,
+    // Pre-create the reclaim_authority's ATA: the program only validates its address,
     // it doesn't create it.
-    let receiver_ata =
-        common::token::create_associated_token_account(&mut svm, &payer, &mint, &receiver.pubkey());
+    let reclaim_authority_ata =
+        common::token::create_associated_token_account(&mut svm, &payer, &mint, &reclaim_authority.pubkey());
     assert_eq!(
-        receiver_ata,
-        get_associated_token_address(&receiver.pubkey(), &mint),
+        reclaim_authority_ata,
+        get_associated_token_address(&reclaim_authority.pubkey(), &mint),
         "sanity: helper should derive the canonical ATA"
     );
 
@@ -71,14 +71,14 @@ fn happy_path_reclaims_funded_buffer() {
         .get_account(&buffer_pda)
         .expect("buffer must exist before reclaim")
         .lamports;
-    let receiver_lamports_before = common::lamports(&svm, &receiver.pubkey());
+    let reclaim_authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
 
     let ix = ReclaimBuffer {
         program_id,
-        receiver: receiver.pubkey(),
+        reclaim_authority: reclaim_authority.pubkey(),
         mints: &[mint],
     };
-    let tx = common::signed_tx(&svm, &payer, &receiver, ix);
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     svm.send_transaction(tx)
         .expect("reclaim_buffer should succeed");
 
@@ -92,18 +92,18 @@ fn happy_path_reclaims_funded_buffer() {
         "reclaim_buffer should burn all tokens in the buffer"
     );
     assert_eq!(
-        common::lamports(&svm, &receiver.pubkey()) - receiver_lamports_before,
+        common::lamports(&svm, &reclaim_authority.pubkey()) - reclaim_authority_lamports_before,
         buffer_lamports_before,
-        "receiver must receive exactly the buffer's rent lamports"
+        "reclaim_authority must receive exactly the buffer's rent lamports"
     );
 }
 
 #[test]
 fn happy_path_reclaims_empty_buffer_without_token_transfer() {
     let (mut svm, program_id, payer) = common::setup();
-    let receiver = Keypair::new();
+    let reclaim_authority = Keypair::new();
 
-    initialize(&mut svm, &program_id, &payer, receiver.pubkey());
+    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
 
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
@@ -112,14 +112,14 @@ fn happy_path_reclaims_empty_buffer_without_token_transfer() {
         .get_account(&buffer_pda)
         .expect("buffer must exist before reclaim")
         .lamports;
-    let receiver_lamports_before = common::lamports(&svm, &receiver.pubkey());
+    let reclaim_authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
 
     let ix = ReclaimBuffer {
         program_id,
-        receiver: receiver.pubkey(),
+        reclaim_authority: reclaim_authority.pubkey(),
         mints: &[mint],
     };
-    let tx = common::signed_tx(&svm, &payer, &receiver, ix);
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     svm.send_transaction(tx)
         .expect("reclaim_buffer should succeed");
 
@@ -128,18 +128,18 @@ fn happy_path_reclaims_empty_buffer_without_token_transfer() {
         "buffer PDA must be closed after reclaim"
     );
     assert_eq!(
-        common::lamports(&svm, &receiver.pubkey()) - receiver_lamports_before,
+        common::lamports(&svm, &reclaim_authority.pubkey()) - reclaim_authority_lamports_before,
         buffer_lamports_before,
-        "receiver must receive exactly the buffer's rent lamports"
+        "reclaim_authority must receive exactly the buffer's rent lamports"
     );
 }
 
 #[test]
 fn reclaims_multiple_buffers_in_one_instruction() {
     let (mut svm, program_id, payer) = common::setup();
-    let receiver = Keypair::new();
+    let reclaim_authority = Keypair::new();
 
-    initialize(&mut svm, &program_id, &payer, receiver.pubkey());
+    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
 
     let mint_a = common::token::create_mint(&mut svm, &payer);
     let mint_b = common::token::create_mint(&mut svm, &payer);
@@ -151,10 +151,10 @@ fn reclaims_multiple_buffers_in_one_instruction() {
 
     let ix = ReclaimBuffer {
         program_id,
-        receiver: receiver.pubkey(),
+        reclaim_authority: reclaim_authority.pubkey(),
         mints: &[mint_a, mint_b],
     };
-    let tx = common::signed_tx(&svm, &payer, &receiver, ix);
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     svm.send_transaction(tx)
         .expect("reclaim_buffer should succeed");
 
@@ -174,45 +174,45 @@ fn reclaims_multiple_buffers_in_one_instruction() {
 }
 
 #[test]
-fn rejects_when_signer_is_not_the_configured_receiver() {
+fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     let (mut svm, program_id, payer) = common::setup();
-    let receiver = Keypair::new();
+    let reclaim_authority = Keypair::new();
     let impostor = Keypair::new();
     svm.airdrop(&impostor.pubkey(), 1_000_000_000)
         .expect("airdrop should succeed");
 
-    initialize(&mut svm, &program_id, &payer, receiver.pubkey());
+    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
 
     let mint = common::token::create_mint(&mut svm, &payer);
     create_buffer(&mut svm, &program_id, &payer, &mint);
 
-    // Build the instruction as if `impostor` were the configured receiver.
+    // Build the instruction as if `impostor` were the configured reclaim_authority.
     let ix = ReclaimBuffer {
         program_id,
-        receiver: impostor.pubkey(),
+        reclaim_authority: impostor.pubkey(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
     common::assert_settlement_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        SettlementError::ReceiverMismatch,
+        SettlementError::ReclaimAuthorityMismatch,
     );
 }
 
 #[test]
 fn rejects_no_buffers() {
     let (mut svm, program_id, payer) = common::setup();
-    let receiver = Keypair::new();
-    initialize(&mut svm, &program_id, &payer, receiver.pubkey());
+    let reclaim_authority = Keypair::new();
+    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
 
     let (state_pda, _) = find_state_pda(&program_id);
     let ix = ReclaimBufferRaw {
         program_id,
         state_pda,
-        receiver: receiver.pubkey(),
+        reclaim_authority: reclaim_authority.pubkey(),
         buffers: &[],
     };
-    let tx = common::signed_tx(&svm, &payer, &receiver, ix);
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     assert!(
         svm.send_transaction(tx).is_err(),
         "an instruction that reclaims no buffers must be rejected"

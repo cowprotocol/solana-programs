@@ -13,9 +13,9 @@ use settlement_interface::{
     SettlementError, SettlementInstruction,
 };
 
-use crate::processor::is_cpi_call;
+use crate::processor::{is_cpi_call, with_state_pda_signer};
 
-use super::{validate_counterpart, validate_token_program_account, with_state_pda_signer};
+use super::{validate_counterpart, validate_token_program_account};
 
 pub fn process_finalize_settle(
     program_id: &Address,
