@@ -1,6 +1,6 @@
 //! Shared helper for PDA-related tests.
 
-use litesvm::{types::TransactionResult, LiteSVM};
+use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,
@@ -53,13 +53,14 @@ pub fn assert_rejected_as_noncanonical(svm: &mut LiteSVM, tx: Transaction, pda: 
 
 /// Send the transaction built by `make_tx` twice and assert the account it
 /// creates is byte-for-byte unchanged by the second run. The first transaction
-/// must succeed; the second is sent and its result returned so the caller can
-/// assert on the outcome (a no-op success or a revert).
+/// must succeed; the second is sent and its outcome returned so the caller can
+/// assert on it (a no-op success or a revert). The success metadata is returned
+/// as-is; only the large failure metadata is reduced to its `TransactionError`.
 fn recreate_leaving_account_unchanged(
     svm: &mut LiteSVM,
     account: &Pubkey,
     make_tx: impl Fn(&LiteSVM) -> Transaction,
-) -> TransactionResult {
+) -> Result<TransactionMetadata, TransactionError> {
     let tx = make_tx(svm);
     svm.send_transaction(tx)
         .expect("first creation should succeed");
@@ -84,7 +85,7 @@ fn recreate_leaving_account_unchanged(
         "the second creation must not modify the account"
     );
 
-    result
+    result.map_err(|meta| meta.err)
 }
 
 /// Send the transaction built by `make_tx` twice and assert the second run is
@@ -108,9 +109,8 @@ pub fn assert_recreate_is_rejected(
     account: &Pubkey,
     make_tx: impl Fn(&LiteSVM) -> Transaction,
 ) {
-    let result = recreate_leaving_account_unchanged(svm, account, make_tx);
     super::assert_instruction_error(
-        result.map_err(|meta| meta.err),
+        recreate_leaving_account_unchanged(svm, account, make_tx),
         InstructionError::AccountAlreadyInitialized,
     );
 }
