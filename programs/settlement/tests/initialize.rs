@@ -11,7 +11,7 @@ use solana_sdk::{
 mod common;
 
 #[test]
-fn happy_path_initializes_state_pda_with_receiver() {
+fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let receiver = Pubkey::new_unique();
