@@ -2,7 +2,7 @@
 
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use settlement_interface::{
-    data::state::*,
+    data::state::{write_account, EncodedStateAccount},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
 };

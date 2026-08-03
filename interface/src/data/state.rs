@@ -41,7 +41,7 @@ impl EncodedStateAccount {
     const W_DISCRIMINATOR: usize = size_of::<u8>();
     const W_RECEIVER: usize = size_of::<Pubkey>();
 
-    pub const SIZE: usize = Self::W_DISCRIMINATOR + Self::W_RECEIVER;
+    pub const SIZE: usize = 33;
 
     /// Single-byte account discriminator. See [`crate::SettlementAccount`].
     pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator();
@@ -112,14 +112,6 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip() {
-        let account = sample_account();
-        let encoded = EncodedStateAccount::from(account);
-        let decoded = StateAccount::try_from(encoded).expect("example must decode");
-        assert_eq!(decoded, account);
-    }
-
-    #[test]
     fn encoding_is_discriminator_followed_by_receiver_bytes() {
         let account = sample_account();
         let encoded = EncodedStateAccount::from(account);
@@ -153,11 +145,24 @@ mod tests {
 
         proptest! {
             #[test]
-            fn account_roundtrip(bytes in any::<[u8; 32]>()) {
+            fn account_encode_roundtrip(bytes in any::<[u8; 32]>()) {
                 let account = StateAccount { receiver: Pubkey::new_from_array(bytes) };
                 let encoded = EncodedStateAccount::from(account);
-                let decoded = StateAccount::try_from(encoded).unwrap();
+                let decoded = StateAccount::try_from(encoded).expect("should decode after encoding");
                 prop_assert_eq!(decoded, account);
+            }
+
+            #[test]
+            fn account_decode_roundtrip(bytes in any::<[u8; 32]>()) {
+                let mut encoded = [0u8; EncodedStateAccount::SIZE];
+                encoded[0] = EncodedStateAccount::DISCRIMINATOR;
+                encoded[1..].copy_from_slice(&bytes);
+                let encoded = EncodedStateAccount(encoded);
+
+                let decoded = StateAccount::try_from(encoded).expect("should decode from valid bytes");
+                let re_encoded = EncodedStateAccount::from(decoded);
+
+                prop_assert_eq!(re_encoded, encoded);
             }
         }
     }

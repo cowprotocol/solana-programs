@@ -117,6 +117,7 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::{initialize_data, NUM_ACCOUNTS};
     use super::*;
+    use crate::data::state::EncodedStateAccount;
     use crate::instruction::fixtures::{fake_account_from_array, fake_sequential_accounts};
     use solana_account_view::AccountView;
     use solana_address::Address;
@@ -199,7 +200,6 @@ mod tests {
         assert_eq!(data.len(), EncodedStateAccount::SIZE);
         assert_eq!(data[0], SettlementInstruction::Initialize.discriminator());
         assert_eq!(&data[1..], &receiver.to_bytes());
-    }
     }
 
     #[test]
