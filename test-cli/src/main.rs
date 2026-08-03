@@ -45,6 +45,8 @@ enum Commands {
     Sell(cmd::create_order::BuyOrSellArgs),
     #[command(about = "Buy a token using another (e.g. `cow buy 1.0 SOL with USDC`)")]
     Buy(cmd::create_order::BuyOrSellArgs),
+    #[command(about = "Settle one or more orders")]
+    Settle(cmd::settle::SettleArgs),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -53,5 +55,6 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Sell(args) => cmd::create_order::run_sell(ctx, args),
         Commands::Buy(args) => cmd::create_order::run_buy(ctx, args),
+        Commands::Settle(args) => cmd::settle::run(ctx, args),
     }
 }
