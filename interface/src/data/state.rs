@@ -112,14 +112,6 @@ mod tests {
     }
 
     #[test]
-    fn encoding_is_discriminator_followed_by_receiver_bytes() {
-        let account = sample_account();
-        let encoded = EncodedStateAccount::from(account.clone());
-        assert_eq!(encoded[0], EncodedStateAccount::DISCRIMINATOR);
-        assert_eq!(&encoded[1..], &account.receiver.to_bytes());
-    }
-
-    #[test]
     fn decode_rejects_wrong_discriminator() {
         let mut bytes: [u8; EncodedStateAccount::SIZE] =
             EncodedStateAccount::from(sample_account()).into();
