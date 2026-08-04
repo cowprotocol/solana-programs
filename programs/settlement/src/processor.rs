@@ -14,7 +14,7 @@ use solana_instruction::{syscalls::get_stack_height, TRANSACTION_LEVEL_STACK_HEI
 /// `owner` and funded by `payer`.
 ///
 /// `seeds` are the canonical PDA seeds *without* the bump; the canonical bump
-/// is derived under `program_id` and appended in [`create`]. Signing
+/// is derived under `program_id` and appended in [`Self::create`]. Signing
 /// `CreateAccount` with these seeds implicitly checks that `pda` is the
 /// canonical address: the runtime grants the PDA signature only for the address
 /// the seeds derive, so any other `pda` fails the CPI.

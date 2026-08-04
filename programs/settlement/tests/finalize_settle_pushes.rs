@@ -443,14 +443,19 @@ fn rejects_partial_push_amount() {
         begin_ix_index: BEGIN_INDEX.into(),
         orders: &orders,
     });
-    // Drop one byte so the trailing amount is no longer a whole `u64`. Begin
-    // validates the push from the (unchanged) account metas and passes; finalize
-    // then rejects the malformed data.
+    // Drop one byte so the trailing amount is no longer a whole `u64`.
     finalize.data.pop();
 
-    let instructions = build_settlement(&program_id, &orders, finalize);
-    assert_finalize_error(
-        send(&mut svm, &payer, instructions),
-        InstructionError::InvalidInstructionData,
+    // Send the finalize on its own, with no paired `BeginSettle` ahead of it.
+    // In a normal pair `BeginSettle` reads the finalize's push amounts too and
+    // would reject this first. `FinalizeSettle` parses (and so validates) its
+    // own data before it even checks its counterpart, so on its own it rejects
+    // the malformed encoding by itself, at index 0.
+    assert_eq!(
+        send(&mut svm, &payer, vec![finalize]).err(),
+        Some(TransactionError::InstructionError(
+            0,
+            InstructionError::InvalidInstructionData,
+        )),
     );
 }
