@@ -12,7 +12,9 @@ use pinocchio::{
     },
     AccountView, Address, ProgramResult,
 };
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
+use pinocchio_token::{
+    instructions::CloseAccount, instructions::Transfer, state::Account as TokenAccount,
+};
 use settlement_interface::{
     data::{intent::OrderIntent, order::OrderAccount},
     instruction::{
@@ -217,6 +219,10 @@ fn settle_orders<'a>(
 /// This checks that the order is valid, settleable, and that `push_destination`
 /// matches the buy token account. Once the order passes those checks, its pulls
 /// are executed and its settlement limit price is validated against the intent.
+/// Finally, a sell token account left empty by the pulls is closed if the state
+/// PDA holds its SPL close authority, sending the reclaimed lamports to the
+/// intent's `sell_account_rent_recipient`, which is the only case where the
+/// order's rent recipient account is checked at all.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order(
     program_id: &Address,
@@ -229,6 +235,7 @@ fn process_order(
     let SettledOrder {
         order_pda,
         sell_token_account,
+        sell_account_rent_recipient,
         bump,
         destinations,
         amounts,
@@ -285,6 +292,33 @@ fn process_order(
     }
 
     validate_limit_price(&intent, amount_in, push_amount)?;
+
+    // Once all pulls are done, reclaim the sell token account's rent if it's
+    // left empty and the owner authorized us to close it.
+    let should_close = {
+        let token_account = TokenAccount::from_account_view(sell_token_account)
+            .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
+        token_account.amount() == 0
+            && token_account.close_authority() == Some(state_account.address())
+    };
+    if should_close {
+        // Confirm the rent recipient account given by the solver is the one intended for the user.
+        // We explicitly only check this here so that the solver can specify different/duplicated account if the account
+        // will not be closed.
+        if !address_matches_pubkey(
+            sell_account_rent_recipient.address(),
+            &intent.sell_account_rent_recipient,
+        ) {
+            return Err(SettlementError::SellAccountRentRecipientMismatch.into());
+        }
+
+        CloseAccount::new(
+            sell_token_account,
+            sell_account_rent_recipient,
+            state_account,
+        )
+        .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+    }
 
     Ok(())
 }

@@ -2,7 +2,8 @@
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
-    Approve, CreateAccount, CreateAssociatedTokenAccount, CreateMint, MintTo, Transfer,
+    spl_token::instruction::AuthorityType, Approve, CreateAccount, CreateAssociatedTokenAccount,
+    CreateMint, MintTo, SetAuthority, Transfer,
 };
 use settlement_client::settlement_interface::pda::state::find_state_pda;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
@@ -149,6 +150,22 @@ pub fn assert_no_token_instruction_touching(
             "expected no SPL Token instruction touching {account}, but one did",
         );
     }
+}
+
+/// Set `account`'s SPL close authority to `new_authority`, signed by `owner`
+/// (the account's current SPL owner, which may set the close authority as long
+/// as none is set yet).
+pub fn set_close_authority(
+    svm: &mut LiteSVM,
+    owner: &Keypair,
+    account: &Pubkey,
+    new_authority: &Pubkey,
+) {
+    SetAuthority::new(svm, owner, account, AuthorityType::CloseAccount)
+        .owner(owner)
+        .new_authority(new_authority)
+        .send()
+        .expect("setting close authority should succeed");
 }
 
 /// Read the mint that `account` holds tokens of.

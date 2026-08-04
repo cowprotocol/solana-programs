@@ -194,6 +194,7 @@ fn rejects_wrong_bump() {
         order_pdas: &[order_pda],
         order_pda_bumps: &[bump ^ 0x01],
         sell_token_accounts: &[intent.sell_token_account],
+        sell_account_rent_recipients: &[intent.sell_account_rent_recipient],
         pulls: &no_pulls(1),
     };
     let finalize = FinalizeSettleRaw {
@@ -240,6 +241,7 @@ fn rejects_fabricated_program_owned_account() {
         order_pdas: &[fake_order],
         order_pda_bumps: &[bump],
         sell_token_accounts: &[sell_token],
+        sell_account_rent_recipients: &[intent.sell_account_rent_recipient],
         pulls: &no_pulls(1),
     };
     // Mostly placeholder values: the transaction will reject before reaching
@@ -280,6 +282,7 @@ fn rejects_non_order_account_in_order_slot() {
         order_pdas: &[sell_token],
         order_pda_bumps: &[0],
         sell_token_accounts: &[sell_token],
+        sell_account_rent_recipients: &[Pubkey::new_unique()],
         pulls: &no_pulls(1),
     };
     // The finalize just carries a placeholder push matching the order in count.
@@ -434,19 +437,22 @@ fn rejects_orders_in_wrong_address_order() {
     // instructions by hand in the current wire format. Begin data is
     // `[discriminator, finalize_ix_index (LE), order_count, bump×n, transfer_count×n]`
     // (no transfers here) and begin accounts are `[instructions_sysvar, state_pda,
-    // token_program, (order_pda, sell_token_account)...]`. The finalize's push
-    // destinations are laid out in the same decreasing order, so the first order's
-    // destination check passes and the second order trips the ordering check.
+    // token_program, (order_pda, sell_token_account, sell_account_rent_recipient)...]`.
+    // The finalize's push destinations are laid out in the same decreasing order, so
+    // the first order's destination check passes and the second order trips the
+    // ordering check.
     let mut orders = [
         (
             first_pda,
             first.sell_token_account,
+            first.sell_account_rent_recipient,
             first.buy_token_account,
             first_bump,
         ),
         (
             second_pda,
             second.sell_token_account,
+            second.sell_account_rent_recipient,
             second.buy_token_account,
             second_bump,
         ),
@@ -457,7 +463,7 @@ fn rejects_orders_in_wrong_address_order() {
     data.extend_from_slice(&u16::from(FINALIZE_INDEX).to_le_bytes());
     data.extend_from_slice(&0i64.to_le_bytes()); // auction id
     data.push(orders.len() as u8);
-    data.extend(orders.iter().map(|&(_, _, _, bump)| bump));
+    data.extend(orders.iter().map(|&(.., bump)| bump));
     // No transfers: one zero transfer-count byte per order.
     data.extend(orders.iter().map(|_| 0u8));
 
@@ -466,9 +472,10 @@ fn rejects_orders_in_wrong_address_order() {
         AccountMeta::new_readonly(find_state_pda(&program_id).0, false),
         AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
     ];
-    for (order_pda, sell_token_account, _, _) in orders {
+    for (order_pda, sell_token_account, rent_recipient, _, _) in orders {
         accounts.push(AccountMeta::new_readonly(order_pda, false));
         accounts.push(AccountMeta::new(sell_token_account, false));
+        accounts.push(AccountMeta::new(rent_recipient, false));
     }
     let begin = Instruction {
         program_id,
@@ -481,7 +488,7 @@ fn rejects_orders_in_wrong_address_order() {
     // the ordering before the pushes execute, so only the destinations and their
     // count matter, not the source buffers they'd draw from.
     let source_buffers: Vec<Pubkey> = orders.iter().map(|_| Pubkey::new_unique()).collect();
-    let destinations: Vec<Pubkey> = orders.iter().map(|&(_, _, buy, _)| buy).collect();
+    let destinations: Vec<Pubkey> = orders.iter().map(|&(_, _, _, buy, _)| buy).collect();
     let bumps = vec![0u8; orders.len()];
     let amounts = vec![0u64; orders.len()];
     let finalize = FinalizeSettleRaw {
@@ -636,6 +643,340 @@ fn pulls_funds_to_destination() {
         token::delegated_amount(&svm, &sell_token),
         initial_amount - amount
     );
+}
+
+/// A settlement that closes the sell token account must send the reclaimed rent
+/// to the recipient the intent names, so a substituted account is rejected. The
+/// order's sell token account is already empty and has the state PDA as its
+/// close authority, which is what makes this settlement close it.
+#[test]
+fn rejects_sell_account_rent_recipient_mismatch_when_closing() {
+    let (mut svm, program_id, payer) = setup();
+    let state_pda = find_state_pda(&program_id).0;
+
+    let rent_recipient = Pubkey::new_unique();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_account_rent_recipient(&rent_recipient)
+        .build();
+    token::set_close_authority(&mut svm, &payer, &intent.sell_token_account, &state_pda);
+
+    let mut instructions = settle_and_pay(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[],
+        }],
+    );
+    replace_first_matching_account(
+        &mut instructions[usize::from(BEGIN_INDEX)],
+        &rent_recipient,
+        Pubkey::new_unique(),
+    );
+
+    assert_begin_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::SellAccountRentRecipientMismatch,
+    );
+}
+
+/// The other reason a settlement doesn't close the sell token account: the
+/// order authorizes closing (the state PDA is the close authority) but the pull
+/// leaves funds behind. The rent recipient goes unread there too, so a
+/// throwaway address is accepted.
+#[test]
+fn accepts_mismatched_rent_recipient_when_sell_account_retains_funds() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+    let state_pda = find_state_pda(&program_id).0;
+
+    // Pull half the balance: the account is authorized to be closed but isn't
+    // empty afterwards.
+    let initial_amount = 42_000_000;
+    let pulled = initial_amount / 2;
+    let paid = 84_000_000;
+    let rent_recipient = Pubkey::new_unique();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_mint(&mint)
+        .sell_amount(initial_amount)
+        .buy_amount(paid)
+        .sell_account_rent_recipient(&rent_recipient)
+        .build();
+    let sell_token = intent.sell_token_account;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
+    token::set_close_authority(&mut svm, &payer, &sell_token, &state_pda);
+    let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+
+    let mut instructions = settle_and_pay_amounts(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[Pull {
+                destination,
+                amount: pulled,
+            }],
+        }],
+        &[paid],
+    );
+    let throwaway = Pubkey::new_unique();
+    replace_first_matching_account(
+        &mut instructions[usize::from(BEGIN_INDEX)],
+        &rent_recipient,
+        throwaway,
+    );
+
+    send(&mut svm, &payer, instructions)
+        .expect("a partial pull leaves the sell account open and its rent recipient unread");
+
+    assert_eq!(token::balance(&svm, &destination), pulled);
+    assert_eq!(
+        token::balance(&svm, &sell_token),
+        initial_amount - pulled,
+        "the sell token account should still hold the funds that weren't pulled"
+    );
+    assert!(
+        svm.get_account(&throwaway)
+            .is_none_or(|account| account.lamports == 0),
+        "the throwaway account should not have received anything"
+    );
+}
+
+/// The rent recipient slot is only read when the settlement closes the sell
+/// token account. An order that doesn't authorize closing never touches it, so
+/// a settlement may put a throwaway address there.
+#[test]
+fn accepts_mismatched_rent_recipient_when_not_closing() {
+    let (mut svm, program_id, payer) = setup();
+
+    // No close authority is set on the sell token account, so this settlement
+    // can't close it however empty it is.
+    let rent_recipient = Pubkey::new_unique();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_account_rent_recipient(&rent_recipient)
+        .build();
+    let mut instructions = settle_and_pay(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[],
+        }],
+    );
+    let throwaway = Pubkey::new_unique();
+    replace_first_matching_account(
+        &mut instructions[usize::from(BEGIN_INDEX)],
+        &rent_recipient,
+        throwaway,
+    );
+
+    send(&mut svm, &payer, instructions)
+        .expect("a settlement that doesn't close the sell account ignores the rent recipient");
+    // Nothing was closed, so no lamports moved to either address.
+    assert!(
+        svm.get_account(&throwaway)
+            .is_none_or(|account| account.lamports == 0),
+        "the throwaway account should not have received anything"
+    );
+    assert!(
+        svm.get_account(&rent_recipient)
+            .is_none_or(|account| account.lamports == 0),
+        "the intent's rent recipient should not have received anything"
+    );
+    assert!(
+        svm.get_account(&intent.sell_token_account).is_some(),
+        "the sell token account should still be open"
+    );
+}
+
+#[test]
+fn closes_sell_token_account_once_emptied_with_matching_close_authority() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+    let state_pda = find_state_pda(&program_id).0;
+
+    // The settlement pulls the whole balance, so the order is priced for it:
+    // sell 42_000_000 for at least 84_000_000 at limit price.
+    let initial_amount = 42_000_000;
+    let paid = 84_000_000;
+    let rent_recipient = Pubkey::new_unique();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_mint(&mint)
+        .sell_amount(initial_amount)
+        .buy_amount(paid)
+        .sell_account_rent_recipient(&rent_recipient)
+        .build();
+    let sell_token = intent.sell_token_account;
+    let buy_token = intent.buy_token_account;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
+    token::set_close_authority(&mut svm, &payer, &sell_token, &state_pda);
+    let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+
+    let sell_token_rent = svm
+        .get_account(&sell_token)
+        .expect("sell token account should exist before settlement")
+        .lamports;
+    let buy_token_lamports = svm
+        .get_account(&buy_token)
+        .expect("buy token account should exist before settlement")
+        .lamports;
+
+    let instructions = settle_and_pay_amounts(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[Pull {
+                destination,
+                amount: initial_amount,
+            }],
+        }],
+        &[paid],
+    );
+    send(&mut svm, &payer, instructions)
+        .expect("closing sell token account as part of settlement should succeed");
+
+    assert_eq!(token::balance(&svm, &destination), initial_amount);
+    // The now-empty sell token account is closed, and its rent goes to the rent
+    // recipient the intent names.
+    assert!(
+        svm.get_account(&sell_token).is_none_or(|account| {
+            // Some SVM backends keep a zeroed record for a closed account.
+            account.lamports == 0
+        }),
+        "the emptied sell token account should have been closed"
+    );
+    assert_eq!(
+        svm.get_account(&rent_recipient)
+            .expect("the rent recipient should hold the reclaimed rent")
+            .lamports,
+        sell_token_rent,
+    );
+    // The buy token account is not the rent recipient, so only its pushed
+    // proceeds change, never its lamports.
+    assert_eq!(
+        svm.get_account(&buy_token)
+            .expect("buy token account should exist after settlement")
+            .lamports,
+        buy_token_lamports,
+    );
+}
+
+/// A sell token account emptied by an early pull is only closed once every pull
+/// for that order has run: closing mid-loop would make the remaining pulls fail
+/// on a closed account. The delegation here exceeds the balance so the delegate
+/// survives the emptying pull and the trailing pull is reached at all.
+#[test]
+fn closes_sell_token_account_only_after_all_pulls() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+    let state_pda = find_state_pda(&program_id).0;
+
+    let balance = 30_000_000;
+    let delegated = 42_000_000;
+    let paid = 60_000_000;
+    let rent_recipient = Pubkey::new_unique();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_mint(&mint)
+        .sell_amount(balance)
+        .buy_amount(paid)
+        .sell_account_rent_recipient(&rent_recipient)
+        .build();
+    let sell_token = intent.sell_token_account;
+    token::mint_to(&mut svm, &payer, &mint, &sell_token, balance);
+    token::delegate(&mut svm, &payer, &sell_token, &state_pda, delegated);
+    token::set_close_authority(&mut svm, &payer, &sell_token, &state_pda);
+
+    let sell_token_rent = svm
+        .get_account(&sell_token)
+        .expect("sell token account should exist before settlement")
+        .lamports;
+
+    // The first pull empties the account; the second one is a zero-amount pull
+    // that would fail if the account had already been closed.
+    let emptying_destination =
+        token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+    let trailing_destination =
+        token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+    let instructions = settle_and_pay_amounts(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[
+                Pull {
+                    destination: emptying_destination,
+                    amount: balance,
+                },
+                Pull {
+                    destination: trailing_destination,
+                    amount: 0,
+                },
+            ],
+        }],
+        &[paid],
+    );
+    send(&mut svm, &payer, instructions)
+        .expect("a pull following the one that empties the sell account should succeed");
+
+    assert_eq!(token::balance(&svm, &emptying_destination), balance);
+    assert_eq!(token::balance(&svm, &trailing_destination), 0);
+    assert!(
+        svm.get_account(&sell_token)
+            .is_none_or(|account| account.lamports == 0),
+        "the emptied sell token account should have been closed"
+    );
+    assert_eq!(
+        svm.get_account(&rent_recipient)
+            .expect("the rent recipient should hold the reclaimed rent")
+            .lamports,
+        sell_token_rent,
+    );
+}
+
+#[test]
+fn leaves_sell_token_account_open_without_matching_close_authority() {
+    let (mut svm, program_id, payer) = setup();
+    let mint = token::create_mint(&mut svm, &payer);
+
+    // No close authority is set on the sell token account, unlike
+    // `closes_sell_token_account_once_emptied_with_matching_close_authority`.
+    let initial_amount = 42_000_000;
+    let paid = 84_000_000;
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_mint(&mint)
+        .sell_amount(initial_amount)
+        .buy_amount(paid)
+        .build();
+    let sell_token = intent.sell_token_account;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
+    let destination = token::create_token_account(&mut svm, &payer, &mint, &Pubkey::new_unique());
+
+    let instructions = settle_and_pay_amounts(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[Pull {
+                destination,
+                amount: initial_amount,
+            }],
+        }],
+        &[paid],
+    );
+    send(&mut svm, &payer, instructions)
+        .expect("leaving sell token account open without authority should succeed");
+
+    assert_eq!(token::balance(&svm, &destination), initial_amount);
+    // The sell token account is empty but wasn't closed, since the state PDA
+    // was never authorized as its close authority.
+    assert_eq!(token::balance(&svm, &sell_token), 0);
 }
 
 #[test]
@@ -1010,7 +1351,7 @@ fn rejects_extra_account() {
     );
 
     // Append one extra account to `BeginSettle`, so the account count no longer
-    // matches the `2n + T` the instruction data implies.
+    // matches the `3n + T` the instruction data implies.
     instructions[usize::from(BEGIN_INDEX)]
         .accounts
         .push(AccountMeta::new_readonly(Pubkey::new_unique(), false));

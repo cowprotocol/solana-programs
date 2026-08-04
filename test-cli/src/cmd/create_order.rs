@@ -7,7 +7,7 @@ use settlement_client::{
         pda::order::find_order_pda,
     },
 };
-use solana_sdk::{signature::Signer, transaction::Transaction};
+use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
@@ -22,6 +22,11 @@ struct CommonArgs {
     /// Allow partial fills across multiple settlements
     #[arg(long)]
     partially_fillable: bool,
+
+    /// Address receiving the sell token account's rent if a settlement closes
+    /// the account once it's empty (defaults to the payer)
+    #[arg(long)]
+    sell_account_rent_recipient: Option<Pubkey>,
 }
 
 #[derive(Parser)]
@@ -164,6 +169,9 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         valid_to: common.valid_to,
         kind,
         partially_fillable: common.partially_fillable,
+        sell_account_rent_recipient: common
+            .sell_account_rent_recipient
+            .unwrap_or_else(|| ctx.payer.pubkey()),
         app_data: [0u8; 32],
     };
 
