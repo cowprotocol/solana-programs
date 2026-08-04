@@ -126,7 +126,7 @@ created_by: Pubkey
 intent: OrderIntent
 ```
 
-There are also other parameters, like `snapshot`, used internally during the settlement.
+`amount_withdrawn` and `amount_received` are cumulative across all of the order's settlements. They cap how much of the order can still be traded, so it can't be filled beyond its sell and buy amounts.
 
 An order PDA can only exist and hold data if the order has been [authenticated](#authenticating-an-order). If this account exists and is not cancelled, filled, or expired, then the order can be traded.
 
@@ -255,9 +255,9 @@ Differences with Ethereum:
 
 A settlement transaction is split into multiple instructions. All settlement operations occur between a `BeginSettle` and a `FinalizeSettle` instruction with the exception of arbitrary interactions, which can take place at any point of a transaction. Except for that, the order of instructions in the transaction is arbitrary.
 
-- `BeginSettle`: Snapshots each order's receiver token account, spender token account, and withdrawal balances. Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
+- `BeginSettle`: Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Validates each order's limit price and that its cumulative fill stays within the order's sell and buy amounts (fully filling a fill-or-kill order), and updates the order's `amount_withdrawn`/`amount_received`. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
 - (arbitrary interactions): Any instruction from the solver. This could be a token transfer, an AMM swap, or anything else.
-- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. Reads balances again, computes deltas against the snapshots, validates clearing/limit prices, updates `amount_received` and order status, revokes solver approvals. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
+- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
 
 Additionally, a settlement transaction will include the batch number as part of the instruction bytes of `BeginSettle`.
 
