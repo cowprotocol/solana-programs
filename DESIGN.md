@@ -16,7 +16,7 @@ Once deployed, we will make the code at that account unchangeable.
 
 ## Program initialization
 
-The state PDA is created once, after deployment, by the `Initialize` instruction. Only the upgrade authority for the program will be able to call this function.
+The state PDA is created once, after deployment, by the `Initialize` instruction.
 
 ### Reclaim Authority
 
