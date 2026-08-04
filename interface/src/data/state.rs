@@ -27,7 +27,7 @@ pub struct StateAccount {
 /// ```text
 ///  ┌──── discriminator
 ///  ┌┬───────────────────────────────┐
-///  ││       reclaim_authority        │
+///  ││       reclaim_authority       │
 ///  └┴───────────────────────────────┘
 /// 0 1                               33
 /// ```
