@@ -13,9 +13,10 @@
 //! a single valid PDA representing that intent.
 //!
 //! The seeds start with [`SETTLEMENT_SEED`], which carries
-//! [`crate::pda::STATE_VERSION`], so a version bump moves every order PDA. That
-//! is what keeps a stored [`crate::data::order::EncodedOrderAccount`] from being
-//! read back under a layout it was not written with.
+//! [`crate::pda::STATE_VERSION`], so a minor version bump moves every order
+//! PDA. That is what keeps a stored
+//! [`crate::data::order::EncodedOrderAccount`] from being read back under a
+//! layout it was not written with.
 
 use solana_hash::Hash;
 use solana_pubkey::Pubkey;
@@ -64,13 +65,13 @@ mod tests {
 
     #[test]
     fn distinct_versions_yield_distinct_order_pdas() {
-        use crate::pda::{tests::settlement_seed_for, STATE_VERSION};
+        use crate::pda::tests::{settlement_seed_for, SAMPLE_VERSIONS};
 
         let program_id = Pubkey::new_unique();
         let uid = Hash::new_from_array(*Pubkey::new_unique().as_array());
         let (pda, _) = find_order_pda(&program_id, &uid);
 
-        for other in (u8::MIN..=u8::MAX).filter(|other| *other != STATE_VERSION) {
+        for other in SAMPLE_VERSIONS {
             let (other_pda, _) = Pubkey::find_program_address(
                 &[&settlement_seed_for(other), uid.as_ref(), ORDER_SEED],
                 &program_id,

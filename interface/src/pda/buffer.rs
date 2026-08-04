@@ -10,10 +10,10 @@
 //! controlling every buffer.
 //!
 //! The seeds start with [`SETTLEMENT_SEED`], which carries
-//! [`crate::pda::STATE_VERSION`], so a version bump moves every buffer. Since
-//! only the state PDA can spend a buffer and that address moves too, buffers
-//! must be drained under the old version before a bump ships, or their contents
-//! are stranded. See `DESIGN.md`.
+//! [`crate::pda::STATE_VERSION`], so a minor version bump moves every buffer.
+//! Since only the state PDA can spend a buffer and that address moves too,
+//! buffers must be drained under the old version before a bump ships, or their
+//! contents are stranded. See `DESIGN.md`.
 
 use solana_account_view::AccountView;
 use solana_address::Address;
@@ -82,13 +82,13 @@ mod tests {
 
     #[test]
     fn distinct_versions_yield_distinct_buffer_pdas() {
-        use crate::pda::{tests::settlement_seed_for, STATE_VERSION};
+        use crate::pda::tests::{settlement_seed_for, SAMPLE_VERSIONS};
 
         let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
         let (pda, _) = find_buffer_pda(&program_id, &mint);
 
-        for other in (u8::MIN..=u8::MAX).filter(|other| *other != STATE_VERSION) {
+        for other in SAMPLE_VERSIONS {
             let (other_pda, _) = Pubkey::find_program_address(
                 &[&settlement_seed_for(other), mint.as_array(), BUFFER_SEED],
                 &program_id,

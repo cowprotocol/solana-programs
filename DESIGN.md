@@ -9,17 +9,17 @@ It uses a dedicated state account to:
 - Manage solver authentication (including fee access by the protocol).
 - Act as a token delegate to manage user funds.
 
-Its state is stored in a PDA generated using seed `["settlement1"]`.
+Its state is stored in a PDA generated using seed `["settlement v0.1"]`.
 
 Once deployed, we will make the code at that account unchangeable.
 
 ## State versioning
 
-Every PDA the program derives starts with the same prefix seed: the string `settlement` followed by the current state version in decimal ASCII, currently `1`. The version lives in a single constant, `STATE_VERSION` (`interface/src/pda/mod.rs`).
+Every PDA the program derives starts with the same prefix seed: the string `settlement v` followed by the current state version, currently `0.1`. The state version is the `MAJOR.MINOR` of the crate version in `Cargo.toml`, from which the seed is assembled at compile time (`STATE_VERSION` in `interface/src/pda/mod.rs`); there is no separate constant to keep in sync.
 
-Incrementing it relocates the program's entire address space at once — the state account, every buffer, and every order. This is what protects us from state confusion across upgrades: an account written by an older version of the program is unreachable to the newer one, rather than being read back under a layout it was never written with.
+Bumping the minor version relocates the program's entire address space at once — the state account, every buffer, and every order. This is what protects us from state confusion across upgrades: an account written by an older version of the program is unreachable to the newer one, rather than being read back under a layout it was never written with. Patch releases keep the seed, and therefore every address, unchanged.
 
-Increment `STATE_VERSION` for any state-breaking change: the layout of a stored account, the meaning of an existing field, or the seed scheme of any PDA.
+Bump the minor version for any state-breaking change: the layout of a stored account, the meaning of an existing field, or the seed scheme of any PDA. Conversely, release changes that are *not* state-breaking as patch bumps.
 
 A bump is not a migration. It has two consequences that must be handled before the new program version is deployed:
 
@@ -32,7 +32,7 @@ Buffer accounts are token accounts that hold funds on behalf of the settlement c
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to collect user funds, send out funds to the user, and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
-Corresponding PDAs are generated using seed `["settlement1", token, "buffer"]`.
+Corresponding PDAs are generated using seed `["settlement v0.1", token, "buffer"]`.
 
 Differences with Ethereum:
 
@@ -145,7 +145,7 @@ An order PDA can only exist and hold data if the order has been [authenticated](
 
 At the time of order creation, the executor can specify a different address as the `created_by` address. This allows rent to be reclaimed by a different account than the one that signed the instruction.
 
-Corresponding PDAs are generated using seed `["settlement1", hash(intent), "order"]`.
+Corresponding PDAs are generated using seed `["settlement v0.1", hash(intent), "order"]`.
 
 The serialization of the parameters before hashing and the hashing function will be formally specified at a later point.
 

@@ -5,9 +5,10 @@
 //! solver authentication and holds the SPL token authority over every buffer
 //! account (see [`crate::pda::buffer`]).
 //!
-//! Because that lone seed carries [`crate::pda::STATE_VERSION`], a version bump
-//! moves the state PDA. Users delegate their token accounts to this address
-//! (see `DESIGN.md`), so every delegation has to be renewed after a bump.
+//! Because that lone seed carries [`crate::pda::STATE_VERSION`], a minor
+//! version bump moves the state PDA. Users delegate their token accounts to
+//! this address (see `DESIGN.md`), so every delegation has to be renewed after a
+//! bump.
 
 use solana_pubkey::Pubkey;
 
@@ -41,12 +42,12 @@ mod tests {
 
     #[test]
     fn distinct_versions_yield_distinct_state_pdas() {
-        use crate::pda::{tests::settlement_seed_for, STATE_VERSION};
+        use crate::pda::tests::{settlement_seed_for, SAMPLE_VERSIONS};
 
         let program_id = Pubkey::new_unique();
         let (pda, _) = find_state_pda(&program_id);
 
-        for other in (u8::MIN..=u8::MAX).filter(|other| *other != STATE_VERSION) {
+        for other in SAMPLE_VERSIONS {
             let (other_pda, _) =
                 Pubkey::find_program_address(&[&settlement_seed_for(other)], &program_id);
             assert_ne!(
