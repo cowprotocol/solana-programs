@@ -16,8 +16,8 @@ use crate::SettlementAccount;
 /// Idiomatic representation of the state PDA's body.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StateAccount {
-    /// The account authorized to reclaim rent for protocol-operated accounts
-    /// (ex. buffers). It must sign the reclaim and chooses where the rent goes.
+    /// The account authorized to reclaim rent for buffers. It must sign the
+    /// reclaim and chooses where the rent goes.
     pub reclaim_authority: Pubkey,
 }
 
