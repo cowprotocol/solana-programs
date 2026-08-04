@@ -7,6 +7,7 @@ use solana_sdk::signer::keypair::Keypair;
 use crate::Cli;
 
 pub mod create_order;
+pub mod settle;
 
 /// Shared context threaded through every subcommand.
 pub struct Context {
