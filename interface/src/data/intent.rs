@@ -81,11 +81,8 @@ pub struct OrderIntent {
     /// `sell_token_account` when a settlement closes it. Closing only
     /// happens if the account is left empty by the settlement and its SPL
     /// close authority is the settlement state PDA, which is the owner's
-    /// opt-in; naming the recipient here means it's fixed by the signed
-    /// intent instead of chosen by whoever settles the order.
-    ///
-    /// Settlements that don't close the sell token account never read it, so
-    /// it's unconstrained for orders that never opt into closing.
+    /// opt-in.
+    /// This field is unused unless the sell account is to be closed.
     pub sell_account_rent_recipient: Pubkey,
 
     /// Opaque 32 bytes set by the order creator. Not interpreted by the
