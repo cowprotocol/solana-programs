@@ -6,7 +6,7 @@ The settlement program stores funds through dedicated token accounts (_buffer ac
 
 It uses a dedicated state account to:
 
-- Record the _reclaim authority_ (see [Program initialization](#program-initialization)).
+- Store the account that can reclaim buffer rent.
 - Manage solver authentication (including fee access by the protocol).
 - Act as a token delegate to manage user funds.
 
