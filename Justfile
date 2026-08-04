@@ -9,6 +9,7 @@ build-program:
 # Build supplementary test programs (.so)
 build-test-programs:
     cargo build-sbf --manifest-path programs/test/cpi-caller/Cargo.toml
+    cargo build-sbf --manifest-path programs/test/hasher/Cargo.toml
 
 # Build everything: host-side workspace crates plus the on-chain program.
 build: build-program

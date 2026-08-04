@@ -1,0 +1,19 @@
+[package]
+name = "test-hasher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# `lib` alongside `cdylib` so the tests can import `HashOp`; `cdylib` still
+# produces the on-chain `.so` that gets loaded into LiteSVM.
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+num_enum.workspace = true
+pinocchio.workspace = true
+solana-keccak-hasher.workspace = true
+solana-sha256-hasher.workspace = true
+
+[lints]
+workspace = true

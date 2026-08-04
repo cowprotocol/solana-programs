@@ -21,6 +21,7 @@ solana-instruction = { workspace = true, features = ["syscalls"] }
 
 [dev-dependencies]
 arrayref.workspace = true
+hex-literal.workspace = true
 litesvm.workspace = true
 litesvm-token.workspace = true
 proptest.workspace = true
@@ -30,6 +31,7 @@ solana-address-lookup-table-interface = { workspace = true, features = ["bincode
 solana-instructions-sysvar.workspace = true
 solana-sdk.workspace = true
 solana-system-interface.workspace = true
+test-hasher.workspace = true
 
 [lints]
 workspace = true

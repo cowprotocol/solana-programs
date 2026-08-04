@@ -3066,6 +3066,7 @@ name = "settlement"
 version = "0.1.0"
 dependencies = [
  "arrayref",
+ "hex-literal",
  "litesvm",
  "litesvm-token",
  "pinocchio",
@@ -3079,6 +3080,7 @@ dependencies = [
  "solana-instructions-sysvar",
  "solana-sdk",
  "solana-system-interface 3.2.0",
+ "test-hasher",
 ]
 
 [[package]]
@@ -5406,6 +5408,16 @@ name = "test-cpi-caller"
 version = "0.1.0"
 dependencies = [
  "pinocchio",
+]
+
+[[package]]
+name = "test-hasher"
+version = "0.1.0"
+dependencies = [
+ "num_enum",
+ "pinocchio",
+ "solana-keccak-hasher",
+ "solana-sha256-hasher",
 ]
 
 [[package]]

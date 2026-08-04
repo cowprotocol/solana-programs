@@ -34,6 +34,11 @@ pub const CPI_CALLER_SO: &str = concat!(
     "/../../target/deploy/test_cpi_caller.so"
 );
 
+pub const HASHER_SO: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../target/deploy/test_hasher.so"
+);
+
 /// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
 /// generated program ID, and airdrop a payer keypair.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
@@ -55,6 +60,22 @@ pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
     svm.add_program_from_file(cpi_caller_id, CPI_CALLER_SO)
         .expect("test-cpi-caller .so not found, run `just build-program` first");
     cpi_caller_id
+}
+
+/// Spin up a `LiteSVM`, deploy the compiled `test-hasher` helper under a freshly
+/// generated program ID, and airdrop a payer keypair. Unlike [`setup`], this
+/// doesn't load the settlement program: the hashing tests only need the helper.
+pub fn setup_hasher() -> (LiteSVM, Pubkey, Keypair) {
+    let mut svm = LiteSVM::new();
+    let program_id = Pubkey::new_unique();
+    svm.add_program_from_file(program_id, HASHER_SO)
+        .expect("test-hasher .so not found, run `just build-test-programs` first");
+
+    let payer = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 1_000_000_000)
+        .expect("airdrop to payer should succeed");
+
+    (svm, program_id, payer)
 }
 
 /// Wrap a `SettlementError` in the runtime-side `InstructionError::Custom`
