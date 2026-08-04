@@ -23,8 +23,8 @@ use crate::SettlementInstruction;
 /// and rejects any other address.
 ///
 /// `reclaim_authority` is recorded verbatim in the state PDA's data: it's the
-/// account authorized to reclaim rent for protocol-operated accounts (ex.
-/// buffers). See [`crate::data::state::StateAccount::reclaim_authority`].
+/// account authorized to reclaim rent for buffers. See
+/// [`crate::data::state::StateAccount::reclaim_authority`].
 ///
 /// The state account is owned by the settlement program. This instruction
 /// succeeds only once: a second call fails because the account already
