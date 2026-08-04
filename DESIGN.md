@@ -37,7 +37,7 @@ There are two roles for authentication:
 
 The settlement program state PDA stores the state used for authentication.
 
-On settlement program deployment, the program state is initialized with a fixed initial manager, controlled by CoW DAO, and an empty list of solvers.
+On settlement program deployment, the program state is initialized with a fixed initial manager, controlled by CoW Core as mandated by CoW DAO, and an empty list of solvers.
 
 Transferring the role of manager is done in a two-step process: first the current manager proposes a new manager; then the new manager accepts the role, finalizing the role transfer.
 
