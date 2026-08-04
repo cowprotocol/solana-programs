@@ -100,6 +100,8 @@ struct OrderIntent {
 	// Either Buy or Sell
 	kind: OrderKind
 	partially_fillable: bool
+	// Receives the sell token account's rent when a settlement closes it.
+	sell_account_rent_recipient: Pubkey
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
@@ -163,6 +165,12 @@ Invalidating an order requires an on-chain operation. This operation can be auth
 Creating the order in advance is _not_ needed: if the order wasn’t created before invalidating, the corresponding order PDA is created and then invalidated.
 
 Note that deleting the order PDA is _not_ enough to invalidate an order. In fact, if an order signature is available, the same order could always be created again until it expires.
+
+### Sell Token Account Clearing
+
+Upon settlement, if an order whose `sell_token_account` is left with 0 funds *and* the settlement account's state account has been granted close authority, the account will be automatically closed and the rent proceeds sent to `sell_account_rent_recipient`. 
+
+If the `sell_token_account` has not granted close authority or has any remaining funds, the account will not be closed and `sell_account_rent_recipient` is ignored.
 
 ### Order clearing
 

@@ -24,8 +24,11 @@ pub struct Pull {
 /// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
 /// - `order_pda_bumps[i]` is the bump of the canonical order PDA
 /// - `sell_token_accounts[i]` is the order's sell token account,
-/// - `buy_token_accounts[i]` is the order's buy token account, used as the
-///   destination for the sell token account's rent if it's closed once empty,
+/// - `sell_account_rent_recipients[i]` is the order's
+///   `sell_account_rent_recipient`, which receives the sell token account's
+///   rent if it's closed once empty. The program only requires it to match the
+///   intent on a settlement that closes the account, so any address works for
+///   an order whose sell token account stays open,
 /// - `pulls[i]` the list of [`Pull`]s to perform from that order's sell token
 ///   account, each sending an amount from the `i`-th order sell token account
 ///   to a destination.
@@ -38,11 +41,11 @@ pub struct Pull {
 /// [bump×n][transfer_count×n][amount: u64 LE ×T]`.
 /// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
 /// (R)]` followed, per order, by `[order_pda (R), sell_token_account (W),
-/// buy_token_account (W), destination (W)...]`.
+/// sell_account_rent_recipient (W), destination (W)...]`.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
 /// This builder establishes that ordering for the caller: it sorts the orders by
-/// PDA address, carrying each order's sell token account, buy token account,
+/// PDA address, carrying each order's sell token account, rent recipient,
 /// bump, transfer count, amounts, and destination metas before emitting them.
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
@@ -55,7 +58,7 @@ pub struct BeginSettle<'a> {
     pub order_pdas: &'a [Pubkey],
     pub order_pda_bumps: &'a [u8],
     pub sell_token_accounts: &'a [Pubkey],
-    pub buy_token_accounts: &'a [Pubkey],
+    pub sell_account_rent_recipients: &'a [Pubkey],
     pub pulls: &'a [&'a [Pull]],
 }
 
@@ -69,7 +72,7 @@ impl From<BeginSettle<'_>> for Instruction {
             order_pdas,
             order_pda_bumps,
             sell_token_accounts,
-            buy_token_accounts,
+            sell_account_rent_recipients,
             pulls,
         } = builder;
 
@@ -110,10 +113,10 @@ impl From<BeginSettle<'_>> for Instruction {
             // Read-only account for the order.
             accounts.push(AccountMeta::new_readonly(order_pdas[i], false));
             // Writable accounts settling the order: its sell token account, its
-            // buy token account (the destination if the sell token account is
-            // closed once empty), and the recipient of each transfer.
+            // rent recipient (which receives the sell token account's lamports
+            // if it's closed once empty), and the recipient of each transfer.
             accounts.push(AccountMeta::new(sell_token_accounts[i], false));
-            accounts.push(AccountMeta::new(buy_token_accounts[i], false));
+            accounts.push(AccountMeta::new(sell_account_rent_recipients[i], false));
             for pull in pulls[i] {
                 accounts.push(AccountMeta::new(pull.destination, false));
             }
@@ -132,7 +135,7 @@ impl From<BeginSettle<'_>> for Instruction {
 pub struct SettledOrder<'a, A> {
     pub order_pda: &'a A,
     pub sell_token_account: &'a A,
-    pub buy_token_account: &'a A,
+    pub sell_account_rent_recipient: &'a A,
     pub bump: u8,
     /// Destination accounts for this order's transfers.
     pub destinations: &'a [A],
@@ -147,7 +150,7 @@ pub struct SettledOrders<'a, A> {
     /// Order accounts, laid out per order as
     /// [order_accounts_1,  order_accounts_2, ...] where
     /// - each order_accounts is a series of accounts:
-    ///   `order_pda_N, sell_token_account_N, buy_token_account_N, destination_N_1, destination_N_2, ..., destination_N_M`
+    ///   `order_pda_N, sell_token_account_N, sell_account_rent_recipient_N, destination_N_1, destination_N_2, ..., destination_N_M`
     /// - and M is `counts[N]`
     order_accounts: &'a [A],
     bumps: &'a [u8],
@@ -179,7 +182,7 @@ impl<'a, A> SettledOrders<'a, A> {
 
             let order_pda = &self.order_accounts[account_offset];
             let sell_token_account = &self.order_accounts[account_offset + 1];
-            let buy_token_account = &self.order_accounts[account_offset + 2];
+            let sell_account_rent_recipient = &self.order_accounts[account_offset + 2];
             let dest_start = account_offset + 3;
             let dest_end = dest_start + count;
             let destinations = &self.order_accounts[dest_start..dest_end];
@@ -192,7 +195,7 @@ impl<'a, A> SettledOrders<'a, A> {
             Some(SettledOrder {
                 order_pda,
                 sell_token_account,
-                buy_token_account,
+                sell_account_rent_recipient,
                 bump,
                 destinations,
                 amounts,
@@ -262,8 +265,8 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
         };
         let transfer_count = amounts.len();
 
-        // Each order contributes its order PDA, sell token account, buy token
-        // account, and one destination per transfer, so the order accounts
+        // Each order contributes its order PDA, sell token account, rent
+        // recipient, and one destination per transfer, so the order accounts
         // count is `3n + T`.
         let expected_accounts = order_count
             .checked_mul(3)
@@ -332,7 +335,7 @@ mod tests {
             order_pdas: &[],
             order_pda_bumps: &[],
             sell_token_accounts: &[],
-            buy_token_accounts: &[],
+            sell_account_rent_recipients: &[],
             pulls: &[],
         }
         .into();
@@ -366,11 +369,11 @@ mod tests {
         // are chosen to sort in the opposite order.
         let high_order_pda = Pubkey::new_from_array([0xbb; 32]);
         let high_sell_token_account = Pubkey::new_from_array([0xa0; 32]);
-        let high_buy_token_account = Pubkey::new_from_array([0xa2; 32]);
+        let high_rent_recipient = Pubkey::new_from_array([0xa2; 32]);
         let high_bump = 0xaa;
         let low_order_pda = Pubkey::new_from_array([0xaa; 32]);
         let low_sell_token_account = Pubkey::new_from_array([0xb0; 32]);
-        let low_buy_token_account = Pubkey::new_from_array([0xb2; 32]);
+        let low_rent_recipient = Pubkey::new_from_array([0xb2; 32]);
         let low_bump = 0xbb;
         let Instruction { data, accounts, .. } = BeginSettle {
             program_id,
@@ -380,7 +383,7 @@ mod tests {
             order_pdas: &[high_order_pda, low_order_pda],
             order_pda_bumps: &[high_bump, low_bump],
             sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
-            buy_token_accounts: &[high_buy_token_account, low_buy_token_account],
+            sell_account_rent_recipients: &[high_rent_recipient, low_rent_recipient],
             pulls: &[&[], &[]],
         }
         .into();
@@ -404,15 +407,15 @@ mod tests {
             SPL_TOKEN_PROGRAM_ID,
             low_order_pda,
             low_sell_token_account,
-            low_buy_token_account,
+            low_rent_recipient,
             high_order_pda,
             high_sell_token_account,
-            high_buy_token_account,
+            high_rent_recipient,
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts and the order PDAs are read-only; the sell and buy
-        // token accounts are writable, following the sorted order.
+        // The fixed accounts and the order PDAs are read-only; the sell token
+        // accounts and rent recipients are writable, following the sorted order.
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -422,9 +425,9 @@ mod tests {
             writable,
             vec![
                 low_sell_token_account,
-                low_buy_token_account,
+                low_rent_recipient,
                 high_sell_token_account,
-                high_buy_token_account,
+                high_rent_recipient,
             ],
         );
         assert!(accounts.iter().all(|account| !account.is_signer));
@@ -436,10 +439,10 @@ mod tests {
         let state_pda = Pubkey::new_unique();
         let order_a = Pubkey::new_from_array([0x01; 32]);
         let sell_a = Pubkey::new_from_array([0x02; 32]);
-        let buy_a = Pubkey::new_from_array([0x08; 32]);
+        let rent_a = Pubkey::new_from_array([0x08; 32]);
         let order_b = Pubkey::new_from_array([0x03; 32]);
         let sell_b = Pubkey::new_from_array([0x04; 32]);
-        let buy_b = Pubkey::new_from_array([0x09; 32]);
+        let rent_b = Pubkey::new_from_array([0x09; 32]);
         let dest_a0 = Pubkey::new_from_array([0x05; 32]);
         let dest_a1 = Pubkey::new_from_array([0x06; 32]);
         let dest_b0 = Pubkey::new_from_array([0x07; 32]);
@@ -453,7 +456,7 @@ mod tests {
             order_pdas: &[order_a, order_b],
             order_pda_bumps: &[0xa1, 0xb1],
             sell_token_accounts: &[sell_a, sell_b],
-            buy_token_accounts: &[buy_a, buy_b],
+            sell_account_rent_recipients: &[rent_a, rent_b],
             pulls: &[
                 &[
                     Pull {
@@ -495,18 +498,18 @@ mod tests {
             SPL_TOKEN_PROGRAM_ID,
             order_a,
             sell_a,
-            buy_a,
+            rent_a,
             dest_a0,
             dest_a1,
             order_b,
             sell_b,
-            buy_b,
+            rent_b,
             dest_b0,
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts and the order PDAs are read-only; sell, buy, and
-        // destination accounts are writable for the transfer.
+        // The fixed accounts and the order PDAs are read-only; the sell token
+        // accounts, rent recipients, and destinations are writable.
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -514,7 +517,7 @@ mod tests {
             .collect();
         assert_eq!(
             writable,
-            vec![sell_a, buy_a, dest_a0, dest_a1, sell_b, buy_b, dest_b0],
+            vec![sell_a, rent_a, dest_a0, dest_a1, sell_b, rent_b, dest_b0],
         );
         assert!(accounts.iter().all(|account| !account.is_signer));
     }
@@ -601,14 +604,14 @@ mod tests {
         let token_program = Address::new_from_array([0xa2u8; 32]);
         let order_pda = Address::new_from_array([2u8; 32]);
         let sell_token = Address::new_from_array([3u8; 32]);
-        let buy_token = Address::new_from_array([4u8; 32]);
+        let rent_recipient = Address::new_from_array([4u8; 32]);
         let mut accounts = [
             fake_account(sysvar),
             fake_account(state),
             fake_account(token_program),
             fake_account(order_pda),
             fake_account(sell_token),
-            fake_account(buy_token),
+            fake_account(rent_recipient),
         ];
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
@@ -636,7 +639,7 @@ mod tests {
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
-        assert_eq!(order.buy_token_account.address(), &buy_token);
+        assert_eq!(order.sell_account_rent_recipient.address(), &rent_recipient);
         assert_eq!(order.bump, 0xab);
         assert_eq!(order.destinations.len(), 0);
         assert!(orders.next().is_none());
@@ -649,7 +652,7 @@ mod tests {
         let token_program = Address::new_from_array([0xa2u8; 32]);
         let order_pda = Address::new_from_array([2u8; 32]);
         let sell_token = Address::new_from_array([3u8; 32]);
-        let buy_token = Address::new_from_array([6u8; 32]);
+        let rent_recipient = Address::new_from_array([6u8; 32]);
         let dest0 = Address::new_from_array([4u8; 32]);
         let dest1 = Address::new_from_array([5u8; 32]);
         let mut accounts = [
@@ -658,7 +661,7 @@ mod tests {
             fake_account(token_program),
             fake_account(order_pda),
             fake_account(sell_token),
-            fake_account(buy_token),
+            fake_account(rent_recipient),
             fake_account(dest0),
             fake_account(dest1),
         ];
@@ -680,7 +683,7 @@ mod tests {
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
-        assert_eq!(order.buy_token_account.address(), &buy_token);
+        assert_eq!(order.sell_account_rent_recipient.address(), &rent_recipient);
         assert_eq!(order.bump, 0xab);
         let transfers: Vec<(&Address, u64)> = order
             .destinations
@@ -700,9 +703,9 @@ mod tests {
         for i in 0..ORDER_COUNT {
             let order_pda = Address::new_from_array([i as u8; 32]);
             let sell_token = Address::new_from_array([(i + ORDER_COUNT) as u8; 32]);
-            let buy_token = Address::new_from_array([(i + 2 * ORDER_COUNT) as u8; 32]);
+            let rent_recipient = Address::new_from_array([(i + 2 * ORDER_COUNT) as u8; 32]);
             let bump: u8 = (i + 3 * ORDER_COUNT) as u8;
-            expected.push((order_pda, sell_token, buy_token, bump));
+            expected.push((order_pda, sell_token, rent_recipient, bump));
         }
 
         // The three fixed accounts (`[0xff..]`, `[0xfe..]`, `[0xfd..]`) differ
@@ -713,10 +716,10 @@ mod tests {
             fake_account_from_array([0xfd; 32]),
         ];
         let mut bumps = Vec::new();
-        for &(order_pda, sell_token, buy_token, bump) in &expected {
+        for &(order_pda, sell_token, rent_recipient, bump) in &expected {
             accounts.push(fake_account(order_pda));
             accounts.push(fake_account(sell_token));
-            accounts.push(fake_account(buy_token));
+            accounts.push(fake_account(rent_recipient));
             bumps.push(bump);
         }
         // Grouped data: discriminator, finalize index, auction id, order count,
@@ -734,10 +737,10 @@ mod tests {
         let orders: Vec<_> = parsed.orders.iter().collect();
 
         assert_eq!(orders.len(), ORDER_COUNT);
-        for (order, (order_pda, sell_token, buy_token, bump)) in orders.iter().zip(&expected) {
+        for (order, (order_pda, sell_token, rent_recipient, bump)) in orders.iter().zip(&expected) {
             assert_eq!(order.order_pda.address(), order_pda);
             assert_eq!(order.sell_token_account.address(), sell_token);
-            assert_eq!(order.buy_token_account.address(), buy_token);
+            assert_eq!(order.sell_account_rent_recipient.address(), rent_recipient);
             assert_eq!(order.bump, *bump);
             assert_eq!(order.destinations.len(), 0);
         }
@@ -746,8 +749,8 @@ mod tests {
     #[test]
     fn begin_settle_input_rejects_account_count_mismatch() {
         // The body declares one order with no transfers, which needs exactly
-        // three order accounts (its order PDA, sell token account, and buy
-        // token account). Only one order account is supplied after the fixed
+        // three order accounts (its order PDA, sell token account, and rent
+        // recipient). Only one order account is supplied after the fixed
         // accounts, so the number of accounts doesn't match the `3n + T` the
         // body implies.
         let mut accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 1 }>();
@@ -768,7 +771,7 @@ mod tests {
     #[test]
     fn begin_settle_input_rejects_counts_not_summing_to_destinations() {
         // One order whose two destination accounts (plus its order PDA, sell
-        // token account, and buy token account) make the lengths recover T = 2
+        // token account, and rent recipient) make the lengths recover T = 2
         // transfers, but the transfer-count byte claims only one.
         let mut accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 5 }>();
         let data = ix_data![

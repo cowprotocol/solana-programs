@@ -165,9 +165,11 @@ pub enum SettlementError {
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 27,
-    /// A `BeginSettle` buy token account doesn't match the `buy_token_account`
-    /// recorded in the order's intent.
-    BuyTokenAccountMismatch = 28,
+    /// `BeginSettle`: a settlement closing an order's sell token account
+    /// supplied a rent recipient account that doesn't match the
+    /// `sell_account_rent_recipient` recorded in the order's intent. Only
+    /// checked when the account is closed; otherwise the slot is unused.
+    SellAccountRentRecipientMismatch = 28,
 }
 
 impl From<SettlementError> for u32 {
