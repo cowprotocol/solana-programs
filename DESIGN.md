@@ -15,7 +15,7 @@ Once deployed, we will make the code at that account unchangeable.
 
 ## State versioning
 
-Every PDA the program derives starts with the same prefix seed: the string `settlement v` followed by the current state version, currently `0.1`. The state version is the `MAJOR.MINOR` of the crate version in `Cargo.toml`, from which the seed is assembled at compile time (`STATE_VERSION` in `interface/src/pda/mod.rs`); there is no separate constant to keep in sync.
+Every PDA the program derives starts with the same prefix seed: the string `settlement v` followed by the current state version, currently `0.1`. The state version is the `MAJOR.MINOR` of the crate version in `Cargo.toml`, from which the seed is assembled at compile time; there is no separate constant to keep in sync.
 
 Bumping the minor version relocates the program's entire address space at once — the state account, every buffer, and every order. This is what protects us from state confusion across upgrades: an account written by an older version of the program is unreachable to the newer one, rather than being read back under a layout it was never written with. Patch releases keep the seed, and therefore every address, unchanged.
 

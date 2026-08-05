@@ -1,7 +1,7 @@
 //! Program-derived addresses under the settlement program.
 //!
 //! Every PDA shares the [`SETTLEMENT_SEED`] prefix, which carries
-//! [`STATE_VERSION`]; each submodule defines the additional seeds and the
+//! the major and minor version of the cargo package; each submodule defines the additional seeds and the
 //! derivation helper for one kind of PDA.
 
 pub mod buffer;

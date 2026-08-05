@@ -11,12 +11,6 @@
 //!
 //! For every valid [`crate::data::intent::OrderIntent`], there exists only
 //! a single valid PDA representing that intent.
-//!
-//! The seeds start with [`SETTLEMENT_SEED`], which carries
-//! [`crate::pda::STATE_VERSION`], so a minor version bump moves every order
-//! PDA. That is what keeps a stored
-//! [`crate::data::order::EncodedOrderAccount`] from being read back under a
-//! layout it was not written with.
 
 use solana_hash::Hash;
 use solana_pubkey::Pubkey;

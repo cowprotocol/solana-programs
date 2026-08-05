@@ -5,7 +5,7 @@
 //! solver authentication and holds the SPL token authority over every buffer
 //! account (see [`crate::pda::buffer`]).
 //!
-//! Because that lone seed carries [`crate::pda::STATE_VERSION`], a minor
+//! Because that lone seed carries the cargo crate version, a minor
 //! version bump moves the state PDA. Users delegate their token accounts to
 //! this address (see `DESIGN.md`), so every delegation has to be renewed after a
 //! bump.

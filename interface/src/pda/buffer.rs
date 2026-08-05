@@ -10,7 +10,7 @@
 //! controlling every buffer.
 //!
 //! The seeds start with [`SETTLEMENT_SEED`], which carries
-//! [`crate::pda::STATE_VERSION`], so a minor version bump moves every buffer.
+//! the cargo package major and minor version, so a version bump moves every buffer.
 //! Since only the state PDA can spend a buffer and that address moves too,
 //! buffers must be drained under the old version before a bump ships, or their
 //! contents are stranded. See `DESIGN.md`.
