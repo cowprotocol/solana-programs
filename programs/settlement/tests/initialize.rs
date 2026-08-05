@@ -102,23 +102,14 @@ fn rejects_arbitrary_wrong_state_pda() {
 #[test]
 fn rejects_initializing_twice() {
     let (mut svm, program_id, payer) = common::setup();
+    let (state_pda, _bump) = find_state_pda(&program_id);
 
-    let ix = Initialize {
-        program_id,
-        payer: payer.pubkey(),
-        reclaim_authority: Pubkey::new_unique(),
-    };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
-        .expect("first initialize should succeed");
-
-    svm.expire_blockhash();
-
-    let ix = Initialize {
-        program_id,
-        payer: payer.pubkey(),
-        reclaim_authority: Pubkey::new_unique(),
-    };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::pda::assert_rejected_as_existing(&mut svm, tx);
+    common::pda::assert_recreate_is_rejected(&mut svm, &state_pda, |svm| {
+        let ix = Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: Pubkey::new_unique(),
+        };
+        common::signed_tx(svm, &payer, &payer, ix)
+    });
 }
