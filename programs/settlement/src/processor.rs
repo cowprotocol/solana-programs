@@ -53,14 +53,15 @@ impl<const N: usize> CanonicalPda<'_, N> {
         // We do that through `owned_by` because only this program can set this
         // property. This is more reliable than, for example, checking that the
         // data is empty since some PDA may be initialized with zero size.
-        // We confirm the owner is the same, rather than checking that it isn't
-        // the system owner, to make sure we don't try to reuse the same address
-        // if the owner is a different parameter (execution continues and
-        // eventually reverts).
-        // Here we also assume that self.owner isn't the System Program, which
-        // is the default owner of all accounts that weren't initialized.
-        // We take the risk as this isn't user-specified input and there's no
-        // reason to actually assign a PDA to the System Program.
+        // In principle we could just check that owner != system_program.
+        // Here instead we compare it with the input owner. This is so that if
+        // the same account is initialized twice with different owners then
+        // execution eventually revert instead of silently accepting an existing
+        // PDA using a different owner than expected.
+        // In doing this this, we also assume that self.owner isn't the System
+        // Program, which is the default owner of all accounts that weren't
+        //  initialized. We take the risk as this isn't user-specified input and
+        // there's no reason to actually assign a PDA to the System Program.
         if self.pda.address() == &canonical && self.pda.owned_by(self.owner) {
             return Ok(false);
         }
