@@ -14,6 +14,9 @@ use settlement_client::settlement_interface::{
         state::find_state_pda,
     },
 };
+use solana_compute_budget::{
+    compute_budget::ComputeBudget, compute_budget_limits::MAX_COMPUTE_UNIT_LIMIT,
+};
 use solana_sdk::{
     instruction::{Instruction, InstructionError},
     program_error::ProgramError,
@@ -491,6 +494,15 @@ fn bench_assert_known_max_buffer_count() {
 #[test]
 fn max_buffers_in_one_instruction() {
     let (mut svm, program_id, payer) = common::setup();
+    // A maxed-out batch costs close to the 200k default and the exact cost
+    // varies with the random mints' bump searches, so we increase the default
+    // compute limit to avoid this edge case.
+    // Not doing this leads to a flacky test, not an immediate failure: it works
+    // most of the times but sometimes (~2%) execution would fail.
+    svm = svm.with_compute_budget(ComputeBudget {
+        compute_unit_limit: u64::from(MAX_COMPUTE_UNIT_LIMIT),
+        ..ComputeBudget::default()
+    });
     let (state_pda, _) = find_state_pda(&program_id);
 
     let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
