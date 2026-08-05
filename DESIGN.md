@@ -20,7 +20,7 @@ The state PDA is created once, after deployment, by the `Initialize` instruction
 
 ### Reclaim Authority
 
-The _reclaim authority_ is the account authorized to reclaim rent for buffers, and choose where the rent goes. It can't settle, add solvers, or withdraw from the buffers, and user-funded accounts (such as order PDAs) are out of its reach.
+The _reclaim authority_ is the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
 
 ## Buffer accounts
 
