@@ -72,7 +72,6 @@ pub struct BufferAccounts<'a, A> {
 pub struct CreateBufferInput<'a, A> {
     pub payer: &'a A,
     pub token_program: &'a A,
-    /// One `[buffer_pda, mint]` pair per buffer to create.
     buffer_pairs: &'a [[A; 2]],
 }
 

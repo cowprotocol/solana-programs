@@ -18,12 +18,11 @@ pub fn process_create_buffer(
     instruction_data: &[u8],
 ) -> ProgramResult {
     let input = CreateBufferInput::parse(instruction_data, accounts)?;
-    let (payer, token_program) = (input.payer, input.token_program);
 
     // Only the legacy SPL Token program is supported. The InitializeAccount3
     // CPI targets that program unconditionally; reject a mismatching account
     // up front so the caller gets a clear error.
-    if token_program.address() != &SPL_TOKEN_PROGRAM_ID {
+    if input.token_program.address() != &SPL_TOKEN_PROGRAM_ID {
         return Err(ProgramError::IncorrectProgramId);
     }
 
@@ -44,7 +43,7 @@ pub fn process_create_buffer(
         let mint_key = mint.address().as_array();
         let created = CanonicalPda {
             program_id,
-            payer,
+            payer: input.payer,
             pda: buffer_pda,
             size: TokenAccount::LEN as u64,
             owner: &SPL_TOKEN_PROGRAM_ID,
