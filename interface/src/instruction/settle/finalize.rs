@@ -208,6 +208,8 @@ pub struct FinalizeSettleInput<'a, A> {
 /// in the transaction. It's the source of truth for deciding where the data
 /// is stored.
 impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
+    type Accounts = &'a mut [A];
+
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::FinalizeSettle;
 
     fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {

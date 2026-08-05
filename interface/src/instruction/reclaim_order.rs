@@ -49,15 +49,17 @@ impl ReclaimOrder {
 
 /// Parsed inputs of a `ReclaimOrder` instruction.
 pub struct ReclaimOrderInput<'a, A> {
-    pub order_pda: &'a mut A,
+    pub order_pda: &'a A,
     pub bump: u8,
-    pub reclaim_recipient: &'a mut A,
+    pub reclaim_recipient: &'a A,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for ReclaimOrderInput<'a, A> {
+    type Accounts = &'a [A];
+
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::ReclaimOrder;
 
-    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         // Body is a single bump byte, already stripped of the discriminator.
         let &[bump] = instruction_data else {
             return Err(ProgramError::InvalidInstructionData);

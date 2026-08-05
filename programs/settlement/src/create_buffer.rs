@@ -4,7 +4,7 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use pinocchio_token::{instructions::InitializeAccount3, state::Account as TokenAccount};
 use settlement_interface::{
     instruction::{
-        create_buffer::{CreateBufferInput, SPL_TOKEN_PROGRAM_ID},
+        create_buffer::{BufferAccounts, CreateBufferInput, SPL_TOKEN_PROGRAM_ID},
         InstructionInputParsing,
     },
     pda::{buffer::buffer_pda_seeds, state::state_pda_seeds},
@@ -12,26 +12,13 @@ use settlement_interface::{
 
 use crate::processor::CanonicalPda;
 
-struct CreateBufferEntry {
-    buffer_pda: AccountView,
-    mint: AccountView,
-}
-
-/// Read one slice element into a [`CreateBufferEntry`].
-fn read_buffer_entry(&[buffer_pda, mint]: &[AccountView; 2]) -> CreateBufferEntry {
-    CreateBufferEntry { buffer_pda, mint }
-}
-
 pub fn process_create_buffer(
     program_id: &Address,
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    let CreateBufferInput {
-        payer,
-        token_program,
-        buffers,
-    } = CreateBufferInput::parse(instruction_data, accounts)?;
+    let input = CreateBufferInput::parse(instruction_data, accounts)?;
+    let (payer, token_program) = (input.payer, input.token_program);
 
     // Only the legacy SPL Token program is supported. The InitializeAccount3
     // CPI targets that program unconditionally; reject a mismatching account
@@ -44,7 +31,7 @@ pub fn process_create_buffer(
     // authority over every buffer. Derive it once for all buffers.
     let (state_pda, _) = Address::find_program_address(&state_pda_seeds(), program_id);
 
-    for CreateBufferEntry { buffer_pda, mint } in buffers.iter().map(read_buffer_entry) {
+    for BufferAccounts { buffer_pda, mint } in input.buffers() {
         // One buffer per token. `CanonicalPda::create_idempotent` derives the
         // canonical bump and, by signing the allocation with the buffer seeds,
         // rejects any `buffer_pda` that isn't the canonical address. The buffer
@@ -58,7 +45,7 @@ pub fn process_create_buffer(
         let created = CanonicalPda {
             program_id,
             payer,
-            pda: &buffer_pda,
+            pda: buffer_pda,
             size: TokenAccount::LEN as u64,
             owner: &SPL_TOKEN_PROGRAM_ID,
             seeds: buffer_pda_seeds(mint_key),
@@ -68,7 +55,7 @@ pub fn process_create_buffer(
         // An existing buffer is already an initialized token account, so only
         // initialize a freshly created one.
         if created {
-            InitializeAccount3::new(&buffer_pda, &mint, &state_pda).invoke()?;
+            InitializeAccount3::new(buffer_pda, mint, &state_pda).invoke()?;
         }
     }
 

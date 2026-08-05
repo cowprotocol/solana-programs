@@ -77,13 +77,15 @@ pub struct CreateOrderInput<'a, A> {
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
     pub owner: &'a A,
     pub created_by: &'a A,
-    pub order_pda: &'a mut A,
+    pub order_pda: &'a A,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for CreateOrderInput<'a, A> {
+    type Accounts = &'a [A];
+
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateOrder;
 
-    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         // Body (discriminator already stripped): exactly the 150 intent bytes.
         if instruction_data.len() != EncodedOrderIntent::SIZE {
             return Err(ProgramError::InvalidInstructionData);

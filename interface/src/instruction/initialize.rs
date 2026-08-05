@@ -60,14 +60,16 @@ impl From<Initialize> for Instruction {
 /// Parsed inputs of an `Initialize` instruction.
 pub struct InitializeInput<'a, A> {
     pub payer: &'a A,
-    pub state_pda: &'a mut A,
+    pub state_pda: &'a A,
     pub reclaim_authority: Pubkey,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
+    type Accounts = &'a [A];
+
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::Initialize;
 
-    fn parse_body(instruction_data: &[u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &[u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let reclaim_authority: [u8; 32] = instruction_data
             .try_into()
             .map_err(|_| ProgramError::InvalidInstructionData)?;
