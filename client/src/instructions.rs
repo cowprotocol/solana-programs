@@ -244,7 +244,7 @@ mod tests {
                 .iter()
                 .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
                 .collect();
-            let parsed = BeginSettleInput::parse(&ix.data, &mut accounts)
+            let mut parsed = BeginSettleInput::parse(&ix.data, &mut accounts)
                 .map_err(|e| TestCaseError::fail(format!("parse failed: {e:?}")))?;
 
             prop_assert_eq!(parsed.finalize_ix_index, finalize_ix_index);
@@ -253,13 +253,18 @@ mod tests {
                 &INSTRUCTIONS_SYSVAR_ID,
             );
 
-            let parsed_orders: Vec<_> = parsed.orders.iter().collect();
-            prop_assert_eq!(parsed_orders.len(), expected.len());
-            for (order, (order_pda, sell_token, bump)) in parsed_orders.iter().zip(&expected) {
-                prop_assert_eq!(order.order_pda.address(), order_pda);
-                prop_assert_eq!(order.sell_token_account.address(), sell_token);
-                prop_assert_eq!(order.bump, *bump);
-            }
+            let actual: Vec<(Pubkey, Pubkey, u8)> = parsed
+                .orders
+                .iter_mut()
+                .map(|order| {
+                    (
+                        *order.order_pda.address(),
+                        *order.sell_token_account.address(),
+                        order.bump,
+                    )
+                })
+                .collect();
+            prop_assert_eq!(actual, expected);
         }
 
         // `FinalizeSettle` derives each order's source buffer from its mint and
