@@ -52,7 +52,9 @@ pub fn process_reclaim_buffer(
             .map_err(|_| ProgramError::InvalidAccountData)?;
         StateAccount::try_from(*bytes)?.reclaim_authority
     };
-    if !reclaim_authority.is_signer() || reclaim_authority.address().as_array() != &reclaim_authority_pubkey.to_bytes() {
+    if !reclaim_authority.is_signer()
+        || reclaim_authority.address().as_array() != &reclaim_authority_pubkey.to_bytes()
+    {
         return Err(SettlementError::ReclaimAuthorityMismatch.into());
     }
 

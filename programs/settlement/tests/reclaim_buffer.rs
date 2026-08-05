@@ -14,7 +14,12 @@ mod common;
 
 /// Initialize the settlement state PDA with `reclaim_authority` as the configured
 /// reclaim_authority.
-fn initialize(svm: &mut litesvm::LiteSVM, program_id: &Pubkey, payer: &Keypair, reclaim_authority: Pubkey) {
+fn initialize(
+    svm: &mut litesvm::LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    reclaim_authority: Pubkey,
+) {
     let ix = Initialize {
         program_id: *program_id,
         payer: payer.pubkey(),
@@ -59,8 +64,12 @@ fn funded_buffer_is_skipped() {
 
     // Pre-create the reclaim_authority's ATA: the program only validates its address,
     // it doesn't create it.
-    let reclaim_authority_ata =
-        common::token::create_associated_token_account(&mut svm, &payer, &mint, &reclaim_authority.pubkey());
+    let reclaim_authority_ata = common::token::create_associated_token_account(
+        &mut svm,
+        &payer,
+        &mint,
+        &reclaim_authority.pubkey(),
+    );
     assert_eq!(
         reclaim_authority_ata,
         get_associated_token_address(&reclaim_authority.pubkey(), &mint),
