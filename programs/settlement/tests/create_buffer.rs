@@ -497,7 +497,7 @@ fn max_buffers_in_one_instruction() {
     // A maxed-out batch costs close to the 200k default and the exact cost
     // varies with the random mints' bump searches, so we increase the default
     // compute limit to avoid this edge case.
-    // Not doing this leads to a flacky test, not an immediate failure: it works
+    // Not doing this leads to a flaky test, not an immediate failure: it works
     // most of the times but sometimes (~2%) execution would fail.
     svm = svm.with_compute_budget(ComputeBudget {
         compute_unit_limit: u64::from(MAX_COMPUTE_UNIT_LIMIT),
