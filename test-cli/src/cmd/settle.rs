@@ -5,7 +5,7 @@ use settlement_client::{
         BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
     },
     settlement_interface::{
-        data::{intent::OrderIntent, order::EncodedOrderAccount},
+        data::{intent::OrderIntent, order::OrderAccount},
         pda::buffer::find_buffer_pda,
         Pubkey,
     },
@@ -374,14 +374,12 @@ fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result
     let data = rpc
         .get_account_data(&pda)
         .with_context(|| format!("failed to get order account data for {pda}"))?;
-    let bytes: [u8; EncodedOrderAccount::SIZE] = data.as_slice().try_into().map_err(|_| {
+    let order_account = OrderAccount::try_from(data.as_slice()).map_err(|e| {
         anyhow::anyhow!(
-            "unexpected account data length {} for order at {pda}",
+            "failed to decode order at {pda} ({} bytes): {e:?}",
             data.len()
         )
     })?;
-    let (order_account, _uid) = EncodedOrderAccount::decode_and_hash(&bytes)
-        .map_err(|e| anyhow::anyhow!("failed to decode order at {pda}: {e:?}"))?;
     Ok(order_account.intent)
 }
 

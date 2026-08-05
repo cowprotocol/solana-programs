@@ -9,7 +9,7 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 mod begin;
 mod finalize;
 
-pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder};
+pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder, SettledOrders};
 pub use finalize::{
     finalize_push_amounts, FinalizeSettle, FinalizeSettleInput, Push, Pushes,
     FINALIZE_FIXED_ACCOUNTS,
