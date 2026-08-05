@@ -5,6 +5,7 @@ mod create_order;
 mod initialize;
 mod processor;
 mod reclaim_order;
+mod security_txt;
 mod settle;
 
 use create_buffer::process_create_buffer;
