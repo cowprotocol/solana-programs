@@ -6,6 +6,7 @@ The settlement program stores funds through dedicated token accounts (_buffer ac
 
 It uses a dedicated state account to:
 
+- Store the account that can reclaim buffer rent.
 - Manage solver authentication (including fee access by the protocol).
 - Act as a token delegate to manage user funds.
 
@@ -23,6 +24,14 @@ A bump is not a migration. There are some other consequences that should be cons
 
 - **User delegations stop working.** Users delegate their token accounts to the state PDA (see [user delegation](#user-delegation-ie-approvals)). A bump moves that address, so every user has to delegate again before they can trade.
 - **Whatever the buffers still hold is stranded.** A buffer's funds are only spendable by the state PDA that is its SPL authority. After a bump the program can no longer sign for the old state PDA, so it can never move those funds again. Buffers must be drained under the old program version *before* deploying a bump.
+
+## Program initialization
+
+The state PDA is created once, after deployment, by the `Initialize` instruction.
+
+### Reclaim Authority
+
+The _reclaim authority_ is the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
 
 ## Buffer accounts
 
