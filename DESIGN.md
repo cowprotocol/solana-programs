@@ -15,7 +15,7 @@ Once the testing phase has ended, we will make the code at that account unchange
 
 ## State versioning
 
-Every PDA the program derives starts with the same prefix seed: the string `settlement`, then the current cargo package major and minor version prefixed by `v`, space-padded to a fixed width to prevent accidental prefix collisions.
+Every PDA the program derives starts with the same prefix seed: the string `settlement`, then the current cargo package major and minor version prefixed by `v`, space-padded to a fixed width to prevent accidental prefix collisions. While we expect the ultimate settlement program to be immutable so this measure would normally not be needed, during development we want to avoid any possible confusion or losses that could occur as a result of stale data still existing within the settlement program.
 
 Bumping the minor version relocates the program's entire account storage at once — the state account, every buffer, and every order.
 
