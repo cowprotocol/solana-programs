@@ -55,7 +55,15 @@ pub fn process_create_order(
     let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    order::write_account(order_data, bump, false, 0, 0, created_by.address(), &intent_bytes);
+    order::write_account(
+        order_data,
+        bump,
+        false,
+        0,
+        0,
+        created_by.address(),
+        &intent_bytes,
+    );
 
     Ok(())
 }
