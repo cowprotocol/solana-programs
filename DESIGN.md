@@ -6,12 +6,21 @@ The settlement program stores funds through dedicated token accounts (_buffer ac
 
 It uses a dedicated state account to:
 
+- Store the account that can reclaim buffer rent.
 - Manage solver authentication (including fee access by the protocol).
 - Act as a token delegate to manage user funds.
 
 Its state is stored in a PDA generated using seed `["settlement"]`.
 
 Once the testing phase has ended, we will make the code at that account unchangeable.
+
+## Program initialization
+
+The state PDA is created once, after deployment, by the `Initialize` instruction.
+
+### Reclaim Authority
+
+The _reclaim authority_ is the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
 
 ## Buffer accounts
 
