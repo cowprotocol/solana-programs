@@ -36,6 +36,10 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// be a TOKEN account in the first place. This is checked at execution
 /// time.
 ///
+/// An order can exist only once: if `order_pda` is already initialized, the
+/// instruction reverts with `AccountAlreadyInitialized`. Recreating the same
+/// order is only possible after its PDA has been closed.
+///
 /// Wire format: `[discriminator=2, ..150 intent bytes]`, 151 bytes.
 /// Required accounts:
 /// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
