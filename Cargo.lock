@@ -3080,6 +3080,7 @@ dependencies = [
  "solana-instructions-sysvar",
  "solana-program-pack",
  "solana-sdk",
+ "solana-sha256-hasher",
  "solana-system-interface 3.2.0",
 ]
 
