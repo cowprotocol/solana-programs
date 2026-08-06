@@ -20,12 +20,11 @@ pub fn process_initialize(
         reclaim_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
-    // There are no explicit account guards here: `create_canonical_pda` rejects
-    // any `state_pda`  other than the address those seeds derive and guards
-    // against re-init.
+    // There are no explicit account guards here: `CanonicalPda::create_new`
+    // rejects any `state_pda` other than the address those seeds derive, and
+    // reverts if it already exists.
     // The system program is invoked by its fixed address, so the account in that
-    // system program is invoked by its slot is never referenced directly.
-
+    // slot is never referenced directly.
     CanonicalPda {
         program_id,
         payer,
@@ -34,7 +33,7 @@ pub fn process_initialize(
         owner: program_id,
         seeds: state_pda_seeds(),
     }
-    .create()?;
+    .create_new()?;
 
     let mut buffer = state_pda.try_borrow_mut()?;
     let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
