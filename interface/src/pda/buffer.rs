@@ -68,6 +68,8 @@ pub fn validate_buffer_pda(
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::build_padded_settlement_seed;
+
     use super::*;
 
     #[test]
@@ -82,7 +84,7 @@ mod tests {
 
     #[test]
     fn distinct_versions_yield_distinct_buffer_pdas() {
-        use crate::pda::tests::{settlement_seed_for, SAMPLE_VERSIONS};
+        use crate::pda::tests::SAMPLE_VERSIONS;
 
         let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
@@ -90,7 +92,11 @@ mod tests {
 
         for other in SAMPLE_VERSIONS {
             let (other_pda, _) = Pubkey::find_program_address(
-                &[&settlement_seed_for(other), mint.as_array(), BUFFER_SEED],
+                &[
+                    &build_padded_settlement_seed(other),
+                    mint.as_array(),
+                    BUFFER_SEED,
+                ],
                 &program_id,
             );
             assert_ne!(

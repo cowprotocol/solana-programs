@@ -33,6 +33,8 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::build_padded_settlement_seed;
+
     use super::*;
 
     #[test]
@@ -42,14 +44,14 @@ mod tests {
 
     #[test]
     fn distinct_versions_yield_distinct_state_pdas() {
-        use crate::pda::tests::{settlement_seed_for, SAMPLE_VERSIONS};
+        use crate::pda::tests::SAMPLE_VERSIONS;
 
         let program_id = Pubkey::new_unique();
         let (pda, _) = find_state_pda(&program_id);
 
         for other in SAMPLE_VERSIONS {
             let (other_pda, _) =
-                Pubkey::find_program_address(&[&settlement_seed_for(other)], &program_id);
+                Pubkey::find_program_address(&[&build_padded_settlement_seed(other)], &program_id);
             assert_ne!(
                 pda, other_pda,
                 "version {other} must not share the current version's state PDA",

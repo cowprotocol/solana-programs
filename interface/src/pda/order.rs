@@ -45,6 +45,8 @@ pub fn find_order_pda(program_id: &Pubkey, uid: &Hash) -> (Pubkey, u8) {
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::build_padded_settlement_seed;
+
     use super::*;
 
     #[test]
@@ -59,7 +61,7 @@ mod tests {
 
     #[test]
     fn distinct_versions_yield_distinct_order_pdas() {
-        use crate::pda::tests::{settlement_seed_for, SAMPLE_VERSIONS};
+        use crate::pda::tests::SAMPLE_VERSIONS;
 
         let program_id = Pubkey::new_unique();
         let uid = Hash::new_from_array(*Pubkey::new_unique().as_array());
@@ -67,7 +69,11 @@ mod tests {
 
         for other in SAMPLE_VERSIONS {
             let (other_pda, _) = Pubkey::find_program_address(
-                &[&settlement_seed_for(other), uid.as_ref(), ORDER_SEED],
+                &[
+                    &build_padded_settlement_seed(other),
+                    uid.as_ref(),
+                    ORDER_SEED,
+                ],
                 &program_id,
             );
             assert_ne!(

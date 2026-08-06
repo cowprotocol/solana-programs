@@ -9,13 +9,13 @@ It uses a dedicated state account to:
 - Manage solver authentication (including fee access by the protocol).
 - Act as a token delegate to manage user funds.
 
-Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement v0.1"]`.
+Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement    v0.1"]`.
 
 Once the testing phase has ended, we will make the code at that account unchangeable.
 
 ## State versioning
 
-Every PDA the program derives starts with the same prefix seed: the string `settlement v` followed by the current cargo package major and minor version.
+Every PDA the program derives starts with the same prefix seed: the string `settlement`, then the current cargo package major and minor version prefixed by `v`, space-padded to a fixed width to prevent accidental prefix collisions.
 
 Bumping the minor version relocates the program's entire account storage at once — the state account, every buffer, and every order.
 
