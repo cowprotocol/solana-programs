@@ -191,6 +191,11 @@ impl From<Initialize> for Instruction {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::disallowed_methods,
+        reason = "these tests build plain fixtures and never derive a PDA against a runtime, \
+so `new_unique`'s process-global counter can't perturb anything; see clippy.toml"
+    )]
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use settlement_interface::{

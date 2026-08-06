@@ -62,6 +62,11 @@ pub fn validate_buffer_pda(
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::disallowed_methods,
+        reason = "these tests build plain fixtures and never derive a PDA against a runtime, \
+so `new_unique`'s process-global counter can't perturb anything; see clippy.toml"
+    )]
     use super::*;
 
     #[test]

@@ -10,7 +10,7 @@ use crate::common::{
     buffer,
     order::OrderBuilder,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
-    setup, to_instruction_error, token,
+    setup, to_instruction_error, token, unique_pubkey,
 };
 use litesvm::LiteSVM;
 use settlement_client::instructions::{
@@ -93,8 +93,7 @@ fn settle_all(
         let sell_mint = token::mint_of(svm, &intent.sell_token_account);
         let mut pull_list: Vec<Pull> = vec![];
         for &amount in pulls {
-            let destination =
-                token::create_token_account(svm, payer, &sell_mint, &Pubkey::new_unique());
+            let destination = token::create_token_account(svm, payer, &sell_mint, &unique_pubkey());
             pull_list.push(Pull {
                 destination,
                 amount,

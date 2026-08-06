@@ -2,16 +2,52 @@
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
-    Approve, CreateAccount, CreateAssociatedTokenAccount, CreateMint, MintTo, Transfer,
+    spl_token::{instruction::initialize_mint2, state::Mint},
+    Approve, CreateAccount, CreateAssociatedTokenAccount, MintTo, Transfer, TOKEN_ID,
 };
 use settlement_client::settlement_interface::pda::state::find_state_pda;
-use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+use solana_program_pack::Pack;
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    transaction::Transaction,
+};
+// Aliased: `create_account` is already taken here by both `super::create_account`
+// and `litesvm_token::CreateAccount`.
+use solana_system_interface::instruction::create_account as system_create_account;
+
+use super::unique_keypair;
 
 /// Create a fresh mint owned by `payer` and return its address.
+///
+/// This open-codes what `litesvm_token::CreateMint` does rather than calling
+/// it, because that builder generates the mint keypair with `Keypair::new()`
+/// internally and offers no way to supply one. A mint address is a seed of its
+/// buffer PDA, so a random one makes buffer bumps — and the compute cost of
+/// deriving them — vary between runs. See [`super::unique_pubkey`].
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
-    CreateMint::new(svm, payer)
-        .send()
-        .expect("mint creation should succeed")
+    /// `litesvm_token::CreateMint`'s default, kept so the two agree.
+    const DECIMALS: u8 = 8;
+
+    let mint = unique_keypair();
+    let create = system_create_account(
+        &payer.pubkey(),
+        &mint.pubkey(),
+        svm.minimum_balance_for_rent_exemption(Mint::LEN),
+        Mint::LEN as u64,
+        &TOKEN_ID,
+    );
+    let initialize = initialize_mint2(&TOKEN_ID, &mint.pubkey(), &payer.pubkey(), None, DECIMALS)
+        .expect("initialize_mint2 should build");
+    let tx = Transaction::new_signed_with_payer(
+        &[create, initialize],
+        Some(&payer.pubkey()),
+        &[payer, &mint],
+        svm.latest_blockhash(),
+    );
+    svm.send_transaction(tx)
+        .expect("mint creation should succeed");
+    mint.pubkey()
 }
 
 /// Create an initialized SPL token account for `mint` whose SPL owner is
@@ -25,6 +61,9 @@ pub fn create_token_account(
 ) -> Pubkey {
     CreateAccount::new(svm, payer, mint)
         .owner(owner)
+        // Without this the builder generates the address with `Keypair::new()`;
+        // see [`create_mint`].
+        .account_kp(unique_keypair())
         .send()
         .expect("token account creation should succeed")
 }

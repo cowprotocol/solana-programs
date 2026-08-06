@@ -3078,6 +3078,7 @@ dependencies = [
  "solana-compute-budget",
  "solana-instruction",
  "solana-instructions-sysvar",
+ "solana-program-pack",
  "solana-sdk",
  "solana-system-interface 3.2.0",
 ]

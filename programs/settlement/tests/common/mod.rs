@@ -23,6 +23,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::{Transaction, TransactionError},
 };
+use std::cell::Cell;
 
 pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -34,15 +35,75 @@ pub const CPI_CALLER_SO: &str = concat!(
     "/../../target/deploy/test_cpi_caller.so"
 );
 
+thread_local! {
+    /// Counter behind [`unique_pubkey`] and [`unique_keypair`], reset by
+    /// [`setup`].
+    ///
+    /// It can't be left to reset itself per thread: `libtest` gives each
+    /// `#[test]` its own thread when tests run in parallel but runs them all on
+    /// one thread under `--test-threads=1`, so a thread-lifetime counter would
+    /// hand out different addresses in the two modes. Resetting in [`setup`]
+    /// makes a test's addresses depend only on the order it allocates them in.
+    static NEXT_SEED: Cell<u32> = const { Cell::new(0) };
+}
+
+/// The next seed in this test's sequence.
+///
+/// The counter goes in the leading bytes big-endian so that generated
+/// addresses are strictly increasing in allocation order, which is the one
+/// property of `Pubkey::new_unique` that tests depend on (`BeginSettle`
+/// requires its order PDAs sorted by address). The filler is non-zero so a
+/// generated address is recognisably synthetic and can't collide with the
+/// all-zero System Program address.
+fn next_seed() -> [u8; 32] {
+    let n = NEXT_SEED.with(|next| {
+        let n = next.get();
+        next.set(
+            n.checked_add(1)
+                .expect("a test should not allocate 2^32 addresses"),
+        );
+        n
+    });
+    let mut bytes = [0xa5u8; 32];
+    bytes[..size_of::<u32>()].copy_from_slice(&n.to_be_bytes());
+    bytes
+}
+
+/// A deterministic stand-in for `Pubkey::new_unique`, which is banned in these
+/// tests (see `clippy.toml`).
+///
+/// `Pubkey::new_unique` draws from a process-global counter, so which value a
+/// given test receives depends on how `libtest` interleaves the others. That
+/// makes any address feeding a PDA derivation vary between runs, and since
+/// `find_program_address` walks bumps down from 255 at ~1500 CU per rejected
+/// candidate, it makes the compute cost of PDA-creating instructions vary too.
+pub fn unique_pubkey() -> Pubkey {
+    Pubkey::new_from_array(next_seed())
+}
+
+/// A deterministic stand-in for `Keypair::new`, which is banned in these tests
+/// (see `clippy.toml`). `Keypair::new` draws from the OS random source; see
+/// [`unique_pubkey`] for why that matters here.
+pub fn unique_keypair() -> Keypair {
+    Keypair::new_from_array(next_seed())
+}
+
 /// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
 /// generated program ID, and airdrop a payer keypair.
+///
+/// Also resets the [`unique_pubkey`]/[`unique_keypair`] sequence, so call it
+/// before allocating any address. Every address a test derives — the program
+/// ID included, and with it every PDA hanging off it — is then a function of
+/// the test alone, not of what else happened to run alongside it.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
+    NEXT_SEED.with(|next| next.set(0));
+
     let mut svm = LiteSVM::new();
-    let program_id = Pubkey::new_unique();
+    let program_id = unique_pubkey();
     svm.add_program_from_file(program_id, PROGRAM_SO)
         .expect("compiled program .so not found, run `just build-program` first");
 
-    let payer = Keypair::new();
+    let payer = unique_keypair();
     svm.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("airdrop to payer should succeed");
 
@@ -51,7 +112,7 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
 
 /// Adds CPI caller test helper to the given SVM
 pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
-    let cpi_caller_id = Pubkey::new_unique();
+    let cpi_caller_id = unique_pubkey();
     svm.add_program_from_file(cpi_caller_id, CPI_CALLER_SO)
         .expect("test-cpi-caller .so not found, run `just build-program` first");
     cpi_caller_id
@@ -83,7 +144,7 @@ pub fn assert_instruction_error<T>(
 /// program-owned, with a crafted body or a deliberately wrong size or owner)
 /// directly, bypassing the runtime.
 pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey {
-    let address = Pubkey::new_unique();
+    let address = unique_pubkey();
     let lamports = svm.minimum_balance_for_rent_exemption(data.len());
     svm.set_account(
         address,

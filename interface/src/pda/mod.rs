@@ -12,6 +12,11 @@ pub const SETTLEMENT_SEED: &[u8] = b"settlement";
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::disallowed_methods,
+        reason = "these tests build plain fixtures and never derive a PDA against a runtime, \
+so `new_unique`'s process-global counter can't perturb anything; see clippy.toml"
+    )]
     use solana_pubkey::Pubkey;
 
     /// Assert that the PDA returned by `find_pda` is derived with the canonical
