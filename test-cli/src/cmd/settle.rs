@@ -17,8 +17,10 @@ use solana_sdk::{
     signature::{Signature, Signer},
     transaction::Transaction,
 };
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use std::collections::{HashMap, HashSet};
 
+use crate::orca::{self, OrcaClient};
 use crate::token::{resolve_from_token_account, ResolvedToken};
 
 use super::Context;
@@ -90,9 +92,24 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let intents = resolve_intents(&ctx, &args)?;
 
     let mut all_ixs: Vec<Instruction> = vec![];
-    prepare_setup_ixs(&ctx, &intents, &mut all_ixs)?;
+    let (sell_amount_pulled, buy_amount_pushed) = prepare_setup_ixs(&ctx, &intents, &mut all_ixs)?;
 
-    let pulls = compute_pulls(&ctx, &intents);
+    let (surplus, deficits) = compute_imbalances(&sell_amount_pulled, &buy_amount_pushed);
+
+    // Mints the orders can't fully CoW against each other need an Orca swap, funded by
+    // the mints left over from the CoW matching, to make up the difference.
+    let mut swap_ixs: Vec<Instruction> = vec![];
+    let mut payer_pulls: HashMap<Pubkey, u64> = HashMap::new();
+    if !deficits.is_empty() {
+        let orca = OrcaClient::new(&ctx.rpc.url(), ctx.rpc.commitment())?;
+        let plan = orca::plan_swaps(&orca, &ctx, &surplus, &deficits)?;
+        all_ixs.extend(plan.setup_ixs);
+        swap_ixs = plan.swap_ixs;
+        payer_pulls = plan.payer_pulls;
+    }
+
+    let mut sinks = compute_sinks(&ctx, &sell_amount_pulled, &payer_pulls);
+    let pulls = compute_pulls(&intents, &mut sinks);
 
     let initialized_intents: Vec<_> = intents
         .iter()
@@ -103,10 +120,12 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         })
         .collect();
 
-    let (begin_ix_index, finalize_ix_index) = u16::try_from(all_ixs.len())
+    let begin_ix_index =
+        u16::try_from(all_ixs.len()).context("too many instructions: begin index overflow")?;
+    let finalize_ix_index = u16::try_from(swap_ixs.len())
         .ok()
-        .and_then(|begin| Some((begin, begin.checked_add(1)?)))
-        .context("too many instructions: begin/finalize index overflow")?;
+        .and_then(|n| begin_ix_index.checked_add(1)?.checked_add(n))
+        .context("too many instructions: finalize index overflow")?;
 
     let begin_ix = BeginSettle {
         program_id: ctx.program_id,
@@ -132,6 +151,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     };
 
     all_ixs.push(begin_ix.into());
+    all_ixs.extend(swap_ixs);
     all_ixs.push(finalize_ix.into());
 
     let blockhash = ctx.rpc.get_latest_blockhash().context("fetch blockhash")?;
@@ -261,13 +281,13 @@ fn tally_and_register_buffer(
     Ok(())
 }
 
-/// Create any missing buffer PDAs before the settle tx, and check that the
-/// settlement is self-funding (see [`ensure_cow_balance`]).
+/// Create any missing buffer PDAs before the settle tx, and tally up the
+/// total sell/buy amount per mint across all orders (see [`compute_imbalances`]).
 fn prepare_setup_ixs(
     ctx: &Context,
     intents: &[ResolvedIntent],
     all_ixs: &mut Vec<Instruction>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(HashMap<Pubkey, u64>, HashMap<Pubkey, u64>)> {
     let mut sell_amount_pulled: HashMap<Pubkey, u64> = HashMap::new();
     let mut buy_amount_pushed: HashMap<Pubkey, u64> = HashMap::new();
     let mut mint_buffers_to_create: HashSet<Pubkey> = HashSet::new();
@@ -291,8 +311,6 @@ fn prepare_setup_ixs(
         )?;
     }
 
-    ensure_cow_balance(&sell_amount_pulled, &buy_amount_pushed)?;
-
     if !mint_buffers_to_create.is_empty() {
         all_ixs.push(
             CreateBuffers {
@@ -304,44 +322,129 @@ fn prepare_setup_ixs(
         );
     }
 
-    Ok(())
+    Ok((sell_amount_pulled, buy_amount_pushed))
 }
 
-/// Check that the orders can settle against each other: for every mint, the
-/// amount the users sell into its buffer must cover the amount the settlement
-/// pushes back out of it. Otherwise there is nothing to CoW the orders with and
-/// the settlement would have to be funded from elsewhere.
+/// Compare each mint's total sold against its total bought (both tallied across
+/// every order) to find:
+/// - `surplus`: mints sold for more than they're bought back — the extra can
+///   fund an Orca swap into a mint that's short.
+/// - `deficits`: mints bought for more than they're sold — CoW matching alone
+///   can't cover them, so an Orca swap has to make up the difference.
 ///
 /// This deliberately ignores whatever the buffers already hold, so a settlement
-/// that would only work by spending pre-existing buffer balances is rejected
-/// here rather than silently draining them.
-fn ensure_cow_balance(
+/// that would only work by spending pre-existing buffer balances still shows up
+/// as a deficit here rather than silently draining them.
+fn compute_imbalances(
     sell_amount_pulled: &HashMap<Pubkey, u64>,
     buy_amount_pushed: &HashMap<Pubkey, u64>,
-) -> anyhow::Result<()> {
-    for (mint, &pushed) in buy_amount_pushed {
-        let pulled = sell_amount_pulled.get(mint).copied().unwrap_or_default();
-        anyhow::ensure!(
-            pulled >= pushed,
-            "orders can't be CoW'd: mint {mint} needs {pushed} pushed out of its buffer \
-             but only {pulled} is sold into it",
-        );
-    }
+) -> (HashMap<Pubkey, u64>, Vec<(Pubkey, u64)>) {
+    let surplus = sell_amount_pulled
+        .iter()
+        .filter_map(|(&mint, &pulled)| {
+            let pushed = buy_amount_pushed.get(&mint).copied().unwrap_or(0);
+            (pulled > pushed).then(|| (mint, pulled.saturating_sub(pushed)))
+        })
+        .collect();
 
-    Ok(())
+    let deficits = buy_amount_pushed
+        .iter()
+        .filter_map(|(&mint, &pushed)| {
+            let pulled = sell_amount_pulled.get(&mint).copied().unwrap_or(0);
+            (pushed > pulled).then(|| (mint, pushed.saturating_sub(pulled)))
+        })
+        .collect();
+
+    (surplus, deficits)
 }
 
-/// Compute the pull destinations for a settlement: every order's full sell
-/// amount goes into the buffer PDA of its sell mint.
-fn compute_pulls(ctx: &Context, intents: &[ResolvedIntent]) -> Vec<[Pull; 1]> {
+/// Compute each sold mint's pull destinations. Whatever `payer_pulls` (built by
+/// [`orca::plan_swaps`]) reserves from a mint goes to the payer's own wallet to
+/// fund the swaps that cover another mint's deficit; the rest goes straight
+/// into the mint's buffer, same as a pure CoW settlement.
+fn compute_sinks(
+    ctx: &Context,
+    sell_amount_pulled: &HashMap<Pubkey, u64>,
+    payer_pulls: &HashMap<Pubkey, u64>,
+) -> HashMap<Pubkey, Vec<Pull>> {
+    sell_amount_pulled
+        .iter()
+        .map(|(&mint, &sold)| {
+            let to_payer = payer_pulls.get(&mint).copied().unwrap_or(0).min(sold);
+            let to_buffer = sold.saturating_sub(to_payer);
+
+            let mut mint_sinks = Vec::with_capacity(2);
+            if to_buffer > 0 {
+                let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, &mint);
+                mint_sinks.push(Pull {
+                    destination: buffer_pda,
+                    amount: to_buffer,
+                });
+            }
+            if to_payer > 0 {
+                let payer_ata = get_associated_token_address_with_program_id(
+                    &ctx.payer.pubkey(),
+                    &mint,
+                    &spl_token_interface::id(),
+                );
+                mint_sinks.push(Pull {
+                    destination: payer_ata,
+                    amount: to_payer,
+                });
+            }
+
+            (mint, mint_sinks)
+        })
+        .collect()
+}
+
+/// Carve `amount` out of `mint_sinks` (a single mint's entry from
+/// [`compute_sinks`]'s map), depleting it from the back as we go. Splits
+/// across multiple `Pull`s when a single sink entry doesn't cover the whole
+/// amount (e.g. an order that draws from both the buffer and the payer's
+/// swap-funding wallet).
+fn carve_pulls(amount: u64, mint_sinks: &mut Vec<Pull>) -> Vec<Pull> {
+    let mut pulls = Vec::with_capacity(1);
+    let mut remaining = amount;
+
+    while remaining > 0 {
+        let Some(sink) = mint_sinks.last().cloned() else {
+            break;
+        };
+
+        if sink.amount <= remaining {
+            mint_sinks.pop();
+            remaining = remaining.saturating_sub(sink.amount);
+            pulls.push(sink);
+        } else {
+            mint_sinks
+                .last_mut()
+                .expect("checked non-empty above")
+                .amount = sink.amount.saturating_sub(remaining);
+            pulls.push(Pull {
+                destination: sink.destination,
+                amount: remaining,
+            });
+            remaining = 0;
+        }
+    }
+
+    pulls
+}
+
+/// Carve each order's required pull amount out of the shared per-mint sink
+/// pool computed by [`compute_sinks`], depleting `sinks` as we go.
+fn compute_pulls(
+    intents: &[ResolvedIntent],
+    sinks: &mut HashMap<Pubkey, Vec<Pull>>,
+) -> Vec<Vec<Pull>> {
     intents
         .iter()
         .map(|intent| {
-            let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, &intent.sell.mint);
-            [Pull {
-                destination: buffer_pda,
-                amount: intent.data.sell_amount,
-            }]
+            sinks
+                .get_mut(&intent.sell.mint)
+                .map(|mint_sinks| carve_pulls(intent.data.sell_amount, mint_sinks))
+                .unwrap_or_default()
         })
         .collect()
 }
@@ -449,31 +552,90 @@ mod tests {
     }
 
     #[test]
-    fn cow_balance_accepts_covered_and_exact_mints() {
-        let a = Pubkey::new_unique();
-        let b = Pubkey::new_unique();
-        // `a` is oversold (the surplus stays in its buffer), `b` matches exactly.
-        let sold = HashMap::from([(a, 100), (b, 50)]);
-        let bought = HashMap::from([(a, 90), (b, 50)]);
-        assert!(ensure_cow_balance(&sold, &bought).is_ok());
-    }
-
-    #[test]
-    fn cow_balance_rejects_undersold_mint() {
+    fn imbalances_ignore_mints_that_net_out_exactly() {
         let mint = Pubkey::new_unique();
-        let sold = HashMap::from([(mint, 10)]);
-        let bought = HashMap::from([(mint, 11)]);
-        let err = ensure_cow_balance(&sold, &bought)
-            .expect_err("pushing more than is sold can't be CoW'd")
-            .to_string();
-        assert!(err.contains("can't be CoW'd"), "unexpected error: {err}");
+        let sold = HashMap::from([(mint, 50)]);
+        let bought = HashMap::from([(mint, 50)]);
+        let (surplus, deficits) = compute_imbalances(&sold, &bought);
+        assert!(surplus.is_empty());
+        assert!(deficits.is_empty());
     }
 
     #[test]
-    fn cow_balance_rejects_mint_that_is_only_bought() {
-        // A mint nobody sells has nothing in its buffer to push from.
-        let bought = HashMap::from([(Pubkey::new_unique(), 1)]);
-        assert!(ensure_cow_balance(&HashMap::new(), &bought).is_err());
+    fn imbalances_report_surplus_and_deficit_mints() {
+        let oversold = Pubkey::new_unique();
+        let overbought = Pubkey::new_unique();
+        let sold = HashMap::from([(oversold, 100)]);
+        let bought = HashMap::from([(oversold, 90), (overbought, 11)]);
+
+        let (surplus, deficits) = compute_imbalances(&sold, &bought);
+        assert_eq!(surplus, HashMap::from([(oversold, 10)]));
+        assert_eq!(deficits, vec![(overbought, 11)]);
+    }
+
+    #[test]
+    fn sinks_split_a_mint_between_its_buffer_and_the_payer_wallet() {
+        let ctx = Context {
+            payer: solana_sdk::signature::Keypair::new(),
+            program_id: Pubkey::new_unique(),
+            rpc: RpcClient::new("http://localhost:8899".to_string()),
+        };
+        let mint = Pubkey::new_unique();
+        let sold = HashMap::from([(mint, 100)]);
+        let payer_pulls = HashMap::from([(mint, 30)]);
+
+        let sinks = compute_sinks(&ctx, &sold, &payer_pulls);
+        let mint_sinks = &sinks[&mint];
+        let total: u64 = mint_sinks.iter().map(|p| p.amount).sum();
+        assert_eq!(total, 100);
+        assert!(mint_sinks.iter().any(|p| p.amount == 30));
+        assert!(mint_sinks.iter().any(|p| p.amount == 70));
+    }
+
+    #[test]
+    fn carve_pulls_splits_across_sinks_when_one_alone_is_short() {
+        let buffer = Pubkey::new_unique();
+        let payer_ata = Pubkey::new_unique();
+        let mut mint_sinks = vec![
+            Pull {
+                destination: buffer,
+                amount: 70,
+            },
+            Pull {
+                destination: payer_ata,
+                amount: 30,
+            },
+        ];
+
+        let pulls = carve_pulls(100, &mut mint_sinks);
+        let total: u64 = pulls.iter().map(|p| p.amount).sum();
+        assert_eq!(total, 100);
+        assert!(mint_sinks.is_empty());
+    }
+
+    #[test]
+    fn carve_pulls_takes_only_what_it_needs_from_the_last_sink() {
+        let buffer = Pubkey::new_unique();
+        let mut mint_sinks = vec![Pull {
+            destination: buffer,
+            amount: 70,
+        }];
+
+        let pulls = carve_pulls(40, &mut mint_sinks);
+        assert_eq!(
+            pulls,
+            vec![Pull {
+                destination: buffer,
+                amount: 40
+            }]
+        );
+        assert_eq!(
+            mint_sinks,
+            vec![Pull {
+                destination: buffer,
+                amount: 30
+            }]
+        );
     }
 
     #[test]
