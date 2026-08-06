@@ -24,7 +24,7 @@ The _reclaim authority_ is the account authorized to close buffer accounts, recl
 
 ## Buffer accounts
 
-Buffer accounts are token accounts that hold funds on behalf of the settlement contract.
+Buffer accounts are token accounts that hold funds on behalf of the settlement program throught the state PDA.
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
@@ -46,7 +46,7 @@ There are two roles for authentication:
 
 The settlement program state PDA stores the state used for authentication.
 
-On settlement program deployment, the program state is initialized with a fixed initial manager controlled by CoW and an empty list of solvers.
+On settlement program deployment, the program state is initialized with a fixed initial manager, controlled by CoW Core as mandated by CoW DAO, and an empty list of solvers.
 
 Transferring the role of manager is done in a two-step process: first the current manager proposes a new manager; then the new manager accepts the role, finalizing the role transfer.
 
@@ -83,7 +83,7 @@ As long as the settlement program is immutable, there's no other way to access u
 
 Differences with Ethereum:
 
-- There can only be a single delegate. This could create situations where the user delegates us, creates an order, and then another dapp delegates a different program and the order can't be settled anymore. This is very different from approvals, where an approval for one dapp doesn't affect approvals for other dapps.
+- There can only be a single delegate. This could create situations where the user delegates the settlement state PDA, creates an order, and then another dapp delegates a different program and the order can't be settled anymore. This is very different from approvals, where an approval for one dapp doesn't affect approvals for other dapps.
 - There's no dedicated vault relayer, the user delegates their tokens to the settlement state PDA (_not_ the settlement program!). This is because "interactions" aren't executed by the settlement program but as dedicated instructions originating from the transaction signer.
 
 ## Orders

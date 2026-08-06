@@ -104,7 +104,7 @@ pub mod fixtures {
     /// fully enforced in this hand-rolled representation.
     #[allow(
         clippy::arithmetic_side_effects,
-        reason = "the function is mostly vendored and don't want to introduce unnecessary changes"
+        reason = "the function is mostly vendored and we don't want to introduce unnecessary changes"
     )]
     pub unsafe fn make_account_view(
         address: Address,
