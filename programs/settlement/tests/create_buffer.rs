@@ -350,38 +350,29 @@ fn rejects_invalid_mint() {
 }
 
 #[test]
-fn rejects_creating_same_buffer_twice() {
+fn recreating_same_buffer_is_idempotent() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
+    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
 
-    let ix = CreateBuffers {
-        program_id,
-        payer: payer.pubkey(),
-        mints: &[mint],
-    };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
-        .expect("first create_buffer should succeed");
-
-    svm.expire_blockhash();
-
-    let ix = CreateBuffers {
-        program_id,
-        payer: payer.pubkey(),
-        mints: &[mint],
-    };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::pda::assert_rejected_as_existing(&mut svm, tx);
+    common::pda::assert_recreate_is_noop(&mut svm, &buffer_pda, |svm| {
+        let ix = CreateBuffers {
+            program_id,
+            payer: payer.pubkey(),
+            mints: &[mint],
+        };
+        common::signed_tx(svm, &payer, &payer, ix)
+    });
 }
 
 #[test]
-fn one_failing_buffer_reverts_the_whole_batch() {
+fn batch_with_existing_buffer_passes_with_no_changes() {
     let (mut svm, program_id, payer) = common::setup();
 
-    // Pre-create a buffer for `existing`.
     let existing = common::token::create_mint(&mut svm, &payer);
     let fresh = common::token::create_mint(&mut svm, &payer);
 
+    // Pre-create a buffer for `existing`.
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
@@ -391,17 +382,63 @@ fn one_failing_buffer_reverts_the_whole_batch() {
     svm.send_transaction(tx)
         .expect("creating the first buffer should succeed");
 
-    // Batch the fresh mint *before* the already-existing one: the fresh buffer
-    // would be allocated first, then the existing one fails. Because the
-    // instruction is atomic, the whole batch reverts and the fresh buffer must
-    // not survive.
+    let (existing_buffer, _bump) = find_buffer_pda(&program_id, &existing);
+    let before = svm
+        .get_account(&existing_buffer)
+        .expect("the existing buffer should exist before the batch");
+
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
         mints: &[fresh, existing],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::pda::assert_rejected_as_existing(&mut svm, tx);
+    svm.send_transaction(tx)
+        .expect("a batch containing an existing buffer should still succeed");
+
+    let after = svm
+        .get_account(&existing_buffer)
+        .expect("the existing buffer should still exist after the batch");
+    assert_eq!(
+        before, after,
+        "the existing buffer in the batch must be left unchanged"
+    );
+
+    // The other, fresh mint in the same batch must have been created.
+    let (fresh_buffer, _bump) = find_buffer_pda(&program_id, &fresh);
+    let fresh_account = get_spl_account::<TokenAccount>(&svm, &fresh_buffer)
+        .expect("the fresh buffer must be an initialized token account after the batch");
+    assert_eq!(
+        fresh_account.state,
+        AccountState::Initialized,
+        "the fresh buffer must be initialized"
+    );
+}
+
+#[test]
+fn one_failing_buffer_reverts_the_whole_batch() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    let fresh = common::token::create_mint(&mut svm, &payer);
+    let not_a_mint = Pubkey::new_unique();
+
+    let ix = CreateBuffers {
+        program_id,
+        payer: payer.pubkey(),
+        mints: &[fresh, not_a_mint],
+    };
+    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("a batch with an invalid mint must be rejected");
+    assert!(
+        matches!(
+            err.err,
+            TransactionError::InstructionError(0, InstructionError::IncorrectProgramId)
+        ),
+        "expected instruction 0 to fail on the invalid mint, got {:?}",
+        err.err,
+    );
 
     let (fresh_buffer, _bump) = find_buffer_pda(&program_id, &fresh);
     assert!(
@@ -411,24 +448,26 @@ fn one_failing_buffer_reverts_the_whole_batch() {
 }
 
 #[test]
-fn rejects_same_mint_twice_in_one_instruction() {
+fn same_mint_twice_in_one_instruction_is_idempotent() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
+    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
 
-    // Both pairs derive the same buffer PDA: the first creates it, the second
-    // tries to recreate the now-existing account and fails, reverting the batch.
+    // Both pairs derive the same buffer PDA: the first iteration creates and
+    // initializes it, the second sees it already owned by the token program and
+    // is a no-op, so the instruction succeeds and the buffer exists once.
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::pda::assert_rejected_as_existing(&mut svm, tx);
+    svm.send_transaction(tx)
+        .expect("a batch listing the same mint twice should succeed");
 
-    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
     assert!(
-        svm.get_account(&buffer_pda).is_none(),
-        "the buffer must not be created in a batch that creates it twice"
+        svm.get_account(&buffer_pda).is_some(),
+        "the buffer must be created once when its mint is listed twice"
     );
 }
 

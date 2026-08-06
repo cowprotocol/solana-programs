@@ -26,6 +26,10 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 /// the bump itself and rejects any other address. `payer` funds every new token
 /// account's rent.
 ///
+/// Buffer creation is idempotent: an already-existing `buffer_pda` is left
+/// unchanged and the instruction still succeeds, so two parties racing to
+/// create the same buffer both succeed.
+///
 /// Wire format: `[discriminator=4]`, 1 byte. The tokens are implied by the
 /// `mint` accounts, so no further data is needed.
 /// Required accounts:
