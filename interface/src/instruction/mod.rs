@@ -171,7 +171,52 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{AccountMeta, Pubkey};
     use solana_account_view::AccountView;
+
+    #[track_caller]
+    pub(crate) fn assert_writable_signer(account: &AccountMeta, pubkey: Pubkey) {
+        assert_eq!(account.pubkey, pubkey, "unexpected account pubkey");
+        assert!(account.is_writable, "{} should be writable", account.pubkey);
+        assert!(account.is_signer, "{} should be a signer", account.pubkey);
+    }
+
+    #[track_caller]
+    pub(crate) fn assert_writable_nonsigner(account: &AccountMeta, pubkey: Pubkey) {
+        assert_eq!(account.pubkey, pubkey, "unexpected account pubkey");
+        assert!(account.is_writable, "{} should be writable", account.pubkey);
+        assert!(
+            !account.is_signer,
+            "{} should not be a signer",
+            account.pubkey
+        );
+    }
+
+    #[track_caller]
+    pub(crate) fn assert_readonly_signer(account: &AccountMeta, pubkey: Pubkey) {
+        assert_eq!(account.pubkey, pubkey, "unexpected account pubkey");
+        assert!(
+            !account.is_writable,
+            "{} should be read-only",
+            account.pubkey
+        );
+        assert!(account.is_signer, "{} should be a signer", account.pubkey);
+    }
+
+    #[track_caller]
+    pub(crate) fn assert_readonly_nonsigner(account: &AccountMeta, pubkey: Pubkey) {
+        assert_eq!(account.pubkey, pubkey, "unexpected account pubkey");
+        assert!(
+            !account.is_writable,
+            "{} should be read-only",
+            account.pubkey
+        );
+        assert!(
+            !account.is_signer,
+            "{} should not be a signer",
+            account.pubkey
+        );
+    }
 
     #[test]
     fn input_parsing_rejects_different_discriminator() {
