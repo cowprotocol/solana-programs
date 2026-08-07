@@ -1,8 +1,5 @@
 //! On-chain CoW Protocol settlement program.
 
-// The disallowed methods at the crate level are only intended for the integration tests
-#![allow(clippy::disallowed_methods)]
-
 mod create_buffer;
 mod create_order;
 mod initialize;
