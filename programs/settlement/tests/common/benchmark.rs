@@ -1,6 +1,4 @@
 //! Compute-unit benchmarking helpers for the settlement integration tests.
-//!
-//! More benchmarking utilities land here in a follow-up PR.
 
 use litesvm::{types::TransactionResult, LiteSVM};
 use solana_sdk::{pubkey::Pubkey, transaction::VersionedTransaction};
