@@ -33,6 +33,7 @@ solana-program-pack.workspace = true
 solana-sdk.workspace = true
 solana-sha256-hasher.workspace = true
 solana-system-interface.workspace = true
+spl-associated-token-account-interface.workspace = true
 
 [lints]
 workspace = true

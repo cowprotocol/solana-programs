@@ -3082,6 +3082,7 @@ dependencies = [
  "solana-sdk",
  "solana-sha256-hasher",
  "solana-system-interface 3.2.0",
+ "spl-associated-token-account-interface",
 ]
 
 [[package]]
