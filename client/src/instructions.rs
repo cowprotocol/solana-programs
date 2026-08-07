@@ -191,10 +191,6 @@ impl From<Initialize> for Instruction {
 
 #[cfg(test)]
 mod tests {
-    #![allow(
-        clippy::disallowed_methods,
-        reason = "no need to measure/benchmark with random functions against unit tests"
-    )]
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use settlement_interface::{

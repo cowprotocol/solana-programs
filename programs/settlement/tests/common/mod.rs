@@ -57,7 +57,7 @@ pub fn unique_pubkey() -> Pubkey {
 }
 
 /// A deterministic stand-in for `Keypair::new`, which is banned in these tests
-/// (see `clippy.toml`). `Keypair::new` draws from the OS random source; see
+/// (see `clippy.toml`). `Keypair::new` draws from the OS random source
 pub fn unique_keypair() -> Keypair {
     Keypair::new_from_array(next_seed())
 }
@@ -68,7 +68,7 @@ pub fn unique_keypair() -> Keypair {
 /// Also resets the [`unique_pubkey`]/[`unique_keypair`] sequence, so call it
 /// before allocating any address.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
-    NEXT_SEED.with(|next| next.set(RANDOM_SEED));
+    NEXT_SEED.with(|next| next.set(0));
 
     let mut svm = LiteSVM::new();
     let program_id = unique_pubkey();
