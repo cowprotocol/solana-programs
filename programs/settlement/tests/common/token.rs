@@ -162,6 +162,7 @@ pub fn delegated_amount(svm: &LiteSVM, account: &Pubkey) -> u64 {
 /// `transaction.inner_instructions`. We can use that to check the token-program
 /// instructions, so a settlement that must leave one side untouched can prove
 /// no token instruction so much as named it.
+#[track_caller]
 pub fn assert_no_token_instruction_touching(
     transaction: &TransactionMetadata,
     account_keys: &[Pubkey],
