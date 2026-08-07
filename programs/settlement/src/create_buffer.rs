@@ -55,7 +55,7 @@ pub fn process_create_buffer(
         // token-program-owned mint (and special-cases the native mint), so a
         // check of our own would be redundant.
         let mint_key = mint.address().as_array();
-        let created = CanonicalPda {
+        let (created, _) = CanonicalPda {
             program_id,
             payer,
             pda: &buffer_pda,

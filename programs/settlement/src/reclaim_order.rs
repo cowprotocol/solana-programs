@@ -18,11 +18,10 @@ pub fn process_reclaim_order(
 ) -> ProgramResult {
     let ReclaimOrderInput {
         order_pda,
-        bump,
         reclaim_recipient,
     } = ReclaimOrderInput::parse(instruction_data, accounts)?;
 
-    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
+    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
 
     if reclaim_recipient.address() != &account.created_by {
         return Err(SettlementError::ReclaimRecipientMismatch.into());
@@ -79,13 +78,14 @@ mod tests {
     fn process_reclaim_order_rejects_mismatched_reclaim_recipient() {
         let reclaim_recipient = fake_account(Address::new_unique());
 
+        let (order_pda_address, bump) =
+            find_order_pda(&PROGRAM_ID, &OrderAccount::default().intent.uid());
         let order_data = OrderAccount {
+            bump,
             created_by: Address::new_unique(),
             ..Default::default()
         };
-
-        let (order_pda_address, bump) = find_order_pda(&PROGRAM_ID, &order_data.intent.uid());
-        let data = vec![SettlementInstruction::ReclaimOrder.discriminator(), bump];
+        let data = vec![SettlementInstruction::ReclaimOrder.discriminator()];
 
         let order_pda = fake_account_with_data(
             order_pda_address,
