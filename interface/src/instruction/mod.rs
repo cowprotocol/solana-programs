@@ -14,14 +14,6 @@ pub mod initialize;
 pub mod reclaim_order;
 pub mod settle;
 
-use crate::instruction::{
-    create_buffer::CreateBufferInput,
-    create_order::CreateOrderInput,
-    initialize::InitializeInput,
-    reclaim_order::ReclaimOrderInput,
-    settle::{BeginSettleInput, FinalizeSettleInput},
-};
-
 /// Shared components for parsing an instruction's input (data fields and
 /// accounts).
 ///
@@ -54,45 +46,6 @@ pub trait InstructionInputParsing<'a, A>: Sized {
             _ => Err(ProgramError::InvalidInstructionData),
         }
     }
-}
-
-/// A settlement instruction parsed by [`parse_instruction`].
-pub enum ParsedInstruction<'a, A> {
-    Initialize(InitializeInput<'a, A>),
-    CreateOrder(CreateOrderInput<'a, A>),
-    CreateBuffer(CreateBufferInput<'a, A>),
-    BeginSettle(BeginSettleInput<'a, A>),
-    FinalizeSettle(FinalizeSettleInput<'a, A>),
-    ReclaimOrder(ReclaimOrderInput<'a, A>),
-}
-
-/// Parses any settlement instruction by its discriminator. Takes the mutable
-/// slice the settle inputs require. Read-only inputs reborrow it shared.
-pub fn parse_instruction<'a, A>(
-    instruction_data: &'a [u8],
-    accounts: &'a mut [A],
-) -> Result<ParsedInstruction<'a, A>, ProgramError> {
-    let (discriminator, remaining_data) = recover_discriminator(instruction_data)?;
-    Ok(match discriminator {
-        SettlementInstruction::Initialize => {
-            ParsedInstruction::Initialize(InitializeInput::parse_body(remaining_data, &*accounts)?)
-        }
-        SettlementInstruction::CreateOrder => ParsedInstruction::CreateOrder(
-            CreateOrderInput::parse_body(remaining_data, &*accounts)?,
-        ),
-        SettlementInstruction::CreateBuffer => ParsedInstruction::CreateBuffer(
-            CreateBufferInput::parse_body(remaining_data, &*accounts)?,
-        ),
-        SettlementInstruction::BeginSettle => {
-            ParsedInstruction::BeginSettle(BeginSettleInput::parse_body(remaining_data, accounts)?)
-        }
-        SettlementInstruction::FinalizeSettle => ParsedInstruction::FinalizeSettle(
-            FinalizeSettleInput::parse_body(remaining_data, accounts)?,
-        ),
-        SettlementInstruction::ReclaimOrder => ParsedInstruction::ReclaimOrder(
-            ReclaimOrderInput::parse_body(remaining_data, &*accounts)?,
-        ),
-    })
 }
 
 /// Account-building scaffolding shared by the parser unit tests in this crate
