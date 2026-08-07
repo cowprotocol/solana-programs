@@ -96,6 +96,7 @@ pub fn to_instruction_error(e: SettlementError) -> InstructionError {
     InstructionError::Custom(e.into())
 }
 
+#[track_caller]
 pub fn assert_instruction_error<T>(
     result: Result<T, TransactionError>,
     expected: InstructionError,
@@ -142,6 +143,7 @@ pub fn lamports(svm: &LiteSVM, address: &Pubkey) -> u64 {
 /// Assert that `account` holds exactly the rent-exempt minimum for its current
 /// data size. The size is taken from `account.data` rather than passed in, so
 /// the check can't drift from the account it's checking.
+#[track_caller]
 pub fn assert_rent_exempt(svm: &LiteSVM, account: &Account) {
     let rent = svm.minimum_balance_for_rent_exemption(account.data.len());
     assert_eq!(
@@ -171,6 +173,7 @@ pub fn signed_tx(
 /// use it to corrupt one account of an otherwise-valid instruction; it panics if
 /// `instruction` doesn't reference `from`, so a stale swap fails loudly rather
 /// than silently testing nothing.
+#[track_caller]
 pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubkey, to: Pubkey) {
     let meta = instruction
         .accounts
