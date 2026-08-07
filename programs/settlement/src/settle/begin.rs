@@ -945,7 +945,8 @@ mod tests {
         // From the Solana docs for this function: "construct the account data
         // for the instructions sysvar."
         let instructions_sysvar_data =
-            solana_instructions_sysvar::construct_instructions_data(&[borrowed]);
+            solana_instructions_sysvar::construct_instructions_data(&[borrowed])
+                .expect("instruction serialization should succeed for well-formed instructions");
         // SAFETY: from Pinocchio's docs for `new_unchecked`: "this function is
         // unsafe because it does not check if the provided data is from the
         // Sysvar Account."
