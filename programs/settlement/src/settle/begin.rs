@@ -235,14 +235,13 @@ fn process_order(
     let SettledOrder {
         order_pda,
         sell_token_account,
-        bump,
         destinations,
         amounts,
     } = order;
 
     // Decode the order body and prove its provenance: `load_from_pda` checks
     // that `order_pda` is the canonical order PDA for the intent it stores.
-    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
+    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
     let intent = &account.intent;
 
     if account.cancelled {

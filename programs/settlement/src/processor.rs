@@ -4,7 +4,7 @@ use pinocchio::{
     address::MAX_SEEDS,
     cpi::{Seed, Signer},
     error::ProgramError,
-    AccountView, Address, ProgramResult,
+    AccountView, Address,
 };
 
 use pinocchio_system::instructions::CreateAccount;
@@ -46,7 +46,7 @@ impl<const N: usize> CanonicalPda<'_, N> {
     /// still tries to create the account, which then reverts with the system
     /// program's `AccountAlreadyInUse` because the account already exists.
     #[must_use = "the flag says whether follow-up initialization is still needed"]
-    pub fn create_idempotent(self) -> Result<bool, ProgramError> {
+    pub fn create_idempotent(self) -> Result<(bool, u8), ProgramError> {
         let (canonical, bump) = Address::find_program_address(&self.seeds, self.program_id);
 
         // Verify whether the PDA is initialized.
@@ -63,7 +63,7 @@ impl<const N: usize> CanonicalPda<'_, N> {
         //  initialized. We take the risk as this isn't user-specified input and
         // there's no reason to actually assign a PDA to the System Program.
         if self.pda.address() == &canonical && self.pda.owned_by(self.owner) {
-            return Ok(false);
+            return Ok((false, bump));
         }
 
         let bump = [bump];
@@ -84,15 +84,16 @@ impl<const N: usize> CanonicalPda<'_, N> {
 
         CreateAccount::with_minimum_balance(self.payer, self.pda, self.size, self.owner, None)?
             .invoke_signed(&[signer])?;
-        Ok(true)
+        Ok((true, bump[0]))
     }
 
     /// Create the canonical account, reverting with
     /// [`ProgramError::AccountAlreadyInitialized`] if it already exists.
     #[must_use = "ignoring the output means the PDA could be incorrectly set up"]
-    pub fn create_new(self) -> ProgramResult {
-        if self.create_idempotent()? {
-            Ok(())
+    pub fn create_new(self) -> Result<u8, ProgramError> {
+        let (created, bump) = self.create_idempotent()?;
+        if created {
+            Ok(bump)
         } else {
             Err(ProgramError::AccountAlreadyInitialized)
         }
