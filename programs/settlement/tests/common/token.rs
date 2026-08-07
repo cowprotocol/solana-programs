@@ -20,7 +20,7 @@ use super::unique_keypair;
 
 /// Create a fresh mint owned by `payer` and return its address.
 ///
-/// This open-codes what `litesvm_token::CreateMint` does rather than calling
+/// This open-codes what [`litesvm_token::CreateMint`] does rather than calling
 /// it, because that builder generates the mint keypair with `Keypair::new()`
 /// internally and offers no way to supply one. A mint address is a seed of its
 /// buffer PDA, so a random one makes buffer bumps — and the compute cost of
