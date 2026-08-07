@@ -35,12 +35,10 @@ pub const CPI_CALLER_SO: &str = concat!(
     "/../../target/deploy/test_cpi_caller.so"
 );
 
-const RANDOM_SEED: u64 = 3_459_872_634_598_765;
-
 thread_local! {
     /// Counter behind [`unique_pubkey`] and [`unique_keypair`], reset by
     /// [`setup`]. Needs to be thread local because parallel executed tests would share the same memory cell
-    static NEXT_SEED: Cell<u64> = const { Cell::new(RANDOM_SEED) };
+    static NEXT_SEED: Cell<u64> = const { Cell::new(0) };
 }
 
 fn next_seed() -> [u8; 32] {
