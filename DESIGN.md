@@ -138,6 +138,8 @@ For processing an order in a settlement, the data of that order needs to be stor
 Useful information can be recovered from the order PDA. Notably:
 
 ```rust
+// The PDA's canonical bump, stored so instructions don't have to carry it
+bump: u8
 cancelled: bool
 amount_withdrawn: u64
 amount_received: u64

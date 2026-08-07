@@ -14,6 +14,11 @@
 //! Since only the state PDA can spend a buffer and that address moves too,
 //! buffers must be drained under the old version before a bump ships, or their
 //! contents are stranded.
+//!
+//! Unlike the order PDA, which stores its own bump (see
+//! [`crate::data::order::OrderAccount`]), a buffer is a fixed-size SPL token
+//! account with no room for one. Its bump therefore stays an instruction
+//! parameter, re-derived by [`validate_buffer_pda`].
 
 use solana_account_view::AccountView;
 use solana_address::Address;
