@@ -2,7 +2,7 @@
 //! settlement into the swap instructions (and payer-wallet routing) needed to
 //! cover the deficits.
 //!
-//! The Whirlpools SDK is async-only; [`OrcaClient`] bridges into it with a
+//! The Whirlpools SDK is async-only, so [`OrcaClient`] bridges into it with a
 //! small Tokio runtime scoped to this module so the rest of the CLI can stay
 //! synchronous.
 
@@ -19,16 +19,19 @@ use solana_instruction::Instruction;
 use solana_sdk::signature::Signer;
 use spl_associated_token_account_interface::{
     address::get_associated_token_address_with_program_id,
-    instruction::create_associated_token_account_idempotent,
+    instruction::create_associated_token_account_idempotent, program::ID as ATA_PROGRAM_ID,
 };
 use std::collections::{HashMap, HashSet};
 
+use super::SwapPlan;
 use crate::cmd::Context;
+use crate::network::{DEVNET_GENESIS_HASH, MAINNET_GENESIS_HASH};
 
 /// Bridges this otherwise-synchronous CLI into the (async-only) Orca Whirlpools SDK.
 pub struct OrcaClient {
     rpc: AsyncRpcClient,
     runtime: tokio::runtime::Runtime,
+    deployment: WhirlpoolDeployment,
 }
 
 impl OrcaClient {
@@ -38,34 +41,49 @@ impl OrcaClient {
             .build()
             .context("failed to start the Tokio runtime needed to drive the Orca SDK")?;
 
-        // The solver funds swaps through its own regular ATAs, same as how the rest of
-        // this CLI treats WSOL, instead of Orca's default ephemeral-keypair wrapping —
-        // so a swap never needs an extra transaction signer beyond the payer.
-        set_native_mint_wrapping_strategy(NativeMintWrappingStrategy::Ata).map_err(|e| {
+        // The SDK's default wraps SOL through an ephemeral keypair account, which would
+        // make every swap need a second transaction signer, and its `Ata` strategy closes
+        // any native-mint ATA it had to create. `None` does neither, so WSOL goes through
+        // the solver's own ATA and survives the swap like any other mint — which is what
+        // lets the planning below assume the SDK emits nothing but ATA creations and the
+        // swap itself.
+        set_native_mint_wrapping_strategy(NativeMintWrappingStrategy::None).map_err(|e| {
             anyhow::anyhow!("failed to configure Orca's SOL-wrapping strategy: {e}")
         })?;
 
+        let rpc = AsyncRpcClient::new_with_commitment(rpc_url.to_string(), commitment);
+        let deployment = runtime.block_on(resolve_deployment(&rpc))?;
+
         Ok(Self {
-            rpc: AsyncRpcClient::new_with_commitment(rpc_url.to_string(), commitment),
+            rpc,
             runtime,
+            deployment,
         })
     }
 }
 
-/// Orca swap instructions needed to cover every deficit, plus the payer-wallet
-/// routing [`crate::cmd::settle`] needs to fold into its pull plan.
-pub struct SwapPlan {
-    /// Idempotent payer-ATA creation for every surplus mint a swap draws from.
-    /// Must run before `BeginSettle`, since its `Pull` destinations have to
-    /// already exist on-chain.
-    pub setup_ixs: Vec<Instruction>,
-    /// The swaps themselves, plus the transfers moving their output into the
-    /// deficit mints' buffer PDAs. Must run between `BeginSettle` and
-    /// `FinalizeSettle`.
-    pub swap_ixs: Vec<Instruction>,
-    /// How much of each surplus mint needs to be pulled to the payer's own
-    /// wallet (instead of its buffer) to fund the swaps above.
-    pub payer_pulls: HashMap<Pubkey, u64>,
+/// The Orca deployment on the cluster `--rpc-url` points at, which every pool lookup,
+/// quote and swap instruction is then aimed at.
+///
+/// Mainnet and devnet share a program and differ only in the `WhirlpoolsConfig` account
+/// their pools hang off, so aiming at the wrong one doesn't fail loudly — it quietly
+/// finds no liquidity. Deriving the deployment from the cluster's genesis hash, the same
+/// way [`crate::token`] keys its mint registry, keeps the two in step on their own.
+async fn resolve_deployment(rpc: &AsyncRpcClient) -> anyhow::Result<WhirlpoolDeployment> {
+    let genesis_hash = rpc
+        .get_genesis_hash()
+        .await
+        .context("failed to fetch genesis hash (is the RPC URL correct?)")?
+        .to_string();
+
+    match genesis_hash.as_str() {
+        DEVNET_GENESIS_HASH => Ok(WhirlpoolDeployment::devnet()),
+        MAINNET_GENESIS_HASH => Ok(WhirlpoolDeployment::mainnet()),
+        other => anyhow::bail!(
+            "no Orca Whirlpools deployment is known for the network with genesis hash {other}. please connect to \
+             devnet and mainnet only",
+        ),
+    }
 }
 
 /// Find Orca swaps that cover every mint in `deficits` (mints the settlement
@@ -76,16 +94,17 @@ pub fn plan_swaps(
     orca: &OrcaClient,
     ctx: &Context,
     surplus: &HashMap<Pubkey, u64>,
-    deficits: &[(Pubkey, u64)],
+    deficits: &HashMap<Pubkey, u64>,
 ) -> anyhow::Result<SwapPlan> {
     let mut surplus_remaining = surplus.clone();
     let mut setup_ixs = Vec::new();
     let mut swap_ixs = Vec::new();
-    let mut payer_pulls: HashMap<Pubkey, u64> = HashMap::new();
+    let mut sinks: HashMap<Pubkey, u64> = HashMap::new();
     let mut payer_atas_created: HashSet<Pubkey> = HashSet::new();
 
-    for &(deficit_mint, deficit_amount) in deficits {
-        let mut remaining = deficit_amount;
+    for (deficit_mint, deficit_amount) in deficits {
+        let mut remaining = *deficit_amount;
+        let (deficit_buffer, _) = find_buffer_pda(&ctx.program_id, deficit_mint);
 
         for (&surplus_mint, avail) in surplus_remaining.iter_mut() {
             if remaining == 0 {
@@ -99,7 +118,8 @@ pub fn plan_swaps(
                 orca,
                 ctx.payer.pubkey(),
                 surplus_mint,
-                deficit_mint,
+                *deficit_mint,
+                deficit_buffer,
                 remaining,
                 *avail,
             ))?
@@ -119,29 +139,18 @@ pub fn plan_swaps(
 
             swap_ixs.extend(fill.instructions);
 
-            let (deficit_buffer, _) = find_buffer_pda(&ctx.program_id, &deficit_mint);
-            let payer_output_ata = get_associated_token_address_with_program_id(
-                &ctx.payer.pubkey(),
-                &deficit_mint,
-                &spl_token_interface::id(),
-            );
-            swap_ixs.push(
-                spl_token_interface::instruction::transfer(
-                    &spl_token_interface::id(),
-                    &payer_output_ata,
-                    &deficit_buffer,
-                    &ctx.payer.pubkey(),
-                    &[],
-                    fill.output_covered,
-                )
-                .context("failed to build transfer of swap proceeds into the buffer")?,
-            );
+            let sink = sinks.entry(surplus_mint).or_insert(0);
+            *sink = sink
+                .checked_add(fill.input_used)
+                .with_context(|| format!("swap input tally overflow for mint {surplus_mint}"))?;
 
-            payer_pulls
-                .entry(surplus_mint)
-                .and_modify(|v| *v = v.saturating_add(fill.input_used))
-                .or_insert(fill.input_used);
-            *avail = avail.saturating_sub(fill.input_used);
+            // `plan_pair` never spends more than the `*avail` it was handed, so an
+            // underflow here would mean it ignored the budget.
+            *avail = avail.checked_sub(fill.input_used).with_context(|| {
+                format!("swap consumed more of mint {surplus_mint} than was available")
+            })?;
+
+            // Unlike the input side, the output can legitimately overshoot, so saturating is fine here
             remaining = remaining.saturating_sub(fill.output_covered);
         }
 
@@ -155,7 +164,8 @@ pub fn plan_swaps(
     Ok(SwapPlan {
         setup_ixs,
         swap_ixs,
-        payer_pulls,
+        teardown_ixs: vec![],
+        sinks,
     })
 }
 
@@ -164,7 +174,9 @@ struct PairFill {
     instructions: Vec<Instruction>,
     /// How much of `surplus_mint` this swap consumes.
     input_used: u64,
-    /// How much of `deficit_mint` this swap's output covers.
+    /// How much of `deficit_mint` this swap's output covers. The swap pays into
+    /// the deficit mint's buffer directly, so this is a lower bound on what the
+    /// buffer actually receives, not an amount transferred separately.
     output_covered: u64,
 }
 
@@ -172,13 +184,15 @@ struct PairFill {
 /// with an exact-output swap; if the surplus mint can't cover that swap's
 /// worst-case input, fall back to spending all of `surplus_avail` via an
 /// exact-input swap instead (a partial fill, leaving the rest of the deficit
-/// for another surplus mint). Returns `None` if there's no initialized Orca
-/// pool for this pair.
+/// for another surplus mint). The proceeds are paid into `deficit_buffer`
+/// rather than the signer's wallet. Returns `None` if there's no initialized
+/// Orca pool for this pair.
 async fn plan_pair(
     orca: &OrcaClient,
     signer: Pubkey,
     surplus_mint: Pubkey,
     deficit_mint: Pubkey,
+    deficit_buffer: Pubkey,
     deficit_remaining: u64,
     surplus_avail: u64,
 ) -> anyhow::Result<Option<PairFill>> {
@@ -186,29 +200,25 @@ async fn plan_pair(
         return Ok(None);
     };
 
-    // Both of the swap's own token accounts need to survive it intact: the output ATA
-    // still has to hold the proceeds for the transfer into the deficit buffer that
-    // follows, and the input ATA shouldn't get swept out from under a later swap that
-    // also draws on this surplus mint. `NativeMintWrappingStrategy::Ata` (set in
-    // `OrcaClient::new`) auto-closes a native-mint ATA it had to create for the swap,
-    // which would silently destroy either of those — see `strip_close_account`.
-    let protected = [
-        get_associated_token_address_with_program_id(
-            &signer,
-            &surplus_mint,
-            &spl_token_interface::id(),
-        ),
-        get_associated_token_address_with_program_id(
-            &signer,
-            &deficit_mint,
-            &spl_token_interface::id(),
-        ),
-    ];
+    let output_ata = get_associated_token_address_with_program_id(
+        &signer,
+        &deficit_mint,
+        &spl_token_interface::id(),
+    );
+
+    let swap_instruction_rewrites = |instructions| {
+        rewrite_swap_output_to_buffer(
+            instructions,
+            orca.deployment.id(),
+            output_ata,
+            deficit_buffer,
+        )
+    };
 
     let config = SwapConfig {
         slippage_tolerance_bps: None,
         signer: Some(signer),
-        whirlpool_deployment: Some(WhirlpoolDeployment::devnet()),
+        whirlpool_deployment: Some(orca.deployment),
     };
 
     let exact_out = swap_instructions(
@@ -232,7 +242,7 @@ async fn plan_pair(
 
     if quote.token_max_in <= surplus_avail {
         return Ok(Some(PairFill {
-            instructions: strip_close_account(exact_out.instructions, &protected),
+            instructions: swap_instruction_rewrites(exact_out.instructions)?,
             input_used: quote.token_max_in,
             output_covered: deficit_remaining,
         }));
@@ -260,7 +270,7 @@ async fn plan_pair(
     );
 
     Ok(Some(PairFill {
-        instructions: strip_close_account(exact_in.instructions, &protected),
+        instructions: swap_instruction_rewrites(exact_in.instructions)?,
         input_used: surplus_avail,
         // `token_min_out` is what the swap instruction is guaranteed to deliver even at
         // the edge of its slippage tolerance; using the estimate instead could leave the
@@ -269,31 +279,63 @@ async fn plan_pair(
     }))
 }
 
-/// Drop any SPL Token `CloseAccount` instruction targeting one of `protected` accounts.
-/// `CloseAccount`'s instruction data is always the single discriminant byte `9` with no
-/// extra payload, and its first account is always the account being closed.
-fn strip_close_account(instructions: Vec<Instruction>, protected: &[Pubkey]) -> Vec<Instruction> {
-    instructions
+/// Pay the swap's proceeds into `buffer` instead of the signer's own `output_ata`.
+/// It also removes any instructions that create the `output_ata`.
+///
+/// This function is needed since orca's own library doesn't provide a way to specify swap accounts
+/// outside the ATA (and using the lower level libs would be way too much more work)
+fn rewrite_swap_output_to_buffer(
+    instructions: Vec<Instruction>,
+    whirlpool_program: Pubkey,
+    output_ata: Pubkey,
+    buffer: Pubkey,
+) -> anyhow::Result<Vec<Instruction>> {
+    let mut redirected = false;
+
+    let routed = instructions
         .into_iter()
-        .filter(|ix| {
-            let is_close_account = ix.program_id == spl_token_interface::id() && ix.data == [9];
-            let targets_protected = ix
-                .accounts
-                .first()
-                .is_some_and(|a| protected.contains(&a.pubkey));
-            !(is_close_account && targets_protected)
+        .filter_map(|mut ix| {
+            if ix.program_id == whirlpool_program {
+                for account in &mut ix.accounts {
+                    if account.pubkey == output_ata {
+                        account.pubkey = buffer;
+                        redirected = true;
+                    }
+                }
+                return Some(ix);
+            }
+
+            // Nothing references the output ATA any more, so drop the idempotent creation
+            // the SDK prepends for it: an account the swap no longer touches isn't worth
+            // the instruction or the rent.
+            (!creates_token_account(&ix, output_ata)).then_some(ix)
         })
-        .collect()
+        .collect();
+
+    anyhow::ensure!(
+        redirected,
+        "no swap instruction references the payer's output ATA {output_ata}; Orca's account \
+         layout may have changed",
+    );
+
+    Ok(routed)
 }
 
-/// Find the Orca Whirlpool with the most liquidity for `mint_a`/`mint_b` on devnet,
-/// across every fee tier plus the splash pool. Returns `None` if none are initialized.
+/// Whether `ix` is an Associated Token Account program instruction creating `account`,
+/// which every one of its variants passes as its second account.
+fn creates_token_account(ix: &Instruction, account: Pubkey) -> bool {
+    ix.program_id == ATA_PROGRAM_ID && ix.accounts.get(1).is_some_and(|a| a.pubkey == account)
+}
+
+/// Find the Orca Whirlpool with the most liquidity for `mint_a`/`mint_b` on the
+/// cluster's deployment, across every fee tier plus the splash pool. Returns `None`
+/// if none are initialized.
 async fn find_pool(
     orca: &OrcaClient,
     mint_a: Pubkey,
     mint_b: Pubkey,
 ) -> anyhow::Result<Option<Pubkey>> {
-    let deployment = WhirlpoolDeployment::devnet();
+    let deployment = orca.deployment;
 
     let mut pools = fetch_whirlpools_by_token_pair(&orca.rpc, mint_a, mint_b, Some(deployment))
         .await

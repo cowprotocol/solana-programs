@@ -3,7 +3,8 @@ use settlement_client::settlement_interface::Pubkey;
 
 mod cmd;
 mod instructions;
-mod orca;
+mod liquidity;
+mod network;
 mod token;
 
 fn default_keypair_path() -> String {

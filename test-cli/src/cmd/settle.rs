@@ -20,7 +20,7 @@ use solana_sdk::{
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use std::collections::{HashMap, HashSet};
 
-use crate::orca::{self, OrcaClient};
+use crate::liquidity::orca::{self, OrcaClient};
 use crate::token::{resolve_from_token_account, ResolvedToken};
 
 use super::Context;
@@ -94,22 +94,25 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let mut all_ixs: Vec<Instruction> = vec![];
     let (sell_amount_pulled, buy_amount_pushed) = prepare_setup_ixs(&ctx, &intents, &mut all_ixs)?;
 
-    let (surplus, deficits) = compute_imbalances(&sell_amount_pulled, &buy_amount_pushed);
+    let surplus = union_with_positive_remainder(&sell_amount_pulled, &buy_amount_pushed);
+    let deficits = union_with_positive_remainder(&buy_amount_pushed, &sell_amount_pulled);
 
     // Mints the orders can't fully CoW against each other need an Orca swap, funded by
     // the mints left over from the CoW matching, to make up the difference.
     let mut swap_ixs: Vec<Instruction> = vec![];
-    let mut payer_pulls: HashMap<Pubkey, u64> = HashMap::new();
+    let mut teardown_ixs: Vec<Instruction> = vec![];
+    let mut swap_sinks: HashMap<Pubkey, u64> = HashMap::new();
     if !deficits.is_empty() {
         let orca = OrcaClient::new(&ctx.rpc.url(), ctx.rpc.commitment())?;
         let plan = orca::plan_swaps(&orca, &ctx, &surplus, &deficits)?;
         all_ixs.extend(plan.setup_ixs);
         swap_ixs = plan.swap_ixs;
-        payer_pulls = plan.payer_pulls;
+        teardown_ixs = plan.teardown_ixs;
+        swap_sinks = plan.sinks;
     }
 
-    let mut sinks = compute_sinks(&ctx, &sell_amount_pulled, &payer_pulls);
-    let pulls = compute_pulls(&intents, &mut sinks);
+    let mut sinks = compute_sinks(&ctx, &sell_amount_pulled, &swap_sinks)?;
+    let pulls = compute_pulls(&intents, &mut sinks)?;
 
     let initialized_intents: Vec<_> = intents
         .iter()
@@ -153,6 +156,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     all_ixs.push(begin_ix.into());
     all_ixs.extend(swap_ixs);
     all_ixs.push(finalize_ix.into());
+    all_ixs.extend(teardown_ixs);
 
     let blockhash = ctx.rpc.get_latest_blockhash().context("fetch blockhash")?;
     let tx = Transaction::new_signed_with_payer(
@@ -282,7 +286,8 @@ fn tally_and_register_buffer(
 }
 
 /// Create any missing buffer PDAs before the settle tx, and tally up the
-/// total sell/buy amount per mint across all orders (see [`compute_imbalances`]).
+/// total sell/buy amount per mint across all orders, which
+/// [`union_with_positive_remainder`] then nets against each other.
 fn prepare_setup_ixs(
     ctx: &Context,
     intents: &[ResolvedIntent],
@@ -325,37 +330,23 @@ fn prepare_setup_ixs(
     Ok((sell_amount_pulled, buy_amount_pushed))
 }
 
-/// Compare each mint's total sold against its total bought (both tallied across
-/// every order) to find:
-/// - `surplus`: mints sold for more than they're bought back — the extra can
-///   fund an Orca swap into a mint that's short.
-/// - `deficits`: mints bought for more than they're sold — CoW matching alone
-///   can't cover them, so an Orca swap has to make up the difference.
-///
-/// This deliberately ignores whatever the buffers already hold, so a settlement
-/// that would only work by spending pre-existing buffer balances still shows up
-/// as a deficit here rather than silently draining them.
-fn compute_imbalances(
-    sell_amount_pulled: &HashMap<Pubkey, u64>,
-    buy_amount_pushed: &HashMap<Pubkey, u64>,
-) -> (HashMap<Pubkey, u64>, Vec<(Pubkey, u64)>) {
-    let surplus = sell_amount_pulled
+/// Computes a new set that subtracts key-matching elements of b_set from a_set
+fn union_with_positive_remainder(
+    a_set: &HashMap<Pubkey, u64>,
+    b_set: &HashMap<Pubkey, u64>,
+) -> HashMap<Pubkey, u64> {
+    a_set
         .iter()
         .filter_map(|(&mint, &pulled)| {
-            let pushed = buy_amount_pushed.get(&mint).copied().unwrap_or(0);
-            (pulled > pushed).then(|| (mint, pulled.saturating_sub(pushed)))
+            let pushed = b_set.get(&mint).copied().unwrap_or(0);
+            (pulled > pushed).then(|| {
+                let extra = pulled
+                    .checked_sub(pushed)
+                    .expect("gated by prior condition");
+                (mint, extra)
+            })
         })
-        .collect();
-
-    let deficits = buy_amount_pushed
-        .iter()
-        .filter_map(|(&mint, &pushed)| {
-            let pulled = sell_amount_pulled.get(&mint).copied().unwrap_or(0);
-            (pushed > pulled).then(|| (mint, pushed.saturating_sub(pulled)))
-        })
-        .collect();
-
-    (surplus, deficits)
+        .collect()
 }
 
 /// Compute each sold mint's pull destinations. Whatever `payer_pulls` (built by
@@ -365,13 +356,15 @@ fn compute_imbalances(
 fn compute_sinks(
     ctx: &Context,
     sell_amount_pulled: &HashMap<Pubkey, u64>,
-    payer_pulls: &HashMap<Pubkey, u64>,
-) -> HashMap<Pubkey, Vec<Pull>> {
+    swap_sinks: &HashMap<Pubkey, u64>,
+) -> anyhow::Result<HashMap<Pubkey, Vec<Pull>>> {
     sell_amount_pulled
         .iter()
         .map(|(&mint, &sold)| {
-            let to_payer = payer_pulls.get(&mint).copied().unwrap_or(0).min(sold);
-            let to_buffer = sold.saturating_sub(to_payer);
+            let to_payer = swap_sinks.get(&mint).copied().unwrap_or(0).min(sold);
+            let to_buffer = sold.checked_sub(to_payer).with_context(|| {
+                format!("swaps reserved more of mint {mint} than the orders sell")
+            })?;
 
             let mut mint_sinks = Vec::with_capacity(2);
             if to_buffer > 0 {
@@ -393,7 +386,7 @@ fn compute_sinks(
                 });
             }
 
-            (mint, mint_sinks)
+            Ok((mint, mint_sinks))
         })
         .collect()
 }
@@ -403,7 +396,7 @@ fn compute_sinks(
 /// across multiple `Pull`s when a single sink entry doesn't cover the whole
 /// amount (e.g. an order that draws from both the buffer and the payer's
 /// swap-funding wallet).
-fn carve_pulls(amount: u64, mint_sinks: &mut Vec<Pull>) -> Vec<Pull> {
+fn carve_pulls(amount: u64, mint_sinks: &mut Vec<Pull>) -> anyhow::Result<Vec<Pull>> {
     let mut pulls = Vec::with_capacity(1);
     let mut remaining = amount;
 
@@ -412,15 +405,22 @@ fn carve_pulls(amount: u64, mint_sinks: &mut Vec<Pull>) -> Vec<Pull> {
             break;
         };
 
+        // Both subtractions run in the direction this branch just established, so an
+        // underflow would mean the comparison and the arithmetic disagree.
         if sink.amount <= remaining {
             mint_sinks.pop();
-            remaining = remaining.saturating_sub(sink.amount);
+            remaining = remaining
+                .checked_sub(sink.amount)
+                .context("sink is larger than the amount it was chosen to fit inside")?;
             pulls.push(sink);
         } else {
             mint_sinks
                 .last_mut()
                 .expect("checked non-empty above")
-                .amount = sink.amount.saturating_sub(remaining);
+                .amount = sink
+                .amount
+                .checked_sub(remaining)
+                .context("sink is smaller than the amount carved out of it")?;
             pulls.push(Pull {
                 destination: sink.destination,
                 amount: remaining,
@@ -429,7 +429,7 @@ fn carve_pulls(amount: u64, mint_sinks: &mut Vec<Pull>) -> Vec<Pull> {
         }
     }
 
-    pulls
+    Ok(pulls)
 }
 
 /// Carve each order's required pull amount out of the shared per-mint sink
@@ -437,14 +437,14 @@ fn carve_pulls(amount: u64, mint_sinks: &mut Vec<Pull>) -> Vec<Pull> {
 fn compute_pulls(
     intents: &[ResolvedIntent],
     sinks: &mut HashMap<Pubkey, Vec<Pull>>,
-) -> Vec<Vec<Pull>> {
+) -> anyhow::Result<Vec<Vec<Pull>>> {
     intents
         .iter()
         .map(|intent| {
             sinks
                 .get_mut(&intent.sell.mint)
                 .map(|mint_sinks| carve_pulls(intent.data.sell_amount, mint_sinks))
-                .unwrap_or_default()
+                .unwrap_or_else(|| Ok(Vec::new()))
         })
         .collect()
 }
@@ -552,25 +552,45 @@ mod tests {
     }
 
     #[test]
-    fn imbalances_ignore_mints_that_net_out_exactly() {
+    fn remainder_drops_mints_that_net_out_exactly() {
         let mint = Pubkey::new_unique();
         let sold = HashMap::from([(mint, 50)]);
         let bought = HashMap::from([(mint, 50)]);
-        let (surplus, deficits) = compute_imbalances(&sold, &bought);
-        assert!(surplus.is_empty());
-        assert!(deficits.is_empty());
+        assert!(union_with_positive_remainder(&sold, &bought).is_empty());
+        assert!(union_with_positive_remainder(&bought, &sold).is_empty());
     }
 
     #[test]
-    fn imbalances_report_surplus_and_deficit_mints() {
+    fn remainder_keeps_only_what_the_other_side_does_not_cover() {
         let oversold = Pubkey::new_unique();
         let overbought = Pubkey::new_unique();
         let sold = HashMap::from([(oversold, 100)]);
         let bought = HashMap::from([(oversold, 90), (overbought, 11)]);
 
-        let (surplus, deficits) = compute_imbalances(&sold, &bought);
-        assert_eq!(surplus, HashMap::from([(oversold, 10)]));
-        assert_eq!(deficits, vec![(overbought, 11)]);
+        // Called the way `run` does: surplus first, then deficits.
+        assert_eq!(
+            union_with_positive_remainder(&sold, &bought),
+            HashMap::from([(oversold, 10)]),
+        );
+        assert_eq!(
+            union_with_positive_remainder(&bought, &sold),
+            HashMap::from([(overbought, 11)]),
+        );
+    }
+
+    #[test]
+    fn remainder_ignores_keys_missing_from_the_left_side() {
+        let only_bought = Pubkey::new_unique();
+        let sold = HashMap::new();
+        let bought = HashMap::from([(only_bought, 7)]);
+
+        // A mint the left side never mentions contributes nothing, however large the
+        // right side's entry is.
+        assert!(union_with_positive_remainder(&sold, &bought).is_empty());
+        assert_eq!(
+            union_with_positive_remainder(&bought, &sold),
+            HashMap::from([(only_bought, 7)]),
+        );
     }
 
     #[test]
@@ -584,7 +604,7 @@ mod tests {
         let sold = HashMap::from([(mint, 100)]);
         let payer_pulls = HashMap::from([(mint, 30)]);
 
-        let sinks = compute_sinks(&ctx, &sold, &payer_pulls);
+        let sinks = compute_sinks(&ctx, &sold, &payer_pulls).expect("shouldn't overflow");
         let mint_sinks = &sinks[&mint];
         let total: u64 = mint_sinks.iter().map(|p| p.amount).sum();
         assert_eq!(total, 100);
@@ -607,7 +627,7 @@ mod tests {
             },
         ];
 
-        let pulls = carve_pulls(100, &mut mint_sinks);
+        let pulls = carve_pulls(100, &mut mint_sinks).expect("overflow shouldn't happen");
         let total: u64 = pulls.iter().map(|p| p.amount).sum();
         assert_eq!(total, 100);
         assert!(mint_sinks.is_empty());
@@ -621,7 +641,7 @@ mod tests {
             amount: 70,
         }];
 
-        let pulls = carve_pulls(40, &mut mint_sinks);
+        let pulls = carve_pulls(40, &mut mint_sinks).expect("overflow shouldn't happen");
         assert_eq!(
             pulls,
             vec![Pull {
