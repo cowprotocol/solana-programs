@@ -193,8 +193,7 @@ impl From<Initialize> for Instruction {
 mod tests {
     #![allow(
         clippy::disallowed_methods,
-        reason = "these tests build plain fixtures and never derive a PDA against a runtime, \
-so `new_unique`'s process-global counter can't perturb anything; see clippy.toml"
+        reason = "no need to measure/benchmark with random functions against unit tests"
     )]
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
