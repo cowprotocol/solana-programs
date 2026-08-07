@@ -77,10 +77,10 @@ mod tests {
 
     #[test]
     fn process_reclaim_order_rejects_mismatched_reclaim_recipient() {
-        let reclaim_recipient = fake_account(Address::new_unique());
+        let reclaim_recipient = fake_account(Address::new_from_array([2; 32]));
 
         let order_data = OrderAccount {
-            created_by: Address::new_unique(),
+            created_by: Address::new_from_array([3; 32]),
             ..Default::default()
         };
 
