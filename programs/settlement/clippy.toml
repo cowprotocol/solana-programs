@@ -1,0 +1,5 @@
+disallowed-methods = [
+    # To prevent non-deterministic tests
+    { path = "solana_address::Address::new_unique", reason = "use `common::unique_pubkey()`: `Address::new_unique` is non-deterministic" },
+    { path = "solana_keypair::Keypair::new", reason = "use `common::unique_keypair()`: `Keypair::new` is non-deterministic" },
+]

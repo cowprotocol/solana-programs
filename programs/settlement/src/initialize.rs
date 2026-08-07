@@ -57,7 +57,7 @@ mod tests {
         data.push(0); // make the data too long to trigger a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_initialize(&Address::new_unique(), &mut accounts, &data),
+            process_initialize(&Address::new_from_array([100; 32]), &mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
         );
     }
