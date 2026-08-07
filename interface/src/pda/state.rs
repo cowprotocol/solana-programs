@@ -1,9 +1,14 @@
 //! Settlement state PDA seed and address derivation.
 //!
-//! There is a single state PDA per settlement program, derived from the bare
-//! [`SETTLEMENT_SEED`]. It is the program's central account: it manages solver
-//! authentication and holds the SPL token authority over every buffer account
-//! (see [`crate::pda::buffer`]).
+//! There is a single state PDA per settlement program, derived from
+//! [`SETTLEMENT_SEED`] alone. It is the program's central account: it manages
+//! solver authentication and holds the SPL token authority over every buffer
+//! account (see [`crate::pda::buffer`]).
+//!
+//! Because that lone seed carries the cargo crate version, a minor
+//! version bump moves the state PDA. Users delegate their token accounts to
+//! this address (see `DESIGN.md`), so every delegation has to be renewed after a
+//! bump.
 
 use solana_pubkey::Pubkey;
 
@@ -28,10 +33,29 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::build_padded_settlement_seed;
+
     use super::*;
 
     #[test]
     fn find_state_pda_uses_canonical_seeds() {
         crate::pda::tests::assert_canonical_bump(find_state_pda, state_pda_seeds());
+    }
+
+    #[test]
+    fn distinct_versions_yield_distinct_state_pdas() {
+        use crate::pda::tests::SAMPLE_VERSIONS;
+
+        let program_id = Pubkey::new_unique();
+        let (pda, _) = find_state_pda(&program_id);
+
+        for other in SAMPLE_VERSIONS {
+            let (other_pda, _) =
+                Pubkey::find_program_address(&[&build_padded_settlement_seed(other)], &program_id);
+            assert_ne!(
+                pda, other_pda,
+                "version {other} must not share the current version's state PDA",
+            );
+        }
     }
 }
