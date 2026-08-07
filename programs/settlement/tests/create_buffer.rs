@@ -26,6 +26,8 @@ use solana_sdk::{
     transaction::TransactionError,
 };
 
+use crate::common::{unique_keypair, unique_pubkey};
+
 mod common;
 
 #[test]
@@ -113,7 +115,7 @@ fn buffer_can_receive_tokens() {
 
     // Fund a sender by minting into its own token account, then have the sender
     // transfer those tokens into the buffer.
-    let sender = Keypair::new();
+    let sender = unique_keypair();
     svm.airdrop(&sender.pubkey(), 1_000_000_000)
         .expect("airdrop to sender should succeed");
     let sender_account =
@@ -246,7 +248,7 @@ fn rejects_arbitrary_wrong_buffer_pda() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
 
-    let wrong_pda = Pubkey::new_unique();
+    let wrong_pda = unique_pubkey();
     let ix = CreateBuffersRaw {
         program_id,
         payer: payer.pubkey(),
@@ -294,7 +296,7 @@ fn rejects_non_spl_token_program() {
         ix.accounts[token_program_index].pubkey, SPL_TOKEN_PROGRAM_ID,
         "sanity: should replace token program"
     );
-    ix.accounts[token_program_index].pubkey = Pubkey::new_unique();
+    ix.accounts[token_program_index].pubkey = unique_pubkey();
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
     let err = svm
@@ -323,7 +325,7 @@ fn rejects_invalid_mint() {
     // which rejects it: a non-mint account isn't owned by the token program, so
     // the CPI fails with IncorrectProgramId after the buffer was allocated,
     // reverting the whole instruction.
-    let not_a_mint = Pubkey::new_unique();
+    let not_a_mint = unique_pubkey();
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &not_a_mint);
 
     let ix = CreateBuffers {
@@ -423,7 +425,7 @@ fn one_failing_buffer_reverts_the_whole_batch() {
     let (mut svm, program_id, payer) = common::setup();
 
     let fresh = common::token::create_mint(&mut svm, &payer);
-    let not_a_mint = Pubkey::new_unique();
+    let not_a_mint = unique_pubkey();
 
     let ix = CreateBuffers {
         program_id,
@@ -483,9 +485,8 @@ fn same_mint_twice_in_one_instruction_is_idempotent() {
 fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> usize {
     let mut n: usize = 1;
     loop {
-        let pairs: Vec<(Pubkey, Pubkey)> = (0..n)
-            .map(|_| (Pubkey::new_unique(), Pubkey::new_unique()))
-            .collect();
+        let pairs: Vec<(Pubkey, Pubkey)> =
+            (0..n).map(|_| (unique_pubkey(), unique_pubkey())).collect();
         let ix = CreateBuffersRaw {
             program_id: *program_id,
             payer: payer.pubkey(),

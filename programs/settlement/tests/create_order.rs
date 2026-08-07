@@ -14,7 +14,7 @@ use solana_sdk::{
     transaction::{Transaction, TransactionError},
 };
 
-use crate::common::{signed_tx, to_instruction_error};
+use crate::common::{signed_tx, to_instruction_error, unique_pubkey};
 
 mod common;
 
@@ -170,7 +170,7 @@ fn rejects_arbitrary_wrong_pda() {
 
     // Hand the client helper a deliberately wrong address; it forwards the
     // PDA we give it rather than deriving the canonical one.
-    let wrong_pda = Pubkey::new_unique();
+    let wrong_pda = unique_pubkey();
     let ix = CreateOrder {
         program_id,
         owner: owner.pubkey(),
@@ -278,7 +278,7 @@ fn rejects_when_intent_owner_differs_from_signer() {
 
     // `intent.owner` is a fresh pubkey, distinct from `fee_payer.pubkey()`
     // who is the only signer for the `owner` slot.
-    let intent_owner = Pubkey::new_unique();
+    let intent_owner = unique_pubkey();
     let intent = sample_intent(intent_owner);
     let (encoded, pda) = encode_and_derive(&intent, &program_id);
 

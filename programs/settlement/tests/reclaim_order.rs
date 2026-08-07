@@ -9,7 +9,9 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 
-use crate::common::{assert_instruction_error, signed_tx, to_instruction_error};
+use crate::common::{
+    assert_instruction_error, signed_tx, to_instruction_error, unique_keypair, unique_pubkey,
+};
 
 mod common;
 
@@ -60,7 +62,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
 
     // `reclaim_recipient` is the `created_by` funder; it's separate from the fee
     // payer so its balance change reflects only the returned rent, not tx fees.
-    let reclaim_recipient = Keypair::new();
+    let reclaim_recipient = unique_keypair();
     svm.airdrop(&reclaim_recipient.pubkey(), 1_000_000_000)
         .expect("airdrop should succeed");
 
@@ -153,7 +155,7 @@ fn rejects_when_order_not_yet_expired() {
 fn recreating_a_reclaimed_order_creates_it_fresh() {
     let (mut svm, program_id, owner) = common::setup();
 
-    let other_creator = Keypair::new();
+    let other_creator = unique_keypair();
     svm.airdrop(&other_creator.pubkey(), 1_000_000_000)
         .expect("airdrop to other_creator should succeed");
 
@@ -221,7 +223,7 @@ fn rejects_when_reclaim_recipient_mismatch() {
 
     common::set_unix_timestamp(&mut svm, (VALID_TO + 1).into());
 
-    let wrong_recipient = Pubkey::new_unique();
+    let wrong_recipient = unique_pubkey();
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
