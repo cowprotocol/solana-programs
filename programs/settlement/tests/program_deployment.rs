@@ -48,7 +48,7 @@ fn program_can_be_invoked() {
         svm.latest_blockhash(),
     );
 
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("settlement instructions should succeed");
 }
 #[test]

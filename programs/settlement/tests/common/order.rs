@@ -41,7 +41,7 @@ pub fn create_order_pda(
         intent,
     };
     let tx = signed_tx(svm, owner, owner, ix);
-    svm.send_transaction(tx)
+    super::benchmark::send_transaction_metered(svm, tx, program_id)
         .expect("create_order should succeed");
 }
 

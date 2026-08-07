@@ -5,6 +5,7 @@
 use litesvm::{types::TransactionResult, LiteSVM};
 use solana_sdk::{pubkey::Pubkey, transaction::VersionedTransaction};
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, HashMap},
     fs,
     io::ErrorKind,
@@ -14,12 +15,47 @@ use std::{
 };
 
 /// Where `send_transaction_metered` accumulates its measurements: a JSON
-/// object mapping each label passed at the call site to the CU it consumed.
-const CU_REPORT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/cu-report.json");
+/// object mapping each label to the CU it consumed.
+const CU_REPORT_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../programs/settlement/cu-report.json"
+);
 
-/// Wraps svm.send_transaction and captures the compute units consumed by
-/// `program_id`'s own execution. The measured usage is recorded to a JSON
-/// file at the key specified by `label`.
+thread_local! {
+    /// Per-label send count for the running test, used to disambiguate several
+    /// metered sends in one test. libtest gives each test its own thread, so a
+    /// thread-local map is effectively per-test and needs no explicit reset.
+    static LABEL_COUNTS: RefCell<HashMap<String, u32>> = RefCell::new(HashMap::new());
+}
+
+/// The report key for the next metered send of the running test: the test's own
+/// name (libtest names each test's thread after it) suffixed with a `#`-counter
+/// so a test that sends several settlements gets one entry per send instead of
+/// overwriting itself.
+fn next_label() -> String {
+    let test = thread::current()
+        .name()
+        .map(str::to_owned)
+        // A metered send off the test thread (no libtest name) is unexpected;
+        // give it a stable bucket rather than silently dropping the reading.
+        .unwrap_or_else(|| "unnamed".to_owned());
+    LABEL_COUNTS.with(|counts| {
+        let mut counts = counts.borrow_mut();
+        let n = counts.entry(test.clone()).or_insert(0);
+        let label = format!("{test}#{n}");
+        *n = n.strict_add(1);
+        label
+    })
+}
+
+/// Wraps `svm.send_transaction` and, when the transaction succeeds, records the
+/// compute units consumed by `program_id`'s own execution to the CU report. A
+/// reverted transaction is passed through unrecorded: its cost isn't a
+/// meaningful benchmark, and skipping it lets this wrap the settlement helpers
+/// that are shared between success- and failure-asserting tests.
+///
+/// The report key is derived automatically from the running test (see
+/// [`next_label`]), so call sites don't name their own benchmark.
 ///
 /// Only CUs are captured--not rent allocation/deallocation.
 #[allow(
@@ -29,21 +65,16 @@ const CU_REPORT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/
 pub fn send_transaction_metered(
     svm: &mut LiteSVM,
     tx: impl Into<VersionedTransaction>,
-    label: &str,
     program_id: &Pubkey,
 ) -> TransactionResult {
     let result = svm.send_transaction(tx);
-    let logs = match &result {
-        Ok(meta) => &meta.logs,
-        Err(failed) => &failed.meta.logs,
-    };
-    let compute_units_consumed = compute_units_by_program(logs)
-        .get(program_id)
-        .copied()
-        .unwrap_or(0);
-
-    record_compute_units(CU_REPORT_PATH, label, compute_units_consumed);
-
+    if let Ok(meta) = &result {
+        let compute_units_consumed = compute_units_by_program(&meta.logs)
+            .get(program_id)
+            .copied()
+            .unwrap_or(0);
+        record_compute_units(CU_REPORT_PATH, &next_label(), compute_units_consumed);
+    }
     result
 }
 

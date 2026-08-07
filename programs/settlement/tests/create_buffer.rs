@@ -43,7 +43,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("create_buffer should succeed");
 
     let account = svm
@@ -110,7 +110,7 @@ fn buffer_can_receive_tokens() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("create_buffer should succeed");
 
     // Fund a sender by minting into its own token account, then have the sender
@@ -148,7 +148,7 @@ fn happy_path_creates_native_token_buffer() {
         mints: &[native_mint::ID],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("create_buffer for the native mint should succeed");
 
     let token_account = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
@@ -183,7 +183,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("create_buffers should create every buffer at once");
 
     for mint in &mints {
@@ -398,7 +398,7 @@ fn batch_with_existing_buffer_passes_with_no_changes() {
         mints: &[fresh, existing],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("a batch containing an existing buffer should still succeed");
 
     let after = svm
@@ -467,7 +467,7 @@ fn same_mint_twice_in_one_instruction_is_idempotent() {
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("a batch listing the same mint twice should succeed");
 
     assert!(
@@ -564,8 +564,7 @@ fn max_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
-    let meta = svm
-        .send_transaction(tx)
+    let meta = common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("a transaction filled to the buffer limit should succeed");
     println!(
         "create_buffers with {max_buffers} buffers consumed {} compute units",

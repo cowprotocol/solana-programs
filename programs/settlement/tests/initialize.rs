@@ -23,7 +23,8 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         reclaim_authority,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx).expect("initialize should succeed");
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
+        .expect("initialize should succeed");
 
     let account = svm
         .get_account(&state_pda)
@@ -68,7 +69,8 @@ fn funding_payer_can_differ_from_fee_payer() {
         reclaim_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
-    svm.send_transaction(tx).expect("initialize should succeed");
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
+        .expect("initialize should succeed");
 
     // The rent came out of the funder, not the fee payer: the funder paid no
     // transaction fee, so its balance dropped by exactly the PDA rent.

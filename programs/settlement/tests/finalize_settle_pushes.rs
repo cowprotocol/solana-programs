@@ -53,7 +53,8 @@ fn finalizes_with_no_pushes() {
     let (mut svm, program_id, payer) = setup();
 
     let instructions = finalize(&program_id, &[]);
-    send(&mut svm, &payer, instructions).expect("a finalize with no pushes should succeed");
+    send(&mut svm, &program_id, &payer, instructions)
+        .expect("a finalize with no pushes should succeed");
 }
 
 #[test]
@@ -75,7 +76,7 @@ fn pushes_a_single_order() {
             amount,
         }],
     );
-    send(&mut svm, &payer, instructions).expect("a single push should be paid");
+    send(&mut svm, &program_id, &payer, instructions).expect("a single push should be paid");
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), amount);
     assert_eq!(token::balance(&svm, &buffer_pda), funding - amount);
@@ -115,7 +116,8 @@ fn pushes_several_orders_from_one_buffer() {
             },
         ],
     );
-    send(&mut svm, &payer, instructions).expect("several pushes from one buffer should be paid");
+    send(&mut svm, &program_id, &payer, instructions)
+        .expect("several pushes from one buffer should be paid");
 
     assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
     assert_eq!(token::balance(&svm, &intent1.buy_token_account), amount1);
@@ -157,7 +159,8 @@ fn pushes_several_orders_from_different_buffers() {
             },
         ],
     );
-    send(&mut svm, &payer, instructions).expect("pushes from different buffers should be paid");
+    send(&mut svm, &program_id, &payer, instructions)
+        .expect("pushes from different buffers should be paid");
 
     assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
     assert_eq!(token::balance(&svm, &intent1.buy_token_account), amount1);
@@ -183,7 +186,7 @@ fn rejects_push_if_buffer_does_not_match_mint() {
 
     let instructions = finalize(&program_id, &orders);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &program_id, &payer, instructions),
         to_instruction_error(SettlementError::PushSourceNotBuffer),
     );
 }
@@ -217,7 +220,7 @@ fn rejects_push_from_substituted_source() {
 
     let instructions = build_settlement(&program_id, &orders, finalize);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &program_id, &payer, instructions),
         to_instruction_error(SettlementError::PushSourceNotBuffer),
     );
 }
@@ -240,7 +243,7 @@ fn rejects_wrong_token_program() {
     );
 
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &program_id, &payer, instructions),
         InstructionError::IncorrectProgramId,
     );
 }
@@ -264,7 +267,7 @@ fn rejects_wrong_state_pda() {
     );
 
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &program_id, &payer, instructions),
         to_instruction_error(SettlementError::StateAccountMismatch),
     );
 }
@@ -295,7 +298,7 @@ fn rejects_push_account_count_mismatch() {
 
     let instructions = build_settlement(&program_id, &orders, finalize);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &program_id, &payer, instructions),
         to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
     );
 }
@@ -317,7 +320,7 @@ fn rejects_too_few_accounts() {
     finalize.accounts.pop();
 
     let instructions = build_settlement(&program_id, &[], finalize);
-    let err = send(&mut svm, &payer, instructions)
+    let err = send(&mut svm, &program_id, &payer, instructions)
         .expect_err("a finalize missing a fixed account must be rejected");
     let TransactionError::InstructionError(FINALIZE_INDEX, ix_err) = err else {
         panic!("expected the finalize (index {FINALIZE_INDEX}) to fail, got {err:?}");
@@ -361,7 +364,7 @@ fn rejects_two_too_few_accounts() {
     // account-count check to reject.
     let instructions = build_settlement(&program_id, &[], finalize);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &program_id, &payer, instructions),
         to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
     );
 }
@@ -387,7 +390,7 @@ fn rejects_invalid_buy_token_account() {
 
     let instructions = finalize(&program_id, &orders);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &program_id, &payer, instructions),
         to_instruction_error(SettlementError::InvalidBuyTokenAccount),
     );
 }
@@ -423,7 +426,7 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
 
     let instructions = finalize(&program_id, &orders);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &program_id, &payer, instructions),
         to_instruction_error(SettlementError::InvalidBuyTokenAccount),
     );
 }
@@ -452,7 +455,7 @@ fn rejects_partial_push_amount() {
     // own data before it even checks its counterpart, so on its own it rejects
     // the malformed encoding by itself, at index 0.
     assert_eq!(
-        send(&mut svm, &payer, vec![finalize]).err(),
+        send(&mut svm, &program_id, &payer, vec![finalize]).err(),
         Some(TransactionError::InstructionError(
             0,
             InstructionError::InvalidInstructionData,

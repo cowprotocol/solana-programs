@@ -52,7 +52,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &owner, &owner, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("create_order should succeed");
 
     let account = svm
@@ -124,8 +124,7 @@ fn creates_order_with_separate_fee_payers() {
         &[&fee_payer, &owner, &created_by],
         svm.latest_blockhash(),
     );
-    let receipt = svm
-        .send_transaction(tx)
+    let receipt = common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("create_order should succeed");
 
     let fee_payer_after = common::lamports(&svm, &fee_payer.pubkey());
@@ -243,7 +242,7 @@ fn rejects_recreating_order_with_a_different_creator() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("first create_order should succeed");
     let before = svm.get_account(&pda).expect("order PDA should exist");
 

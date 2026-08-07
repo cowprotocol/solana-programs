@@ -195,6 +195,7 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
 /// metadata's error wrapper).
 pub fn send(
     svm: &mut LiteSVM,
+    program_id: &Pubkey,
     payer: &Keypair,
     instructions: Vec<Instruction>,
 ) -> Result<TransactionMetadata, TransactionError> {
@@ -204,5 +205,5 @@ pub fn send(
         &[payer],
         svm.latest_blockhash(),
     );
-    svm.send_transaction(tx).map_err(|e| e.err)
+    benchmark::send_transaction_metered(svm, tx, program_id).map_err(|e| e.err)
 }

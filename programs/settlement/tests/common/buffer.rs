@@ -41,7 +41,7 @@ pub fn ensure_buffer_exists(
         &[payer],
         svm.latest_blockhash(),
     );
-    svm.send_transaction(tx)
+    super::benchmark::send_transaction_metered(svm, tx, program_id)
         .expect("create_buffer should succeed");
     pda
 }

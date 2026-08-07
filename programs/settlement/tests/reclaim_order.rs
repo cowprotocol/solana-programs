@@ -51,7 +51,7 @@ fn create_order(
         intent_bytes: encoded,
     };
     let tx = signed_tx(svm, owner, owner, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(svm, tx, program_id)
         .expect("create_order should succeed");
     pda
 }
@@ -87,7 +87,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
         intent_bytes: encoded_bytes,
     };
     let tx = signed_tx(&svm, &fee_payer, &reclaim_recipient, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("create_order should succeed");
 
     // Since ReclaimOrder should return any funds in the order pda (even if beyond the rent limit), we airdrop some extra lamports
@@ -109,7 +109,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
     }
     .instruction();
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("reclaim_order should succeed after expiry");
 
     // PDA is gone.
@@ -178,7 +178,7 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
     }
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("reclaim_order should succeed after expiry");
     assert!(
         svm.get_account(&pda).is_none(),
@@ -198,7 +198,7 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &other_creator, &owner, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, &program_id)
         .expect("recreating a reclaimed order should succeed");
     let after = svm
         .get_account(&pda)

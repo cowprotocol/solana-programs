@@ -63,7 +63,9 @@ fn run_sequence(
         &[payer],
         svm.latest_blockhash(),
     );
-    svm.send_transaction(tx).map(|_| ()).map_err(Box::new)
+    common::benchmark::send_transaction_metered(svm, tx, program_id)
+        .map(|_| ())
+        .map_err(Box::new)
 }
 
 #[test]

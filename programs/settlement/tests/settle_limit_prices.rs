@@ -132,7 +132,9 @@ fn settle_all(
         &[payer],
         svm.latest_blockhash(),
     );
-    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
+    common::benchmark::send_transaction_metered(svm, tx, program_id)
+        .map(|_| ())
+        .map_err(|e| e.err)
 }
 
 // --- Limit price ---------------------------------------------------------
