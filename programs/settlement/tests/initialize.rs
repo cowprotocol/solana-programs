@@ -53,6 +53,21 @@ fn happy_path_initializes_state_pda_with_expected_data() {
 }
 
 #[test]
+fn initializes_state_pda_when_address_is_prefunded() {
+    let (mut svm, program_id, payer) = common::setup();
+    let (state_pda, _bump) = find_state_pda(&program_id);
+
+    common::pda::assert_creation_survives_prefund(&mut svm, &state_pda, |svm| {
+        let ix = Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: unique_pubkey(),
+        };
+        common::signed_tx(svm, &payer, &payer, ix)
+    });
+}
+
+#[test]
 fn funding_payer_can_differ_from_fee_payer() {
     let (mut svm, program_id, fee_payer) = common::setup();
     let (_, _bump) = find_state_pda(&program_id);

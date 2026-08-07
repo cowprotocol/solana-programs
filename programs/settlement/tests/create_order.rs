@@ -207,6 +207,24 @@ fn rejects_non_canonical_bump_pda() {
 }
 
 #[test]
+fn creates_order_when_address_is_prefunded() {
+    let (mut svm, program_id, fee_payer) = common::setup();
+    let intent = sample_intent(fee_payer.pubkey());
+    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+
+    common::pda::assert_creation_survives_prefund(&mut svm, &pda, |svm| {
+        let ix = CreateOrder {
+            program_id,
+            owner: fee_payer.pubkey(),
+            created_by: fee_payer.pubkey(),
+            order_pda: pda,
+            intent_bytes: encoded,
+        };
+        signed_tx(svm, &fee_payer, &fee_payer, ix)
+    });
+}
+
+#[test]
 fn rejects_recreating_existing_order() {
     let (mut svm, program_id, fee_payer) = common::setup();
     let intent = sample_intent(fee_payer.pubkey());
