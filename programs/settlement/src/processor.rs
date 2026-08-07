@@ -7,7 +7,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 
-use pinocchio_system::instructions::CreateAccount;
+use pinocchio_system::instructions::CreateAccountAllowPrefund;
 
 use solana_instruction::{syscalls::get_stack_height, TRANSACTION_LEVEL_STACK_HEIGHT};
 
@@ -82,8 +82,16 @@ impl<const N: usize> CanonicalPda<'_, N> {
         signer_seeds.push(Seed::from(&bump[..]));
         let signer = Signer::from(&signer_seeds[..]);
 
-        CreateAccount::with_minimum_balance(self.payer, self.pda, self.size, self.owner, None)?
-            .invoke_signed(&[signer])?;
+        // `CreateAccountAllowPrefund` mirrors `CreateAccount` but does not
+        // assert that the target starts with zero lamports. A PDA address is
+        // publicly derivable, so without this anyone could permanently block
+        // creation by first sending the address a single lamport, which makes
+        // the System program's plain `CreateAccount` revert with
+        // `AccountAlreadyInUse`.
+        CreateAccountAllowPrefund::with_minimum_balance(
+            self.payer, self.pda, self.size, self.owner, None,
+        )?
+        .invoke_signed(&[signer])?;
         Ok(true)
     }
 
