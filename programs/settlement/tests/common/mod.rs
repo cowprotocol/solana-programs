@@ -64,12 +64,7 @@ pub fn unique_keypair() -> Keypair {
 
 /// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
 /// generated program ID, and airdrop a payer keypair.
-///
-/// Also resets the [`unique_pubkey`]/[`unique_keypair`] sequence, so call it
-/// before allocating any address.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
-    NEXT_SEED.with(|next| next.set(0));
-
     let mut svm = LiteSVM::new();
     let program_id = unique_pubkey();
     svm.add_program_from_file(program_id, PROGRAM_SO)
