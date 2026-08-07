@@ -12,8 +12,6 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::Transaction,
 };
-// Aliased: `create_account` is already taken here by both `super::create_account`
-// and `litesvm_token::CreateAccount`.
 use solana_system_interface::instruction::create_account as system_create_account;
 
 use super::unique_keypair;
