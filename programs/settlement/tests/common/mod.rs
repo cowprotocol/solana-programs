@@ -49,7 +49,7 @@ fn next_seed() -> [u8; 32] {
         next.set(n.wrapping_add(1));
         n
     });
-    solana_sha256_hasher::hashv(&[&n.to_le_bytes()]).to_bytes()
+    solana_sha256_hasher::hashv(&[b"settlement tests seed", &n.to_le_bytes()]).to_bytes()
 }
 
 /// A deterministic stand-in for `Pubkey::new_unique`, which is banned in these
