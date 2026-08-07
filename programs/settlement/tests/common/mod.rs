@@ -46,10 +46,7 @@ thread_local! {
 fn next_seed() -> [u8; 32] {
     let n = NEXT_SEED.with(|next| {
         let n = next.get();
-        next.set(
-            n.checked_add(1)
-                .expect("a test should not allocate 2^64 addresses"),
-        );
+        next.set(n.wrapping_add(1));
         n
     });
     solana_sha256_hasher::hashv(&[&n.to_le_bytes()]).to_bytes()
