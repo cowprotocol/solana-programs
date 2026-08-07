@@ -3088,6 +3088,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "settlement-interface",
+ "solana-program-error",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 settlement-interface.workspace = true
+solana-program-error.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
