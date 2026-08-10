@@ -44,7 +44,6 @@ pub fn process_reclaim_buffer(
         return Err(ProgramError::IncorrectProgramId);
     }
 
-    // Only the `reclaim_authority`may trigger a reclaim.
     let reclaim_authority_pubkey: Pubkey = {
         let data = state_pda.try_borrow()?;
         let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
