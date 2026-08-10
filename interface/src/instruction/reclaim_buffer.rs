@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn reclaim_buffer_input_rejects_zero_buffers() {
-        let data = vec![SettlementInstruction::ReclaimBuffer.discriminator()];
+        let data = reclaim_buffer_data();
         // Only the three shared accounts, no buffer pairs.
         let mut accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
         assert_eq!(
