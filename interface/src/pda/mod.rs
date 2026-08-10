@@ -8,21 +8,26 @@ pub mod buffer;
 pub mod order;
 pub mod state;
 
-/// Fixed width of [`SETTLEMENT_SEED`], in bytes.
-///
-/// The prefix has to be the same length for every version. PDA derivation
-/// hashes the seeds concatenated without any delimiter, so a variable-width
-/// prefix could allow one version's seeds be a prefix of another's: `"…v1.10"`
-/// followed by some bytes hashes the same as `"…v1.1"` followed by `'0'` and
-/// those same bytes.
-pub const SETTLEMENT_SEED_LEN: usize = 18;
-
 /// Version-independent part of [`SETTLEMENT_SEED`].
-const SETTLEMENT_SEED_PREFIX: &[u8] = b"settlement";
+const SETTLEMENT_SEED_PREFIX: &[u8] = b"settlement v";
+
+/// Bytes reserved after [`SETTLEMENT_SEED_PREFIX`] for the version string. The
+/// version is written directly after the prefix and right-padded with spaces to
+/// fill this width. One character is a dot, the remaining characters are
+/// reserved for the combined major/minor version.
+const SETTLEMENT_SEED_VERSION_LEN: usize = 7;
+
+/// Fixed width of [`SETTLEMENT_SEED`], in bytes: the prefix followed by the
+/// reserved version field.
+///
+/// The seed has to be the same length for every version. This is done to avoid
+/// prefix attacks on PDA addresses: a variable-width prefix could allow one
+/// version's seeds be a data prefix of another's: `"…v1.10"` followed by some
+/// bytes hashes the same as `"…v1.1"` followed by `'0'` and those same bytes.
+pub const SETTLEMENT_SEED_LEN: usize = SETTLEMENT_SEED_PREFIX.len() + SETTLEMENT_SEED_VERSION_LEN;
 
 /// The seed used as a base for all account storage
 pub const SETTLEMENT_SEED: &[u8] = &build_padded_settlement_seed(concat!(
-    "v",
     env!("CARGO_PKG_VERSION_MAJOR"),
     ".",
     env!("CARGO_PKG_VERSION_MINOR")
