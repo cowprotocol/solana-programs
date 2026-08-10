@@ -154,6 +154,9 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
+    use crate::instruction::tests::{
+        assert_readonly_nonsigner, assert_readonly_signer, assert_writable_nonsigner,
+    };
     use solana_address::Address;
 
     #[test]
@@ -332,30 +335,15 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 6);
-        // state_pda: read-only, not signer
-        assert_eq!(accounts[0].pubkey, state_pda);
-        assert!(!accounts[0].is_writable);
-        assert!(!accounts[0].is_signer);
-        // reclaim_authority: read-only, signer
-        assert_eq!(accounts[1].pubkey, reclaim_authority);
-        assert!(!accounts[1].is_writable);
-        assert!(accounts[1].is_signer);
-        // reclaim_recipient: writable, not signer
-        assert_eq!(accounts[2].pubkey, reclaim_recipient);
-        assert!(accounts[2].is_writable);
-        assert!(!accounts[2].is_signer);
-        // token program: read-only
-        assert_eq!(accounts[3].pubkey, SPL_TOKEN_PROGRAM_ID);
-        assert!(!accounts[3].is_writable);
-        assert!(!accounts[3].is_signer);
-        // buffer_pda: writable, not signer
-        assert_eq!(accounts[4].pubkey, buffer_pda);
-        assert!(accounts[4].is_writable);
-        assert!(!accounts[4].is_signer);
-        // mint: read-only, not signer (only used to derive the buffer PDA)
-        assert_eq!(accounts[5].pubkey, mint);
-        assert!(!accounts[5].is_writable);
-        assert!(!accounts[5].is_signer);
+        // The authority only authorizes the close; the recipient is credited
+        // the rent, the buffer is closed, and the mint is only read to derive
+        // the buffer PDA.
+        assert_readonly_nonsigner(&accounts[0], state_pda);
+        assert_readonly_signer(&accounts[1], reclaim_authority);
+        assert_writable_nonsigner(&accounts[2], reclaim_recipient);
+        assert_readonly_nonsigner(&accounts[3], SPL_TOKEN_PROGRAM_ID);
+        assert_writable_nonsigner(&accounts[4], buffer_pda);
+        assert_readonly_nonsigner(&accounts[5], mint);
     }
 
     #[test]
@@ -375,10 +363,8 @@ mod tests {
 
         // Both metas name the same account; the runtime unions their
         // privileges, so the authority ends up a writable signer.
-        assert_eq!(accounts[1].pubkey, reclaim_authority);
-        assert!(accounts[1].is_signer);
-        assert_eq!(accounts[2].pubkey, reclaim_authority);
-        assert!(accounts[2].is_writable);
+        assert_readonly_signer(&accounts[1], reclaim_authority);
+        assert_writable_nonsigner(&accounts[2], reclaim_authority);
     }
 
     #[test]
@@ -401,10 +387,10 @@ mod tests {
 
         // Four shared accounts followed by two (buffer, mint) pairs.
         assert_eq!(accounts.len(), 4 + 2 * 2);
-        assert_eq!(accounts[4].pubkey, buffer_a);
-        assert_eq!(accounts[5].pubkey, mint_a);
-        assert_eq!(accounts[6].pubkey, buffer_b);
-        assert_eq!(accounts[7].pubkey, mint_b);
+        assert_writable_nonsigner(&accounts[4], buffer_a);
+        assert_readonly_nonsigner(&accounts[5], mint_a);
+        assert_writable_nonsigner(&accounts[6], buffer_b);
+        assert_readonly_nonsigner(&accounts[7], mint_b);
     }
 
     #[test]

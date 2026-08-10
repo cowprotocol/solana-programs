@@ -109,6 +109,7 @@ pub fn assert_instruction_error<T>(
 
 /// Convenience wrapper around [`assert_instruction_error`] for the common case
 /// of asserting a specific [`SettlementError`].
+#[track_caller]
 pub fn assert_settlement_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
     assert_instruction_error(result, to_instruction_error(expected));
 }
