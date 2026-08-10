@@ -192,10 +192,8 @@ impl From<Initialize> for Instruction {
 /// Builder for a `ReclaimBuffer` instruction closing the buffer for each of
 /// `mints`.
 ///
-/// **Warning:** any token balance still held by a buffer is burned, not
-/// recovered, before the buffer is closed. Only reclaim buffers expected to
-/// be empty, or to write off dust/dead balances — never one that might still
-/// hold funds of useful value.
+/// **Warning:** if a buffer account has nonzero balance, it will be silently
+/// skipped. This is done to prevent accidental loss of funds.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub reclaim_authority: Pubkey,
