@@ -218,6 +218,7 @@ mod tests {
         let ReclaimBufferInput { buffers, .. } =
             ReclaimBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
 
+        assert_eq!(buffers.len(), 2, "two buffers are two pairs");   
         assert_eq!(
             buffers[0].each_ref().map(|a| *a.address()),
             [buffer_a, mint_a]
