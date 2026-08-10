@@ -18,6 +18,30 @@ build: build-program
 test: build-program build-test-programs
     cargo test
 
+# Each test outputs its consumption during test execution to a series of target/cu-report/*.jsonl files.
+# Assembles into a single `cu-report.json`
+bench: build-program build-test-programs
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf target/cu-report
+    TEST_BENCHMARK=true cargo test
+
+
+    shopt -s nullglob
+    shards=(target/cu-report/*.jsonl)
+    if [[ ${#shards[@]} -eq 0 ]]; then
+        echo "no compute-unit measurements recorded" >&2
+        exit 1
+    fi
+    # Slurp every record into one array, turn each into a single-key object, and
+    # fold them together; a repeated label keeps the last measurement.
+    jq --slurp --sort-keys '{
+        "compute_units": (map({(.label): .compute_units}) | add),
+        "accounts": (map({(.label): .accounts}) | add),
+        "instruction_bytes": (map({(.label): .instruction_bytes}) | add)
+    }' "${shards[@]}" \
+        > target/cu-report.json
+
 # Format the source code.
 fmt:
     cargo fmt

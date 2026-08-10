@@ -62,6 +62,7 @@ pub fn unique_pubkey() -> Pubkey {
 pub fn unique_keypair() -> Keypair {
     Keypair::new_from_array(next_seed())
 }
+
 /// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
 /// generated program ID, and airdrop a payer keypair.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {

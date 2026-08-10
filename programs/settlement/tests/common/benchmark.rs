@@ -2,18 +2,12 @@
 
 use litesvm::{types::TransactionResult, LiteSVM};
 use solana_sdk::{pubkey::Pubkey, transaction::VersionedTransaction};
-use std::{
-    collections::{BTreeMap, HashMap},
-    fs,
-    io::ErrorKind,
-    path::Path,
-    thread,
-    time::Duration,
-};
+use std::{collections::HashMap, env, fs, io::Write};
 
-/// Where `send_transaction_metered` accumulates its measurements: a JSON
-/// object mapping each label passed at the call site to the CU it consumed.
-const CU_REPORT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/cu-report.json");
+/// Where `send_transaction_metered` accumulates its measurements: a directory
+/// of per-process JSON Lines shards, which `just bench` merges into
+/// `target/cu-report.json` once every test binary has exited.
+const CU_SHARD_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/cu-report");
 
 /// Wraps svm.send_transaction and captures the compute units consumed by
 /// `program_id`'s own execution. The measured usage is recorded to a JSON
@@ -40,7 +34,10 @@ pub fn send_transaction_metered(
         .copied()
         .unwrap_or(0);
 
-    record_compute_units(CU_REPORT_PATH, label, compute_units_consumed);
+    // only write benchmarks if `TEST_BENCHMARK` is set to something
+    if env::var("TEST_BENCHMARK").is_ok() {
+        record_compute_units(CU_SHARD_DIR, label, compute_units_consumed);
+    }
 
     result
 }
@@ -107,44 +104,28 @@ fn compute_units_by_program(logs: &[String]) -> HashMap<Pubkey, u64> {
     self_cu
 }
 
-/// Merge `(label, compute_units_consumed)` into a shared CU report.
-/// It reads the file, modifies with the newly reported value, and
-/// then overwrites.
-///
-/// Since tests run in parallel, a lock file is used to mutex
-/// and prevent race conditions.
-fn record_compute_units(file_path: &str, label: &str, compute_units_consumed: u64) {
-    let path = Path::new(file_path);
-    let lock_path = path.with_extension("json.lock");
+fn shard_path(dir: &str, label: &str) -> String {
+    let sanitised_label = label.replace("/", "_");
+    format!("{dir}/{sanitised_label}.jsonl")
+}
 
-    let lock = loop {
-        match fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&lock_path)
-        {
-            Ok(file) => break file,
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                thread::sleep(Duration::from_millis(5));
-            }
-            Err(e) => panic!("failed to acquire CU report lock at {lock_path:?}: {e}"),
-        }
-    };
+fn record_compute_units(dir: &str, label: &str, compute_units_consumed: u64) {
+    fs::create_dir_all(dir)
+        .unwrap_or_else(|e| panic!("failed to create CU shard directory at {dir}: {e}"));
+    let path = shard_path(dir, label);
 
-    let mut report: BTreeMap<String, u64> = fs::read_to_string(path)
-        .ok()
-        .and_then(|contents| serde_json::from_str(&contents).ok())
-        .unwrap_or_default();
-    report.insert(label.to_string(), compute_units_consumed);
+    // Newline included in the same buffer: it's the single write that's atomic,
+    // so terminating the line separately would reintroduce interleaving.
+    let line = format!("{{\"label\": \"{label}\", \"compute_units\": {compute_units_consumed}}}");
 
-    fs::write(
-        path,
-        serde_json::to_string_pretty(&report).expect("CU report should serialize"),
-    )
-    .expect("CU report should be writable");
-
-    drop(lock);
-    fs::remove_file(&lock_path).expect("CU report lock should be removable");
+    fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&path)
+        .unwrap_or_else(|e| panic!("failed to open benchmarking shard at {path}: {e}"))
+        .write_all(line.as_bytes())
+        .unwrap_or_else(|e| panic!("failed to write to benchmarking shard at {path}: {e}"));
 }
 
 #[cfg(test)]
