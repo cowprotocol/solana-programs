@@ -7,7 +7,10 @@
 //! succeeds or is rejected with the expected error.
 
 use crate::common::{
-    assert_settlement_error, buffer, order::OrderBuilder, settlement::{BEGIN_INDEX, FINALIZE_INDEX}, setup, to_instruction_error, token, unique_pubkey,
+    assert_settlement_error, buffer,
+    order::OrderBuilder,
+    settlement::{BEGIN_INDEX, FINALIZE_INDEX},
+    setup, to_instruction_error, token, unique_pubkey,
 };
 use litesvm::LiteSVM;
 use settlement_client::instructions::{

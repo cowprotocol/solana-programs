@@ -184,6 +184,32 @@ mod tests {
     }
 
     #[test]
+    fn process_reclaim_buffer_rejects_nonsigner_reclaim_authority() {
+        let data = reclaim_buffer_data();
+        let authority_account = fake_account(AUTHORITY);
+
+        // Test setup: the address is the configured authority, but it doesn't
+        // sign. Naming the authority must not be enough to authorize a close.
+        assert!(!authority_account.is_signer());
+
+        let mut accounts = [
+            fake_account_with_data(
+                Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
+                &encoded_state(AUTHORITY),
+            ), // state PDA
+            authority_account, // reclaim authority, **not** a signer
+            fake_account(Address::new_from_array([8; 32])), // reclaim recipient
+            fake_account(SPL_TOKEN_PROGRAM_ID),
+            fake_account(Address::new_from_array([4; 32])), // buffer PDA
+            fake_account(Address::new_from_array([5; 32])), // mint
+        ];
+        assert_eq!(
+            process_reclaim_buffer(&PROGRAM_ID, &mut accounts, &data),
+            Err(SettlementError::ReclaimAuthorityMismatch.into()),
+        );
+    }
+
+    #[test]
     fn process_reclaim_buffer_rejects_wrong_buffer_pda() {
         let data = reclaim_buffer_data();
         let authority_address = AUTHORITY;

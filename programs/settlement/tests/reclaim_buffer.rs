@@ -3,6 +3,7 @@ use settlement_client::settlement_interface::{
     pda::{buffer::find_buffer_pda, state::find_state_pda},
     SettlementError,
 };
+use settlement_interface::Instruction;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -310,5 +311,56 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         0,
         svm.send_transaction(tx).map_err(|e| e.err),
         SettlementError::ReclaimAuthorityMismatch,
+    );
+}
+
+/// Naming the configured authority isn't enough: it has to sign. The builder
+/// always marks it as a signer, so this test strips the flag by hand.
+#[test]
+fn rejects_when_the_reclaim_authority_does_not_sign() {
+    let (mut svm, program_id, payer) = common::setup();
+    let reclaim_authority = common::unique_keypair();
+    let recipient = common::unique_keypair().pubkey();
+
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
+
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
+
+    let mut ix = Instruction::from(ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: recipient,
+        mints: &[mint],
+    });
+
+    // Clear the signer flag on the authority's meta. The recipient is a
+    // different account, so exactly one meta names the authority. Leaving the
+    // flag set and simply not signing would have the runtime reject the
+    // transaction before the program runs; clearing it is what lets the
+    // instruction reach the program's own check.
+    let authority_meta = ix
+        .accounts
+        .iter_mut()
+        .find(|meta| meta.pubkey == reclaim_authority.pubkey())
+        .expect("instruction should reference the reclaim authority");
+    authority_meta.is_signer = false;
+
+    common::assert_settlement_error(
+        0,
+        common::send(&mut svm, &payer, vec![ix]),
+        SettlementError::ReclaimAuthorityMismatch,
+    );
+    assert!(
+        svm.get_account(&buffer_pda).is_some(),
+        "buffer PDA must survive a reclaim the authority never signed"
     );
 }
