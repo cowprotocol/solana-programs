@@ -1,24 +1,22 @@
 //! `ReclaimBuffer` instruction builder.
 //!
-//! Closes one or more buffer PDAs (see [`crate::pda::buffer`]) and forwards
-//! their proceeds to the settlement's configured `receiver` (see
-//! [`crate::data::state::StateAccount`]): each buffer's rent lamports go
-//! directly to `receiver`, and any leftover token balance is burned (a
-//! non-native SPL token account can only be closed once its balance is
-//! zero).
+//! Closes one or more buffer PDAs (see [`crate::pda::buffer`]) and sends each
+//! closed buffer's rent lamports to the settlement's configured
+//! `reclaim_authority` (see [`crate::data::state::StateAccount`]).
 //!
-//! # Warning: any tokens left in a buffer are destroyed
+//! # A buffer that still holds tokens is skipped, not closed
 //!
-//! This instruction **burns** whatever balance remains in each buffer before
-//! closing it — those tokens are gone permanently, they are not routed to
-//! `receiver` or anyone else. Only reclaim a buffer once you expect its
-//! balance to be zero or dust that is intentionally being written off (e.g.
-//! unroutable remainders left behind by settlement). Reclaiming a buffer that
-//! still holds a meaningful balance destroys those funds.
+//! An SPL token account can only be closed once its balance is zero, and this
+//! instruction neither moves nor destroys a buffer's balance. A funded buffer
+//! is therefore left standing and the remaining buffers are still processed —
+//! silently, so a `ReclaimBuffer` that closed nothing at all is
+//! indistinguishable from one that closed every buffer it was given. Callers
+//! that need to know which buffers went away must check whether the accounts
+//! still exist afterwards.
 //!
 //! Wire format: `[discriminator=6]`, 1 byte.
 //! Required accounts:
-//! `[state_pda (R), receiver (W,S), token_program (R), (buffer_pda (W), mint (W))...]`.
+//! `[state_pda (R), reclaim_authority (W,S), token_program (R), (buffer_pda (W), mint (R))...]`.
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
@@ -32,17 +30,15 @@ use crate::SettlementInstruction;
 /// `(buffer_pda, mint)` pair in `buffers`.
 ///
 /// `state_pda` must be the canonical PDA returned by
-/// [`crate::pda::state::find_state_pda`]. `receiver` must sign and must match
-/// the `receiver` recorded in the state PDA's data; it receives every closed
-/// buffer's rent lamports. Each `buffer_pda` must be the canonical PDA
-/// returned by [`crate::pda::buffer::find_buffer_pda`] for its paired `mint`.
-/// `mint` must be writable: any leftover balance in the buffer is burned,
-/// which updates the mint's supply.
+/// [`crate::pda::state::find_state_pda`]. `reclaim_authority` must sign and
+/// must match the `reclaim_authority` recorded in the state PDA's data; it
+/// receives every closed buffer's rent lamports. Each `buffer_pda` must be the
+/// canonical PDA returned by [`crate::pda::buffer::find_buffer_pda`] for its
+/// paired `mint`, which is passed only so that derivation can be checked
+/// on-chain.
 ///
-/// **Any token balance still held by a buffer at reclaim time is burned, not
-/// recovered.** Only use this for buffers expected to be empty, or to write
-/// off dust/dead balances — never on a buffer that might still hold funds of
-/// useful value.
+/// Buffers that still hold a token balance are skipped without failing the
+/// instruction; see the module docs.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
@@ -59,7 +55,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
         ];
         for (buffer_pda, mint) in builder.buffers {
             accounts.push(AccountMeta::new(*buffer_pda, false));
-            accounts.push(AccountMeta::new(*mint, false));
+            accounts.push(AccountMeta::new_readonly(*mint, false));
         }
         Instruction {
             program_id: builder.program_id,
@@ -85,8 +81,8 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
         }
-        // Accounts: [state_pda (R), receiver (W,S), token_program (R),
-        // (buffer_pda (W), mint (W))...]. The three shared accounts come
+        // Accounts: [state_pda (R), reclaim_authority (W,S), token_program (R),
+        // (buffer_pda (W), mint (R))...]. The three shared accounts come
         // first; the per-buffer pairs follow, one pair per buffer.
         let [state_pda, reclaim_authority, token_program, rest @ ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -119,7 +115,7 @@ pub mod fixtures {
     use super::{Instruction, ReclaimBuffer};
 
     /// Number of accounts that don't depend on the number of buffers
-    /// reclaimed: state PDA, receiver, and token program.
+    /// reclaimed: state PDA, reclaim authority, and token program.
     pub const NUM_SHARED_ACCOUNTS: usize = 3;
 
     /// `ReclaimBuffer` instruction data with placeholder addresses, for
@@ -171,13 +167,13 @@ mod tests {
 
         let ReclaimBufferInput {
             state_pda: parsed_state_pda,
-            reclaim_authority: parsed_receiver,
+            reclaim_authority: parsed_reclaim_authority,
             token_program: parsed_token_program,
             buffers,
         } = ReclaimBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
 
         assert_eq!(*parsed_state_pda.address(), state_pda);
-        assert_eq!(*parsed_receiver.address(), reclaim_authority);
+        assert_eq!(*parsed_reclaim_authority.address(), reclaim_authority);
         assert_eq!(
             *parsed_token_program.address(),
             Address::new_from_array([7; 32])
@@ -218,7 +214,7 @@ mod tests {
         let ReclaimBufferInput { buffers, .. } =
             ReclaimBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        assert_eq!(buffers.len(), 2, "two buffers are two pairs");   
+        assert_eq!(buffers.len(), 2, "two buffers are two pairs");
         assert_eq!(
             buffers[0].each_ref().map(|a| *a.address()),
             [buffer_a, mint_a]
@@ -314,7 +310,7 @@ mod tests {
         assert_eq!(accounts[0].pubkey, state_pda);
         assert!(!accounts[0].is_writable);
         assert!(!accounts[0].is_signer);
-        // receiver: writable, signer
+        // reclaim_authority: writable, signer
         assert_eq!(accounts[1].pubkey, reclaim_authority);
         assert!(accounts[1].is_writable);
         assert!(accounts[1].is_signer);
@@ -326,9 +322,9 @@ mod tests {
         assert_eq!(accounts[3].pubkey, buffer_pda);
         assert!(accounts[3].is_writable);
         assert!(!accounts[3].is_signer);
-        // mint: writable, not signer (burning updates the mint's supply)
+        // mint: read-only, not signer (only used to derive the buffer PDA)
         assert_eq!(accounts[4].pubkey, mint);
-        assert!(accounts[4].is_writable);
+        assert!(!accounts[4].is_writable);
         assert!(!accounts[4].is_signer);
     }
 

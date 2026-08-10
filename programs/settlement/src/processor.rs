@@ -104,8 +104,9 @@ impl<const N: usize> CanonicalPda<'_, N> {
 }
 
 /// Validate that `state_pda_account` is the canonical state PDA and run `f` with
-/// a signer for it. Both settlement transfers move funds under the state PDA's
-/// authority, so it must sign each of them.
+/// a signer for it. The state PDA is the authority over the accounts settlement
+/// touches — user token delegations and the buffers — so it must sign every CPI
+/// that acts on them.
 ///
 /// The signer only borrows its seed buffers, which are local to this frame;
 /// running `f` here rather than returning the signer keeps them alive for as

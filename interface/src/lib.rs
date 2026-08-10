@@ -180,8 +180,9 @@ pub enum SettlementError {
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 31,
-    /// `ReclaimBuffer`'s `receiver` account isn't a signer, or doesn't match
-    /// the `receiver` address recorded in the settlement state PDA.
+    /// `ReclaimBuffer`'s `reclaim_authority` account isn't a signer, or doesn't
+    /// match the `reclaim_authority` address recorded in the settlement state
+    /// PDA.
     ReclaimAuthorityMismatch = 32,
     /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
     /// derived from its paired `mint`.

@@ -192,8 +192,9 @@ impl From<Initialize> for Instruction {
 /// Builder for a `ReclaimBuffer` instruction closing the buffer for each of
 /// `mints`.
 ///
-/// **Warning:** if a buffer account has nonzero balance, it will be silently
-/// skipped. This is done to prevent accidental loss of funds.
+/// A buffer that still holds a token balance is silently skipped rather than
+/// closed, so a successful instruction is no guarantee that any buffer went
+/// away. This is done to prevent accidental loss of funds.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub reclaim_authority: Pubkey,

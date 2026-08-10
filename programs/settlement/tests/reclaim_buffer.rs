@@ -1,28 +1,16 @@
 use settlement_client::instructions::{CreateBuffers, Initialize, ReclaimBuffer};
-use settlement_client::settlement_interface::{
-    instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw,
-    pda::{buffer::find_buffer_pda, state::find_state_pda},
-    SettlementError,
-};
+use settlement_client::settlement_interface::{pda::buffer::find_buffer_pda, SettlementError};
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
 };
-use spl_associated_token_account_interface::address::get_associated_token_address;
 
 mod common;
 
-/// Initialize the settlement state PDA with `reclaim_authority` as the configured
-/// reclaim_authority.
-fn initialize(
-    svm: &mut litesvm::LiteSVM,
-    ix: &Initialize,
-) {
-    let ix = Initialize {
-        program_id: *program_id,
-        payer: payer.pubkey(),
-        reclaim_authority,
-    };
+/// Send `ix` as the settlement's `Initialize`, signed by `payer`. Taken by
+/// value because building the instruction consumes the builder; `payer` is
+/// separate because the builder only carries its address, not its keypair.
+fn initialize(svm: &mut litesvm::LiteSVM, payer: &Keypair, ix: Initialize) {
     let tx = common::signed_tx(svm, payer, payer, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
 }
@@ -49,9 +37,17 @@ fn create_buffer(
 #[test]
 fn funded_buffer_is_skipped() {
     let (mut svm, program_id, payer) = common::setup();
-    let reclaim_authority = Keypair::new();
+    let reclaim_authority = common::unique_keypair();
 
-    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
 
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
@@ -78,9 +74,17 @@ fn funded_buffer_is_skipped() {
 #[test]
 fn happy_path_reclaims_empty_buffer() {
     let (mut svm, program_id, payer) = common::setup();
-    let reclaim_authority = Keypair::new();
+    let reclaim_authority = common::unique_keypair();
 
-    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
 
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
@@ -114,9 +118,17 @@ fn happy_path_reclaims_empty_buffer() {
 #[test]
 fn reclaims_multiple_buffers_skipping_funded() {
     let (mut svm, program_id, payer) = common::setup();
-    let reclaim_authority = Keypair::new();
+    let reclaim_authority = common::unique_keypair();
 
-    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
 
     let mint_a = common::token::create_mint(&mut svm, &payer);
     let mint_b = common::token::create_mint(&mut svm, &payer);
@@ -148,12 +160,20 @@ fn reclaims_multiple_buffers_skipping_funded() {
 #[test]
 fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     let (mut svm, program_id, payer) = common::setup();
-    let reclaim_authority = Keypair::new();
-    let impostor = Keypair::new();
+    let reclaim_authority = common::unique_keypair();
+    let impostor = common::unique_keypair();
     svm.airdrop(&impostor.pubkey(), 1_000_000_000)
         .expect("airdrop should succeed");
 
-    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
 
     let mint = common::token::create_mint(&mut svm, &payer);
     create_buffer(&mut svm, &program_id, &payer, &mint);
@@ -169,5 +189,4 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         svm.send_transaction(tx).map_err(|e| e.err),
         SettlementError::ReclaimAuthorityMismatch,
     );
-}
 }
