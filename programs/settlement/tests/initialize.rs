@@ -9,7 +9,8 @@ use crate::common::{unique_keypair, unique_pubkey};
 
 mod common;
 
-bench_test!(happy_path_initializes_state_pda_with_expected_data, {
+#[test]
+fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let reclaim_authority = unique_pubkey();
@@ -50,7 +51,7 @@ bench_test!(happy_path_initializes_state_pda_with_expected_data, {
         "state PDA must hold exactly the rent minimum: {} != {}",
         account.lamports, rent,
     );
-});
+}
 
 #[test]
 fn funding_payer_can_differ_from_fee_payer() {

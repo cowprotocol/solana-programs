@@ -56,7 +56,8 @@ fn create_order(
     pda
 }
 
-bench_test!(happy_path_returns_lamports_and_closes_pda, {
+#[test]
+fn happy_path_returns_lamports_and_closes_pda() {
     let (mut svm, program_id, fee_payer) = common::setup();
 
     // `reclaim_recipient` is the `created_by` funder; it's separate from the fee
@@ -124,7 +125,7 @@ bench_test!(happy_path_returns_lamports_and_closes_pda, {
         pda_rent + extra_lamports,
         "reclaim recipient account must receive exactly the order PDA's rent lamports"
     );
-});
+}
 
 #[test]
 fn rejects_when_order_not_yet_expired() {

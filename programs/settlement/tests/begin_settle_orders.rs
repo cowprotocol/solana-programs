@@ -140,7 +140,8 @@ fn settle_and_pay_amounts(
     vec![begin.into(), finalize.into()]
 }
 
-bench_test!(settles_a_single_order, {
+#[test]
+fn settles_a_single_order() {
     let (mut svm, program_id, payer) = setup();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
@@ -154,9 +155,10 @@ bench_test!(settles_a_single_order, {
         }],
     );
     send_metered(&mut svm, &payer, instructions, "settle").expect("settlement should succeed");
-});
+}
 
-bench_test!(settles_multiple_orders, {
+#[test]
+fn settles_multiple_orders() {
     let (mut svm, program_id, payer) = setup();
 
     let mut intents = Vec::new();
@@ -175,7 +177,7 @@ bench_test!(settles_multiple_orders, {
     let instructions = settle_and_pay(&mut svm, &program_id, &payer, &orders);
     send_metered(&mut svm, &payer, instructions, "settle")
         .expect("multi-order settlement should succeed");
-});
+}
 
 #[test]
 fn rejects_wrong_bump() {
@@ -596,7 +598,8 @@ fn settles_order_at_exact_valid_to() {
     send(&mut svm, &payer, instructions).expect("an order is still settleable at exactly valid_to");
 }
 
-bench_test!(pulls_funds_to_destination, {
+#[test]
+fn pulls_funds_to_destination() {
     let (mut svm, program_id, payer) = setup();
     let sell_mint = token::create_mint(&mut svm, &payer);
 
@@ -635,9 +638,10 @@ bench_test!(pulls_funds_to_destination, {
         token::delegated_amount(&svm, &sell_token),
         initial_amount - amount
     );
-});
+}
 
-bench_test!(pulls_to_multiple_destinations, {
+#[test]
+fn pulls_to_multiple_destinations() {
     let (mut svm, program_id, payer) = setup();
     let sell_mint = token::create_mint(&mut svm, &payer);
 
@@ -686,9 +690,10 @@ bench_test!(pulls_to_multiple_destinations, {
         token::delegated_amount(&svm, &sell_token),
         initial_amount - pulled0 - pulled1
     );
-});
+}
 
-bench_test!(pulls_from_multiple_orders, {
+#[test]
+fn pulls_from_multiple_orders() {
     let (mut svm, program_id, payer) = setup();
     let sell_mint = token::create_mint(&mut svm, &payer);
 
@@ -761,7 +766,7 @@ bench_test!(pulls_from_multiple_orders, {
         token::balance(&svm, &second.sell_token_account),
         initial_amount_second - pulled_second
     );
-});
+}
 
 #[test]
 fn rejects_pulls_summing_beyond_u64() {

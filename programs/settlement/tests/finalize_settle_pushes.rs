@@ -49,15 +49,17 @@ fn finalize(program_id: &Pubkey, orders: &[FinalizedIntent]) -> Vec<Instruction>
     build_settlement(program_id, orders, finalize)
 }
 
-bench_test!(finalizes_with_no_pushes, {
+#[test]
+fn finalizes_with_no_pushes() {
     let (mut svm, program_id, payer) = setup();
 
     let instructions = finalize(&program_id, &[]);
     send_metered(&mut svm, &payer, instructions, "settle")
         .expect("a finalize with no pushes should succeed");
-});
+}
 
-bench_test!(pushes_a_single_order, {
+#[test]
+fn pushes_a_single_order() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
@@ -79,9 +81,10 @@ bench_test!(pushes_a_single_order, {
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), amount);
     assert_eq!(token::balance(&svm, &buffer_pda), funding - amount);
-});
+}
 
-bench_test!(pushes_several_orders_from_one_buffer, {
+#[test]
+fn pushes_several_orders_from_one_buffer() {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
     // Distinct orders (each `OrderBuilder` makes fresh sell and buy token
@@ -123,9 +126,10 @@ bench_test!(pushes_several_orders_from_one_buffer, {
         token::balance(&svm, &buffer_pda),
         funding - amount0 - amount1,
     );
-});
+}
 
-bench_test!(pushes_several_orders_from_different_buffers, {
+#[test]
+fn pushes_several_orders_from_different_buffers() {
     let (mut svm, program_id, payer) = setup();
     let mint0 = token::create_mint(&mut svm, &payer);
     let mint1 = token::create_mint(&mut svm, &payer);
@@ -163,7 +167,7 @@ bench_test!(pushes_several_orders_from_different_buffers, {
     assert_eq!(token::balance(&svm, &intent1.buy_token_account), amount1);
     assert_eq!(token::balance(&svm, &buffer0), funding - amount0);
     assert_eq!(token::balance(&svm, &buffer1), funding - amount1);
-});
+}
 
 #[test]
 fn rejects_push_if_buffer_does_not_match_mint() {

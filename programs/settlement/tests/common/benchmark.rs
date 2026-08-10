@@ -9,63 +9,30 @@ use solana_sdk::{
     signature::Keypair,
     transaction::{TransactionError, VersionedTransaction},
 };
-use std::{cell::Cell, env, fs, io::Write};
+use std::{env, fs, io::Write, thread};
 
 /// Where `send_transaction_metered` accumulates its measurements: a directory
 /// of per-process JSON Lines shards, which `just bench` merges into
 /// `target/cu-report.json` once every test binary has exited.
 const CU_SHARD_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/cu-report");
 
-/// Declare a `#[test]` whose transactions may be metered. The test's own name
-/// becomes the first half of every label it records (the other half being supplied as `label` to `_metered` functions below)
-#[macro_export]
-macro_rules! bench_test {
-    ($(#[$attr:meta])* $name:ident, $body:block) => {
-        $(#[$attr])*
-        #[test]
-        // Clippy exempts test functions from this restriction lint, but stops
-        // recognising them as tests once the `#[test]` comes out of a macro, so
-        // the exemption has to be restated for `bench_test!` to stay a drop-in
-        // replacement for `#[test]`.
-        #[allow(
-            clippy::arithmetic_side_effects,
-            reason = "an overflow in a test's own bookkeeping should panic, which is what these tests want anyway"
-        )]
-        fn $name() {
-            $crate::common::benchmark::set_test_name(stringify!($name));
-            $body
-        }
-    };
-}
-
-thread_local! {
-    /// The enclosing [`bench_test`]'s name, qualifying every label that test
-    /// records. Thread local because libtest runs each test on its own thread,
-    /// which is also what keeps concurrently running tests from seeing each
-    /// other's name.
-    static TEST_NAME: Cell<Option<&'static str>> = const { Cell::new(None) };
-}
-
-/// Register the enclosing test's name. An implementation detail of
-/// [`bench_test`], which is the only thing that should call it.
-pub fn set_test_name(name: &'static str) {
-    TEST_NAME.set(Some(name));
-}
-
-/// Qualify `label` with the enclosing test's name, panicking if the test wasn't
-/// declared with [`bench_test`]. Evaluated whether or not `TEST_BENCHMARK` is
-/// set, so a plain `just test` already catches the missing declaration.
-#[track_caller]
+/// Qualify `label` with the name of the test recording it, so a test only has to
+/// name the transaction it measures and two tests measuring the same kind of
+/// transaction can't overwrite each other's shard.
+///
+/// The test name comes from the name of the thread, as rust's testing framework
+/// names it as such.
 fn qualified_label(label: &str) -> String {
-    let test_name = TEST_NAME.get().unwrap_or_else(|| {
-        panic!("metering `{label}` requires the enclosing test to be declared with `bench_test!`")
+    let thread = thread::current();
+    let test_name = thread.name().unwrap_or_else(|| {
+        panic!("could not read the test name from thread name for benchmarking")
     });
     format!("{test_name}/{label}")
 }
 
 /// Wraps svm.send_transaction and captures the compute units consumed by
 /// `program_id`'s own execution. The measured usage is recorded to a JSON
-/// file under the enclosing [`bench_test`]'s name joined with `label`.
+/// file under the enclosing test's name joined with `label`.
 ///
 /// Only CUs are captured--not rent allocation/deallocation.
 #[allow(

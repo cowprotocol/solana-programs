@@ -35,7 +35,8 @@ fn encode_and_derive(
     (bytes, pda)
 }
 
-bench_test!(happy_path_creates_order_pda_with_expected_body, {
+#[test]
+fn happy_path_creates_order_pda_with_expected_body() {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = sample_intent(owner.pubkey());
@@ -89,7 +90,7 @@ bench_test!(happy_path_creates_order_pda_with_expected_body, {
         account.lamports,
         rent,
     );
-});
+}
 
 #[test]
 fn creates_order_with_separate_fee_payers() {
