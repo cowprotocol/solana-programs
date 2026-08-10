@@ -133,11 +133,13 @@ fn record_compute_units(
     let line = format!("{{\"label\": \"{label}\", \"accounts_readable\": {accounts_readable}, \"accounts_writable\": {accounts_writable}, \"instruction_bytes\": {ix_bytes_required}, \"compute_units\": {compute_units_consumed}}}");
 
     fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
+        // Fails if the shard already exists
+        .create_new(true)
         .write(true)
         .open(&path)
-        .unwrap_or_else(|e| panic!("failed to open benchmarking shard at {path}: {e}"))
+        .unwrap_or_else(|e| {
+            panic!("failed to create benchmarking data at {path} (has the label been reused?): {e}")
+        })
         .write_all(line.as_bytes())
-        .unwrap_or_else(|e| panic!("failed to write to benchmarking shard at {path}: {e}"));
+        .unwrap_or_else(|e| panic!("failed to write to benchmarking data at {path}: {e}"));
 }
