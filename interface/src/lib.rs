@@ -185,7 +185,7 @@ pub enum SettlementError {
     ReclaimAuthorityMismatch = 32,
     /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
     /// derived from its paired `mint`.
-    BufferNotCanonical = 33,
+    ReclaimBufferNotCanonical = 33,
 }
 
 impl From<SettlementError> for u32 {
