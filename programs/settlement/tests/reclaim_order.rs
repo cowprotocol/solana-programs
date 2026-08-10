@@ -56,8 +56,7 @@ fn create_order(
     pda
 }
 
-#[test]
-fn happy_path_returns_lamports_and_closes_pda() {
+bench_test!(happy_path_returns_lamports_and_closes_pda, {
     let (mut svm, program_id, fee_payer) = common::setup();
 
     // `reclaim_recipient` is the `created_by` funder; it's separate from the fee
@@ -109,7 +108,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
     }
     .instruction();
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, "reclaim_order")
         .expect("reclaim_order should succeed after expiry");
 
     // PDA is gone.
@@ -125,7 +124,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
         pda_rent + extra_lamports,
         "reclaim recipient account must receive exactly the order PDA's rent lamports"
     );
-}
+});
 
 #[test]
 fn rejects_when_order_not_yet_expired() {

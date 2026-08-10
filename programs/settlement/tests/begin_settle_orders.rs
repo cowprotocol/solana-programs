@@ -18,7 +18,9 @@
 //! whose output is a properly built instruction.
 
 use crate::common::{
-    assert_instruction_error, buffer, create_account,
+    assert_instruction_error,
+    benchmark::send_metered,
+    buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
     replace_first_matching_account, send, set_unix_timestamp,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
@@ -138,8 +140,7 @@ fn settle_and_pay_amounts(
     vec![begin.into(), finalize.into()]
 }
 
-#[test]
-fn settles_a_single_order() {
+bench_test!(settles_a_single_order, {
     let (mut svm, program_id, payer) = setup();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
@@ -152,11 +153,10 @@ fn settles_a_single_order() {
             pulls: &[],
         }],
     );
-    send(&mut svm, &payer, instructions).expect("settlement should succeed");
-}
+    send_metered(&mut svm, &payer, instructions, "settle").expect("settlement should succeed");
+});
 
-#[test]
-fn settles_multiple_orders() {
+bench_test!(settles_multiple_orders, {
     let (mut svm, program_id, payer) = setup();
 
     let mut intents = Vec::new();
@@ -173,8 +173,9 @@ fn settles_multiple_orders() {
         .map(|intent| InitializedIntent { intent, pulls: &[] })
         .collect();
     let instructions = settle_and_pay(&mut svm, &program_id, &payer, &orders);
-    send(&mut svm, &payer, instructions).expect("multi-order settlement should succeed");
-}
+    send_metered(&mut svm, &payer, instructions, "settle")
+        .expect("multi-order settlement should succeed");
+});
 
 #[test]
 fn rejects_wrong_bump() {
@@ -595,8 +596,7 @@ fn settles_order_at_exact_valid_to() {
     send(&mut svm, &payer, instructions).expect("an order is still settleable at exactly valid_to");
 }
 
-#[test]
-fn pulls_funds_to_destination() {
+bench_test!(pulls_funds_to_destination, {
     let (mut svm, program_id, payer) = setup();
     let sell_mint = token::create_mint(&mut svm, &payer);
 
@@ -626,7 +626,7 @@ fn pulls_funds_to_destination() {
         }],
         &[paid],
     );
-    send(&mut svm, &payer, instructions)
+    send_metered(&mut svm, &payer, instructions, "settle")
         .expect("a pull within the approved delegation, paid at the limit, should succeed");
 
     assert_eq!(token::balance(&svm, &destination), amount);
@@ -635,10 +635,9 @@ fn pulls_funds_to_destination() {
         token::delegated_amount(&svm, &sell_token),
         initial_amount - amount
     );
-}
+});
 
-#[test]
-fn pulls_to_multiple_destinations() {
+bench_test!(pulls_to_multiple_destinations, {
     let (mut svm, program_id, payer) = setup();
     let sell_mint = token::create_mint(&mut svm, &payer);
 
@@ -674,7 +673,8 @@ fn pulls_to_multiple_destinations() {
         }],
         &[paid],
     );
-    send(&mut svm, &payer, instructions).expect("multiple pulls from one order should succeed");
+    send_metered(&mut svm, &payer, instructions, "settle")
+        .expect("multiple pulls from one order should succeed");
 
     assert_eq!(token::balance(&svm, &dest0), pulled0);
     assert_eq!(token::balance(&svm, &dest1), pulled1);
@@ -686,10 +686,9 @@ fn pulls_to_multiple_destinations() {
         token::delegated_amount(&svm, &sell_token),
         initial_amount - pulled0 - pulled1
     );
-}
+});
 
-#[test]
-fn pulls_from_multiple_orders() {
+bench_test!(pulls_from_multiple_orders, {
     let (mut svm, program_id, payer) = setup();
     let sell_mint = token::create_mint(&mut svm, &payer);
 
@@ -749,7 +748,8 @@ fn pulls_from_multiple_orders() {
         ],
         &[paid_first, paid_second],
     );
-    send(&mut svm, &payer, instructions).expect("pulls from several orders should succeed");
+    send_metered(&mut svm, &payer, instructions, "settle")
+        .expect("pulls from several orders should succeed");
 
     assert_eq!(token::balance(&svm, &dest_first), pulled_first);
     assert_eq!(token::balance(&svm, &dest_second), pulled_second);
@@ -761,7 +761,7 @@ fn pulls_from_multiple_orders() {
         token::balance(&svm, &second.sell_token_account),
         initial_amount_second - pulled_second
     );
-}
+});
 
 #[test]
 fn rejects_pulls_summing_beyond_u64() {

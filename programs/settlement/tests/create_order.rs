@@ -35,8 +35,7 @@ fn encode_and_derive(
     (bytes, pda)
 }
 
-#[test]
-fn happy_path_creates_order_pda_with_expected_body() {
+bench_test!(happy_path_creates_order_pda_with_expected_body, {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = sample_intent(owner.pubkey());
@@ -52,7 +51,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &owner, &owner, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, "create_order")
         .expect("create_order should succeed");
 
     let account = svm
@@ -90,7 +89,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
         account.lamports,
         rent,
     );
-}
+});
 
 #[test]
 fn creates_order_with_separate_fee_payers() {

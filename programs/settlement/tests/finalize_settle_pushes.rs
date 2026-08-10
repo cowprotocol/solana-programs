@@ -10,6 +10,7 @@
 //! signed by the settlement state PDA that owns them.
 
 use crate::common::{
+    benchmark::send_metered,
     buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
     replace_first_matching_account, send,
@@ -48,16 +49,15 @@ fn finalize(program_id: &Pubkey, orders: &[FinalizedIntent]) -> Vec<Instruction>
     build_settlement(program_id, orders, finalize)
 }
 
-#[test]
-fn finalizes_with_no_pushes() {
+bench_test!(finalizes_with_no_pushes, {
     let (mut svm, program_id, payer) = setup();
 
     let instructions = finalize(&program_id, &[]);
-    send(&mut svm, &payer, instructions).expect("a finalize with no pushes should succeed");
-}
+    send_metered(&mut svm, &payer, instructions, "settle")
+        .expect("a finalize with no pushes should succeed");
+});
 
-#[test]
-fn pushes_a_single_order() {
+bench_test!(pushes_a_single_order, {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
@@ -75,14 +75,13 @@ fn pushes_a_single_order() {
             amount,
         }],
     );
-    send(&mut svm, &payer, instructions).expect("a single push should be paid");
+    send_metered(&mut svm, &payer, instructions, "settle").expect("a single push should be paid");
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), amount);
     assert_eq!(token::balance(&svm, &buffer_pda), funding - amount);
-}
+});
 
-#[test]
-fn pushes_several_orders_from_one_buffer() {
+bench_test!(pushes_several_orders_from_one_buffer, {
     let (mut svm, program_id, payer) = setup();
     let mint = token::create_mint(&mut svm, &payer);
     // Distinct orders (each `OrderBuilder` makes fresh sell and buy token
@@ -115,7 +114,8 @@ fn pushes_several_orders_from_one_buffer() {
             },
         ],
     );
-    send(&mut svm, &payer, instructions).expect("several pushes from one buffer should be paid");
+    send_metered(&mut svm, &payer, instructions, "settle")
+        .expect("several pushes from one buffer should be paid");
 
     assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
     assert_eq!(token::balance(&svm, &intent1.buy_token_account), amount1);
@@ -123,10 +123,9 @@ fn pushes_several_orders_from_one_buffer() {
         token::balance(&svm, &buffer_pda),
         funding - amount0 - amount1,
     );
-}
+});
 
-#[test]
-fn pushes_several_orders_from_different_buffers() {
+bench_test!(pushes_several_orders_from_different_buffers, {
     let (mut svm, program_id, payer) = setup();
     let mint0 = token::create_mint(&mut svm, &payer);
     let mint1 = token::create_mint(&mut svm, &payer);
@@ -157,13 +156,14 @@ fn pushes_several_orders_from_different_buffers() {
             },
         ],
     );
-    send(&mut svm, &payer, instructions).expect("pushes from different buffers should be paid");
+    send_metered(&mut svm, &payer, instructions, "settle")
+        .expect("pushes from different buffers should be paid");
 
     assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
     assert_eq!(token::balance(&svm, &intent1.buy_token_account), amount1);
     assert_eq!(token::balance(&svm, &buffer0), funding - amount0);
     assert_eq!(token::balance(&svm, &buffer1), funding - amount1);
-}
+});
 
 #[test]
 fn rejects_push_if_buffer_does_not_match_mint() {

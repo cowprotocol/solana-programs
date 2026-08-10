@@ -30,8 +30,7 @@ use crate::common::{unique_keypair, unique_pubkey};
 
 mod common;
 
-#[test]
-fn happy_path_creates_initialized_buffer_token_account() {
+bench_test!(happy_path_creates_initialized_buffer_token_account, {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
@@ -43,7 +42,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, "create_buffers")
         .expect("create_buffer should succeed");
 
     let account = svm
@@ -96,7 +95,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
         close_authority.is_none(),
         "a fresh buffer must have no close authority"
     );
-}
+});
 
 #[test]
 fn buffer_can_receive_tokens() {
@@ -168,8 +167,7 @@ fn happy_path_creates_native_token_buffer() {
     );
 }
 
-#[test]
-fn happy_path_creates_multiple_buffers_in_one_instruction() {
+bench_test!(happy_path_creates_multiple_buffers_in_one_instruction, {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _) = find_state_pda(&program_id);
 
@@ -183,7 +181,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, "create_buffers")
         .expect("create_buffers should create every buffer at once");
 
     for mint in &mints {
@@ -215,7 +213,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
             "each buffer must be an initialized token account"
         );
     }
-}
+});
 
 #[test]
 fn rejects_no_buffers() {
@@ -527,67 +525,69 @@ fn bench_assert_known_max_buffer_count() {
     );
 }
 
-/// Pack a single `create_buffers` instruction with as many buffers as a
-/// transaction can have. Use Address Lookup Table to reach the real
-/// account-lock ceiling. This is a ceiling on how many buffers one transaction
-/// can create, and a benchmark for how much a maxed-out instruction costs.
-#[test]
-fn max_buffers_in_one_instruction() {
-    let (mut svm, program_id, payer) = common::setup();
-    // A maxed-out batch costs close to the 200k default and the exact cost
-    // varies with the random mints' bump searches, so we increase the default
-    // compute limit to avoid this edge case.
-    // Not doing this leads to a flaky test, not an immediate failure: it works
-    // most of the times but sometimes (~2%) execution would fail.
-    svm = svm.with_compute_budget(ComputeBudget {
-        compute_unit_limit: u64::from(MAX_COMPUTE_UNIT_LIMIT),
-        ..ComputeBudget::default()
-    });
-    let (state_pda, _) = find_state_pda(&program_id);
+bench_test!(
+    /// Pack a single `create_buffers` instruction with as many buffers as a
+    /// transaction can have. Use Address Lookup Table to reach the real
+    /// account-lock ceiling. This is a ceiling on how many buffers one transaction
+    /// can create, and a benchmark for how much a maxed-out instruction costs.
+    max_buffers_in_one_instruction,
+    {
+        let (mut svm, program_id, payer) = common::setup();
+        // A maxed-out batch costs close to the 200k default and the exact cost
+        // varies with the random mints' bump searches, so we increase the default
+        // compute limit to avoid this edge case.
+        // Not doing this leads to a flaky test, not an immediate failure: it works
+        // most of the times but sometimes (~2%) execution would fail.
+        svm = svm.with_compute_budget(ComputeBudget {
+            compute_unit_limit: u64::from(MAX_COMPUTE_UNIT_LIMIT),
+            ..ComputeBudget::default()
+        });
+        let (state_pda, _) = find_state_pda(&program_id);
 
-    let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
-    // A legacy transaction tops out around 15 buffers (32-byte keys inlined into
-    // a 1232-byte packet). The whole point of the lookup table is to beat that;
-    // guard against a counterproductive use of lookup tables.
-    assert!(
-        max_buffers > 15,
-        "a lookup-table transaction must exceed the legacy packet limit, got {max_buffers}"
-    );
-
-    let mints: Vec<Pubkey> = (0..max_buffers)
-        .map(|_| common::token::create_mint(&mut svm, &payer))
-        .collect();
-
-    let ix = CreateBuffers {
-        program_id,
-        payer: payer.pubkey(),
-        mints: &mints,
-    };
-    let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
-    let meta = common::benchmark::send_transaction_metered(
-        &mut svm,
-        tx,
-        "create_buffers/max_in_one_instruction",
-    )
-    .expect("a transaction filled to the buffer limit should succeed");
-    println!(
-        "create_buffers with {max_buffers} buffers consumed {} compute units",
-        meta.compute_units_consumed
-    );
-
-    for mint in &mints {
-        let (buffer_pda, _bump) = find_buffer_pda(&program_id, mint);
-        let token_account = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
-            .expect("each buffer must be an initialized token account");
-        assert_eq!(token_account.mint, *mint, "each buffer must track its mint");
-        assert_eq!(
-            token_account.owner, state_pda,
-            "each buffer authority must be the settlement state PDA"
+        let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
+        // A legacy transaction tops out around 15 buffers (32-byte keys inlined into
+        // a 1232-byte packet). The whole point of the lookup table is to beat that;
+        // guard against a counterproductive use of lookup tables.
+        assert!(
+            max_buffers > 15,
+            "a lookup-table transaction must exceed the legacy packet limit, got {max_buffers}"
         );
-        assert_eq!(
-            token_account.state,
-            AccountState::Initialized,
-            "each buffer must be an initialized token account"
+
+        let mints: Vec<Pubkey> = (0..max_buffers)
+            .map(|_| common::token::create_mint(&mut svm, &payer))
+            .collect();
+
+        let ix = CreateBuffers {
+            program_id,
+            payer: payer.pubkey(),
+            mints: &mints,
+        };
+        let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
+        let meta = common::benchmark::send_transaction_metered(
+            &mut svm,
+            tx,
+            "create_buffers",
+        )
+        .expect("a transaction filled to the buffer limit should succeed");
+        println!(
+            "create_buffers with {max_buffers} buffers consumed {} compute units",
+            meta.compute_units_consumed
         );
+
+        for mint in &mints {
+            let (buffer_pda, _bump) = find_buffer_pda(&program_id, mint);
+            let token_account = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
+                .expect("each buffer must be an initialized token account");
+            assert_eq!(token_account.mint, *mint, "each buffer must track its mint");
+            assert_eq!(
+                token_account.owner, state_pda,
+                "each buffer authority must be the settlement state PDA"
+            );
+            assert_eq!(
+                token_account.state,
+                AccountState::Initialized,
+                "each buffer must be an initialized token account"
+            );
+        }
     }
-}
+);

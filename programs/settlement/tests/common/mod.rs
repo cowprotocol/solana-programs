@@ -184,6 +184,22 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
     meta.pubkey = to;
 }
 
+/// Assemble `instructions` into a transaction with `payer` as both fee payer and
+/// sole signer. Shared with [`benchmark::send_metered`] so a metered test
+/// submits exactly the transaction its unmetered twin would.
+pub fn payer_signed_tx(
+    svm: &LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+) -> Transaction {
+    Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    )
+}
+
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
 /// surfacing only the transaction-level error on failure (dropping the success
 /// metadata's error wrapper).
@@ -192,11 +208,6 @@ pub fn send(
     payer: &Keypair,
     instructions: Vec<Instruction>,
 ) -> Result<TransactionMetadata, TransactionError> {
-    let tx = Transaction::new_signed_with_payer(
-        &instructions,
-        Some(&payer.pubkey()),
-        &[payer],
-        svm.latest_blockhash(),
-    );
+    let tx = payer_signed_tx(svm, payer, instructions);
     svm.send_transaction(tx).map_err(|e| e.err)
 }
