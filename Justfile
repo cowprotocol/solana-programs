@@ -23,7 +23,7 @@ test: build-program build-test-programs
 bench: build-program build-test-programs
     #!/usr/bin/env bash
     set -euo pipefail
-    rm -rf target/cu-report
+    rm -rf target/bench-report
     TEST_BENCHMARK=true cargo test
 
 
