@@ -267,7 +267,7 @@ mod tests {
         let data = reclaim_buffer_data();
         // Three shared accounts plus one dangling account that can't form a
         // full pair.
-        let mut accounts = fake_sequential_accounts::<4>();
+        let mut accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + 1 }>();
         assert_eq!(
             ReclaimBufferInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
