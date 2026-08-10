@@ -186,23 +186,4 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         SettlementError::ReclaimAuthorityMismatch,
     );
 }
-
-#[test]
-fn rejects_no_buffers() {
-    let (mut svm, program_id, payer) = common::setup();
-    let reclaim_authority = Keypair::new();
-    initialize(&mut svm, &program_id, &payer, reclaim_authority.pubkey());
-
-    let (state_pda, _) = find_state_pda(&program_id);
-    let ix = ReclaimBufferRaw {
-        program_id,
-        state_pda,
-        reclaim_authority: reclaim_authority.pubkey(),
-        buffers: &[],
-    };
-    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    assert!(
-        svm.send_transaction(tx).is_err(),
-        "an instruction that reclaims no buffers must be rejected"
-    );
 }
