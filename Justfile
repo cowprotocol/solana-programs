@@ -18,8 +18,8 @@ build: build-program
 test: build-program build-test-programs
     cargo test
 
-# Each test outputs its consumption during test execution to a series of target/cu-report/*.jsonl files.
-# Assembles into a single `cu-report.json`
+# Each test outputs its consumption during test execution to a series of target/bench-report/*.jsonl files.
+# Assembles into a single `bench-report.json`
 bench: build-program build-test-programs
     #!/usr/bin/env bash
     set -euo pipefail
@@ -28,7 +28,7 @@ bench: build-program build-test-programs
 
 
     shopt -s nullglob
-    shards=(target/cu-report/*.jsonl)
+    shards=(target/bench-report/*.jsonl)
     if [[ ${#shards[@]} -eq 0 ]]; then
         echo "no compute-unit measurements recorded" >&2
         exit 1
@@ -41,7 +41,7 @@ bench: build-program build-test-programs
         "accounts_writable": (map({(.label): .accounts_writable}) | add),
         "instruction_bytes": (map({(.label): .instruction_bytes}) | add)
     }' "${shards[@]}" \
-        > target/cu-report.json
+        > bench-report.json
 
 # Format the source code.
 fmt:

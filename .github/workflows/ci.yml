@@ -37,7 +37,7 @@ jobs:
           PROPTEST_RNG_SEED: "0"
         run: just bench
       - name: Bench does not drift
-        run: git diff -- target/cu-report.json
+        run: git diff -- bench-report.json
 
   fmt-check:
     runs-on: ubuntu-latest

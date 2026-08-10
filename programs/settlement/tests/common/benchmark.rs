@@ -13,8 +13,8 @@ use std::{env, fs, io::Write, thread};
 
 /// Where `send_transaction_metered` accumulates its measurements: a directory
 /// of per-process JSON Lines shards, which `just bench` merges into
-/// `target/cu-report.json` once every test binary has exited.
-const CU_SHARD_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/cu-report");
+/// `bench-report.json` once every test binary has exited.
+const CU_SHARD_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/bench-report");
 
 /// Qualify `label` with the name of the test recording it, so a test only has to
 /// name the transaction it measures and two tests measuring the same kind of
