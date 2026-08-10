@@ -186,9 +186,6 @@ pub enum SettlementError {
     /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
     /// derived from its paired `mint`.
     BufferNotCanonical = 33,
-    /// A `ReclaimBuffer` `receiver_token_account` isn't the receiver's
-    /// canonical associated token account for the buffer's mint.
-    ReceiverTokenAccountMismatch = 34,
 }
 
 impl From<SettlementError> for u32 {
