@@ -190,7 +190,8 @@ impl From<Initialize> for Instruction {
 }
 
 /// Builder for a `ReclaimBuffer` instruction closing the buffer for each of
-/// `mints`.
+/// `mints` and sending their rent lamports to `reclaim_recipient`, which
+/// `reclaim_authority` picks freely and may set to itself.
 ///
 /// A buffer that still holds a token balance is silently skipped rather than
 /// closed, so a successful instruction is no guarantee that any buffer went
@@ -198,6 +199,7 @@ impl From<Initialize> for Instruction {
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub reclaim_authority: Pubkey,
+    pub reclaim_recipient: Pubkey,
     pub mints: &'a [Pubkey],
 }
 
@@ -216,6 +218,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
             program_id: builder.program_id,
             state_pda,
             reclaim_authority: builder.reclaim_authority,
+            reclaim_recipient: builder.reclaim_recipient,
             buffers: &buffers,
         }
         .into()

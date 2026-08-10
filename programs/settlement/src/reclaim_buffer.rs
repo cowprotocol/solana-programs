@@ -27,6 +27,7 @@ pub fn process_reclaim_buffer(
     let ReclaimBufferInput {
         state_pda,
         reclaim_authority,
+        reclaim_recipient,
         token_program,
         buffers,
     } = ReclaimBufferInput::parse(instruction_data, accounts)?;
@@ -65,7 +66,7 @@ pub fn process_reclaim_buffer(
                 continue;
             }
 
-            CloseAccount::new(buffer_pda, reclaim_authority, state_pda)
+            CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
                 .invoke_signed(core::slice::from_ref(state_signer))?;
         }
 
@@ -130,6 +131,7 @@ mod tests {
                 &encoded_state(authority_address),
             ), // state PDA
             fake_signer(authority_address), // reclaim authority
+            fake_account(Address::new_from_array([8; 32])), // reclaim recipient
             fake_account(Address::new_from_array([3; 32])), // **wrong** token program
             fake_account(Address::new_from_array([4; 32])), // buffer PDA
             fake_account(Address::new_from_array([5; 32])), // mint
@@ -150,6 +152,7 @@ mod tests {
                 &encoded_state(authority_address),
             ), // state PDA
             fake_signer(authority_address), // reclaim authority
+            fake_account(Address::new_from_array([8; 32])), // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID),
             fake_account(Address::new_from_array([4; 32])), // buffer PDA
             fake_account(Address::new_from_array([5; 32])), // mint
@@ -169,6 +172,7 @@ mod tests {
                 &encoded_state(AUTHORITY),
             ), // state PDA
             fake_signer(Address::new_from_array([7; 32])), // a different, unauthorized signer
+            fake_account(Address::new_from_array([8; 32])), // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID),
             fake_account(Address::new_from_array([4; 32])), // buffer PDA
             fake_account(Address::new_from_array([5; 32])), // mint
@@ -189,6 +193,7 @@ mod tests {
                 &encoded_state(authority_address),
             ), // state PDA
             fake_signer(authority_address), // reclaim authority
+            fake_account(Address::new_from_array([8; 32])), // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID),
             fake_account(Address::new_from_array([4; 32])), // buffer PDA
             fake_account(Address::new_from_array([5; 32])), // mint

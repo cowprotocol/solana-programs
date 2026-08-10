@@ -1,8 +1,11 @@
 //! `ReclaimBuffer` instruction builder.
 //!
 //! Closes one or more buffer PDAs (see [`crate::pda::buffer`]) and sends each
-//! closed buffer's rent lamports to the settlement's configured
-//! `reclaim_authority` (see [`crate::data::state::StateAccount`]).
+//! closed buffer's rent lamports to a `reclaim_recipient` of the caller's
+//! choosing. Only the settlement's configured `reclaim_authority` (see
+//! [`crate::data::state::StateAccount`]) may authorize this; the recipient is
+//! unconstrained, so the authority can direct the rent anywhere, including to
+//! itself.
 //!
 //! # A buffer that still holds tokens is skipped, not closed
 //!
@@ -16,7 +19,7 @@
 //!
 //! Wire format: `[discriminator=6]`, 1 byte.
 //! Required accounts:
-//! `[state_pda (R), reclaim_authority (W,S), token_program (R), (buffer_pda (W), mint (R))...]`.
+//! `[state_pda (R), reclaim_authority (R,S), reclaim_recipient (W), token_program (R), (buffer_pda (W), mint (R))...]`.
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
@@ -31,11 +34,12 @@ use crate::SettlementInstruction;
 ///
 /// `state_pda` must be the canonical PDA returned by
 /// [`crate::pda::state::find_state_pda`]. `reclaim_authority` must sign and
-/// must match the `reclaim_authority` recorded in the state PDA's data; it
-/// receives every closed buffer's rent lamports. Each `buffer_pda` must be the
-/// canonical PDA returned by [`crate::pda::buffer::find_buffer_pda`] for its
-/// paired `mint`, which is passed only so that derivation can be checked
-/// on-chain.
+/// must match the `reclaim_authority` recorded in the state PDA's data.
+/// `reclaim_recipient` receives every closed buffer's rent lamports and is
+/// otherwise unconstrained: the authority picks it freely, and may name itself.
+/// Each `buffer_pda` must be the canonical PDA returned by
+/// [`crate::pda::buffer::find_buffer_pda`] for its paired `mint`, which is
+/// passed only so that derivation can be checked on-chain.
 ///
 /// Buffers that still hold a token balance are skipped without failing the
 /// instruction; see the module docs.
@@ -43,6 +47,7 @@ pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
     pub reclaim_authority: Pubkey,
+    pub reclaim_recipient: Pubkey,
     pub buffers: &'a [(Pubkey, Pubkey)],
 }
 
@@ -50,7 +55,11 @@ impl From<ReclaimBuffer<'_>> for Instruction {
     fn from(builder: ReclaimBuffer<'_>) -> Self {
         let mut accounts = vec![
             AccountMeta::new_readonly(builder.state_pda, false),
-            AccountMeta::new(builder.reclaim_authority, true),
+            // Read-only: the authority only authorizes the close. If it named
+            // itself as the recipient, the runtime merges both metas and the
+            // account ends up writable regardless.
+            AccountMeta::new_readonly(builder.reclaim_authority, true),
+            AccountMeta::new(builder.reclaim_recipient, false),
             AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
         ];
         for (buffer_pda, mint) in builder.buffers {
@@ -69,6 +78,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
 pub struct ReclaimBufferInput<'a, A> {
     pub state_pda: &'a A,
     pub reclaim_authority: &'a A,
+    pub reclaim_recipient: &'a A,
     pub token_program: &'a A,
     /// One `[buffer_pda, mint]` pair per buffer to close.
     pub buffers: &'a [[A; 2]],
@@ -81,10 +91,12 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
         }
-        // Accounts: [state_pda (R), reclaim_authority (W,S), token_program (R),
-        // (buffer_pda (W), mint (R))...]. The three shared accounts come
-        // first; the per-buffer pairs follow, one pair per buffer.
-        let [state_pda, reclaim_authority, token_program, rest @ ..] = accounts else {
+        // Accounts: [state_pda (R), reclaim_authority (R,S), reclaim_recipient
+        // (W), token_program (R), (buffer_pda (W), mint (R))...]. The four
+        // shared accounts come first; the per-buffer pairs follow, one pair per
+        // buffer.
+        let [state_pda, reclaim_authority, reclaim_recipient, token_program, rest @ ..] = accounts
+        else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
         // Group the trailing accounts into `[buffer_pda, mint]` pairs. Each
@@ -100,6 +112,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
         Ok(Self {
             state_pda,
             reclaim_authority,
+            reclaim_recipient,
             token_program,
             buffers,
         })
@@ -115,8 +128,9 @@ pub mod fixtures {
     use super::{Instruction, ReclaimBuffer};
 
     /// Number of accounts that don't depend on the number of buffers
-    /// reclaimed: state PDA, reclaim authority, and token program.
-    pub const NUM_SHARED_ACCOUNTS: usize = 3;
+    /// reclaimed: state PDA, reclaim authority, reclaim recipient, and token
+    /// program.
+    pub const NUM_SHARED_ACCOUNTS: usize = 4;
 
     /// `ReclaimBuffer` instruction data with placeholder addresses, for
     /// failure cases where the input is irrelevant.
@@ -126,6 +140,7 @@ pub mod fixtures {
             program_id: zero,
             state_pda: zero,
             reclaim_authority: zero,
+            reclaim_recipient: zero,
             buffers: &[(zero, zero)],
         })
         .data
@@ -146,6 +161,7 @@ mod tests {
         let program_id = Address::new_from_array([1; 32]);
         let state_pda = Address::new_from_array([2; 32]);
         let reclaim_authority = Address::new_from_array([3; 32]);
+        let reclaim_recipient = Address::new_from_array([6; 32]);
         let buffer_pda = Address::new_from_array([4; 32]);
         let mint = Address::new_from_array([5; 32]);
 
@@ -153,6 +169,7 @@ mod tests {
             program_id,
             state_pda,
             reclaim_authority,
+            reclaim_recipient,
             buffers: &[(buffer_pda, mint)],
         })
         .data;
@@ -160,6 +177,7 @@ mod tests {
         let mut accounts = [
             fake_account(state_pda),
             fake_account(reclaim_authority),
+            fake_account(reclaim_recipient),
             token_program,
             fake_account(buffer_pda),
             fake_account(mint),
@@ -168,12 +186,14 @@ mod tests {
         let ReclaimBufferInput {
             state_pda: parsed_state_pda,
             reclaim_authority: parsed_reclaim_authority,
+            reclaim_recipient: parsed_reclaim_recipient,
             token_program: parsed_token_program,
             buffers,
         } = ReclaimBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
 
         assert_eq!(*parsed_state_pda.address(), state_pda);
         assert_eq!(*parsed_reclaim_authority.address(), reclaim_authority);
+        assert_eq!(*parsed_reclaim_recipient.address(), reclaim_recipient);
         assert_eq!(
             *parsed_token_program.address(),
             Address::new_from_array([7; 32])
@@ -188,6 +208,7 @@ mod tests {
         let program_id = Address::new_from_array([1; 32]);
         let state_pda = Address::new_from_array([2; 32]);
         let reclaim_authority = Address::new_from_array([3; 32]);
+        let reclaim_recipient = Address::new_from_array([9; 32]);
         let token_program = Address::new_from_array([4; 32]);
         let buffer_a = Address::new_from_array([5; 32]);
         let mint_a = Address::new_from_array([6; 32]);
@@ -198,12 +219,14 @@ mod tests {
             program_id,
             state_pda,
             reclaim_authority,
+            reclaim_recipient,
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
         })
         .data;
         let mut accounts = [
             fake_account(state_pda),
             fake_account(reclaim_authority),
+            fake_account(reclaim_recipient),
             fake_account(token_program),
             fake_account(buffer_a),
             fake_account(mint_a),
@@ -261,7 +284,7 @@ mod tests {
     #[test]
     fn reclaim_buffer_input_rejects_incomplete_pair() {
         let data = reclaim_buffer_data();
-        // Three shared accounts plus one dangling account that can't form a
+        // The shared accounts plus one dangling account that can't form a
         // full pair.
         let mut accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + 1 }>();
         assert_eq!(
@@ -281,6 +304,7 @@ mod tests {
             program_id,
             state_pda,
             reclaim_authority,
+            reclaim_recipient: Pubkey::new_from_array([6; 32]),
             buffers: &[(buffer_pda, mint)],
         }
         .into();
@@ -295,37 +319,66 @@ mod tests {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
         let reclaim_authority = Pubkey::new_from_array([3; 32]);
+        let reclaim_recipient = Pubkey::new_from_array([6; 32]);
         let buffer_pda = Pubkey::new_from_array([4; 32]);
         let mint = Pubkey::new_from_array([5; 32]);
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
             reclaim_authority,
+            reclaim_recipient,
             buffers: &[(buffer_pda, mint)],
         }
         .into();
 
-        assert_eq!(accounts.len(), 5);
+        assert_eq!(accounts.len(), 6);
         // state_pda: read-only, not signer
         assert_eq!(accounts[0].pubkey, state_pda);
         assert!(!accounts[0].is_writable);
         assert!(!accounts[0].is_signer);
-        // reclaim_authority: writable, signer
+        // reclaim_authority: read-only, signer
         assert_eq!(accounts[1].pubkey, reclaim_authority);
-        assert!(accounts[1].is_writable);
+        assert!(!accounts[1].is_writable);
         assert!(accounts[1].is_signer);
-        // token program: read-only
-        assert_eq!(accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
-        assert!(!accounts[2].is_writable);
+        // reclaim_recipient: writable, not signer
+        assert_eq!(accounts[2].pubkey, reclaim_recipient);
+        assert!(accounts[2].is_writable);
         assert!(!accounts[2].is_signer);
-        // buffer_pda: writable, not signer
-        assert_eq!(accounts[3].pubkey, buffer_pda);
-        assert!(accounts[3].is_writable);
+        // token program: read-only
+        assert_eq!(accounts[3].pubkey, SPL_TOKEN_PROGRAM_ID);
+        assert!(!accounts[3].is_writable);
         assert!(!accounts[3].is_signer);
-        // mint: read-only, not signer (only used to derive the buffer PDA)
-        assert_eq!(accounts[4].pubkey, mint);
-        assert!(!accounts[4].is_writable);
+        // buffer_pda: writable, not signer
+        assert_eq!(accounts[4].pubkey, buffer_pda);
+        assert!(accounts[4].is_writable);
         assert!(!accounts[4].is_signer);
+        // mint: read-only, not signer (only used to derive the buffer PDA)
+        assert_eq!(accounts[5].pubkey, mint);
+        assert!(!accounts[5].is_writable);
+        assert!(!accounts[5].is_signer);
+    }
+
+    #[test]
+    fn recipient_may_be_the_reclaim_authority_itself() {
+        let reclaim_authority = Pubkey::new_from_array([3; 32]);
+        let Instruction { accounts, .. } = ReclaimBuffer {
+            program_id: Pubkey::new_from_array([1; 32]),
+            state_pda: Pubkey::new_from_array([2; 32]),
+            reclaim_authority,
+            reclaim_recipient: reclaim_authority,
+            buffers: &[(
+                Pubkey::new_from_array([4; 32]),
+                Pubkey::new_from_array([5; 32]),
+            )],
+        }
+        .into();
+
+        // Both metas name the same account; the runtime unions their
+        // privileges, so the authority ends up a writable signer.
+        assert_eq!(accounts[1].pubkey, reclaim_authority);
+        assert!(accounts[1].is_signer);
+        assert_eq!(accounts[2].pubkey, reclaim_authority);
+        assert!(accounts[2].is_writable);
     }
 
     #[test]
@@ -341,16 +394,17 @@ mod tests {
             program_id,
             state_pda,
             reclaim_authority,
+            reclaim_recipient: Pubkey::new_from_array([8; 32]),
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
         }
         .into();
 
-        // Three shared accounts followed by two (buffer, mint) pairs.
-        assert_eq!(accounts.len(), 3 + 2 * 2);
-        assert_eq!(accounts[3].pubkey, buffer_a);
-        assert_eq!(accounts[4].pubkey, mint_a);
-        assert_eq!(accounts[5].pubkey, buffer_b);
-        assert_eq!(accounts[6].pubkey, mint_b);
+        // Four shared accounts followed by two (buffer, mint) pairs.
+        assert_eq!(accounts.len(), 4 + 2 * 2);
+        assert_eq!(accounts[4].pubkey, buffer_a);
+        assert_eq!(accounts[5].pubkey, mint_a);
+        assert_eq!(accounts[6].pubkey, buffer_b);
+        assert_eq!(accounts[7].pubkey, mint_b);
     }
 
     #[test]
@@ -362,9 +416,10 @@ mod tests {
             program_id,
             state_pda,
             reclaim_authority,
+            reclaim_recipient: Pubkey::new_from_array([4; 32]),
             buffers: &[],
         }
         .into();
-        assert_eq!(accounts.len(), 3);
+        assert_eq!(accounts.len(), 4);
     }
 }

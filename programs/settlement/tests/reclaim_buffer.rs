@@ -1,5 +1,8 @@
 use settlement_client::instructions::{CreateBuffers, Initialize, ReclaimBuffer};
-use settlement_client::settlement_interface::{pda::buffer::find_buffer_pda, SettlementError};
+use settlement_client::settlement_interface::{
+    pda::{buffer::find_buffer_pda, state::find_state_pda},
+    SettlementError,
+};
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -59,6 +62,7 @@ fn funded_buffer_is_skipped() {
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -72,7 +76,7 @@ fn funded_buffer_is_skipped() {
 }
 
 #[test]
-fn happy_path_reclaims_empty_buffer() {
+fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
     let (mut svm, program_id, payer) = common::setup();
     let reclaim_authority = common::unique_keypair();
 
@@ -95,9 +99,12 @@ fn happy_path_reclaims_empty_buffer() {
         .lamports;
     let reclaim_authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
 
+    // The authority names itself as the recipient: the same account appears
+    // both as the read-only signer and as the writable recipient.
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -112,6 +119,118 @@ fn happy_path_reclaims_empty_buffer() {
         common::lamports(&svm, &reclaim_authority.pubkey()) - reclaim_authority_lamports_before,
         buffer_lamports_before,
         "reclaim_authority must receive exactly the buffer's rent lamports"
+    );
+}
+
+#[test]
+fn reclaims_to_a_recipient_chosen_by_the_authority() {
+    let (mut svm, program_id, payer) = common::setup();
+    let reclaim_authority = common::unique_keypair();
+    let recipient = common::unique_keypair().pubkey();
+
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
+
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
+
+    let buffer_lamports_before = svm
+        .get_account(&buffer_pda)
+        .expect("buffer must exist before reclaim")
+        .lamports;
+    let authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
+    let recipient_lamports_before = common::lamports(&svm, &recipient);
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: recipient,
+        mints: &[mint],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    svm.send_transaction(tx)
+        .expect("reclaim_buffer should succeed");
+
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed after reclaim"
+    );
+    assert_eq!(
+        common::lamports(&svm, &recipient) - recipient_lamports_before,
+        buffer_lamports_before,
+        "the chosen recipient must receive exactly the buffer's rent lamports"
+    );
+    assert_eq!(
+        common::lamports(&svm, &reclaim_authority.pubkey()),
+        authority_lamports_before,
+        "reclaim_authority must not be credited when it named someone else"
+    );
+}
+
+/// The recipient isn't required to be a system account: closing only moves
+/// lamports, so a program-owned data account is credited just the same. The
+/// settlement's own state PDA is the sharpest case, since it also occupies the
+/// read-only `state_pda` slot of the very same instruction.
+#[test]
+fn reclaims_to_the_settlements_own_state_pda() {
+    let (mut svm, program_id, payer) = common::setup();
+    let reclaim_authority = common::unique_keypair();
+
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
+
+    let (recipient, _bump) = find_state_pda(&program_id);
+
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
+
+    let buffer_lamports_before = svm
+        .get_account(&buffer_pda)
+        .expect("buffer must exist before reclaim")
+        .lamports;
+    let recipient_before = svm
+        .get_account(&recipient)
+        .expect("state PDA must exist before reclaim");
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: recipient,
+        mints: &[mint],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    svm.send_transaction(tx)
+        .expect("reclaim_buffer should succeed");
+
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed after reclaim"
+    );
+    let recipient_after = svm
+        .get_account(&recipient)
+        .expect("state PDA must still exist");
+    assert_eq!(
+        recipient_after.lamports - recipient_before.lamports,
+        buffer_lamports_before,
+        "the state PDA must receive exactly the buffer's rent lamports"
+    );
+    assert_eq!(
+        recipient_after.data, recipient_before.data,
+        "crediting lamports must not touch the state PDA's data"
     );
 }
 
@@ -141,6 +260,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
         mints: &[mint_a, mint_b],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -182,6 +302,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: impostor.pubkey(),
+        reclaim_recipient: impostor.pubkey(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
