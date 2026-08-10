@@ -16,9 +16,7 @@ mod common;
 /// reclaim_authority.
 fn initialize(
     svm: &mut litesvm::LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    reclaim_authority: Pubkey,
+    ix: &Initialize,
 ) {
     let ix = Initialize {
         program_id: *program_id,
