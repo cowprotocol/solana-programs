@@ -33,8 +33,7 @@ bench: build-program build-test-programs
         echo "no compute-unit measurements recorded" >&2
         exit 1
     fi
-    # Slurp every record into one array, turn each into a single-key object, and
-    # fold them together; a repeated label keeps the last measurement.
+    # Read all files and zip into a easily readable unified file
     jq --slurp --sort-keys '{
         "compute_units": (map({(.label): .compute_units}) | add),
         "accounts_readable": (map({(.label): .accounts_readable}) | add),
@@ -72,4 +71,4 @@ build-verified:
 deploy programid keypair: build-verified
     solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
 
-all: build test lint fmt-check doc-dev
+all: build bench lint fmt-check doc-dev

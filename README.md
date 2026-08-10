@@ -49,6 +49,14 @@ just build
 just test
 ```
 
+### Benchmarks
+
+`just bench` runs the test suite and regenerates `bench-report.json`:
+
+```sh
+just bench
+```
+
 ## How to build a verified (reproducible) build
 
 Requires [Docker](https://docs.docker.com/engine/install/).

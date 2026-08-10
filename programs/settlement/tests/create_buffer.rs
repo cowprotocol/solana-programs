@@ -564,12 +564,8 @@ fn max_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
-    let meta = common::benchmark::send_transaction_metered(&mut svm, tx, "create_buffers")
+    common::benchmark::send_transaction_metered(&mut svm, tx, "create_buffers")
         .expect("a transaction filled to the buffer limit should succeed");
-    println!(
-        "create_buffers with {max_buffers} buffers consumed {} compute units",
-        meta.compute_units_consumed
-    );
 
     for mint in &mints {
         let (buffer_pda, _bump) = find_buffer_pda(&program_id, mint);

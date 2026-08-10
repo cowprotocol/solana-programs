@@ -11,10 +11,9 @@ use solana_sdk::{
 };
 use std::{env, fs, io::Write, thread};
 
-/// Where `send_transaction_metered` accumulates its measurements: a directory
-/// of per-process JSON Lines shards, which `just bench` merges into
-/// `bench-report.json` once every test binary has exited.
-const CU_SHARD_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/bench-report");
+/// Where `send_transaction_metered` writes its measurements: one single-record
+/// file per `<test>/<label>`, which `just bench` merges into `bench-report.json`.
+const BENCH_REPORT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/bench-report");
 
 /// Qualify `label` with the name of the test recording it, so a test only has to
 /// name the transaction it measures and two tests measuring the same kind of
@@ -30,11 +29,17 @@ fn qualified_label(label: &str) -> String {
     format!("{test_name}/{label}")
 }
 
-/// Wraps svm.send_transaction and captures the compute units consumed by
-/// `program_id`'s own execution. The measured usage is recorded to a JSON
-/// file under the enclosing test's name joined with `label`.
+/// Wraps [`LiteSVM::send_transaction`] and, when `TEST_BENCHMARK` is set, records
+/// the transaction's compute units, locked accounts, and instruction-data bytes
+/// under `<test name>/<label>`. Rent allocation/deallocation is not measured.
 ///
-/// Only CUs are captured--not rent allocation/deallocation.
+/// A reverted transaction still has its accounts and bytes recorded, since those
+/// describe the transaction as submitted. Its compute units are recorded as null:
+/// execution stopped partway, so the tally is partial.
+///
+/// This function will panic if the output file already exists. This is designed
+/// to prevent accidental reuse of a label, which would otherwise silently
+/// overwrite the earlier measurement.
 #[allow(
     clippy::result_large_err,
     reason = "mirrors litesvm::LiteSVM::send_transaction's own return type, which we don't control"
@@ -52,7 +57,7 @@ pub fn send_transaction_metered(
 
     // only write benchmarks if `TEST_BENCHMARK` is set to something
     if env::var("TEST_BENCHMARK").is_ok() {
-        record_compute_units(CU_SHARD_DIR, &label, tx, &result);
+        record_benchmark(BENCH_REPORT_DIR, &label, tx, &result);
     }
 
     result
@@ -105,12 +110,7 @@ fn accounts_locked(tx: &VersionedTransaction) -> (usize, usize) {
         )
 }
 
-fn record_compute_units(
-    dir: &str,
-    label: &str,
-    tx: VersionedTransaction,
-    result: &TransactionResult,
-) {
+fn record_benchmark(dir: &str, label: &str, tx: VersionedTransaction, result: &TransactionResult) {
     let (accounts_readable, accounts_writable) = accounts_locked(&tx);
     let ix_bytes_required: usize = tx
         .message
@@ -119,17 +119,17 @@ fn record_compute_units(
         .map(|ix| ix.data.len())
         .sum();
 
+    // A revert stops execution partway, so the consumed count is a partial tally
+    // rather than the cost of the transaction: report it as null instead.
     let compute_units_consumed = match &result {
-        Ok(meta) => meta.compute_units_consumed,
-        Err(failed) => failed.meta.compute_units_consumed,
+        Ok(meta) => meta.compute_units_consumed.to_string(),
+        Err(_) => "null".to_owned(),
     };
 
     fs::create_dir_all(dir)
-        .unwrap_or_else(|e| panic!("failed to create CU shard directory at {dir}: {e}"));
+        .unwrap_or_else(|e| panic!("failed to create benchmark report directory at {dir}: {e}"));
     let path = shard_path(dir, label);
 
-    // Newline included in the same buffer: it's the single write that's atomic,
-    // so terminating the line separately would reintroduce interleaving.
     let line = format!("{{\"label\": \"{label}\", \"accounts_readable\": {accounts_readable}, \"accounts_writable\": {accounts_writable}, \"instruction_bytes\": {ix_bytes_required}, \"compute_units\": {compute_units_consumed}}}");
 
     fs::OpenOptions::new()
