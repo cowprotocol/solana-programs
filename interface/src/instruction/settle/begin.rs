@@ -299,6 +299,7 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::tests::assert_readonly_nonsigner;
     use hex_literal::hex;
     use solana_account_view::AccountView;
     use solana_address::Address;
@@ -340,16 +341,14 @@ mod tests {
                 [0],                      // order count
             ],
         );
-        // No orders: the three fixed accounts (sysvar, state PDA, token program).
+        // No orders: the three fixed accounts (sysvar, state PDA, token
+        // program). They are all generic accounts that don't play an active
+        // role in the base instruction (the state PDA CPI signature isn't
+        // relevant here).
         assert_eq!(accounts.len(), 3);
-        assert_eq!(accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
-        assert_eq!(accounts[1].pubkey, state_pda);
-        assert_eq!(accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
-        // They are all generic accounts that don't play an active role in the
-        // transaction.
-        assert!(accounts
-            .iter()
-            .all(|account| !account.is_writable && !account.is_signer));
+        assert_readonly_nonsigner(&accounts[0], INSTRUCTIONS_SYSVAR_ID);
+        assert_readonly_nonsigner(&accounts[1], state_pda);
+        assert_readonly_nonsigner(&accounts[2], SPL_TOKEN_PROGRAM_ID);
     }
 
     #[test]

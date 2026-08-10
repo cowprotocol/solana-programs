@@ -147,7 +147,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     // Create the account on the buy side if necessary
     ixs.extend(buy.create_ata_ix(&ctx.payer.pubkey()));
 
-    // Approve the settlement program to pull sell tokens on our behalf.
+    // Approve the settlement state PDA to pull sell tokens on the user's behalf.
     ixs.push(crate::instructions::approve(
         &ctx.program_id,
         &sell.ta,

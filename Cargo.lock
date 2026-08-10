@@ -3075,9 +3075,12 @@ dependencies = [
  "settlement-client",
  "settlement-interface",
  "solana-address-lookup-table-interface",
+ "solana-compute-budget",
  "solana-instruction",
  "solana-instructions-sysvar",
+ "solana-program-pack",
  "solana-sdk",
+ "solana-sha256-hasher",
  "solana-system-interface 3.2.0",
  "spl-associated-token-account-interface",
 ]
@@ -3524,6 +3527,7 @@ version = "3.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8de86231371bf26dbcf473a0ea7ca424184db0c7720fafbb899d2fca2eaf1ac2"
 dependencies = [
+ "qualifier_attr",
  "solana-fee-structure",
  "solana-program-runtime",
 ]
