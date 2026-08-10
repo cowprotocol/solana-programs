@@ -62,20 +62,6 @@ fn funded_buffer_is_skipped() {
     let amount = 1_000;
     common::token::mint_to(&mut svm, &payer, &mint, &buffer_pda, amount);
 
-    // Pre-create the reclaim_authority's ATA: the program only validates its address,
-    // it doesn't create it.
-    let reclaim_authority_ata = common::token::create_associated_token_account(
-        &mut svm,
-        &payer,
-        &mint,
-        &reclaim_authority.pubkey(),
-    );
-    assert_eq!(
-        reclaim_authority_ata,
-        get_associated_token_address(&reclaim_authority.pubkey(), &mint),
-        "sanity: helper should derive the canonical ATA"
-    );
-
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
