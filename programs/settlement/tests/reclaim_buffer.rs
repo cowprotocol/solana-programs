@@ -78,7 +78,7 @@ fn funded_buffer_is_skipped() {
 }
 
 #[test]
-fn happy_path_reclaims_empty_buffer_without_token_transfer() {
+fn happy_path_reclaims_empty_buffer() {
     let (mut svm, program_id, payer) = common::setup();
     let reclaim_authority = Keypair::new();
 
