@@ -104,6 +104,7 @@ mod tests {
     use super::fixtures::{default_reclaim_data, NUM_ACCOUNTS};
     use super::*;
     use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
+    use crate::instruction::tests::assert_writable_nonsigner;
     use solana_account_view::AccountView;
     use solana_address::Address;
 
@@ -203,13 +204,9 @@ mod tests {
         .instruction();
 
         assert_eq!(ix.accounts.len(), 2);
-        // order_pda: writable, not signer (the PDA being closed)
-        assert_eq!(ix.accounts[0].pubkey, order_pda);
-        assert!(ix.accounts[0].is_writable);
-        assert!(!ix.accounts[0].is_signer);
-        // reclaim_recipient: writable, not signer (receives the recovered rent)
-        assert_eq!(ix.accounts[1].pubkey, reclaim_recipient);
-        assert!(ix.accounts[1].is_writable);
-        assert!(!ix.accounts[1].is_signer);
+        // order_pda is the PDA being closed; reclaim_recipient receives the
+        // recovered rent. Neither signs.
+        assert_writable_nonsigner(&ix.accounts[0], order_pda);
+        assert_writable_nonsigner(&ix.accounts[1], reclaim_recipient);
     }
 }
