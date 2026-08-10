@@ -35,7 +35,9 @@ jobs:
         # `cargo test` replay the same case sequence on every CI run.
         env:
           PROPTEST_RNG_SEED: "0"
-        run: just test
+        run: just bench
+      - name: Bench does not drift
+        run: git diff -- target/cu-report.json
 
   fmt-check:
     runs-on: ubuntu-latest
