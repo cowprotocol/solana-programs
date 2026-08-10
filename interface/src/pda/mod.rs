@@ -59,30 +59,36 @@ const fn write_at(dest: &mut [u8], offset: usize, src: &[u8]) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use solana_pubkey::Pubkey;
 
     use super::{
-        build_padded_settlement_seed, SETTLEMENT_SEED, SETTLEMENT_SEED_LEN, SETTLEMENT_SEED_PREFIX,
+        build_padded_settlement_seed, SETTLEMENT_SEED, SETTLEMENT_SEED_LEN,
+        SETTLEMENT_SEED_VERSION_LEN,
     };
 
-    pub(crate) const SAMPLE_VERSIONS: &[&str] = &["0.0", "0.2", "0.10", "1.0", "1.1", "10.0"];
+    pub(crate) const SAMPLE_VERSIONS: &[&str] = &[
+        "0.0", "0.1", "0.2", "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17",
+        "0.18", "0.19", "1.0", "1.1", "10.0",
+    ];
 
-    /// The widest `<major>.<minor>` the seed can still hold.
+    /// The widest `<major>.<minor>` the version field can still hold. The `v`
+    /// belongs to [`SETTLEMENT_SEED_PREFIX`], so only the dot and the minor
+    /// digit come out of the reserved width here.
     fn longest_fitting_version() -> String {
-        let major_width = SETTLEMENT_SEED_LEN
-            .checked_sub(SETTLEMENT_SEED_PREFIX.len())
-            .and_then(|width| width.checked_sub("v.9".len()))
-            .expect("the seed must hold at least a one-digit major and minor");
+        let major_width = SETTLEMENT_SEED_VERSION_LEN
+            .checked_sub(".9".len())
+            .expect("the version field must hold at least a one-digit major and minor");
         format!("{}.9", "9".repeat(major_width))
     }
 
     #[test]
     fn build_padded_settlement_seed_accepts_the_widest_fitting_version() {
-        let version = longest_fitting_version();
-        let seed = build_padded_settlement_seed(&format!("v{version}"));
-        assert_eq!(seed.as_slice(), b"settlementv99999.9");
-        // No padding left: the version butts right up against the prefix.
-        assert!(!seed.contains(&b' '));
+        let seed = build_padded_settlement_seed(&longest_fitting_version());
+        assert_eq!(seed.as_slice(), b"settlement v99999.9");
+        // No padding left: the version fills the reserved field exactly.
+        assert!(!seed.ends_with(b" "));
     }
 
     /// `build_padded_settlement_seed` is called in a const context, where these panics are
@@ -92,7 +98,7 @@ mod tests {
     #[should_panic(expected = "no longer fits the settlement seed")]
     fn build_padded_settlement_seed_rejects_a_version_one_byte_too_wide() {
         let version = longest_fitting_version();
-        let _ = build_padded_settlement_seed(&format!("v{version}0"));
+        let _ = build_padded_settlement_seed(&format!("{version}0"));
     }
 
     #[test]
@@ -154,5 +160,30 @@ mod tests {
         let expected = try_create_address(canonical_bump)
             .expect("canonical bump must produce a valid address");
         assert_eq!(pda, expected);
+    }
+
+    /// Assert that no [`SAMPLE_VERSIONS`] entry re-derives the same PDA as another [`SAMPLE_VERSIONS`]
+    /// `cur_version_pda` should be computed using the `find_*_pda` function. It is used to ensure `trailing_seeds`
+    /// results in the expected PDA on the current version.
+    #[track_caller]
+    pub(crate) fn assert_distinct_versions_yield_distinct_pdas(
+        cur_version_pda: &Pubkey,
+        trailing_seeds: &[&[u8]],
+    ) {
+        let mut cur_version_seeds: Vec<&[u8]> = vec![&SETTLEMENT_SEED];
+        cur_version_seeds.extend_from_slice(trailing_seeds);
+        let (cur_version_derived_pda, _) =
+            Pubkey::find_program_address(&cur_version_seeds, &crate::ID);
+        assert_eq!(cur_version_pda, &cur_version_derived_pda);
+
+        let mut seen_pdas = HashSet::new();
+        for other in SAMPLE_VERSIONS {
+            let other_seed = build_padded_settlement_seed(other);
+            let mut seeds: Vec<&[u8]> = vec![&other_seed];
+            seeds.extend_from_slice(trailing_seeds);
+
+            let (other_pda, _) = Pubkey::find_program_address(&seeds, &crate::ID);
+            assert!(seen_pdas.insert(other_pda));
+        }
     }
 }

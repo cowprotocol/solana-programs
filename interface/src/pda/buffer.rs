@@ -13,7 +13,7 @@
 //! the cargo package major and minor version, so a version bump moves every buffer.
 //! Since only the state PDA can spend a buffer and that address moves too,
 //! buffers must be drained under the old version before a bump ships, or their
-//! contents are stranded. See `DESIGN.md`.
+//! contents are stranded.
 
 use solana_account_view::AccountView;
 use solana_address::Address;
@@ -68,9 +68,8 @@ pub fn validate_buffer_pda(
 
 #[cfg(test)]
 mod tests {
-    use crate::pda::build_padded_settlement_seed;
-
     use super::*;
+    use crate::pda::tests::assert_distinct_versions_yield_distinct_pdas;
 
     #[test]
     fn find_buffer_pda_uses_canonical_seeds() {
@@ -84,26 +83,10 @@ mod tests {
 
     #[test]
     fn distinct_versions_yield_distinct_buffer_pdas() {
-        use crate::pda::tests::SAMPLE_VERSIONS;
-
-        let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
-        let (pda, _) = find_buffer_pda(&program_id, &mint);
+        let (pda, _) = find_buffer_pda(&crate::ID, &mint);
 
-        for other in SAMPLE_VERSIONS {
-            let (other_pda, _) = Pubkey::find_program_address(
-                &[
-                    &build_padded_settlement_seed(other),
-                    mint.as_array(),
-                    BUFFER_SEED,
-                ],
-                &program_id,
-            );
-            assert_ne!(
-                pda, other_pda,
-                "version {other} must not share the current version's buffer PDA",
-            );
-        }
+        assert_distinct_versions_yield_distinct_pdas(&pda, &[mint.as_array(), BUFFER_SEED]);
     }
 
     #[test]
