@@ -98,20 +98,21 @@ pub fn to_instruction_error(e: SettlementError) -> InstructionError {
 
 #[track_caller]
 pub fn assert_instruction_error<T>(
+    ix_idx: u8,
     result: Result<T, TransactionError>,
     expected: InstructionError,
 ) {
     assert_eq!(
         result.err(),
-        Some(TransactionError::InstructionError(0, expected))
+        Some(TransactionError::InstructionError(ix_idx, expected))
     );
 }
 
 /// Convenience wrapper around [`assert_instruction_error`] for the common case
 /// of asserting a specific [`SettlementError`].
 #[track_caller]
-pub fn assert_settlement_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
-    assert_instruction_error(result, to_instruction_error(expected));
+pub fn assert_settlement_error<T>(ix_idx: u8, result: Result<T, TransactionError>, expected: SettlementError) {
+    assert_instruction_error(ix_idx, result, to_instruction_error(expected));
 }
 
 /// Place a fresh, rent-exempt account holding `data` and owned by `owner` at a
