@@ -33,7 +33,7 @@ pub const SETTLEMENT_SEED: &[u8] = &build_padded_settlement_seed(concat!(
     env!("CARGO_PKG_VERSION_MINOR")
 ));
 
-/// Lay out `SETTLEMENT_SEED_PREFIX` and `version` in a
+/// Lay out [`SETTLEMENT_SEED_PREFIX`] and `version` in a
 /// [`SETTLEMENT_SEED_LEN`]-byte field, right-aligning the version and filling
 /// the gap between the two with spaces.
 ///
