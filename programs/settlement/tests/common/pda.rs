@@ -117,11 +117,7 @@ pub fn assert_recreate_is_rejected(
 
 /// Pre-fund `account`'s address, then send the transaction built by `make_tx`
 /// and assert creation still succeeds and leaves `account` holding exactly its
-/// rent-exempt minimum. A PDA address is publicly derivable, so anyone can send
-/// it lamports before it's created; this reproduces that griefing vector, which
-/// used to make the plain `CreateAccount` instruction revert with
-/// `AccountAlreadyInUse` and permanently block the PDA. The stray balance is
-/// absorbed into the rent rather than stacked on top of it.
+/// rent-exempt minimum.
 pub fn assert_creation_survives_prefund(
     svm: &mut LiteSVM,
     account: &Pubkey,
