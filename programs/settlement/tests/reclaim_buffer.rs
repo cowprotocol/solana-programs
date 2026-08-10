@@ -128,7 +128,7 @@ fn happy_path_reclaims_empty_buffer_without_token_transfer() {
 }
 
 #[test]
-fn reclaims_multiple_buffers_in_one_instruction() {
+fn reclaims_multiple_buffers_skipping_funded() {
     let (mut svm, program_id, payer) = common::setup();
     let reclaim_authority = Keypair::new();
 
