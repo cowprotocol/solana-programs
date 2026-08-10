@@ -39,31 +39,22 @@ pub const SETTLEMENT_SEED: &[u8] = &build_padded_settlement_seed(concat!(
 ///
 /// Panics at compile time if the version no longer fits.
 const fn build_padded_settlement_seed(version: &str) -> [u8; SETTLEMENT_SEED_LEN] {
-    const OVERFLOW: &str = "the package version no longer fits the settlement seed; widen \
-                            SETTLEMENT_SEED_LEN or shorten the major/minor version number, see \
-                            DESIGN.md";
-
     let version = version.as_bytes();
-    // Where the right-aligned version starts; also the first byte the prefix
-    // may not reach.
-    let offset = match SETTLEMENT_SEED_LEN.checked_sub(version.len()) {
-        Some(offset) => offset,
-        None => panic!("{}", OVERFLOW),
-    };
-    assert!(SETTLEMENT_SEED_PREFIX.len() <= offset, "{}", OVERFLOW);
+    assert!(version.len() <= SETTLEMENT_SEED_VERSION_LEN, "{}", "the package version no longer fits the settlement seed; shorten the major/minor version number");
 
     let mut seed = [b' '; SETTLEMENT_SEED_LEN];
-    let mut i = 0;
-    while i < SETTLEMENT_SEED_PREFIX.len() {
-        seed[i] = SETTLEMENT_SEED_PREFIX[i];
-        i = i.saturating_add(1);
-    }
-    let mut i = 0;
-    while i < version.len() {
-        seed[offset.saturating_add(i)] = version[i];
-        i = i.saturating_add(1);
-    }
+    write_at(&mut seed, 0, SETTLEMENT_SEED_PREFIX);
+    write_at(&mut seed, SETTLEMENT_SEED_PREFIX.len(), version);
     seed
+}
+
+const fn write_at(dest: &mut [u8], offset: usize, src: &[u8]) {
+    let mut i = 0;
+    while i < src.len() {
+        let index = offset.checked_add(i).expect("index stays within the seed");
+        dest[index] = src[i];
+        i = i.checked_add(1).expect("index stays within the seed");
+    }
 }
 
 #[cfg(test)]
