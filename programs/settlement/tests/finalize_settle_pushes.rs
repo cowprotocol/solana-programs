@@ -14,7 +14,7 @@ use crate::common::{
     order::{create_order_pda, sample_intent, OrderBuilder},
     replace_first_matching_account, send,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
-    setup, to_instruction_error, token,
+    setup, to_instruction_error, token, unique_pubkey,
 };
 use settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
 use settlement_client::settlement_interface::{
@@ -213,7 +213,7 @@ fn rejects_push_from_substituted_source() {
     // `FinalizeSettle` re-derives the buffer from the destination's mint and
     // rejects the mismatch before touching the substituted account.
     let source_index = 3;
-    finalize.accounts[source_index].pubkey = Pubkey::new_unique();
+    finalize.accounts[source_index].pubkey = unique_pubkey();
 
     let instructions = build_settlement(&program_id, &orders, finalize);
     assert_finalize_error(
@@ -228,7 +228,7 @@ fn rejects_wrong_token_program() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint: unique_pubkey(),
         amount: 0,
     }];
 
@@ -236,7 +236,7 @@ fn rejects_wrong_token_program() {
     replace_first_matching_account(
         &mut instructions[usize::from(FINALIZE_INDEX)],
         &SPL_TOKEN_PROGRAM_ID,
-        Pubkey::new_unique(),
+        unique_pubkey(),
     );
 
     assert_finalize_error(
@@ -251,7 +251,7 @@ fn rejects_wrong_state_pda() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint: unique_pubkey(),
         amount: 0,
     }];
 
@@ -260,7 +260,7 @@ fn rejects_wrong_state_pda() {
     replace_first_matching_account(
         &mut instructions[usize::from(FINALIZE_INDEX)],
         &state_pda,
-        Pubkey::new_unique(),
+        unique_pubkey(),
     );
 
     assert_finalize_error(
@@ -275,7 +275,7 @@ fn rejects_push_account_count_mismatch() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint: unique_pubkey(),
         amount: 100,
     }];
 
@@ -341,7 +341,7 @@ fn rejects_two_too_few_accounts() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint: unique_pubkey(),
         amount: 1_000,
     }];
 
@@ -375,7 +375,7 @@ fn rejects_invalid_buy_token_account() {
     // The order's buy token account (the push destination) isn't a token account,
     // so `FinalizeSettle` can't read its mint to derive the buffer. `BeginSettle`
     // accepts it: the push destination still matches the intent's buy token.
-    let not_a_token_account = Pubkey::new_unique();
+    let not_a_token_account = unique_pubkey();
     let mut intent = sample_intent(payer.pubkey(), sell_token, 0);
     intent.buy_token_account = not_a_token_account;
     create_order_pda(&mut svm, &program_id, &payer, &intent);
@@ -407,7 +407,7 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
         .get_account(&genuine)
         .expect("the genuine token account exists")
         .data;
-    let impostor = create_account(&mut svm, &Pubkey::new_unique(), &token_shaped);
+    let impostor = create_account(&mut svm, &unique_pubkey(), &token_shaped);
 
     // `BeginSettle` only checks the push destination matches the intent's buy
     // token, so it accepts the impostor; `FinalizeSettle` rejects it when the
@@ -434,7 +434,7 @@ fn rejects_partial_push_amount() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint: unique_pubkey(),
         amount: 100,
     }];
 

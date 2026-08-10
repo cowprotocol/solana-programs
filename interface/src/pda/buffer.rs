@@ -1,7 +1,7 @@
 //! Buffer PDA seed and address derivation.
 //!
-//! Each buffer is a per-token SPL token account that holds funds on behalf
-//! of the settlement program. It lives at a PDA keyed by the token mint, so
+//! Each buffer is a per-token SPL token account that holds funds controlled
+//! by the settlement state PDA. It lives at a PDA keyed by the token mint, so
 //! there is exactly one buffer address per token.
 //!
 //! The token account stored at this address is initialized by the
