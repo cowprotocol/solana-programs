@@ -37,7 +37,8 @@ bench: build-program build-test-programs
     # fold them together; a repeated label keeps the last measurement.
     jq --slurp --sort-keys '{
         "compute_units": (map({(.label): .compute_units}) | add),
-        "accounts": (map({(.label): .accounts}) | add),
+        "accounts_readable": (map({(.label): .accounts_readable}) | add),
+        "accounts_writable": (map({(.label): .accounts_writable}) | add),
         "instruction_bytes": (map({(.label): .instruction_bytes}) | add)
     }' "${shards[@]}" \
         > target/cu-report.json

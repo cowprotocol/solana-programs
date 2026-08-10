@@ -568,7 +568,6 @@ fn max_buffers_in_one_instruction() {
         &mut svm,
         tx,
         "create_buffers/max_in_one_instruction",
-        &program_id,
     )
     .expect("a transaction filled to the buffer limit should succeed");
     println!(
