@@ -93,15 +93,6 @@ mod tests {
     /// The `reclaim_authority` recorded in the state PDA these tests encode.
     const AUTHORITY: Address = Address::new_from_array([2; 32]);
 
-    /// Build the canonical state PDA encoding for `reclaim_authority`: the
-    /// discriminator byte followed by `reclaim_authority`'s bytes.
-    fn encoded_state(reclaim_authority: Address) -> [u8; EncodedStateAccount::SIZE] {
-        let mut bytes = [0u8; EncodedStateAccount::SIZE];
-        bytes[0] = EncodedStateAccount::DISCRIMINATOR;
-        bytes[1..].copy_from_slice(&reclaim_authority.to_bytes());
-        bytes
-    }
-
     /// A fake `AccountView` for `address` that reports as a transaction
     /// signer, as `reclaim_authority` must for `ReclaimBuffer` to accept it.
     fn fake_signer(address: Address) -> AccountView {
@@ -130,7 +121,9 @@ mod tests {
         let mut accounts = [
             fake_account_with_data(
                 Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
-                &encoded_state(authority_address),
+                &*EncodedStateAccount::from(StateAccount {
+                    reclaim_authority: authority_address,
+                }),
             ), // state PDA
             fake_signer(authority_address), // reclaim authority
             fake_account(Address::new_from_array([8; 32])), // reclaim recipient
@@ -151,7 +144,9 @@ mod tests {
         let mut accounts = [
             fake_account_with_data(
                 Address::new_from_array([6; 32]),
-                &encoded_state(authority_address),
+                &*EncodedStateAccount::from(StateAccount {
+                    reclaim_authority: authority_address,
+                }),
             ), // state PDA
             fake_signer(authority_address), // reclaim authority
             fake_account(Address::new_from_array([8; 32])), // reclaim recipient
@@ -171,7 +166,9 @@ mod tests {
         let mut accounts = [
             fake_account_with_data(
                 Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
-                &encoded_state(AUTHORITY),
+                &*EncodedStateAccount::from(StateAccount {
+                    reclaim_authority: AUTHORITY,
+                }),
             ), // state PDA
             fake_signer(Address::new_from_array([7; 32])), // a different, unauthorized signer
             fake_account(Address::new_from_array([8; 32])), // reclaim recipient
@@ -197,7 +194,9 @@ mod tests {
         let mut accounts = [
             fake_account_with_data(
                 Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
-                &encoded_state(AUTHORITY),
+                &*EncodedStateAccount::from(StateAccount {
+                    reclaim_authority: AUTHORITY,
+                }),
             ), // state PDA
             authority_account, // reclaim authority, **not** a signer
             fake_account(Address::new_from_array([8; 32])), // reclaim recipient
@@ -218,7 +217,9 @@ mod tests {
         let mut accounts = [
             fake_account_with_data(
                 Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
-                &encoded_state(authority_address),
+                &*EncodedStateAccount::from(StateAccount {
+                    reclaim_authority: authority_address,
+                }),
             ), // state PDA
             fake_signer(authority_address), // reclaim authority
             fake_account(Address::new_from_array([8; 32])), // reclaim recipient
