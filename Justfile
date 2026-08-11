@@ -18,6 +18,29 @@ build: build-program
 test: build-program build-test-programs
     cargo test
 
+# Each test outputs its consumption during test execution to a series of target/bench-report/*.jsonl files.
+# Assembles into a single `bench-report.json`
+bench: build-program build-test-programs
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf target/bench-report
+    TEST_BENCHMARK=true cargo test
+
+
+    shopt -s nullglob
+    shards=(target/bench-report/*.jsonl)
+    if [[ ${#shards[@]} -eq 0 ]]; then
+        echo "no compute-unit measurements recorded" >&2
+        exit 1
+    fi
+    # Read all files and zip into a easily readable unified file
+    jq --slurp --sort-keys '{
+        "compute_units": (map({(.label): .compute_units}) | add),
+        "accounts": (map({(.label): .accounts}) | add),
+        "transaction_bytes": (map({(.label): .transaction_bytes}) | add)
+    }' "${shards[@]}" \
+        > bench-report.json
+
 # Format the source code.
 fmt:
     cargo fmt
@@ -47,4 +70,4 @@ build-verified:
 deploy programid keypair: build-verified
     solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
 
-all: build test lint fmt-check doc-dev
+all: build bench lint fmt-check doc-dev

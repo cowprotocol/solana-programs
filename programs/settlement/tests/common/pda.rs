@@ -33,6 +33,7 @@ pub fn find_noncanonical_pda<const N: usize>(
 /// address the program signs for. The runtime grants the PDA signature only
 /// for the canonical address, so signing `CreateAccount` for any other `pda`
 /// fails the CPI with `PrivilegeEscalation` and leaves `pda` uncreated.
+#[track_caller]
 pub fn assert_rejected_as_noncanonical(svm: &mut LiteSVM, tx: Transaction, pda: &Pubkey) {
     let err = svm
         .send_transaction(tx)
@@ -56,6 +57,7 @@ pub fn assert_rejected_as_noncanonical(svm: &mut LiteSVM, tx: Transaction, pda: 
 /// must succeed; the second is sent and its outcome returned so the caller can
 /// assert on it (a no-op success or a revert). The success metadata is returned
 /// as-is; only the large failure metadata is reduced to its `TransactionError`.
+#[track_caller]
 fn recreate_leaving_account_unchanged(
     svm: &mut LiteSVM,
     account: &Pubkey,
@@ -91,6 +93,7 @@ fn recreate_leaving_account_unchanged(
 /// Send the transaction built by `make_tx` twice and assert the second run is
 /// a no-op for the input account: both transactions succeed and the input
 /// account is byte-for-byte unchanged compared to the second.
+#[track_caller]
 pub fn assert_recreate_is_noop(
     svm: &mut LiteSVM,
     account: &Pubkey,
@@ -104,6 +107,7 @@ pub fn assert_recreate_is_noop(
 /// rejected because the account already exists: the first transaction succeeds,
 /// the second reverts with `AccountAlreadyInitialized`, and the account is left
 /// byte-for-byte unchanged.
+#[track_caller]
 pub fn assert_recreate_is_rejected(
     svm: &mut LiteSVM,
     account: &Pubkey,

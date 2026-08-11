@@ -3107,6 +3107,7 @@ name = "settlement"
 version = "0.1.0"
 dependencies = [
  "arrayref",
+ "bincode",
  "litesvm",
  "litesvm-token",
  "pinocchio",

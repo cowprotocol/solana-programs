@@ -5,7 +5,10 @@ use settlement_client::settlement_interface::{
 };
 use solana_sdk::signature::Signer;
 
-use crate::common::{unique_keypair, unique_pubkey};
+use crate::common::{
+    benchmark::{send_transaction_metered, BenchLabel},
+    unique_keypair, unique_pubkey,
+};
 
 mod common;
 
@@ -23,7 +26,8 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         reclaim_authority,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx).expect("initialize should succeed");
+    send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
+        .expect("initialize should succeed");
 
     let account = svm
         .get_account(&state_pda)
