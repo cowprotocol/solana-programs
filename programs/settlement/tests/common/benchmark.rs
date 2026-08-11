@@ -82,9 +82,11 @@ pub fn send_transaction_metered(
 
     let result = svm.send_transaction(tx.clone());
 
-    // only write benchmarks if `TEST_BENCHMARK` is set to something
-    if env::var("TEST_BENCHMARK").is_ok() {
-        record_benchmark(BENCH_REPORT_DIR, &label, tx, &result);
+    // only write benchmarks if `TEST_BENCHMARK` is set to true
+    if let Ok(flag_value) = env::var("TEST_BENCHMARK") {
+        if flag_value.to_lowercase() == "true" {
+            record_benchmark(BENCH_REPORT_DIR, &label, tx, &result);
+        }
     }
 
     result
