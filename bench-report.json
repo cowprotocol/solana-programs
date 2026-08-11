@@ -17,12 +17,12 @@
     "settle/settles_multiple_orders": 17
   },
   "compute_units": {
-    "create_buffers/happy_path_creates_initialized_buffer_token_account": 13325,
-    "create_buffers/happy_path_creates_multiple_buffers_in_one_instruction": 23194,
-    "create_buffers/max_buffers_in_one_instruction": 173613,
-    "create_order/happy_path_creates_order_pda_with_expected_body": 3404,
-    "initialize/happy_path_initializes_state_pda_with_expected_data": 10520,
-    "reclaim_order/happy_path_returns_lamports_and_closes_pda": 2131,
+    "create_buffers/happy_path_creates_initialized_buffer_token_account": 13338,
+    "create_buffers/happy_path_creates_multiple_buffers_in_one_instruction": 23235,
+    "create_buffers/max_buffers_in_one_instruction": 174032,
+    "create_order/happy_path_creates_order_pda_with_expected_body": 3417,
+    "initialize/happy_path_initializes_state_pda_with_expected_data": 10532,
+    "reclaim_order/happy_path_returns_lamports_and_closes_pda": 2130,
     "settle/finalizes_with_no_pushes": 19015,
     "settle/pulls_from_multiple_orders": 31683,
     "settle/pulls_funds_to_destination": 25369,

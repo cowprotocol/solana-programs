@@ -358,6 +358,22 @@ fn rejects_invalid_mint() {
 }
 
 #[test]
+fn creates_buffer_when_address_is_prefunded() {
+    let (mut svm, program_id, payer) = common::setup();
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
+
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &buffer_pda, |svm| {
+        let ix = CreateBuffers {
+            program_id,
+            payer: payer.pubkey(),
+            mints: &[mint],
+        };
+        common::signed_tx(svm, &payer, &payer, ix)
+    });
+}
+
+#[test]
 fn recreating_same_buffer_is_idempotent() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
