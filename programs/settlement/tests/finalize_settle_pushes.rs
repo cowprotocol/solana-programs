@@ -13,7 +13,7 @@ use crate::common::{
     benchmark::{send_metered, BenchLabel},
     buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
-    replace_first_matching_account, send,
+    replace_first_matching_account,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
 };
@@ -188,7 +188,7 @@ fn rejects_push_if_buffer_does_not_match_mint() {
 
     let instructions = finalize(&program_id, &orders);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send_metered(&mut svm, &payer, instructions, BenchLabel::Settle),
         to_instruction_error(SettlementError::PushSourceNotBuffer),
     );
 }
@@ -222,13 +222,13 @@ fn rejects_push_from_substituted_source() {
 
     let instructions = build_settlement(&program_id, &orders, finalize);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send_metered(&mut svm, &payer, instructions, BenchLabel::Settle),
         to_instruction_error(SettlementError::PushSourceNotBuffer),
     );
 }
 
 #[test]
-fn rejects_wrong_token_program() {
+fn rejects_wrong_token_program_in_finalize() {
     let (mut svm, program_id, payer) = setup();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
@@ -245,13 +245,13 @@ fn rejects_wrong_token_program() {
     );
 
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send_metered(&mut svm, &payer, instructions, BenchLabel::Settle),
         InstructionError::IncorrectProgramId,
     );
 }
 
 #[test]
-fn rejects_wrong_state_pda() {
+fn rejects_wrong_state_pda_in_finalize() {
     let (mut svm, program_id, payer) = setup();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
@@ -269,7 +269,7 @@ fn rejects_wrong_state_pda() {
     );
 
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send_metered(&mut svm, &payer, instructions, BenchLabel::Settle),
         to_instruction_error(SettlementError::StateAccountMismatch),
     );
 }
@@ -300,7 +300,7 @@ fn rejects_push_account_count_mismatch() {
 
     let instructions = build_settlement(&program_id, &orders, finalize);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send_metered(&mut svm, &payer, instructions, BenchLabel::Settle),
         to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
     );
 }
@@ -322,7 +322,7 @@ fn rejects_too_few_accounts() {
     finalize.accounts.pop();
 
     let instructions = build_settlement(&program_id, &[], finalize);
-    let err = send(&mut svm, &payer, instructions)
+    let err = send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect_err("a finalize missing a fixed account must be rejected");
     let TransactionError::InstructionError(FINALIZE_INDEX, ix_err) = err else {
         panic!("expected the finalize (index {FINALIZE_INDEX}) to fail, got {err:?}");
@@ -366,7 +366,7 @@ fn rejects_two_too_few_accounts() {
     // account-count check to reject.
     let instructions = build_settlement(&program_id, &[], finalize);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send_metered(&mut svm, &payer, instructions, BenchLabel::Settle),
         to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
     );
 }
@@ -392,7 +392,7 @@ fn rejects_invalid_buy_token_account() {
 
     let instructions = finalize(&program_id, &orders);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send_metered(&mut svm, &payer, instructions, BenchLabel::Settle),
         to_instruction_error(SettlementError::InvalidBuyTokenAccount),
     );
 }
@@ -428,7 +428,7 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
 
     let instructions = finalize(&program_id, &orders);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send_metered(&mut svm, &payer, instructions, BenchLabel::Settle),
         to_instruction_error(SettlementError::InvalidBuyTokenAccount),
     );
 }
@@ -457,7 +457,7 @@ fn rejects_partial_push_amount() {
     // own data before it even checks its counterpart, so on its own it rejects
     // the malformed encoding by itself, at index 0.
     assert_eq!(
-        send(&mut svm, &payer, vec![finalize]).err(),
+        send_metered(&mut svm, &payer, vec![finalize], BenchLabel::Settle).err(),
         Some(TransactionError::InstructionError(
             0,
             InstructionError::InvalidInstructionData,

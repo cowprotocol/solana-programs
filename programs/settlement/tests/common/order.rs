@@ -28,6 +28,10 @@ pub fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> Ord
 }
 
 /// Create `intent`'s order PDA on-chain, signed and paid for by `owner`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a fixture order for tests about some later instruction; `create_order` itself is measured where it is the transaction under test"
+)]
 pub fn create_order_pda(
     svm: &mut LiteSVM,
     program_id: &Pubkey,

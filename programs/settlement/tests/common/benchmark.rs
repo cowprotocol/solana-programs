@@ -4,7 +4,7 @@ use litesvm::{
     types::{TransactionMetadata, TransactionResult},
     LiteSVM,
 };
-use settlement_interface::Instruction;
+use settlement_interface::{data::intent::OrderKind, Instruction};
 use solana_sdk::{
     message::{v0::MessageAddressTableLookup, MessageHeader},
     signature::Keypair,
@@ -15,26 +15,65 @@ use std::{env, fmt, fs, io::Write, thread};
 /// The kind of transaction a metered test measures. Naming a measurement with a
 /// variant rather than a free-form string keeps the same transaction spelled the
 /// same way across tests, so `bench-report.json` stays comparable between runs.
+///
+/// A variant only has to be unique within one test, since [`qualified_label`]
+/// appends the test's name. Two transactions of the same kind in one test
+/// therefore need distinct variants: that is what [`Self::RecreateAccount`] and
+/// [`Self::SettleAgain`] are for.
 #[derive(Debug, Clone, Copy)]
 pub enum BenchLabel {
     Initialize,
     CreateOrder,
     CreateBuffers,
     ReclaimOrder,
+    RecreateAccount,
     Settle,
+    SettleDuplicate,
+    SettleRemainingFill,
+    SettleMixedKinds {
+        generous: OrderKind,
+        violating: OrderKind,
+    },
+    NonCanonicalPda,
+    UnsupportedDiscriminator,
+    CpiCall,
 }
 
 impl fmt::Display for BenchLabel {
     /// Spelled out rather than derived from [`Debug`], so the report keeps the
     /// word boundaries a lower-cased `CreateOrder` would lose.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Initialize => "initialize",
-            Self::CreateOrder => "create_order",
-            Self::CreateBuffers => "create_buffers",
-            Self::ReclaimOrder => "reclaim_order",
-            Self::Settle => "settle",
-        })
+        /// Named separately from the variants because it spells a payload, not
+        /// a transaction kind.
+        fn kind(kind: OrderKind) -> &'static str {
+            match kind {
+                OrderKind::Sell => "sell",
+                OrderKind::Buy => "buy",
+            }
+        }
+
+        match self {
+            Self::Initialize => f.write_str("initialize"),
+            Self::CreateOrder => f.write_str("create_order"),
+            Self::CreateBuffers => f.write_str("create_buffers"),
+            Self::ReclaimOrder => f.write_str("reclaim_order"),
+            Self::RecreateAccount => f.write_str("recreate_account"),
+            Self::NonCanonicalPda => f.write_str("non_canonical_pda_reverting"),
+            Self::CpiCall => f.write_str("cpi_call_reverting"),
+            Self::UnsupportedDiscriminator => f.write_str("unsupported_discriminator_reverting"),
+            Self::Settle => f.write_str("settle"),
+            Self::SettleDuplicate => f.write_str("settle_duplicate_reverting"),
+            Self::SettleRemainingFill => f.write_str("settle_remaining_fill"),
+            Self::SettleMixedKinds {
+                generous,
+                violating,
+            } => write!(
+                f,
+                "settle_mixed_kinds_{}_{}",
+                kind(*generous),
+                kind(*violating)
+            ),
+        }
     }
 }
 
@@ -71,6 +110,10 @@ fn qualified_label(label: BenchLabel) -> String {
     clippy::result_large_err,
     reason = "mirrors litesvm::LiteSVM::send_transaction's own return type, which we don't control"
 )]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the metered path clippy.toml points every test at, so this is the call it exists to wrap"
+)]
 #[track_caller]
 pub fn send_transaction_metered(
     svm: &mut LiteSVM,
@@ -90,10 +133,13 @@ pub fn send_transaction_metered(
     result
 }
 
-/// [`super::send`], metered: submits the very same transaction and records it
-/// under `label`. Lets a test that assembles a multi-instruction transaction
-/// (a `[BeginSettle, FinalizeSettle]` pair) be benchmarked without restating
-/// how that transaction is built.
+/// Assemble `instructions` into a transaction signed by `payer`, submit it
+/// metered under `label`, and surface only the transaction-level error on
+/// failure (dropping the failure metadata's other fields).
+///
+/// This is what a test reaches for when it has instructions rather than an
+/// assembled transaction, which covers the multi-instruction settlements (a
+/// `[BeginSettle, FinalizeSettle]` pair) most of the suite sends.
 #[track_caller]
 pub fn send_metered(
     svm: &mut LiteSVM,

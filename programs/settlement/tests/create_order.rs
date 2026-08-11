@@ -124,9 +124,9 @@ fn creates_order_with_separate_fee_payers() {
         &[&fee_payer, &owner, &created_by],
         svm.latest_blockhash(),
     );
-    let receipt = svm
-        .send_transaction(tx)
-        .expect("create_order should succeed");
+    let receipt =
+        common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateOrder)
+            .expect("create_order should succeed");
 
     let fee_payer_after = common::lamports(&svm, &fee_payer.pubkey());
     let owner_after = common::lamports(&svm, &owner.pubkey());
@@ -184,7 +184,7 @@ fn rejects_arbitrary_wrong_pda() {
 }
 
 #[test]
-fn rejects_non_canonical_bump_pda() {
+fn rejects_non_canonical_order_bump_pda() {
     let (mut svm, program_id, fee_payer) = common::setup();
 
     let intent = sample_intent(fee_payer.pubkey());
@@ -243,7 +243,7 @@ fn rejects_recreating_order_with_a_different_creator() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateOrder)
         .expect("first create_order should succeed");
     let before = svm.get_account(&pda).expect("order PDA should exist");
 
@@ -260,9 +260,9 @@ fn rejects_recreating_order_with_a_different_creator() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &another_fee_payer, &fee_payer, ix);
-    let err = svm
-        .send_transaction(tx)
-        .expect_err("recreating an existing order must be rejected");
+    let err =
+        common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::RecreateAccount)
+            .expect_err("recreating an existing order must be rejected");
     assert_eq!(
         err.err,
         TransactionError::InstructionError(0, InstructionError::AccountAlreadyInitialized),
@@ -290,8 +290,7 @@ fn rejects_when_intent_owner_differs_from_signer() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    let err = svm
-        .send_transaction(tx)
+    let err = common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateOrder)
         .expect_err("create_order must reject when intent.owner differs from the signer");
     let expected_failing_instruction_index = 0;
     assert_eq!(

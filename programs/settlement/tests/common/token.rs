@@ -23,6 +23,10 @@ use super::unique_keypair;
 /// internally and offers no way to supply one. A mint address is a seed of its
 /// buffer PDA, so a random one makes buffer bumps — and the compute cost of
 /// deriving them — vary between runs. See [`super::unique_pubkey`].
+#[allow(
+    clippy::disallowed_methods,
+    reason = "SPL token fixtures aren't the settlement program's cost and repeat freely within a test, so they stay out of the report; the builders every other helper here calls send unmeasured for the same reason"
+)]
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
     /// `litesvm_token::CreateMint`'s default, kept so the two agree.
     const DECIMALS: u8 = 8;

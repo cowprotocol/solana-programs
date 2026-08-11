@@ -20,6 +20,10 @@ pub fn buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {
 /// Create the canonical buffer for `mint`, paid for by `payer`, unless it
 /// already exists, and return its address. Idempotent so several orders can
 /// share one buy mint.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a fixture buffer for settlement tests, created once per mint on demand; `create_buffers` itself is measured where it is the transaction under test"
+)]
 pub fn ensure_buffer_exists(
     svm: &mut LiteSVM,
     program_id: &Pubkey,

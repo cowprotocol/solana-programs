@@ -69,7 +69,8 @@ fn funding_payer_can_differ_from_fee_payer() {
         reclaim_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
-    svm.send_transaction(tx).expect("initialize should succeed");
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
+        .expect("initialize should succeed");
 
     // The rent came out of the funder, not the fee payer: the funder paid no
     // transaction fee, so its balance dropped by exactly the PDA rent.

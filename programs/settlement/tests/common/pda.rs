@@ -7,6 +7,8 @@ use solana_sdk::{
     transaction::{Transaction, TransactionError},
 };
 
+use super::benchmark::BenchLabel;
+
 /// Find a non-canonical PDA for `seeds` under `program_id`: a bump strictly
 /// below the canonical one that still derives an off-curve address. Such a PDA
 /// is a legitimate derivation for the seed scheme, just not the canonical
@@ -35,8 +37,7 @@ pub fn find_noncanonical_pda<const N: usize>(
 /// fails the CPI with `PrivilegeEscalation` and leaves `pda` uncreated.
 #[track_caller]
 pub fn assert_rejected_as_noncanonical(svm: &mut LiteSVM, tx: Transaction, pda: &Pubkey) {
-    let err = svm
-        .send_transaction(tx)
+    let err = super::benchmark::send_transaction_metered(svm, tx, BenchLabel::NonCanonicalPda)
         .expect_err("non-canonical PDA must be rejected");
     assert!(
         matches!(
@@ -57,6 +58,10 @@ pub fn assert_rejected_as_noncanonical(svm: &mut LiteSVM, tx: Transaction, pda: 
 /// must succeed; the second is sent and its outcome returned so the caller can
 /// assert on it (a no-op success or a revert). The success metadata is returned
 /// as-is; only the large failure metadata is reduced to its `TransactionError`.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the first creation only sets up the account the second one has to find already there; the second is measured below"
+)]
 #[track_caller]
 fn recreate_leaving_account_unchanged(
     svm: &mut LiteSVM,
@@ -77,7 +82,7 @@ fn recreate_leaving_account_unchanged(
 
     let tx = make_tx(svm);
     // Note: the transaction may be reverting, we don't check that here.
-    let result = svm.send_transaction(tx);
+    let result = super::benchmark::send_transaction_metered(svm, tx, BenchLabel::RecreateAccount);
 
     let after = svm
         .get_account(account)

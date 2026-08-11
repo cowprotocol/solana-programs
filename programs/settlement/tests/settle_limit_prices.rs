@@ -7,6 +7,7 @@
 //! succeeds or is rejected with the expected error.
 
 use crate::common::{
+    benchmark::{send_metered, BenchLabel},
     buffer,
     order::OrderBuilder,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
@@ -22,11 +23,7 @@ use settlement_client::settlement_interface::{
     pda::order::find_order_pda,
     SettlementError,
 };
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    transaction::{Transaction, TransactionError},
-};
+use solana_sdk::{pubkey::Pubkey, signature::Keypair, transaction::TransactionError};
 
 mod common;
 
@@ -54,7 +51,9 @@ fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent) -> (u64,
 }
 
 /// Do everything required to settle the input intent with the specified in/out
-/// amounts as long as the limit price is respected.
+/// amounts as long as the limit price is respected. `label` names the resulting
+/// settlement in the report; tests that settle twice pass a different one the
+/// second time round.
 fn settle(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
@@ -62,12 +61,14 @@ fn settle(
     intent: &OrderIntent,
     amount_in: u64,
     amount_out: u64,
+    label: BenchLabel,
 ) -> Result<(), TransactionError> {
     settle_all(
         svm,
         program_id,
         payer,
         &[(intent, &[amount_in], amount_out)],
+        label,
     )
 }
 
@@ -77,6 +78,7 @@ fn settle_all(
     program_id: &Pubkey,
     payer: &Keypair,
     orders: &[(&OrderIntent, &[u64], u64)],
+    label: BenchLabel,
 ) -> Result<(), TransactionError> {
     let mut initialized: Vec<InitializedIntent> = vec![];
     let mut finalized: Vec<FinalizedIntent> = vec![];
@@ -127,13 +129,7 @@ fn settle_all(
         begin_ix_index: BEGIN_INDEX.into(),
         orders: &finalized,
     };
-    let tx = Transaction::new_signed_with_payer(
-        &[begin.into(), finalize.into()],
-        Some(&payer.pubkey()),
-        &[payer],
-        svm.latest_blockhash(),
-    );
-    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
+    send_metered(svm, payer, vec![begin.into(), finalize.into()], label).map(|_| ())
 }
 
 // --- Limit price ---------------------------------------------------------
@@ -149,8 +145,16 @@ fn sell_order_succeeds_at_limit_price() {
         .build();
 
     // Sell 400_000, receive exactly the proportional minimum 1_200_000.
-    settle(&mut svm, &program_id, &payer, &intent, 400_000, 1_200_000)
-        .expect("a price exactly at the limit should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        400_000,
+        1_200_000,
+        BenchLabel::Settle,
+    )
+    .expect("a price exactly at the limit should be accepted");
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 1_200_000);
 }
 
@@ -166,7 +170,15 @@ fn sell_order_below_limit_price_is_rejected() {
 
     // One token short of the proportional minimum (600_000) for the pull.
     assert_settlement_error(
-        settle(&mut svm, &program_id, &payer, &intent, 300_000, 599_999),
+        settle(
+            &mut svm,
+            &program_id,
+            &payer,
+            &intent,
+            300_000,
+            599_999,
+            BenchLabel::Settle,
+        ),
         SettlementError::LimitPriceViolated,
     );
 }
@@ -182,8 +194,16 @@ fn sell_order_above_limit_price_succeeds() {
         .build();
 
     // A better-than-limit price (more buy than the 500_000 minimum) is fine.
-    settle(&mut svm, &program_id, &payer, &intent, 100_000, 750_000)
-        .expect("a better-than-limit price should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        100_000,
+        750_000,
+        BenchLabel::Settle,
+    )
+    .expect("a better-than-limit price should be accepted");
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 750_000);
 }
 
@@ -199,8 +219,16 @@ fn buy_order_succeeds_at_limit_price() {
         .build();
 
     // Buy 400_000 for exactly the proportional maximum spend of 1_200_000.
-    settle(&mut svm, &program_id, &payer, &intent, 1_200_000, 400_000)
-        .expect("a price exactly at the limit should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        1_200_000,
+        400_000,
+        BenchLabel::Settle,
+    )
+    .expect("a price exactly at the limit should be accepted");
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 400_000);
 }
 
@@ -216,8 +244,16 @@ fn buy_order_above_limit_price_succeeds() {
         .build();
 
     // A better-than-limit price (less spent than the 1_200_000 maximum) is fine.
-    settle(&mut svm, &program_id, &payer, &intent, 900_000, 400_000)
-        .expect("a better-than-limit price should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        900_000,
+        400_000,
+        BenchLabel::Settle,
+    )
+    .expect("a better-than-limit price should be accepted");
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 400_000);
 }
 
@@ -234,7 +270,15 @@ fn buy_order_below_limit_price_is_rejected() {
 
     // One token more than the proportional maximum spend (800_000) for the buy.
     assert_settlement_error(
-        settle(&mut svm, &program_id, &payer, &intent, 800_001, 200_000),
+        settle(
+            &mut svm,
+            &program_id,
+            &payer,
+            &intent,
+            800_001,
+            200_000,
+            BenchLabel::Settle,
+        ),
         SettlementError::LimitPriceViolated,
     );
 }
@@ -278,6 +322,10 @@ fn assert_locality_rejected(generous_kind: OrderKind, violating_kind: OrderKind)
             // One token short of the 600_000 the 300_000 pull requires.
             (&violating, &[300_000], 599_999),
         ],
+        BenchLabel::SettleMixedKinds {
+            generous: generous_kind,
+            violating: violating_kind,
+        },
     );
     assert_eq!(
         result.err(),
@@ -319,6 +367,7 @@ fn multiple_pulls_clearing_the_limit_are_accepted() {
         &program_id,
         &payer,
         &[(&intent, &[300_000, 200_000, 100_000], 1_200_000)],
+        BenchLabel::Settle,
     )
     .expect("a payment clearing the limit for the summed pull should be accepted");
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 1_200_000);
@@ -342,6 +391,7 @@ fn multiple_pulls_below_the_limit_are_rejected() {
             &program_id,
             &payer,
             &[(&intent, &[300_000, 200_000, 100_000], 1_199_999)],
+            BenchLabel::Settle,
         ),
         SettlementError::LimitPriceViolated,
     );
@@ -362,7 +412,15 @@ fn sell_order_cannot_exceed_its_sell_amount() {
     // Pull 1_500_000 > the 1_000_000 sell amount, paid to match the limit price
     // so only the sell cap can reject it.
     assert_settlement_error(
-        settle(&mut svm, &program_id, &payer, &intent, 1_500_000, 3_000_000),
+        settle(
+            &mut svm,
+            &program_id,
+            &payer,
+            &intent,
+            1_500_000,
+            3_000_000,
+            BenchLabel::Settle,
+        ),
         SettlementError::FillExceedsOrderAmount,
     );
 }
@@ -380,7 +438,15 @@ fn buy_order_cannot_exceed_its_buy_amount() {
 
     // Receive 1_500_000 > the 1_000_000 buy amount, spending within the limit.
     assert_settlement_error(
-        settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 1_500_000),
+        settle(
+            &mut svm,
+            &program_id,
+            &payer,
+            &intent,
+            1_000_000,
+            1_500_000,
+            BenchLabel::Settle,
+        ),
         SettlementError::FillExceedsOrderAmount,
     );
 }
@@ -398,7 +464,15 @@ fn fill_or_kill_order_must_be_filled_completely() {
 
     // Selling only half a fill-or-kill order isn't allowed, even at the limit.
     assert_settlement_error(
-        settle(&mut svm, &program_id, &payer, &intent, 500_000, 1_000_000),
+        settle(
+            &mut svm,
+            &program_id,
+            &payer,
+            &intent,
+            500_000,
+            1_000_000,
+            BenchLabel::Settle,
+        ),
         SettlementError::OrderNotExactlyFilled,
     );
 }
@@ -416,13 +490,29 @@ fn partially_fillable_order_fills_across_settlements() {
         .build();
 
     // Two settlements that together fill the order exactly, each at the limit.
-    settle(&mut svm, &program_id, &payer, &intent, 400_000, 800_000)
-        .expect("the first partial fill should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        400_000,
+        800_000,
+        BenchLabel::Settle,
+    )
+    .expect("the first partial fill should be accepted");
     // The first fill's totals are persisted to the order PDA.
     assert_eq!(order_fill(&svm, &program_id, &intent), (400_000, 800_000));
 
-    settle(&mut svm, &program_id, &payer, &intent, 600_000, 1_200_000)
-        .expect("a second fill completing the order should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        600_000,
+        1_200_000,
+        BenchLabel::SettleRemainingFill,
+    )
+    .expect("a second fill completing the order should be accepted");
     // The second fill accumulates onto the first.
     assert_eq!(
         order_fill(&svm, &program_id, &intent),
@@ -445,12 +535,28 @@ fn order_cannot_be_overfilled_across_settlements() {
         .build();
 
     // Fill 600_000 first; the order PDA now records 600_000 withdrawn.
-    settle(&mut svm, &program_id, &payer, &intent, 600_000, 1_200_000)
-        .expect("the first partial fill should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        600_000,
+        1_200_000,
+        BenchLabel::Settle,
+    )
+    .expect("the first partial fill should be accepted");
 
     // A second 500_000 pull would take 1_100_000 in total, past the sell amount.
     assert_settlement_error(
-        settle(&mut svm, &program_id, &payer, &intent, 500_000, 1_000_000),
+        settle(
+            &mut svm,
+            &program_id,
+            &payer,
+            &intent,
+            500_000,
+            1_000_000,
+            BenchLabel::SettleDuplicate,
+        ),
         SettlementError::FillExceedsOrderAmount,
     );
 }
@@ -469,13 +575,29 @@ fn buy_order_cannot_be_overfilled_across_settlements() {
 
     // Buy 600_000 first (spending 1_200_000 at the limit); the order PDA now
     // records 600_000 received.
-    settle(&mut svm, &program_id, &payer, &intent, 1_200_000, 600_000)
-        .expect("the first partial buy should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        1_200_000,
+        600_000,
+        BenchLabel::Settle,
+    )
+    .expect("the first partial buy should be accepted");
 
     // Buying another 500_000 would total 1_100_000, past the buy amount, even
     // though this settlement's spend stays within the limit price.
     assert_settlement_error(
-        settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 500_000),
+        settle(
+            &mut svm,
+            &program_id,
+            &payer,
+            &intent,
+            1_000_000,
+            500_000,
+            BenchLabel::SettleDuplicate,
+        ),
         SettlementError::FillExceedsOrderAmount,
     );
 }
@@ -492,8 +614,16 @@ fn fill_or_kill_order_cannot_be_settled_twice() {
         .build();
 
     // A full fill-or-kill fill is accepted once.
-    settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 2_000_000)
-        .expect("a full fill-or-kill fill should be accepted");
+    settle(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent,
+        1_000_000,
+        2_000_000,
+        BenchLabel::Settle,
+    )
+    .expect("a full fill-or-kill fill should be accepted");
 
     // Advance the blockhash so the identical second attempt (same amounts to the
     // same accounts) isn't rejected as a duplicate transaction before it runs.
@@ -503,7 +633,15 @@ fn fill_or_kill_order_cannot_be_settled_twice() {
     // fill-or-kill, the resulting cumulative fill isn't exactly the order's
     // amount, so it's rejected as not exactly filled.
     assert_settlement_error(
-        settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 2_000_000),
+        settle(
+            &mut svm,
+            &program_id,
+            &payer,
+            &intent,
+            1_000_000,
+            2_000_000,
+            BenchLabel::SettleDuplicate,
+        ),
         SettlementError::OrderNotExactlyFilled,
     );
 }
@@ -540,6 +678,7 @@ fn settlement_rejected_when_one_order_exceeds_its_amount() {
                 // filled rather than as an over-fill.
                 (&overfilled, &[1_500_000], 3_000_000),
             ],
+            BenchLabel::Settle,
         ),
         SettlementError::OrderNotExactlyFilled,
     );

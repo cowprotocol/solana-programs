@@ -37,6 +37,10 @@ fn encode_and_derive(
 }
 
 /// Create an order PDA owned by `owner` (who also pays rent), return the PDA.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a fixture order for the reclaim under test; `create_order` is measured in create_order.rs"
+)]
 fn create_order(
     svm: &mut litesvm::LiteSVM,
     program_id: &Pubkey,
@@ -88,7 +92,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
         intent_bytes: encoded_bytes,
     };
     let tx = signed_tx(&svm, &fee_payer, &reclaim_recipient, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateOrder)
         .expect("create_order should succeed");
 
     // Since ReclaimOrder should return any funds in the order pda (even if beyond the rent limit), we airdrop some extra lamports
@@ -147,7 +151,8 @@ fn rejects_when_order_not_yet_expired() {
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
     assert_instruction_error(
-        svm.send_transaction(tx).map_err(|e| e.err),
+        common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimOrder)
+            .map_err(|e| e.err),
         to_instruction_error(SettlementError::OrderNotExpired),
     );
 }
@@ -179,7 +184,7 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
     }
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimOrder)
         .expect("reclaim_order should succeed after expiry");
     assert!(
         svm.get_account(&pda).is_none(),
@@ -199,7 +204,7 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &other_creator, &owner, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateOrder)
         .expect("recreating a reclaimed order should succeed");
     let after = svm
         .get_account(&pda)
@@ -234,7 +239,8 @@ fn rejects_when_reclaim_recipient_mismatch() {
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
     assert_instruction_error(
-        svm.send_transaction(tx).map_err(|e| e.err),
+        common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimOrder)
+            .map_err(|e| e.err),
         to_instruction_error(SettlementError::ReclaimRecipientMismatch),
     );
 }

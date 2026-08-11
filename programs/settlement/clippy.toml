@@ -2,4 +2,6 @@ disallowed-methods = [
     # To prevent non-deterministic tests
     { path = "solana_address::Address::new_unique", reason = "use `common::unique_pubkey()`: `Address::new_unique` is non-deterministic" },
     { path = "solana_keypair::Keypair::new", reason = "use `common::unique_keypair()`: `Keypair::new` is non-deterministic" },
+    # To keep every transaction a test exercises in `bench-report.json`
+    { path = "litesvm::LiteSVM::send_transaction", reason = "use `common::benchmark::send_metered()` (or `send_transaction_metered()`) so the transaction is measured; setup traffic that legitimately isn't measured allows this lint locally" },
 ]

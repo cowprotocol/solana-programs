@@ -13,7 +13,7 @@ pub mod pda;
 pub mod settlement;
 pub mod token;
 
-use litesvm::{types::TransactionMetadata, LiteSVM};
+use litesvm::LiteSVM;
 use settlement_client::settlement_interface::SettlementError;
 use settlement_interface::Instruction;
 use solana_sdk::{
@@ -185,8 +185,8 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
 }
 
 /// Assemble `instructions` into a transaction with `payer` as both fee payer and
-/// sole signer. Shared with [`benchmark::send_metered`] so a metered test
-/// submits exactly the transaction its unmetered twin would.
+/// sole signer. Split out from [`benchmark::send_metered`] for the tests that
+/// need the assembled transaction itself rather than just its outcome.
 pub fn payer_signed_tx(
     svm: &LiteSVM,
     payer: &Keypair,
@@ -198,16 +198,4 @@ pub fn payer_signed_tx(
         &[payer],
         svm.latest_blockhash(),
     )
-}
-
-/// Assemble `instructions` into a transaction signed by `payer` and submit it,
-/// surfacing only the transaction-level error on failure (dropping the success
-/// metadata's error wrapper).
-pub fn send(
-    svm: &mut LiteSVM,
-    payer: &Keypair,
-    instructions: Vec<Instruction>,
-) -> Result<TransactionMetadata, TransactionError> {
-    let tx = payer_signed_tx(svm, payer, instructions);
-    svm.send_transaction(tx).map_err(|e| e.err)
 }

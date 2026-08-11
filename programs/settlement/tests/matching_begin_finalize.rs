@@ -9,7 +9,10 @@ use solana_sdk::{
 };
 use solana_system_interface::instruction as system_instruction;
 
-use crate::common::to_instruction_error;
+use crate::common::{
+    benchmark::{send_transaction_metered, BenchLabel},
+    to_instruction_error,
+};
 
 mod common;
 
@@ -26,6 +29,10 @@ enum AbstractInstruction {
 
 /// Based on a sequence of abstract instructions, creates an actual transaction
 /// and see if it succeeds.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a sweep: each test runs this over a table of instruction sequences, so one measurement per case would say more about the table's length than about the program"
+)]
 fn run_sequence(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
@@ -205,8 +212,7 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
         &[&payer],
         svm.latest_blockhash(),
     );
-    let err = svm
-        .send_transaction(tx)
+    let err = send_transaction_metered(&mut svm, tx, BenchLabel::Settle)
         .expect_err("expected non-sysvar account to fail");
     assert_eq!(
         err.err,
@@ -245,8 +251,7 @@ fn rejects_counterpart_instruction_in_different_program() {
         &[&payer],
         svm.latest_blockhash(),
     );
-    let err = svm
-        .send_transaction(tx)
+    let err = send_transaction_metered(&mut svm, tx, BenchLabel::Settle)
         .expect_err("expected cross-program counterpart instruction to fail");
     assert_eq!(
         err.err,
@@ -297,8 +302,7 @@ fn rejects_cpi_call_to_begin_settle() {
         &[&payer],
         svm.latest_blockhash(),
     );
-    let err = svm
-        .send_transaction(tx)
+    let err = send_transaction_metered(&mut svm, tx, BenchLabel::CpiCall)
         .expect_err("CPI call to begin_settle should be rejected");
     assert_eq!(
         err.err,
@@ -328,8 +332,7 @@ fn rejects_cpi_call_to_finalize_settle() {
         &[&payer],
         svm.latest_blockhash(),
     );
-    let err = svm
-        .send_transaction(tx)
+    let err = send_transaction_metered(&mut svm, tx, BenchLabel::CpiCall)
         .expect_err("CPI call to finalize_settle should be rejected");
     assert_eq!(
         err.err,
@@ -366,8 +369,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
         &[&payer],
         svm.latest_blockhash(),
     );
-    let err = svm
-        .send_transaction(tx)
+    let err = send_transaction_metered(&mut svm, tx, BenchLabel::Settle)
         .expect_err("expected counterpart with no discriminator to fail");
     assert_eq!(
         err.err,
@@ -408,8 +410,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
         &[&payer],
         svm.latest_blockhash(),
     );
-    let err = svm
-        .send_transaction(tx)
+    let err = send_transaction_metered(&mut svm, tx, BenchLabel::Settle)
         .expect_err("expected counterpart with no counterpart index to fail");
     assert_eq!(
         err.err,

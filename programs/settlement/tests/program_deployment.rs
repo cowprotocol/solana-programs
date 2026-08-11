@@ -5,6 +5,8 @@ use solana_sdk::{
     transaction::{Transaction, TransactionError},
 };
 
+use crate::common::benchmark::{send_transaction_metered, BenchLabel};
+
 mod common;
 
 #[test]
@@ -48,7 +50,7 @@ fn program_can_be_invoked() {
         svm.latest_blockhash(),
     );
 
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::Settle)
         .expect("settlement instructions should succeed");
 }
 #[test]
@@ -68,8 +70,7 @@ fn rejects_transaction_with_unsupported_discriminator() {
         svm.latest_blockhash(),
     );
 
-    let err = svm
-        .send_transaction(tx)
+    let err = send_transaction_metered(&mut svm, tx, BenchLabel::UnsupportedDiscriminator)
         .expect_err("Transaction with invalid discriminator should be rejected");
     assert_eq!(
         err.err,

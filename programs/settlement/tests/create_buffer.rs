@@ -110,7 +110,7 @@ fn buffer_can_receive_tokens() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("create_buffer should succeed");
 
     // Fund a sender by minting into its own token account, then have the sender
@@ -148,7 +148,7 @@ fn happy_path_creates_native_token_buffer() {
         mints: &[native_mint::ID],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("create_buffer for the native mint should succeed");
 
     let token_account = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
@@ -228,8 +228,7 @@ fn rejects_no_buffers() {
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
-    let err = svm
-        .send_transaction(tx)
+    let err = common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect_err("an instruction that creates no buffers must be rejected");
     let TransactionError::InstructionError(0, ix_err) = err.err else {
         panic!("expected instruction 0 to fail, got {:?}", err.err);
@@ -260,7 +259,7 @@ fn rejects_arbitrary_wrong_buffer_pda() {
 }
 
 #[test]
-fn rejects_non_canonical_bump_pda() {
+fn rejects_non_canonical_buffer_bump_pda() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
 
@@ -299,8 +298,7 @@ fn rejects_non_spl_token_program() {
     ix.accounts[token_program_index].pubkey = unique_pubkey();
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
-    let err = svm
-        .send_transaction(tx)
+    let err = common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect_err("a non-SPL-Token program must be rejected");
     assert!(
         matches!(
@@ -335,8 +333,7 @@ fn rejects_invalid_mint() {
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
-    let err = svm
-        .send_transaction(tx)
+    let err = common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect_err("a non-mint account must be rejected");
     // Expected failing line:
     // https://github.com/solana-program/token/blob/7ed1aa8d9eb6d54c0084a9e8475c56a0a868b5bd/program/src/processor.rs#L115
@@ -378,16 +375,8 @@ fn batch_with_existing_buffer_passes_with_no_changes() {
     let fresh = common::token::create_mint(&mut svm, &payer);
 
     // Pre-create a buffer for `existing`.
-    let ix = CreateBuffers {
-        program_id,
-        payer: payer.pubkey(),
-        mints: &[existing],
-    };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
-        .expect("creating the first buffer should succeed");
-
-    let (existing_buffer, _bump) = find_buffer_pda(&program_id, &existing);
+    let existing_buffer =
+        common::buffer::ensure_buffer_exists(&mut svm, &program_id, &payer, &existing);
     let before = svm
         .get_account(&existing_buffer)
         .expect("the existing buffer should exist before the batch");
@@ -398,7 +387,7 @@ fn batch_with_existing_buffer_passes_with_no_changes() {
         mints: &[fresh, existing],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("a batch containing an existing buffer should still succeed");
 
     let after = svm
@@ -433,8 +422,7 @@ fn one_failing_buffer_reverts_the_whole_batch() {
         mints: &[fresh, not_a_mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    let err = svm
-        .send_transaction(tx)
+    let err = common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect_err("a batch with an invalid mint must be rejected");
     assert!(
         matches!(
@@ -467,7 +455,7 @@ fn same_mint_twice_in_one_instruction_is_idempotent() {
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("a batch listing the same mint twice should succeed");
 
     assert!(
@@ -482,6 +470,10 @@ fn same_mint_twice_in_one_instruction_is_idempotent() {
 ///
 /// Nothing is created because the sent buffers are non-canonical and the
 /// transaction errors out, so the probe leaves no state behind.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a binary-search-style sweep that resends one growing shape until the runtime rejects it; the transaction it converges on is measured by `max_buffers_in_one_instruction`"
+)]
 fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> usize {
     let mut n: usize = 1;
     loop {
