@@ -6,7 +6,7 @@ use litesvm::{
 };
 use settlement_interface::Instruction;
 use solana_sdk::{
-    message::{v0::MessageAddressTableLookup, MessageHeader},
+    message::v0::MessageAddressTableLookup,
     signature::Keypair,
     transaction::{TransactionError, VersionedTransaction},
 };
@@ -112,30 +112,17 @@ fn shard_path(dir: &str, label: &str) -> String {
     format!("{dir}/{sanitised_label}.jsonl")
 }
 
-/// Accounts the transaction locks, as `(readable, writable)`: the static keys
-/// plus every address resolved through an Address Lookup Table.
-fn accounts_locked(tx: &VersionedTransaction) -> (usize, usize) {
-    let &MessageHeader {
-        // Not needed: signers are already counted in the remaining two entries,
-        num_required_signatures: _,
-        num_readonly_signed_accounts,
-        num_readonly_unsigned_accounts,
-    } = tx.message.header();
-    let readable_static = usize::from(num_readonly_signed_accounts)
-        .strict_add(usize::from(num_readonly_unsigned_accounts));
-    let writable_static = tx
-        .message
-        .static_account_keys()
-        .len()
-        .strict_sub(readable_static);
+/// Returns the total number of accounts locked, including accounts from ALTs
+fn accounts_locked(tx: &VersionedTransaction) -> usize {
+    let locked_static = tx.message.static_account_keys().len();
 
     tx.message
         .address_table_lookups()
         .unwrap_or_default()
         .iter()
         .fold(
-            (readable_static, writable_static),
-            |(readable, writable),
+            locked_static,
+            |locked,
              MessageAddressTableLookup {
                  // The lookup table's own account isn't one of the
                  // transaction's locked keys, it contributes to neither tally.
@@ -143,10 +130,9 @@ fn accounts_locked(tx: &VersionedTransaction) -> (usize, usize) {
                  writable_indexes,
                  readonly_indexes,
              }| {
-                (
-                    readable.strict_add(readonly_indexes.len()),
-                    writable.strict_add(writable_indexes.len()),
-                )
+                locked
+                    .strict_add(readonly_indexes.len())
+                    .strict_add(writable_indexes.len())
             },
         )
 }
@@ -160,7 +146,7 @@ fn transaction_bytes(tx: &VersionedTransaction) -> u64 {
 }
 
 fn record_benchmark(dir: &str, label: &str, tx: VersionedTransaction, result: &TransactionResult) {
-    let (accounts_readable, accounts_writable) = accounts_locked(&tx);
+    let total_accounts = accounts_locked(&tx);
     let transaction_bytes = transaction_bytes(&tx);
 
     // A revert stops execution partway, so the consumed count is a partial tally
@@ -174,7 +160,7 @@ fn record_benchmark(dir: &str, label: &str, tx: VersionedTransaction, result: &T
         .unwrap_or_else(|e| panic!("failed to create benchmark report directory at {dir}: {e}"));
     let path = shard_path(dir, label);
 
-    let line = format!("{{\"label\": \"{label}\", \"accounts_readable\": {accounts_readable}, \"accounts_writable\": {accounts_writable}, \"transaction_bytes\": {transaction_bytes}, \"compute_units\": {compute_units_consumed}}}");
+    let line = format!("{{\"label\": \"{label}\", \"accounts\": {total_accounts}, \"transaction_bytes\": {transaction_bytes}, \"compute_units\": {compute_units_consumed}}}");
 
     fs::OpenOptions::new()
         // Fails if the shard already exists
