@@ -9,6 +9,8 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 
+use crate::common::buffer::ensure_buffer_exists;
+
 mod common;
 
 /// Send `ix` as the settlement's `Initialize`, signed by `payer`. Taken by
@@ -17,25 +19,6 @@ mod common;
 fn initialize(svm: &mut litesvm::LiteSVM, payer: &Keypair, ix: Initialize) {
     let tx = common::signed_tx(svm, payer, payer, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
-}
-
-/// Create a buffer for `mint`, return its PDA.
-fn create_buffer(
-    svm: &mut litesvm::LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    mint: &Pubkey,
-) -> Pubkey {
-    let (buffer_pda, _bump) = find_buffer_pda(program_id, mint);
-    let ix = CreateBuffers {
-        program_id: *program_id,
-        payer: payer.pubkey(),
-        mints: &[*mint],
-    };
-    let tx = common::signed_tx(svm, payer, payer, ix);
-    svm.send_transaction(tx)
-        .expect("create_buffer should succeed");
-    buffer_pda
 }
 
 #[test]
@@ -54,7 +37,7 @@ fn funded_buffer_is_skipped() {
     );
 
     let mint = common::token::create_mint(&mut svm, &payer);
-    let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
+    let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
     // Fund the buffer with tokens
     let amount = 1_000;
@@ -92,7 +75,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
     );
 
     let mint = common::token::create_mint(&mut svm, &payer);
-    let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
+    let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
     let buffer_lamports_before = svm
         .get_account(&buffer_pda)
@@ -140,7 +123,7 @@ fn reclaims_to_a_recipient_chosen_by_the_authority() {
     );
 
     let mint = common::token::create_mint(&mut svm, &payer);
-    let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
+    let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
     let buffer_lamports_before = svm
         .get_account(&buffer_pda)
@@ -197,7 +180,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
     let (recipient, _bump) = find_state_pda(&program_id);
 
     let mint = common::token::create_mint(&mut svm, &payer);
-    let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
+    let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
     let buffer_lamports_before = svm
         .get_account(&buffer_pda)
@@ -252,8 +235,8 @@ fn reclaims_multiple_buffers_skipping_funded() {
 
     let mint_a = common::token::create_mint(&mut svm, &payer);
     let mint_b = common::token::create_mint(&mut svm, &payer);
-    let buffer_a = create_buffer(&mut svm, &program_id, &payer, &mint_a);
-    let buffer_b = create_buffer(&mut svm, &program_id, &payer, &mint_b);
+    let buffer_a = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint_a);
+    let buffer_b = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint_b);
 
     // fund one of the buffers with tokens, leave the other empty
     common::token::mint_to(&mut svm, &payer, &mint_b, &buffer_b, 500);
@@ -297,7 +280,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     );
 
     let mint = common::token::create_mint(&mut svm, &payer);
-    create_buffer(&mut svm, &program_id, &payer, &mint);
+    ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
     // Build the instruction as if `impostor` were the configured reclaim_authority.
     let ix = ReclaimBuffer {
@@ -333,7 +316,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
     );
 
     let mint = common::token::create_mint(&mut svm, &payer);
-    let buffer_pda = create_buffer(&mut svm, &program_id, &payer, &mint);
+    let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
     let mut ix = Instruction::from(ReclaimBuffer {
         program_id,
