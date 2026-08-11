@@ -26,7 +26,10 @@ use solana_sdk::{
     transaction::TransactionError,
 };
 
-use crate::common::{benchmark::BenchLabel, unique_keypair, unique_pubkey};
+use crate::common::{
+    benchmark::{send_transaction_metered, BenchLabel},
+    unique_keypair, unique_pubkey,
+};
 
 mod common;
 
@@ -43,7 +46,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("create_buffer should succeed");
 
     let account = svm
@@ -183,7 +186,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("create_buffers should create every buffer at once");
 
     for mint in &mints {
@@ -564,7 +567,7 @@ fn max_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
-    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("a transaction filled to the buffer limit should succeed");
 
     for mint in &mints {

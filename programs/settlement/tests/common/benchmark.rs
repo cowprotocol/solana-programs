@@ -39,7 +39,7 @@ impl fmt::Display for BenchLabel {
 }
 
 /// Where `send_transaction_metered` writes its measurements: one single-record
-/// file per `<test>/<label>`, which `just bench` merges into `bench-report.json`.
+/// file per `<label>/<test>`, which `just bench` merges into `bench-report.json`.
 const BENCH_REPORT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/bench-report");
 
 /// Qualify `label` with the name of the test recording it, so a test only has to
@@ -56,9 +56,9 @@ fn qualified_label(label: BenchLabel) -> String {
     format!("{label}/{test_name}")
 }
 
-/// Wraps [`LiteSVM::send_transaction`] and, when `TEST_BENCHMARK` is set, records
+/// Wraps [`LiteSVM::send_transaction`] and, when `TEST_BENCHMARK=true`, records
 /// the transaction's compute units, locked accounts, and serialised size under
-/// `<test name>/<label>`. Rent allocation/deallocation is not measured.
+/// `<label>/<test name>`. Rent allocation/deallocation is not measured.
 ///
 /// A reverted transaction still has its accounts and bytes recorded, since those
 /// describe the transaction as submitted. Its compute units are recorded as null:

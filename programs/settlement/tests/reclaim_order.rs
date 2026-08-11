@@ -10,8 +10,9 @@ use solana_sdk::{
 };
 
 use crate::common::{
-    assert_instruction_error, benchmark::BenchLabel, signed_tx, to_instruction_error,
-    unique_keypair, unique_pubkey,
+    assert_instruction_error,
+    benchmark::{send_transaction_metered, BenchLabel},
+    signed_tx, to_instruction_error, unique_keypair, unique_pubkey,
 };
 
 mod common;
@@ -110,7 +111,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
     }
     .instruction();
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimOrder)
+    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimOrder)
         .expect("reclaim_order should succeed after expiry");
 
     // PDA is gone.
