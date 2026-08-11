@@ -26,6 +26,8 @@ use solana_sdk::{
 };
 use std::cell::Cell;
 
+use crate::common::benchmark::{send_transaction_metered, BenchLabel};
+
 pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/deploy/cow_settlement.so"
@@ -210,4 +212,23 @@ pub fn send(
 ) -> Result<TransactionMetadata, TransactionError> {
     let tx = payer_signed_tx(svm, payer, instructions);
     svm.send_transaction(tx).map_err(|e| e.err)
+}
+
+/// [`send`], additionally recording the compute units the settlement program
+/// spent across the whole transaction under `label`. Since a settlement is
+/// always the `[BeginSettle, FinalizeSettle]` pair, the figure covers both
+/// instructions.
+pub fn send_metered(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+    label: BenchLabel,
+) -> Result<TransactionMetadata, TransactionError> {
+    let tx = Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    );
+    send_transaction_metered(svm, tx, label).map_err(|e| e.err)
 }
