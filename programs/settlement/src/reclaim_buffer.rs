@@ -78,9 +78,8 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
-    use pinocchio::account::RuntimeAccount;
     use settlement_interface::instruction::fixtures::{
-        fake_account, fake_account_from, fake_account_with_data, fake_sequential_accounts,
+        fake_account, fake_account_with_data, fake_sequential_accounts, fake_signer,
     };
     use settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
@@ -92,16 +91,6 @@ mod tests {
     const PROGRAM_ID: Address = Address::new_from_array([1; 32]);
     /// The `reclaim_authority` recorded in the state PDA these tests encode.
     const AUTHORITY: Address = Address::new_from_array([2; 32]);
-
-    /// A fake `AccountView` for `address` that reports as a transaction
-    /// signer, as `reclaim_authority` must for `ReclaimBuffer` to accept it.
-    fn fake_signer(address: Address) -> AccountView {
-        fake_account_from(RuntimeAccount {
-            address,
-            is_signer: 1,
-            ..Default::default()
-        })
-    }
 
     #[test]
     fn process_reclaim_buffer_propagates_parse_error() {

@@ -163,6 +163,14 @@ pub mod fixtures {
         fake_account(Address::new_from_array(address_array))
     }
 
+    pub fn fake_signer(address: Address) -> AccountView {
+        fake_account_from(RuntimeAccount {
+            address,
+            is_signer: 1,
+            ..Default::default()
+        })
+    }
+
     /// Build `N` fake accounts with sequential addresses (`[1; 32]`, `[2; 32]`, …).
     pub fn fake_sequential_accounts<const N: usize>() -> [AccountView; N] {
         core::array::from_fn(|i| fake_account_from_array([(i as u8).wrapping_add(1); 32]))
