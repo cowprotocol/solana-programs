@@ -86,9 +86,14 @@ fn shard_path(dir: &str, label: &str) -> String {
 /// Accounts the transaction locks, as `(readable, writable)`: the static keys
 /// plus every address resolved through an Address Lookup Table.
 fn accounts_locked(tx: &VersionedTransaction) -> (usize, usize) {
-    let header = tx.message.header();
-    let readable_static = usize::from(header.num_readonly_signed_accounts)
-        .strict_add(usize::from(header.num_readonly_unsigned_accounts));
+   let &MessageHeader {
+        // Not needed: signers are already counted in the remaining two entries,
+        num_required_signatures: _,
+        num_readonly_signed_accounts,
+        num_readonly_unsigned_accounts,
+    } = tx.message.header();
+    let readable_static = usize::from(num_readonly_signed_accounts)
+        .strict_add(usize::from(num_readonly_unsigned_accounts));
     let writable_static = tx
         .message
         .static_account_keys()
@@ -101,10 +106,17 @@ fn accounts_locked(tx: &VersionedTransaction) -> (usize, usize) {
         .iter()
         .fold(
             (readable_static, writable_static),
-            |(readable, writable), lookup| {
+            |(readable, writable),
+             MessageAddressTableLookup {
+                 // The lookup table's own account isn't one of the
+                 // transaction's locked keys, it contributes to neither tally.
+                 account_key: _,
+                 writable_indexes,
+                 readonly_indexes,
+             }| {
                 (
-                    readable.strict_add(lookup.readonly_indexes.len()),
-                    writable.strict_add(lookup.writable_indexes.len()),
+                    readable.strict_add(readonly_indexes.len()),
+                    writable.strict_add(writable_indexes.len()),
                 )
             },
         )
