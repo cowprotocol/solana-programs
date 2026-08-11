@@ -8,6 +8,12 @@
 //! `CreateBuffer` instruction; its SPL `owner` (token authority) is the
 //! settlement state PDA (see [`crate::pda::state`]), the single authority
 //! controlling every buffer.
+//!
+//! The seeds start with [`SETTLEMENT_SEED`], which carries
+//! the cargo package major and minor version, so a version bump moves every buffer.
+//! Since only the state PDA can spend a buffer and that address moves too,
+//! buffers must be drained under the old version before a bump ships, or their
+//! contents are stranded.
 
 use solana_account_view::AccountView;
 use solana_address::Address;
@@ -63,6 +69,7 @@ pub fn validate_buffer_pda(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pda::tests::assert_distinct_versions_yield_distinct_pdas;
 
     #[test]
     fn find_buffer_pda_uses_canonical_seeds() {
@@ -72,6 +79,14 @@ mod tests {
             |program_id| find_buffer_pda(program_id, &token),
             buffer_pda_seeds(token.as_array()),
         );
+    }
+
+    #[test]
+    fn distinct_versions_yield_distinct_buffer_pdas() {
+        let mint = Pubkey::new_unique();
+        let (pda, _) = find_buffer_pda(&crate::ID, &mint);
+
+        assert_distinct_versions_yield_distinct_pdas(&pda, &[mint.as_array(), BUFFER_SEED]);
     }
 
     #[test]
