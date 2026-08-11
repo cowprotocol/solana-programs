@@ -104,7 +104,7 @@ mod tests {
     const TOKEN_PROGRAM: usize = 3;
     const BUFFER_PDA: usize = 4;
 
-    /// Accounts for reclaiming a single buffer, each one well-formed
+    /// Accounts for reclaiming a single buffer, each one well-formed.
     fn base_accounts() -> [AccountView; NUM_ACCOUNTS] {
         [
             fake_account_with_data(
@@ -196,13 +196,8 @@ mod tests {
     #[test]
     fn process_reclaim_buffer_rejects_nonsigner_reclaim_authority() {
         let mut accounts = base_accounts();
-        let authority_account = fake_account(AUTHORITY);
-
-        // Test setup: the address is the configured authority, but it doesn't
-        // sign. Naming the authority must not be enough to authorize a close.
-        assert!(!authority_account.is_signer());
-
-        accounts[RECLAIM_AUTHORITY] = authority_account;
+        // `fake_account`, unlike `fake_signer`, leaves the signer flag clear
+        accounts[RECLAIM_AUTHORITY] = fake_account(AUTHORITY);
         assert_rejects(accounts, SettlementError::ReclaimAuthorityMismatch.into());
     }
 

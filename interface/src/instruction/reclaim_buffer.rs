@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn reclaim_buffer_input_rejects_zero_buffers() {
         let data = reclaim_buffer_data();
-        // Only the three shared accounts, no buffer pairs.
+        // Only the four shared accounts, no buffer pairs.
         let mut accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
         assert_eq!(
             ReclaimBufferInput::parse(&data, &mut accounts).err(),
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn reclaim_buffer_input_rejects_missing_accounts() {
         let data = reclaim_buffer_data();
-        // Fewer than the three shared accounts.
+        // Fewer than the four shared accounts.
         let mut accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS - 1 }>();
         assert_eq!(
             ReclaimBufferInput::parse(&data, &mut accounts).err(),

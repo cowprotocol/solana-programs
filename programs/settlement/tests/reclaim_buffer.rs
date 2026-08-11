@@ -26,7 +26,6 @@ fn funded_buffer_is_skipped() {
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
-    // Fund the buffer with tokens
     let amount = 1_000;
     common::token::mint_to(&mut svm, &payer, &mint, &buffer_pda, amount);
 
@@ -225,7 +224,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
     let buffer_a = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint_a);
     let buffer_b = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint_b);
 
-    // fund one of the buffers with tokens, leave the other empty
+    // Only `buffer_b` is funded; `buffer_a` stays empty and closable.
     common::token::mint_to(&mut svm, &payer, &mint_b, &buffer_b, 500);
 
     let ix = ReclaimBuffer {
@@ -244,7 +243,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
     );
     assert!(
         svm.get_account(&buffer_b).is_some(),
-        "buffer_b must not be closed (because its funded)"
+        "buffer_b must not be closed (because it's funded)"
     );
 }
 
