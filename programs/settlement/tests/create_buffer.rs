@@ -544,7 +544,20 @@ fn max_buffers_in_one_instruction() {
     // most of the times but sometimes (~2%) execution would fail.
     svm = svm.with_compute_budget(ComputeBudget {
         compute_unit_limit: u64::from(MAX_COMPUTE_UNIT_LIMIT),
-        ..ComputeBudget::default()
+        // I'd like to use `ComputeBudget::default()` but it's behind a crate
+        // feature `dev-context-only-utils` which has broken in the past after
+        // updating Solana packages.
+        // This is the closest we get to that without extra features.
+        // `false` is about whether the feature SIMD-0268 is active; right now
+        // this defaults to false and there isn't an easy way to get this from
+        // the node itself in a test. Check with:
+        //
+        // ```
+        // $ solana feature status 6TkHkRmP7JZy1fdM6fg5uXn76wChQBWGokHBJzrLB3mj
+        // ```
+        //
+        // TODO: try to restore ``::default()` once Solana v4 gets more stable.
+        ..ComputeBudget::new_with_defaults(false)
     });
     let (state_pda, _) = find_state_pda(&program_id);
 
