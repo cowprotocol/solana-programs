@@ -36,18 +36,20 @@ pub fn process_reclaim_buffer(
         return Err(ProgramError::IncorrectProgramId);
     }
 
-    let reclaim_authority_pubkey: Pubkey = {
-        let data = state_pda.try_borrow()?;
-        let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
-            .try_into()
-            .map_err(|_| ProgramError::InvalidAccountData)?;
-        StateAccount::try_from(*bytes)?.reclaim_authority
-    };
-    if !reclaim_authority.is_signer() || reclaim_authority.address() != &reclaim_authority_pubkey {
-        return Err(SettlementError::ReclaimAuthorityMismatch.into());
-    }
-
     with_state_pda_signer(program_id, state_pda, |state_signer| {
+        let reclaim_authority_pubkey: Pubkey = {
+            let data = state_pda.try_borrow()?;
+            let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
+                .try_into()
+                .map_err(|_| ProgramError::InvalidAccountData)?;
+            StateAccount::try_from(*bytes)?.reclaim_authority
+        };
+        if !reclaim_authority.is_signer()
+            || reclaim_authority.address() != &reclaim_authority_pubkey
+        {
+            return Err(SettlementError::ReclaimAuthorityMismatch.into());
+        }
+
         for [buffer_pda, mint] in buffers {
             let expected_buffer_pda = find_buffer_pda(program_id, mint.address()).0;
 
