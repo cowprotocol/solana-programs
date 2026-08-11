@@ -10,6 +10,7 @@ pub mod lookup_table;
 pub mod order;
 pub mod pda;
 pub mod settlement;
+pub mod state;
 pub mod token;
 
 use litesvm::{types::TransactionMetadata, LiteSVM};

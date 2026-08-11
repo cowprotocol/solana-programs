@@ -1,25 +1,12 @@
-use settlement_client::instructions::{CreateBuffers, Initialize, ReclaimBuffer};
-use settlement_client::settlement_interface::{
-    pda::{buffer::find_buffer_pda, state::find_state_pda},
-    SettlementError,
-};
+use settlement_client::instructions::{Initialize, ReclaimBuffer};
+use settlement_client::settlement_interface::{pda::state::find_state_pda, SettlementError};
 use settlement_interface::Instruction;
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-};
+use solana_sdk::signature::Signer;
 
 use crate::common::buffer::ensure_buffer_exists;
+use crate::common::state::initialize;
 
 mod common;
-
-/// Send `ix` as the settlement's `Initialize`, signed by `payer`. Taken by
-/// value because building the instruction consumes the builder; `payer` is
-/// separate because the builder only carries its address, not its keypair.
-fn initialize(svm: &mut litesvm::LiteSVM, payer: &Keypair, ix: Initialize) {
-    let tx = common::signed_tx(svm, payer, payer, ix);
-    svm.send_transaction(tx).expect("initialize should succeed");
-}
 
 #[test]
 fn funded_buffer_is_skipped() {
