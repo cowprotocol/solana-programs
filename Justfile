@@ -38,7 +38,7 @@ bench: build-program build-test-programs
         "compute_units": (map({(.label): .compute_units}) | add),
         "accounts_readable": (map({(.label): .accounts_readable}) | add),
         "accounts_writable": (map({(.label): .accounts_writable}) | add),
-        "instruction_bytes": (map({(.label): .instruction_bytes}) | add)
+        "transaction_bytes": (map({(.label): .transaction_bytes}) | add)
     }' "${shards[@]}" \
         > bench-report.json
 

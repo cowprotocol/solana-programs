@@ -57,8 +57,8 @@ fn qualified_label(label: BenchLabel) -> String {
 }
 
 /// Wraps [`LiteSVM::send_transaction`] and, when `TEST_BENCHMARK` is set, records
-/// the transaction's compute units, locked accounts, and instruction-data bytes
-/// under `<test name>/<label>`. Rent allocation/deallocation is not measured.
+/// the transaction's compute units, locked accounts, and serialised size under
+/// `<test name>/<label>`. Rent allocation/deallocation is not measured.
 ///
 /// A reverted transaction still has its accounts and bytes recorded, since those
 /// describe the transaction as submitted. Its compute units are recorded as null:
@@ -149,14 +149,17 @@ fn accounts_locked(tx: &VersionedTransaction) -> (usize, usize) {
         )
 }
 
+/// The transaction's size on the wire: signatures, header, account keys, lookup
+/// tables and instruction data, which together have to fit in a 1232-byte
+/// packet.
+fn transaction_bytes(tx: &VersionedTransaction) -> u64 {
+    bincode::serialized_size(tx)
+        .unwrap_or_else(|e| panic!("failed to measure the serialised transaction size: {e}"))
+}
+
 fn record_benchmark(dir: &str, label: &str, tx: VersionedTransaction, result: &TransactionResult) {
     let (accounts_readable, accounts_writable) = accounts_locked(&tx);
-    let ix_bytes_required: usize = tx
-        .message
-        .instructions()
-        .iter()
-        .map(|ix| ix.data.len())
-        .sum();
+    let transaction_bytes = transaction_bytes(&tx);
 
     // A revert stops execution partway, so the consumed count is a partial tally
     // rather than the cost of the transaction: report it as null instead.
@@ -169,7 +172,7 @@ fn record_benchmark(dir: &str, label: &str, tx: VersionedTransaction, result: &T
         .unwrap_or_else(|e| panic!("failed to create benchmark report directory at {dir}: {e}"));
     let path = shard_path(dir, label);
 
-    let line = format!("{{\"label\": \"{label}\", \"accounts_readable\": {accounts_readable}, \"accounts_writable\": {accounts_writable}, \"instruction_bytes\": {ix_bytes_required}, \"compute_units\": {compute_units_consumed}}}");
+    let line = format!("{{\"label\": \"{label}\", \"accounts_readable\": {accounts_readable}, \"accounts_writable\": {accounts_writable}, \"transaction_bytes\": {transaction_bytes}, \"compute_units\": {compute_units_consumed}}}");
 
     fs::OpenOptions::new()
         // Fails if the shard already exists
