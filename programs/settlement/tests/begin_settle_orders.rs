@@ -19,7 +19,7 @@
 
 use crate::common::{
     assert_instruction_error,
-    benchmark::send_metered,
+    benchmark::{send_metered, BenchLabel},
     buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
     replace_first_matching_account, send, set_unix_timestamp,
@@ -154,7 +154,8 @@ fn settles_a_single_order() {
             pulls: &[],
         }],
     );
-    send_metered(&mut svm, &payer, instructions, "settle").expect("settlement should succeed");
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+        .expect("settlement should succeed");
 }
 
 #[test]
@@ -175,7 +176,7 @@ fn settles_multiple_orders() {
         .map(|intent| InitializedIntent { intent, pulls: &[] })
         .collect();
     let instructions = settle_and_pay(&mut svm, &program_id, &payer, &orders);
-    send_metered(&mut svm, &payer, instructions, "settle")
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect("multi-order settlement should succeed");
 }
 
@@ -629,7 +630,7 @@ fn pulls_funds_to_destination() {
         }],
         &[paid],
     );
-    send_metered(&mut svm, &payer, instructions, "settle")
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect("a pull within the approved delegation, paid at the limit, should succeed");
 
     assert_eq!(token::balance(&svm, &destination), amount);
@@ -677,7 +678,7 @@ fn pulls_to_multiple_destinations() {
         }],
         &[paid],
     );
-    send_metered(&mut svm, &payer, instructions, "settle")
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect("multiple pulls from one order should succeed");
 
     assert_eq!(token::balance(&svm, &dest0), pulled0);
@@ -753,7 +754,7 @@ fn pulls_from_multiple_orders() {
         ],
         &[paid_first, paid_second],
     );
-    send_metered(&mut svm, &payer, instructions, "settle")
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect("pulls from several orders should succeed");
 
     assert_eq!(token::balance(&svm, &dest_first), pulled_first);

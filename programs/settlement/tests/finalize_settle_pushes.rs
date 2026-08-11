@@ -10,7 +10,7 @@
 //! signed by the settlement state PDA that owns them.
 
 use crate::common::{
-    benchmark::send_metered,
+    benchmark::{send_metered, BenchLabel},
     buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
     replace_first_matching_account, send,
@@ -54,7 +54,7 @@ fn finalizes_with_no_pushes() {
     let (mut svm, program_id, payer) = setup();
 
     let instructions = finalize(&program_id, &[]);
-    send_metered(&mut svm, &payer, instructions, "settle")
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect("a finalize with no pushes should succeed");
 }
 
@@ -77,7 +77,8 @@ fn pushes_a_single_order() {
             amount,
         }],
     );
-    send_metered(&mut svm, &payer, instructions, "settle").expect("a single push should be paid");
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+        .expect("a single push should be paid");
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), amount);
     assert_eq!(token::balance(&svm, &buffer_pda), funding - amount);
@@ -117,7 +118,7 @@ fn pushes_several_orders_from_one_buffer() {
             },
         ],
     );
-    send_metered(&mut svm, &payer, instructions, "settle")
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect("several pushes from one buffer should be paid");
 
     assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
@@ -160,7 +161,7 @@ fn pushes_several_orders_from_different_buffers() {
             },
         ],
     );
-    send_metered(&mut svm, &payer, instructions, "settle")
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect("pushes from different buffers should be paid");
 
     assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);

@@ -14,7 +14,7 @@ use solana_sdk::{
     transaction::{Transaction, TransactionError},
 };
 
-use crate::common::{signed_tx, to_instruction_error, unique_pubkey};
+use crate::common::{benchmark::BenchLabel, signed_tx, to_instruction_error, unique_pubkey};
 
 mod common;
 
@@ -52,7 +52,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &owner, &owner, ix);
-    common::benchmark::send_transaction_metered(&mut svm, tx, "create_order")
+    common::benchmark::send_transaction_metered(&mut svm, tx, BenchLabel::CreateOrder)
         .expect("create_order should succeed");
 
     let account = svm

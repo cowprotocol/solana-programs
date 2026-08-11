@@ -6,10 +6,37 @@ use litesvm::{
 };
 use settlement_interface::Instruction;
 use solana_sdk::{
+    message::{v0::MessageAddressTableLookup, MessageHeader},
     signature::Keypair,
     transaction::{TransactionError, VersionedTransaction},
 };
-use std::{env, fs, io::Write, thread};
+use std::{env, fmt, fs, io::Write, thread};
+
+/// The kind of transaction a metered test measures. Naming a measurement with a
+/// variant rather than a free-form string keeps the same transaction spelled the
+/// same way across tests, so `bench-report.json` stays comparable between runs.
+#[derive(Debug, Clone, Copy)]
+pub enum BenchLabel {
+    Initialize,
+    CreateOrder,
+    CreateBuffers,
+    ReclaimOrder,
+    Settle,
+}
+
+impl fmt::Display for BenchLabel {
+    /// Spelled out rather than derived from [`Debug`], so the report keeps the
+    /// word boundaries a lower-cased `CreateOrder` would lose.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Initialize => "initialize",
+            Self::CreateOrder => "create_order",
+            Self::CreateBuffers => "create_buffers",
+            Self::ReclaimOrder => "reclaim_order",
+            Self::Settle => "settle",
+        })
+    }
+}
 
 /// Where `send_transaction_metered` writes its measurements: one single-record
 /// file per `<test>/<label>`, which `just bench` merges into `bench-report.json`.
@@ -21,12 +48,12 @@ const BENCH_REPORT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../targe
 ///
 /// The test name comes from the name of the thread, as rust's testing framework
 /// names it as such.
-fn qualified_label(label: &str) -> String {
+fn qualified_label(label: BenchLabel) -> String {
     let thread = thread::current();
     let test_name = thread.name().unwrap_or_else(|| {
         panic!("could not read the test name from thread name for benchmarking")
     });
-    format!("{test_name}/{label}")
+    format!("{label}/{test_name}")
 }
 
 /// Wraps [`LiteSVM::send_transaction`] and, when `TEST_BENCHMARK` is set, records
@@ -48,7 +75,7 @@ fn qualified_label(label: &str) -> String {
 pub fn send_transaction_metered(
     svm: &mut LiteSVM,
     tx: impl Into<VersionedTransaction>,
-    label: &str,
+    label: BenchLabel,
 ) -> TransactionResult {
     let tx = tx.into();
     let label = qualified_label(label);
@@ -72,7 +99,7 @@ pub fn send_metered(
     svm: &mut LiteSVM,
     payer: &Keypair,
     instructions: Vec<Instruction>,
-    label: &str,
+    label: BenchLabel,
 ) -> Result<TransactionMetadata, TransactionError> {
     let tx = super::payer_signed_tx(svm, payer, instructions);
     send_transaction_metered(svm, tx, label).map_err(|failed| failed.err)
@@ -86,7 +113,7 @@ fn shard_path(dir: &str, label: &str) -> String {
 /// Accounts the transaction locks, as `(readable, writable)`: the static keys
 /// plus every address resolved through an Address Lookup Table.
 fn accounts_locked(tx: &VersionedTransaction) -> (usize, usize) {
-   let &MessageHeader {
+    let &MessageHeader {
         // Not needed: signers are already counted in the remaining two entries,
         num_required_signatures: _,
         num_readonly_signed_accounts,
