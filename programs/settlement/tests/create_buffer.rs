@@ -363,7 +363,7 @@ fn creates_buffer_when_address_is_prefunded() {
     let mint = common::token::create_mint(&mut svm, &payer);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
 
-    common::pda::assert_creation_survives_prefund(&mut svm, &buffer_pda, |svm| {
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &buffer_pda, |svm| {
         let ix = CreateBuffers {
             program_id,
             payer: payer.pubkey(),

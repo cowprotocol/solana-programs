@@ -215,7 +215,7 @@ fn creates_order_when_address_is_prefunded() {
     let intent = sample_intent(fee_payer.pubkey());
     let (encoded, pda) = encode_and_derive(&intent, &program_id);
 
-    common::pda::assert_creation_survives_prefund(&mut svm, &pda, |svm| {
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &pda, |svm| {
         let ix = CreateOrder {
             program_id,
             owner: fee_payer.pubkey(),

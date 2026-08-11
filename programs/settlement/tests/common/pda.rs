@@ -122,7 +122,7 @@ pub fn assert_recreate_is_rejected(
 /// Pre-fund `account`'s address, then send the transaction built by `make_tx`
 /// and assert creation still succeeds and leaves `account` holding exactly its
 /// rent-exempt minimum.
-pub fn assert_creation_survives_prefund(
+pub fn assert_security_creation_survives_prefund(
     svm: &mut LiteSVM,
     account: &Pubkey,
     make_tx: impl FnOnce(&LiteSVM) -> Transaction,

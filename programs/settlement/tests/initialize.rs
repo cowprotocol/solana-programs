@@ -61,7 +61,7 @@ fn initializes_state_pda_when_address_is_prefunded() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
 
-    common::pda::assert_creation_survives_prefund(&mut svm, &state_pda, |svm| {
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &state_pda, |svm| {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
