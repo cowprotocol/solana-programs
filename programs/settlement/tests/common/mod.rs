@@ -5,6 +5,7 @@
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
+pub mod benchmark;
 pub mod buffer;
 pub mod lookup_table;
 pub mod order;
@@ -96,6 +97,7 @@ pub fn to_instruction_error(e: SettlementError) -> InstructionError {
     InstructionError::Custom(e.into())
 }
 
+#[track_caller]
 pub fn assert_instruction_error<T>(
     result: Result<T, TransactionError>,
     expected: InstructionError,
@@ -142,6 +144,7 @@ pub fn lamports(svm: &LiteSVM, address: &Pubkey) -> u64 {
 /// Assert that `account` holds exactly the rent-exempt minimum for its current
 /// data size. The size is taken from `account.data` rather than passed in, so
 /// the check can't drift from the account it's checking.
+#[track_caller]
 pub fn assert_rent_exempt(svm: &LiteSVM, account: &Account) {
     let rent = svm.minimum_balance_for_rent_exemption(account.data.len());
     assert_eq!(
@@ -171,6 +174,7 @@ pub fn signed_tx(
 /// use it to corrupt one account of an otherwise-valid instruction; it panics if
 /// `instruction` doesn't reference `from`, so a stale swap fails loudly rather
 /// than silently testing nothing.
+#[track_caller]
 pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubkey, to: Pubkey) {
     let meta = instruction
         .accounts
@@ -178,6 +182,22 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
         .find(|meta| meta.pubkey == *from)
         .unwrap_or_else(|| panic!("instruction should reference {from}"));
     meta.pubkey = to;
+}
+
+/// Assemble `instructions` into a transaction with `payer` as both fee payer and
+/// sole signer. Shared with [`benchmark::send_metered`] so a metered test
+/// submits exactly the transaction its unmetered twin would.
+pub fn payer_signed_tx(
+    svm: &LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+) -> Transaction {
+    Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    )
 }
 
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
@@ -188,11 +208,6 @@ pub fn send(
     payer: &Keypair,
     instructions: Vec<Instruction>,
 ) -> Result<TransactionMetadata, TransactionError> {
-    let tx = Transaction::new_signed_with_payer(
-        &instructions,
-        Some(&payer.pubkey()),
-        &[payer],
-        svm.latest_blockhash(),
-    );
+    let tx = payer_signed_tx(svm, payer, instructions);
     svm.send_transaction(tx).map_err(|e| e.err)
 }

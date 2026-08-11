@@ -21,6 +21,7 @@ solana-instruction = { workspace = true, features = ["syscalls"] }
 
 [dev-dependencies]
 arrayref.workspace = true
+bincode.workspace = true
 litesvm.workspace = true
 litesvm-token.workspace = true
 proptest.workspace = true

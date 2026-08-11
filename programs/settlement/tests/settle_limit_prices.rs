@@ -30,6 +30,7 @@ use solana_sdk::{
 
 mod common;
 
+#[track_caller]
 fn assert_settlement_error(result: Result<(), TransactionError>, expected: SettlementError) {
     assert_eq!(
         result.err(),
