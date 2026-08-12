@@ -41,6 +41,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(about = "Create the singleton settlement state PDA")]
+    Initialize(cmd::initialize::InitializeArgs),
     #[command(about = "Sell a token for another (e.g. `cow sell 1.0 SOL for USDC`)")]
     Sell(cmd::create_order::BuyOrSellArgs),
     #[command(about = "Buy a token using another (e.g. `cow buy 1.0 SOL with USDC`)")]
@@ -53,6 +55,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let ctx = cmd::Context::from_args(&cli)?;
     match cli.command {
+        Commands::Initialize(args) => cmd::initialize::run(ctx, args),
         Commands::Sell(args) => cmd::create_order::run_sell(ctx, args),
         Commands::Buy(args) => cmd::create_order::run_buy(ctx, args),
         Commands::Settle(args) => cmd::settle::run(ctx, args),
