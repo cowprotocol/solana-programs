@@ -1,10 +1,20 @@
+use litesvm::LiteSVM;
 use settlement_client::instructions::{Initialize, ReclaimBuffer};
-use settlement_client::settlement_interface::{pda::state::find_state_pda, SettlementError};
+use settlement_client::settlement_interface::{
+    instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
+    pda::state::find_state_pda, SettlementError,
+};
 use settlement_interface::Instruction;
-use solana_sdk::signature::Signer;
+use solana_sdk::{
+    instruction::InstructionError,
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+};
 
+use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
 use crate::common::state::initialize;
+use crate::common::unique_pubkey;
 
 mod common;
 
@@ -36,7 +46,7 @@ fn funded_buffer_is_skipped() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
         .expect("reclaim_buffer should succeed");
 
     assert!(
@@ -76,7 +86,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
         .expect("reclaim_buffer should succeed");
 
     assert!(
@@ -232,7 +242,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
         mints: &[mint_a, mint_b],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
         .expect("reclaim_buffer should succeed");
 
     assert!(
@@ -242,6 +252,39 @@ fn reclaims_multiple_buffers_skipping_funded() {
     assert!(
         svm.get_account(&buffer_b).is_some(),
         "buffer_b must not be closed (because it's funded)"
+    );
+}
+
+#[test]
+fn rejects_the_same_buffer_twice_in_one_instruction() {
+    let (mut svm, program_id, payer) = common::setup();
+    let reclaim_authority = common::unique_keypair();
+
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
+
+    let mint = common::token::create_mint(&mut svm, &payer);
+    ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
+    let recipient = common::unique_keypair().pubkey();
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: recipient,
+        mints: &[mint, mint],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    common::assert_instruction_error(
+        0,
+        svm.send_transaction(tx).map_err(|e| e.err),
+        InstructionError::InvalidAccountData,
     );
 }
 
@@ -329,5 +372,124 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
     assert!(
         svm.get_account(&buffer_pda).is_some(),
         "buffer PDA must survive a reclaim the authority never signed"
+    );
+}
+
+fn max_buffers_reclaim_via_lookup_table(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    reclaim_authority: &Keypair,
+) -> usize {
+    let (state_pda, _bump) = find_state_pda(program_id);
+    common::lookup_table::max_items_via_lookup_table(svm, |svm, n| {
+        let buffers: Vec<(Pubkey, Pubkey)> =
+            (0..n).map(|_| (unique_pubkey(), unique_pubkey())).collect();
+        let ix = ReclaimBufferRaw {
+            program_id: *program_id,
+            state_pda,
+            reclaim_authority: reclaim_authority.pubkey(),
+            reclaim_recipient: reclaim_authority.pubkey(),
+            buffers: &buffers,
+        };
+        common::lookup_table::lookup_table_tx(svm, reclaim_authority, ix)
+    })
+}
+
+/// This isn't really a test, it's a way to make it visible that a code change
+/// has changed the amount of buffer accounts that can be reclaimed in the same
+/// transaction. If the number increases, great, bump it up! If it decreases and
+/// you're ok with the performance hit, then you can bump it down.
+#[test]
+fn bench_assert_known_max_buffer_count() {
+    let (mut svm, program_id, payer) = common::setup();
+    let reclaim_authority = common::unique_keypair();
+    svm.airdrop(&reclaim_authority.pubkey(), 100_000_000)
+        .expect("airdrop should succeed");
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
+
+    let max_buffers =
+        max_buffers_reclaim_via_lookup_table(&mut svm, &program_id, &reclaim_authority);
+    assert_eq!(
+        max_buffers, 30,
+        "Max buffers that can be reclaimed has changed"
+    );
+}
+
+/// Pack a single `reclaim_buffer` instruction with as many buffers as a
+/// transaction can have, all of them empty and therefore closable. Use an
+/// Address Lookup Table to reach the real account-lock ceiling. This is a
+/// ceiling on how many buffers one transaction can reclaim, and a benchmark for
+/// how much a maxed-out instruction costs.
+#[test]
+fn max_buffers_in_one_instruction() {
+    let (mut svm, program_id, payer) = common::setup();
+    let reclaim_authority = common::unique_keypair();
+    svm.airdrop(&reclaim_authority.pubkey(), 100_000_000)
+        .expect("airdrop should succeed");
+    initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
+
+    let max_buffers =
+        max_buffers_reclaim_via_lookup_table(&mut svm, &program_id, &reclaim_authority);
+
+    assert!(
+        max_buffers > 15,
+        "a lookup-table transaction must exceed the legacy packet limit, got {max_buffers}"
+    );
+
+    let mints: Vec<Pubkey> = (0..max_buffers)
+        .map(|_| {
+            let mint = common::token::create_mint(&mut svm, &payer);
+            ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
+            mint
+        })
+        .collect();
+
+    let reclaimable_rent: u64 = mints
+        .iter()
+        .map(|mint| {
+            svm.get_account(&find_buffer_pda(&program_id, mint).0)
+                .expect("every buffer must exist before the reclaim")
+                .lamports
+        })
+        .sum();
+
+    let authority_before = common::lamports(&svm, &reclaim_authority.pubkey());
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        mints: &mints,
+    };
+    let tx = common::lookup_table::lookup_table_tx(&mut svm, &reclaim_authority, ix);
+    let txresult = send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
+        .expect("a transaction filled to the buffer limit should succeed");
+
+    for mint in &mints {
+        let (buffer_pda, _bump) = find_buffer_pda(&program_id, mint);
+        assert!(
+            svm.get_account(&buffer_pda).is_none(),
+            "every buffer in a maxed-out batch must be closed"
+        );
+    }
+    assert_eq!(
+        common::lamports(&svm, &reclaim_authority.pubkey()) + txresult.fee - authority_before,
+        reclaimable_rent,
+        "the recipient must receive the rent of every closed buffer"
     );
 }
