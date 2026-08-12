@@ -44,9 +44,6 @@ impl From<ReclaimBuffer<'_>> for Instruction {
     fn from(builder: ReclaimBuffer<'_>) -> Self {
         let mut accounts = vec![
             AccountMeta::new_readonly(builder.state_pda, false),
-            // Read-only: the authority only authorizes the close. If it named
-            // itself as the recipient, the runtime merges both metas and the
-            // account ends up writable regardless.
             AccountMeta::new_readonly(builder.reclaim_authority, true),
             AccountMeta::new(builder.reclaim_recipient, false),
             AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
@@ -325,9 +322,6 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 6);
-        // The authority only authorizes the close; the recipient is credited
-        // the rent, the buffer is closed, and the mint is only read to derive
-        // the buffer PDA.
         assert_readonly_nonsigner(&accounts[0], state_pda);
         assert_readonly_signer(&accounts[1], reclaim_authority);
         assert_writable_nonsigner(&accounts[2], reclaim_recipient);
@@ -351,8 +345,6 @@ mod tests {
         }
         .into();
 
-        // Both metas name the same account; the runtime unions their
-        // privileges, so the authority ends up a writable signer.
         assert_readonly_signer(&accounts[1], reclaim_authority);
         assert_writable_nonsigner(&accounts[2], reclaim_authority);
     }
