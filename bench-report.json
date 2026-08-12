@@ -7,7 +7,7 @@
     "initialize/happy_path_initializes_state_pda_with_expected_data": 4,
     "reclaim_buffer/funded_buffer_is_skipped": 7,
     "reclaim_buffer/happy_path_reclaims_empty_buffer_to_the_authority_itself": 7,
-    "reclaim_buffer/max_buffers_in_one_instruction": 63,
+    "reclaim_buffer/max_buffers_in_one_instruction": 64,
     "reclaim_buffer/reclaims_multiple_buffers_skipping_funded": 9,
     "reclaim_order/happy_path_returns_lamports_and_closes_pda": 4,
     "settle/finalizes_with_no_pushes": 5,
