@@ -74,7 +74,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
     };
     let encoded = EncodedOrderIntent::from(&intent);
     let encoded_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-    let (pda, bump) = find_order_pda(&program_id, &encoded.hash());
+    let (pda, _bump) = find_order_pda(&program_id, &encoded.hash());
 
     let pda_rent = svm.minimum_balance_for_rent_exemption(
         settlement_client::settlement_interface::data::order::EncodedOrderAccount::SIZE,
@@ -106,7 +106,6 @@ fn happy_path_returns_lamports_and_closes_pda() {
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
-        bump,
         reclaim_recipient: reclaim_recipient.pubkey(),
     }
     .instruction();
@@ -135,14 +134,12 @@ fn rejects_when_order_not_yet_expired() {
 
     let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
-    let (_, bump) = find_order_pda(&program_id, &EncodedOrderIntent::from(&intent).hash());
 
     common::set_unix_timestamp(&mut svm, VALID_TO as i64); // technically this is the last valid timestamp
 
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
-        bump,
         reclaim_recipient: owner.pubkey(),
     }
     .instruction();
@@ -163,7 +160,6 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
 
     let intent = reclaim_sample_intent(owner.pubkey());
     let (encoded, pda) = encode_and_derive(&intent, &program_id);
-    let (_, bump) = find_order_pda(&program_id, &EncodedOrderIntent::from(&intent).hash());
 
     // First creation records `owner` as `created_by`.
     create_order(&mut svm, &program_id, &owner, &intent);
@@ -175,7 +171,6 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
-        bump,
         reclaim_recipient: owner.pubkey(),
     }
     .instruction();
@@ -221,7 +216,6 @@ fn rejects_when_reclaim_recipient_mismatch() {
 
     let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
-    let (_, bump) = find_order_pda(&program_id, &EncodedOrderIntent::from(&intent).hash());
 
     common::set_unix_timestamp(&mut svm, (VALID_TO + 1).into());
 
@@ -229,7 +223,6 @@ fn rejects_when_reclaim_recipient_mismatch() {
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,
-        bump,
         reclaim_recipient: wrong_recipient,
     }
     .instruction();

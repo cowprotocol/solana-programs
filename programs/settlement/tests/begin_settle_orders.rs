@@ -42,7 +42,6 @@ use settlement_client::settlement_interface::{
 };
 use settlement_interface::data::intent::OrderIntent;
 use solana_sdk::{
-    account::Account,
     instruction::{AccountMeta, InstructionError},
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -181,35 +180,33 @@ fn settles_multiple_orders() {
 }
 
 #[test]
-fn rejects_wrong_bump() {
+fn rejects_wrong_stored_bump() {
     let (mut svm, program_id, payer) = setup();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
 
-    // Build the raw instruction directly to inject a bad bump. The finalize
-    // carries placeholder, the transaction is expected to reject before its
-    // execution.
-    let begin = BeginSettleRaw {
-        program_id,
-        state_pda: find_state_pda(&program_id).0,
-        finalize_ix_index: 1,
-        auction_id: 0,
-        order_pdas: &[order_pda],
-        order_pda_bumps: &[bump ^ 0x01],
-        sell_token_accounts: &[intent.sell_token_account],
-        pulls: &no_pulls(1),
-    };
-    let finalize = FinalizeSettleRaw {
-        program_id,
-        state_pda: find_state_pda(&program_id).0,
-        begin_ix_index: 0,
-        source_buffers: &[unique_pubkey()],
-        destinations: &[intent.buy_token_account],
-        bumps: &[0],
-        amounts: &[0],
-    };
-    let instructions = vec![begin.into(), finalize.into()];
+    let data: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+        bump: bump ^ 0x01,
+        cancelled: false,
+        amount_withdrawn: 0,
+        amount_received: 0,
+        created_by: payer.pubkey(),
+        intent: intent.clone(),
+    })
+    .into();
+
+    common::create_account_at(&mut svm, order_pda, &program_id, &data);
+
+    let instructions = settle_and_pay(
+        &mut svm,
+        &program_id,
+        &payer,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[],
+        }],
+    );
     assert_begin_error(
         send(&mut svm, &payer, instructions),
         SettlementError::AccountNotDerivable,
@@ -223,7 +220,9 @@ fn rejects_fabricated_program_owned_account() {
 
     let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
     let intent = sample_intent(payer.pubkey(), sell_token, 0);
+    let (_real_order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     let body: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+        bump,
         cancelled: false,
         amount_withdrawn: 0,
         amount_received: 0,
@@ -231,18 +230,16 @@ fn rejects_fabricated_program_owned_account() {
         intent: intent.clone(),
     })
     .into();
-    // A program-owned account holding a valid order body, but sitting at an
-    // address that isn't the canonical order PDA.
+    // A program-owned account holding a valid order body (canonical bump
+    // included), but sitting at an address that isn't the canonical order PDA.
     let fake_order = create_account(&mut svm, &program_id, &body);
 
-    let (_real_order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     let begin = BeginSettleRaw {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         finalize_ix_index: 1,
         auction_id: 0,
         order_pdas: &[fake_order],
-        order_pda_bumps: &[bump],
         sell_token_accounts: &[sell_token],
         pulls: &no_pulls(1),
     };
@@ -275,14 +272,13 @@ fn rejects_non_order_account_in_order_slot() {
     // Put a token account in the order slot. Its 165-byte data can't decode as a
     // order body, so it's rejected before the canonical-address check.
     // The client builder always references a real order PDA, so build the raw
-    // instruction by hand; the bump is irrelevant, as the decode fails first.
+    // instruction by hand.
     let begin = BeginSettleRaw {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         finalize_ix_index: 1,
         auction_id: 0,
         order_pdas: &[sell_token],
-        order_pda_bumps: &[0],
         sell_token_accounts: &[sell_token],
         pulls: &no_pulls(1),
     };
@@ -430,29 +426,23 @@ fn rejects_orders_in_wrong_address_order() {
         .salt(1)
         .build();
 
-    let (first_pda, first_bump) = find_order_pda(&program_id, &first.uid());
-    let (second_pda, second_bump) = find_order_pda(&program_id, &second.uid());
+    let (first_pda, _) = find_order_pda(&program_id, &first.uid());
+    let (second_pda, _) = find_order_pda(&program_id, &second.uid());
 
     // Lay out the two distinct orders strictly decreasing by PDA address, which
     // the program rejects. The interface builders would sort them, so build both
     // instructions by hand in the current wire format. Begin data is
-    // `[discriminator, finalize_ix_index (LE), order_count, bump×n, transfer_count×n]`
+    // `[discriminator, finalize_ix_index (LE), order_count, transfer_count×n]`
     // (no transfers here) and begin accounts are `[instructions_sysvar, state_pda,
     // token_program, (order_pda, sell_token_account)...]`. The finalize's push
     // destinations are laid out in the same decreasing order, so the first order's
     // destination check passes and the second order trips the ordering check.
     let mut orders = [
-        (
-            first_pda,
-            first.sell_token_account,
-            first.buy_token_account,
-            first_bump,
-        ),
+        (first_pda, first.sell_token_account, first.buy_token_account),
         (
             second_pda,
             second.sell_token_account,
             second.buy_token_account,
-            second_bump,
         ),
     ];
     orders.sort_by_key(|&(pda, ..)| std::cmp::Reverse(pda));
@@ -461,7 +451,6 @@ fn rejects_orders_in_wrong_address_order() {
     data.extend_from_slice(&u16::from(FINALIZE_INDEX).to_le_bytes());
     data.extend_from_slice(&0i64.to_le_bytes()); // auction id
     data.push(orders.len() as u8);
-    data.extend(orders.iter().map(|&(_, _, _, bump)| bump));
     // No transfers: one zero transfer-count byte per order.
     data.extend(orders.iter().map(|_| 0u8));
 
@@ -470,7 +459,7 @@ fn rejects_orders_in_wrong_address_order() {
         AccountMeta::new_readonly(find_state_pda(&program_id).0, false),
         AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
     ];
-    for (order_pda, sell_token_account, _, _) in orders {
+    for (order_pda, sell_token_account, _) in orders {
         accounts.push(AccountMeta::new_readonly(order_pda, false));
         accounts.push(AccountMeta::new(sell_token_account, false));
     }
@@ -485,7 +474,7 @@ fn rejects_orders_in_wrong_address_order() {
     // the ordering before the pushes execute, so only the destinations and their
     // count matter, not the source buffers they'd draw from.
     let source_buffers: Vec<Pubkey> = orders.iter().map(|_| unique_pubkey()).collect();
-    let destinations: Vec<Pubkey> = orders.iter().map(|&(_, _, buy, _)| buy).collect();
+    let destinations: Vec<Pubkey> = orders.iter().map(|&(_, _, buy)| buy).collect();
     let bumps = vec![0u8; orders.len()];
     let amounts = vec![0u64; orders.len()];
     let finalize = FinalizeSettleRaw {
@@ -515,8 +504,9 @@ fn rejects_cancelled_order() {
     // account still sits at the canonical PDA holding a matching intent, so it
     // clears the provenance check and the cancelled flag is what trips the
     // rejection.
-    let (order_pda, _bump) = find_order_pda(&program_id, &intent.uid());
+    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
     let data: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+        bump,
         cancelled: true,
         amount_withdrawn: 0,
         amount_received: 0,
@@ -524,17 +514,8 @@ fn rejects_cancelled_order() {
         intent: intent.clone(),
     })
     .into();
-    svm.set_account(
-        order_pda,
-        Account {
-            lamports: svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE),
-            data: data.to_vec(),
-            owner: program_id,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .expect("placing a cancelled order at its canonical PDA should succeed");
+
+    common::create_account_at(&mut svm, order_pda, &program_id, &data);
 
     let instructions = settle_and_pay(
         &mut svm,

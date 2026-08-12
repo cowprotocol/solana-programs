@@ -37,13 +37,11 @@ impl From<BeginSettle<'_>> for Instruction {
     fn from(builder: BeginSettle<'_>) -> Self {
         let mut order_pdas = Vec::with_capacity(builder.orders.len());
         let mut sell_token_accounts = Vec::with_capacity(builder.orders.len());
-        let mut bumps = Vec::with_capacity(builder.orders.len());
         let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(builder.orders.len());
         for order in builder.orders {
-            let (order_pda, bump) = find_order_pda(&builder.program_id, &order.intent.uid());
+            let (order_pda, _bump) = find_order_pda(&builder.program_id, &order.intent.uid());
             order_pdas.push(order_pda);
             sell_token_accounts.push(order.intent.sell_token_account);
-            bumps.push(bump);
             pull_lists.push(order.pulls);
         }
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
@@ -53,7 +51,6 @@ impl From<BeginSettle<'_>> for Instruction {
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
             order_pdas: &order_pdas,
-            order_pda_bumps: &bumps,
             sell_token_accounts: &sell_token_accounts,
             pulls: &pull_lists,
         }
@@ -229,15 +226,15 @@ mod tests {
             });
 
             // Expected orders: each intent's canonical PDA paired with its sell
-            // token account and bump, sorted by PDA address (the builder's order).
-            let mut expected: Vec<(Pubkey, Pubkey, u8)> = intents
+            // token account, sorted by PDA address (the builder's order).
+            let mut expected: Vec<(Pubkey, Pubkey)> = intents
                 .iter()
                 .map(|intent| {
-                    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
-                    (order_pda, intent.sell_token_account, bump)
+                    let (order_pda, _bump) = find_order_pda(&program_id, &intent.uid());
+                    (order_pda, intent.sell_token_account)
                 })
                 .collect();
-            expected.sort_by_key(|(order_pda, _, _)| *order_pda);
+            expected.sort_by_key(|(order_pda, _)| *order_pda);
 
             let mut accounts: Vec<_> = ix
                 .accounts
@@ -253,14 +250,13 @@ mod tests {
                 &INSTRUCTIONS_SYSVAR_ID,
             );
 
-            let actual: Vec<(Pubkey, Pubkey, u8)> = parsed
+            let actual: Vec<(Pubkey, Pubkey)> = parsed
                 .orders
                 .iter_mut()
                 .map(|order| {
                     (
                         *order.order_pda.address(),
                         *order.sell_token_account.address(),
-                        order.bump,
                     )
                 })
                 .collect();
