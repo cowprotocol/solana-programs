@@ -4,10 +4,7 @@
 //! the UID feeding the seeds is [`crate::data::intent::EncodedOrderIntent::hash`].
 //!
 //! Any account derived from [`crate::pda::order::find_order_pda`] that has
-//! already been created on-chain can be considered safe to use. Invalid
-//! addresses are rejected at creation time. In particular, if the PDA exists,
-//! the bump can be provided by the user without recomputing the canonical
-//! one.
+//! already been created on-chain can be considered safe to use.
 //!
 //! For every valid [`crate::data::intent::OrderIntent`], there exists only
 //! a single valid PDA representing that intent.
@@ -46,6 +43,7 @@ pub fn find_order_pda(program_id: &Pubkey, uid: &Hash) -> (Pubkey, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pda::tests::assert_distinct_versions_yield_distinct_pdas;
 
     #[test]
     fn find_order_pda_uses_canonical_seeds() {
@@ -55,6 +53,14 @@ mod tests {
             |program_id| find_order_pda(program_id, &uid),
             order_pda_seeds(&uid),
         );
+    }
+
+    #[test]
+    fn distinct_versions_yield_distinct_order_pdas() {
+        let uid = Hash::new_from_array(*Pubkey::new_unique().as_array());
+        let (pda, _) = find_order_pda(&crate::ID, &uid);
+
+        assert_distinct_versions_yield_distinct_pdas(&pda, &[uid.as_ref(), ORDER_SEED]);
     }
 
     mod proptest {

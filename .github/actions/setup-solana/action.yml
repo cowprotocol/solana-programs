@@ -7,7 +7,7 @@ runs:
     - name: Set Solana version
       env:
         # Bump to upgrade. Releases: https://github.com/anza-xyz/agave/releases
-        SOLANA_VERSION: v3.1.14
+        SOLANA_VERSION: v4.0.3
       shell: bash
       # Re-export to $GITHUB_ENV so later steps (the cache key, the install
       # command) see the same value. Composite actions can't declare a

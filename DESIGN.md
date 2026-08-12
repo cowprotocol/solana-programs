@@ -10,9 +10,20 @@ It uses a dedicated state account to:
 - Manage solver authentication (including fee access by the protocol).
 - Act as a token delegate to manage user funds.
 
-Its state is stored in a PDA generated using seed `["settlement"]`.
+Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement    v0.1"]`.
 
 Once the testing phase has ended, we will make the code at that account unchangeable.
+
+## State versioning
+
+Every PDA the program derives starts with the same prefix seed: the string `settlement`, then the current cargo package major and minor version prefixed by `v`, space-padded to a fixed width to prevent accidental prefix collisions. While we expect the ultimate settlement program to be immutable so this measure would normally not be needed, during development we want to avoid any possible confusion or losses that could occur as a result of stale data still existing within the settlement program.
+
+Bumping the minor version relocates the program's entire account storage at once — the state account, every buffer, and every order.
+
+A bump is not a migration. There are some other consequences that should be considered before the new program version is deployed:
+
+- **User delegations stop working.** Users delegate their token accounts to the state PDA (see [user delegation](#user-delegation-ie-approvals)). A bump moves that address, so every user has to delegate again before they can trade.
+- **Whatever the buffers still hold is stranded.** A buffer's funds are only spendable by the state PDA that is its SPL authority. After a bump the program can no longer sign for the old state PDA, so it can never move those funds again. Buffers must be drained under the old program version *before* deploying a bump.
 
 ## Program initialization
 
@@ -28,7 +39,7 @@ Buffer accounts are token accounts that hold funds on behalf of the settlement p
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
-Corresponding PDAs are generated using seed `["settlement", token, "buffer"]`.
+Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
 A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#reclaim-authority) can call. A buffer that still holds a token balance is skipped rather than closed, and skipping is silent.
 
@@ -129,6 +140,8 @@ For processing an order in a settlement, the data of that order needs to be stor
 Useful information can be recovered from the order PDA. Notably:
 
 ```rust
+// The PDA's canonical bump, stored so instructions don't have to carry it
+bump: u8
 cancelled: bool
 amount_withdrawn: u64
 amount_received: u64
@@ -143,7 +156,7 @@ An order PDA can only exist and hold data if the order has been [authenticated](
 
 At the time of order creation, the executor can specify a different address as the `created_by` address. This allows rent to be reclaimed by a different account than the one that signed the instruction.
 
-Corresponding PDAs are generated using seed `["settlement", hash(intent), "order"]`.
+Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, hash(intent), "order"]`.
 
 The serialization of the parameters before hashing and the hashing function will be formally specified at a later point.
 

@@ -7,7 +7,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 
-use pinocchio_system::instructions::CreateAccount;
+use pinocchio_system::instructions::CreateAccountAllowPrefund;
 
 use settlement_interface::{
     pda::state::{state_pda_seeds, state_pda_signer_seeds},
@@ -50,7 +50,7 @@ impl<const N: usize> CanonicalPda<'_, N> {
     /// still tries to create the account, which then reverts with the system
     /// program's `AccountAlreadyInUse` because the account already exists.
     #[must_use = "the flag says whether follow-up initialization is still needed"]
-    pub fn create_idempotent(self) -> Result<bool, ProgramError> {
+    pub fn create_idempotent(self) -> Result<(bool, u8), ProgramError> {
         let (canonical, bump) = Address::find_program_address(&self.seeds, self.program_id);
 
         // Verify whether the PDA is initialized.
@@ -67,10 +67,8 @@ impl<const N: usize> CanonicalPda<'_, N> {
         //  initialized. We take the risk as this isn't user-specified input and
         // there's no reason to actually assign a PDA to the System Program.
         if self.pda.address() == &canonical && self.pda.owned_by(self.owner) {
-            return Ok(false);
+            return Ok((false, bump));
         }
-
-        let bump = [bump];
 
         // A PDA has at most `MAX_SEEDS` seeds, so `N` stays well below
         // `usize::MAX` and the `N + 1` below cannot overflow. Asserting it in a
@@ -83,20 +81,30 @@ impl<const N: usize> CanonicalPda<'_, N> {
         // that: the `N` base seeds plus the trailing bump.
         let mut signer_seeds = Vec::with_capacity(const { N + 1 });
         signer_seeds.extend(self.seeds.iter().map(|seed| Seed::from(*seed)));
-        signer_seeds.push(Seed::from(&bump[..]));
+        let bump_ptr = [bump];
+        signer_seeds.push(Seed::from(&bump_ptr));
         let signer = Signer::from(&signer_seeds[..]);
 
-        CreateAccount::with_minimum_balance(self.payer, self.pda, self.size, self.owner, None)?
-            .invoke_signed(&[signer])?;
-        Ok(true)
+        // `CreateAccountAllowPrefund` mirrors `CreateAccount` but does not
+        // assert that the target starts with zero lamports. A PDA address is
+        // publicly derivable, so without this anyone could permanently block
+        // creation by first sending the address a single lamport, which makes
+        // the System program's plain `CreateAccount` revert with
+        // `AccountAlreadyInUse`.
+        CreateAccountAllowPrefund::with_minimum_balance(
+            self.payer, self.pda, self.size, self.owner, None,
+        )?
+        .invoke_signed(&[signer])?;
+        Ok((true, bump))
     }
 
     /// Create the canonical account, reverting with
     /// [`ProgramError::AccountAlreadyInitialized`] if it already exists.
     #[must_use = "ignoring the output means the PDA could be incorrectly set up"]
-    pub fn create_new(self) -> ProgramResult {
-        if self.create_idempotent()? {
-            Ok(())
+    pub fn create_new(self) -> Result<u8, ProgramError> {
+        let (created, bump) = self.create_idempotent()?;
+        if created {
+            Ok(bump)
         } else {
             Err(ProgramError::AccountAlreadyInitialized)
         }

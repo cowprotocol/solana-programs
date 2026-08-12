@@ -5,6 +5,7 @@
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
+pub mod benchmark;
 pub mod buffer;
 pub mod lookup_table;
 pub mod order;
@@ -120,12 +121,7 @@ pub fn assert_settlement_error<T>(
     assert_instruction_error(ix_idx, result, to_instruction_error(expected));
 }
 
-/// Place a fresh, rent-exempt account holding `data` and owned by `owner` at a
-/// new address, and return it. Lets a test populate an arbitrary account (e.g.
-/// program-owned, with a crafted body or a deliberately wrong size or owner)
-/// directly, bypassing the runtime.
-pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey {
-    let address = unique_pubkey();
+pub fn create_account_at(svm: &mut LiteSVM, address: Pubkey, owner: &Pubkey, data: &[u8]) {
     let lamports = svm.minimum_balance_for_rent_exemption(data.len());
     svm.set_account(
         address,
@@ -138,6 +134,15 @@ pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey 
         },
     )
     .expect("set_account should succeed");
+}
+
+/// Place a fresh, rent-exempt account holding `data` and owned by `owner` at a
+/// new address, and return it. Lets a test populate an arbitrary account (e.g.
+/// program-owned, with a crafted body or a deliberately wrong size or owner)
+/// directly, bypassing the runtime.
+pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey {
+    let address = unique_pubkey();
+    create_account_at(svm, address, owner, data);
     address
 }
 
@@ -196,6 +201,22 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
     meta.pubkey = to;
 }
 
+/// Assemble `instructions` into a transaction with `payer` as both fee payer and
+/// sole signer. Shared with [`benchmark::send_metered`] so a metered test
+/// submits exactly the transaction its unmetered twin would.
+pub fn payer_signed_tx(
+    svm: &LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+) -> Transaction {
+    Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    )
+}
+
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
 /// surfacing only the transaction-level error on failure (dropping the success
 /// metadata's error wrapper).
@@ -204,11 +225,6 @@ pub fn send(
     payer: &Keypair,
     instructions: Vec<Instruction>,
 ) -> Result<TransactionMetadata, TransactionError> {
-    let tx = Transaction::new_signed_with_payer(
-        &instructions,
-        Some(&payer.pubkey()),
-        &[payer],
-        svm.latest_blockhash(),
-    );
+    let tx = payer_signed_tx(svm, payer, instructions);
     svm.send_transaction(tx).map_err(|e| e.err)
 }

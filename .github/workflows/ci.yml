@@ -30,12 +30,18 @@ jobs:
       - uses: ./.github/actions/setup-just
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Test
+      - name: Test and benchmark
         # Deterministic tests. Pin the proptest seed so the fuzz tests in
         # `cargo test` replay the same case sequence on every CI run.
         env:
           PROPTEST_RNG_SEED: "0"
-        run: just test
+        run: just bench
+      - name: Bench does not drift
+        run: |
+          git diff --exit-code -- bench-report.json || {
+            echo "bench-report.json is different from committed to CI. run 'just bench' and commit the result" >&2
+            exit 1
+          }
 
   fmt-check:
     runs-on: ubuntu-latest

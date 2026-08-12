@@ -119,3 +119,36 @@ pub fn assert_recreate_is_rejected(
         InstructionError::AccountAlreadyInitialized,
     );
 }
+
+/// Pre-fund `account`'s address, then send the transaction built by `make_tx`
+/// and assert creation still succeeds and leaves `account` holding exactly its
+/// rent-exempt minimum.
+pub fn assert_security_creation_survives_prefund(
+    svm: &mut LiteSVM,
+    account: &Pubkey,
+    make_tx: impl FnOnce(&LiteSVM) -> Transaction,
+) {
+    // Sanity check: the address must start empty.
+    assert!(
+        svm.get_account(account).is_none(),
+        "account must not already exist before pre-funding"
+    );
+
+    // The smallest balance an account can actually hold: the runtime rejects a
+    // transfer that would leave the recipient below the rent-exempt minimum, so
+    // a griefer can't park a single lamport. Rent exemption for zero data is
+    // therefore the cheapest stray balance an attacker can place at the address,
+    // and it's below any real PDA's rent, so creation must still top it up.
+    let stray_balance = svm.minimum_balance_for_rent_exemption(0);
+    svm.airdrop(account, stray_balance)
+        .expect("pre-funding the PDA address should succeed");
+
+    let tx = make_tx(svm);
+    svm.send_transaction(tx)
+        .expect("creation must succeed even when the address is pre-funded");
+
+    let created = svm
+        .get_account(account)
+        .expect("account should exist after creation");
+    super::assert_rent_exempt(svm, &created);
+}

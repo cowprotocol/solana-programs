@@ -235,14 +235,13 @@ fn process_order(
     let SettledOrder {
         order_pda,
         sell_token_account,
-        bump,
         destinations,
         amounts,
     } = order;
 
     // Decode the order body and prove its provenance: `load_from_pda` checks
     // that `order_pda` is the canonical order PDA for the intent it stores.
-    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
+    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
     let intent = &account.intent;
 
     if account.cancelled {
@@ -942,7 +941,8 @@ mod tests {
         // From the Solana docs for this function: "construct the account data
         // for the instructions sysvar."
         let instructions_sysvar_data =
-            solana_instructions_sysvar::construct_instructions_data(&[borrowed]);
+            solana_instructions_sysvar::construct_instructions_data(&[borrowed])
+                .expect("instruction serialization should succeed for well-formed instructions");
         // SAFETY: from Pinocchio's docs for `new_unchecked`: "this function is
         // unsafe because it does not check if the provided data is from the
         // Sysvar Account."

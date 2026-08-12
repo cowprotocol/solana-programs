@@ -26,7 +26,10 @@ use solana_sdk::{
     transaction::TransactionError,
 };
 
-use crate::common::{unique_keypair, unique_pubkey};
+use crate::common::{
+    benchmark::{send_transaction_metered, BenchLabel},
+    unique_keypair, unique_pubkey,
+};
 
 mod common;
 
@@ -43,7 +46,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("create_buffer should succeed");
 
     let account = svm
@@ -183,7 +186,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("create_buffers should create every buffer at once");
 
     for mint in &mints {
@@ -352,6 +355,22 @@ fn rejects_invalid_mint() {
         svm.get_account(&buffer_pda).is_none(),
         "buffer must not have been created when the mint is invalid",
     );
+}
+
+#[test]
+fn creates_buffer_when_address_is_prefunded() {
+    let (mut svm, program_id, payer) = common::setup();
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
+
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &buffer_pda, |svm| {
+        let ix = CreateBuffers {
+            program_id,
+            payer: payer.pubkey(),
+            mints: &[mint],
+        };
+        common::signed_tx(svm, &payer, &payer, ix)
+    });
 }
 
 #[test]
@@ -541,7 +560,20 @@ fn max_buffers_in_one_instruction() {
     // most of the times but sometimes (~2%) execution would fail.
     svm = svm.with_compute_budget(ComputeBudget {
         compute_unit_limit: u64::from(MAX_COMPUTE_UNIT_LIMIT),
-        ..ComputeBudget::default()
+        // I'd like to use `ComputeBudget::default()` but it's behind a crate
+        // feature `dev-context-only-utils` which has broken in the past after
+        // updating Solana packages.
+        // This is the closest we get to that without extra features.
+        // `false` is about whether the feature SIMD-0268 is active; right now
+        // this defaults to false and there isn't an easy way to get this from
+        // the node itself in a test. Check with:
+        //
+        // ```
+        // $ solana feature status 6TkHkRmP7JZy1fdM6fg5uXn76wChQBWGokHBJzrLB3mj
+        // ```
+        //
+        // TODO: try to restore ``::default()` once Solana v4 gets more stable.
+        ..ComputeBudget::new_with_defaults(false)
     });
     let (state_pda, _) = find_state_pda(&program_id);
 
@@ -564,13 +596,8 @@ fn max_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
-    let meta = svm
-        .send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("a transaction filled to the buffer limit should succeed");
-    println!(
-        "create_buffers with {max_buffers} buffers consumed {} compute units",
-        meta.compute_units_consumed
-    );
 
     for mint in &mints {
         let (buffer_pda, _bump) = find_buffer_pda(&program_id, mint);

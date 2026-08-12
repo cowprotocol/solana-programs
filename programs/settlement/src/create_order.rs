@@ -41,7 +41,7 @@ pub fn process_create_order(
     // create flow, so recreating an order that already exists is a user error:
     // `create_new` then reverts. The rest of the code can assume that if an
     // account has data, then the bump is valid.
-    CanonicalPda {
+    let bump = CanonicalPda {
         program_id,
         payer: created_by,
         pda: order_pda,
@@ -55,7 +55,15 @@ pub fn process_create_order(
     let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    order::write_account(order_data, false, 0, 0, created_by.address(), &intent_bytes);
+    order::write_account(
+        order_data,
+        bump,
+        false,
+        0,
+        0,
+        created_by.address(),
+        &intent_bytes,
+    );
 
     Ok(())
 }
