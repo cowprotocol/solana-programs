@@ -7,7 +7,9 @@ use settlement_client::{
         pda::{order::find_order_pda, state::find_state_pda},
     },
 };
-use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
+use solana_sdk::{
+    program_option::COption, pubkey::Pubkey, signature::Signer, transaction::Transaction,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
@@ -31,6 +33,7 @@ struct CommonArgs {
 
     /// Explicitly control. If unset, will grant close authority if `--sell-account-rent-recipient` is set
     /// and the close authority is not already granted.
+    #[arg(long)]
     set_close_authority: Option<bool>,
 }
 
@@ -156,16 +159,28 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     // Create the account on the buy side if necessary
     ixs.extend(buy.create_ata_ix(&ctx.payer.pubkey()));
 
+    let (state_pda, _bump) = find_state_pda(&ctx.program_id);
+
     // Grant CloseAuthority permission to the settlement program state account if
     // rent recipient was set.
-    if common.set_close_authority.unwrap_or(true) {
-        let (state_pda, _bump) = find_state_pda(&ctx.program_id);
-        ixs.push(crate::instructions::set_close_authority(
-            &spl_token_interface::ID,
-            &sell.ta,
-            &ctx.payer.pubkey(),
-            &state_pda,
-        )?);
+    if common
+        .set_close_authority
+        .unwrap_or(common.sell_account_rent_recipient.is_some())
+    {
+        // A sell account that doesn't exist yet (`None`) is created earlier in
+        // this same transaction, so it's still fine to set the authority on it.
+        if let Some(COption::Some(close_authority)) = sell.ta_data.map(|ta| ta.close_authority) {
+            if close_authority != state_pda {
+                println!("WARN: Skipping set of close authority: already set to non-settlement account {close_authority}");
+            }
+        } else {
+            ixs.push(crate::instructions::set_close_authority(
+                &spl_token_interface::ID,
+                &sell.ta,
+                &ctx.payer.pubkey(),
+                &state_pda,
+            )?);
+        }
     }
 
     // Approve the settlement state PDA to pull sell tokens on the user's behalf.
@@ -173,6 +188,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         &spl_token_interface::ID,
         &sell.ta,
         &ctx.payer.pubkey(),
+        &state_pda,
         sell_amount,
     )?);
 

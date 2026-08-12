@@ -46,6 +46,8 @@ fn known_token(genesis_hash: &str, symbol: &str) -> Option<&'static KnownToken> 
 pub struct ResolvedToken {
     /// SPL token account to use in the order (ATA if supplied program argument was a mint).
     pub ta: Pubkey,
+    /// The actual token account data, or `None` when `ta` does not exist yet.
+    pub ta_data: Option<TokenAccount>,
     /// Mint address for the token.
     pub mint: Pubkey,
     /// The actual mint data
@@ -83,6 +85,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
         );
         return Ok(ResolvedToken {
             ta: wsol_ata,
+            ta_data: fetch_ta_data(rpc, &wsol_ata)?,
             mint: wsol_mint,
             create_ata: determine_create_ata(rpc, &wsol_mint, owner)?,
             mint_data: fetch_mint_data(rpc, &wsol_mint)?,
@@ -107,6 +110,7 @@ pub fn resolve(rpc: &RpcClient, owner: &Pubkey, token_str: &str) -> anyhow::Resu
         );
         return Ok(ResolvedToken {
             ta: ata,
+            ta_data: fetch_ta_data(rpc, &ata)?,
             create_ata: determine_create_ata(rpc, &known.mint, owner)?,
             mint: known.mint,
             mint_data: fetch_mint_data(rpc, &known.mint)?,
@@ -137,6 +141,7 @@ pub fn resolve_from_token_account(
 
     Ok(ResolvedToken {
         ta: *token_account,
+        ta_data: Some(decoded_account),
         mint: decoded_account.mint,
         mint_data: fetch_mint_data(rpc, &decoded_account.mint)?,
         // The account was just fetched and unpacked above, so it already exists.
@@ -166,6 +171,7 @@ pub fn interpret_token_from_user_input(
     if let Ok(token_account) = TokenAccount::unpack(&account.data) {
         Ok(ResolvedToken {
             ta: *token_account_or_mint,
+            ta_data: Some(token_account),
             mint: token_account.mint,
             mint_data: fetch_mint_data(rpc, &token_account.mint)?,
             // The account was just fetched and unpacked above, so it already exists.
@@ -179,6 +185,7 @@ pub fn interpret_token_from_user_input(
         );
         Ok(ResolvedToken {
             ta: ata,
+            ta_data: fetch_ta_data(rpc, &ata)?,
             mint_data: mint,
             mint: *token_account_or_mint,
             create_ata: determine_create_ata(rpc, token_account_or_mint, owner)?,
@@ -218,5 +225,20 @@ fn fetch_mint_data(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<Mint> {
         Ok(mint_data)
     } else {
         Err(anyhow::anyhow!("account {mint} is not a mint"))
+    }
+}
+
+/// Read `ta`'s current state, or `None` if it doesn't exist on-chain yet — the
+/// callers resolve accounts they may still have to create, so a missing account
+/// isn't an error here.
+fn fetch_ta_data(rpc: &RpcClient, ta: &Pubkey) -> anyhow::Result<Option<TokenAccount>> {
+    let Ok(data) = rpc.get_account_data(ta) else {
+        return Ok(None);
+    };
+
+    if let Ok(ta_data) = TokenAccount::unpack(&data) {
+        Ok(Some(ta_data))
+    } else {
+        Err(anyhow::anyhow!("account {ta} is not a SPL token account"))
     }
 }
