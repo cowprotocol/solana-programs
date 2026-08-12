@@ -26,6 +26,10 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 /// the bump itself and rejects any other address. `payer` funds every new token
 /// account's rent.
 ///
+/// Buffer creation is idempotent: an already-existing `buffer_pda` is left
+/// unchanged and the instruction still succeeds, so two parties racing to
+/// create the same buffer both succeed.
+///
 /// Wire format: `[discriminator=4]`, 1 byte. The tokens are implied by the
 /// `mint` accounts, so no further data is needed.
 /// Required accounts:
@@ -130,6 +134,9 @@ mod tests {
     use super::*;
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
+    };
+    use crate::instruction::tests::{
+        assert_readonly_nonsigner, assert_writable_nonsigner, assert_writable_signer,
     };
     use solana_account_view::AccountView;
     use solana_address::Address;
@@ -286,26 +293,14 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 5);
-        // payer: writable, signer
-        assert_eq!(accounts[0].pubkey, payer);
-        assert!(accounts[0].is_writable);
-        assert!(accounts[0].is_signer);
-        // system program: read-only
-        assert_eq!(accounts[1].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!accounts[1].is_writable);
-        assert!(!accounts[1].is_signer);
-        // token program: read-only
-        assert_eq!(accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
-        assert!(!accounts[2].is_writable);
-        assert!(!accounts[2].is_signer);
-        // buffer_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(accounts[3].pubkey, buffer_pda);
-        assert!(accounts[3].is_writable);
-        assert!(!accounts[3].is_signer);
-        // mint: read-only
-        assert_eq!(accounts[4].pubkey, mint);
-        assert!(!accounts[4].is_writable);
-        assert!(!accounts[4].is_signer);
+        // payer funds rent; the system and token programs and the mint are only
+        // referenced; buffer_pda is created (written) and the mint is
+        // untouched.
+        assert_writable_signer(&accounts[0], payer);
+        assert_readonly_nonsigner(&accounts[1], SYSTEM_PROGRAM_ID);
+        assert_readonly_nonsigner(&accounts[2], SPL_TOKEN_PROGRAM_ID);
+        assert_writable_nonsigner(&accounts[3], buffer_pda);
+        assert_readonly_nonsigner(&accounts[4], mint);
     }
 
     #[test]
@@ -325,14 +320,10 @@ mod tests {
 
         // Three shared accounts followed by two (buffer, mint) pairs.
         assert_eq!(accounts.len(), 3 + 2 * 2);
-        assert_eq!(accounts[3].pubkey, buffer_a);
-        assert!(accounts[3].is_writable);
-        assert_eq!(accounts[4].pubkey, mint_a);
-        assert!(!accounts[4].is_writable);
-        assert_eq!(accounts[5].pubkey, buffer_b);
-        assert!(accounts[5].is_writable);
-        assert_eq!(accounts[6].pubkey, mint_b);
-        assert!(!accounts[6].is_writable);
+        assert_writable_nonsigner(&accounts[3], buffer_a);
+        assert_readonly_nonsigner(&accounts[4], mint_a);
+        assert_writable_nonsigner(&accounts[5], buffer_b);
+        assert_readonly_nonsigner(&accounts[6], mint_b);
     }
 
     #[test]

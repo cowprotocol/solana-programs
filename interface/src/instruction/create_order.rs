@@ -33,10 +33,14 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 ///
 /// The order doesn't need to be executable for it to be created. For
 /// example, the sell token account doesn't need to belong to the user or
-/// be a TOKEN account in the first place. This is checked at execution
+/// be an SPL token account in the first place. This is checked at execution
 /// time.
 ///
-/// Wire format: `[discriminator=2, ..182 intent bytes]`, 183 bytes.
+/// An order can exist only once: if `order_pda` is already initialized, the
+/// instruction reverts with `AccountAlreadyInitialized`. Recreating the same
+/// order is only possible after its PDA has been closed.
+///
+/// Wire format: `[discriminator=2, ..intent bytes]`,  bytes.
 /// Required accounts:
 /// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
 /// The system program needs to be available but doesn't need to be at that
@@ -154,6 +158,10 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
+    use crate::instruction::tests::{
+        assert_readonly_nonsigner, assert_readonly_signer, assert_writable_nonsigner,
+        assert_writable_signer,
+    };
     use solana_account_view::AccountView;
     use solana_address::Address;
 
@@ -269,23 +277,12 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 4);
-        // owner: read-only, signer (authenticates the order; doesn't pay rent)
-        assert_eq!(accounts[0].pubkey, owner);
-        assert!(!accounts[0].is_writable);
-        assert!(accounts[0].is_signer);
-        // created_by: writable, signer (funds the new PDA's rent)
-        assert_eq!(accounts[1].pubkey, created_by);
-        assert!(accounts[1].is_writable);
-        assert!(accounts[1].is_signer);
-        // order_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(accounts[2].pubkey, order_pda);
-        assert!(accounts[2].is_writable);
-        assert!(!accounts[2].is_signer);
-        // system program: read-only, not signer; the on-chain handler
-        // doesn't dereference it but the runtime requires it in the
-        // transaction's `account_keys` to dispatch the CreateAccount CPI.
-        assert_eq!(accounts[3].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!accounts[3].is_writable);
-        assert!(!accounts[3].is_signer);
+        // owner authenticates the order without paying rent; created_by funds
+        // the new PDA's rent; order_pda is created. The system program is
+        // only referenced.
+        assert_readonly_signer(&accounts[0], owner);
+        assert_writable_signer(&accounts[1], created_by);
+        assert_writable_nonsigner(&accounts[2], order_pda);
+        assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
     }
 }

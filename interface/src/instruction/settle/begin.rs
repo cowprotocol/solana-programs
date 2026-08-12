@@ -22,7 +22,6 @@ pub struct Pull {
 /// Builder for a `BeginSettle` instruction settling the orders described by the
 /// parallel lists:
 /// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
-/// - `order_pda_bumps[i]` is the bump of the canonical order PDA
 /// - `sell_token_accounts[i]` is the order's sell token account,
 /// - `sell_account_rent_recipients[i]` is the order's
 ///   `sell_account_rent_recipient`, which receives the sell token account's
@@ -38,15 +37,15 @@ pub struct Pull {
 ///
 /// Wire format (grouped, with `n` orders and `T` total transfers):
 /// `[discriminator=0][finalize_ix_index: u16 LE][auction_id: i64 LE][n: u8]
-/// [bump×n][transfer_count×n][amount: u64 LE ×T]`.
+/// [transfer_count×n][amount: u64 LE ×T]`.
 /// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
-/// (R)]` followed, per order, by `[order_pda (R), sell_token_account (W),
+/// (R)]` followed, per order, by `[order_pda (W), sell_token_account (W),
 /// sell_account_rent_recipient (W), destination (W)...]`.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
 /// This builder establishes that ordering for the caller: it sorts the orders by
 /// PDA address, carrying each order's sell token account, rent recipient,
-/// bump, transfer count, amounts, and destination metas before emitting them.
+/// transfer count, amounts, and destination metas before emitting them.
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
@@ -56,7 +55,6 @@ pub struct BeginSettle<'a> {
     /// off-chain, unused on-chain.
     pub auction_id: i64,
     pub order_pdas: &'a [Pubkey],
-    pub order_pda_bumps: &'a [u8],
     pub sell_token_accounts: &'a [Pubkey],
     pub sell_account_rent_recipients: &'a [Pubkey],
     pub pulls: &'a [&'a [Pull]],
@@ -70,15 +68,14 @@ impl From<BeginSettle<'_>> for Instruction {
             finalize_ix_index,
             auction_id,
             order_pdas,
-            order_pda_bumps,
             sell_token_accounts,
             sell_account_rent_recipients,
             pulls,
         } = builder;
 
         // Sort the parallel lists together by order PDA address via a shared
-        // permutation, so each order keeps its own sell token account, bump, and
-        // pulls (transfer count, amounts, and destination metas).
+        // permutation, so each order keeps its own sell token account and pulls
+        // (transfer count, amounts, and destination metas).
         let mut order: Vec<usize> = (0..order_pdas.len()).collect();
         order.sort_by_key(|&i| order_pdas[i]);
 
@@ -93,10 +90,6 @@ impl From<BeginSettle<'_>> for Instruction {
             &finalize_ix_index.to_le_bytes()[..],
             &auction_id.to_le_bytes()[..],
             &[order_pdas.len() as u8][..],
-            &order
-                .iter()
-                .map(|&i| order_pda_bumps[i])
-                .collect::<Vec<u8>>()[..],
             &counts[..],
             &amounts[..],
         ]
@@ -110,11 +103,10 @@ impl From<BeginSettle<'_>> for Instruction {
             AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
         ];
         for &i in &order {
-            // Read-only account for the order.
-            accounts.push(AccountMeta::new_readonly(order_pdas[i], false));
-            // Writable accounts settling the order: its sell token account, its
-            // rent recipient (which receives the sell token account's lamports
-            // if it's closed once empty), and the recipient of each transfer.
+            // Writable account for the order: `BeginSettle` updates its filled
+            // amounts (`amount_withdrawn`/`amount_received`).
+            accounts.push(AccountMeta::new(order_pdas[i], false));
+            // Writable accounts settling the order: its sell token account, recipient of the pulls, and designated order rent recipient
             accounts.push(AccountMeta::new(sell_token_accounts[i], false));
             accounts.push(AccountMeta::new(sell_account_rent_recipients[i], false));
             for pull in pulls[i] {
@@ -133,17 +125,16 @@ impl From<BeginSettle<'_>> for Instruction {
 /// A single settled order, resulted from parsing `BeginSettle`, together with
 /// the funds to pull from its sell token account.
 pub struct SettledOrder<'a, A> {
-    pub order_pda: &'a A,
+    pub order_pda: &'a mut A,
     pub sell_token_account: &'a A,
     pub sell_account_rent_recipient: &'a A,
-    pub bump: u8,
     /// Destination accounts for this order's transfers.
     pub destinations: &'a [A],
     /// Transfer amounts (little-endian `u64`), one per destination.
     pub amounts: &'a [[u8; 8]],
 }
 
-/// Struct storing accounts, bumps, transfer counts, and amounts from parsing the
+/// Struct storing accounts, transfer counts, and amounts from parsing the
 /// input of BeginSettle. The parsing step that created this struct guarantees
 /// that there aren't missing elements or that they are assigned incorrectly.
 pub struct SettledOrders<'a, A> {
@@ -152,9 +143,8 @@ pub struct SettledOrders<'a, A> {
     /// - each order_accounts is a series of accounts:
     ///   `order_pda_N, sell_token_account_N, sell_account_rent_recipient_N, destination_N_1, destination_N_2, ..., destination_N_M`
     /// - and M is `counts[N]`
-    order_accounts: &'a [A],
-    bumps: &'a [u8],
-    /// One transfer count per order, parallel to `bumps`.
+    order_accounts: &'a mut [A],
+    /// One transfer count per order.
     counts: &'a [u8],
     /// Transfer amounts (little-endian `u64`), shared across orders and
     /// handed out `count` at a time.
@@ -162,43 +152,46 @@ pub struct SettledOrders<'a, A> {
 }
 
 impl<'a, A> SettledOrders<'a, A> {
-    /// Returns an iterator yielding one [`SettledOrder`] per step.
+    /// Returns an iterator yielding one [`SettledOrder`] per step. Each order's
+    /// `order_pda` is handed out mutably (so `BeginSettle` can update its filled
+    /// amounts), so the items borrow the iterator and must be processed one at a
+    /// time rather than collected.
     #[allow(
         clippy::arithmetic_side_effects,
         reason = "offsets are bounded by tx limits"
     )]
-    pub fn iter(&self) -> impl Iterator<Item = SettledOrder<'a, A>> + '_ {
-        let order_count = self.bumps.len();
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = SettledOrder<'_, A>> + '_ {
+        let (counts, amounts) = (self.counts, self.amounts);
+        // Cursor over the remaining order accounts; each step splits one order's
+        // `[order_pda, sell_token_account, sell_account_rent_recipient,
+        // destinations..count]` off the front.
+        let mut rest: &mut [A] = self.order_accounts;
         let mut i = 0usize;
-        let mut account_offset = 0usize;
         let mut amount_offset = 0usize;
         std::iter::from_fn(move || {
-            if i >= order_count {
+            if i >= counts.len() {
                 return None;
             }
-            let bump = self.bumps[i];
-            let count = usize::from(self.counts[i]);
+            let count = usize::from(counts[i]);
             i += 1;
 
-            let order_pda = &self.order_accounts[account_offset];
-            let sell_token_account = &self.order_accounts[account_offset + 1];
-            let sell_account_rent_recipient = &self.order_accounts[account_offset + 2];
-            let dest_start = account_offset + 3;
-            let dest_end = dest_start + count;
-            let destinations = &self.order_accounts[dest_start..dest_end];
-            account_offset = dest_end;
+            let taken = core::mem::take(&mut rest);
+            let (order_pda, tail) = taken.split_first_mut()?;
+            let (sell_token_account, tail) = tail.split_first_mut()?;
+            let (sell_account_rent_recipient, tail) = tail.split_first_mut()?;
+            let (destinations, remainder) = tail.split_at_mut(count);
+            rest = remainder;
 
             let amount_end = amount_offset + count;
-            let amounts = &self.amounts[amount_offset..amount_end];
+            let order_amounts = &amounts[amount_offset..amount_end];
             amount_offset = amount_end;
 
             Some(SettledOrder {
                 order_pda,
                 sell_token_account,
                 sell_account_rent_recipient,
-                bump,
                 destinations,
-                amounts,
+                amounts: order_amounts,
             })
         })
     }
@@ -209,7 +202,7 @@ impl<'a, A> SettledOrders<'a, A> {
 /// Strictly the raw extracted form. Fields are read from `instruction_data` and
 /// `accounts` but **not validated** against runtime context except confirming
 /// that the discriminator matches the desired input and that the number of
-/// accounts and bumps is consistent.
+/// accounts and transfer counts is consistent.
 pub struct BeginSettleInput<'a, A> {
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes, read from the instruction
@@ -245,21 +238,18 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
             .ok_or(ProgramError::InvalidInstructionData)?;
         let auction_id = i64::from_le_bytes(*auction_id);
 
-        // The leading byte is the order count `n`; the bumps and counts each take
-        // `n` bytes and the remaining bytes are the amounts. `T` (total transfers)
-        // is the number of 8-byte amounts. Too few bytes for the order count, the
-        // bumps, or the counts, or a trailing amount that isn't a whole `u64`,
-        // means the data can't be parsed into the pull layout at all.
+        // The leading byte is the order count `n`; the counts take `n` bytes and
+        // the remaining bytes are the amounts. `T` (total transfers) is the
+        // number of 8-byte amounts. Too few bytes for the order count or the
+        // counts, or a trailing amount that isn't a whole `u64`, means the data
+        // can't be parsed into the pull layout at all.
         let (&order_count, body) = body
             .split_first()
             .ok_or(ProgramError::InvalidInstructionData)?;
         let order_count = usize::from(order_count);
-        let take = |s: &'a [u8]| {
-            s.split_at_checked(order_count)
-                .ok_or(ProgramError::InvalidInstructionData)
-        };
-        let (bumps, body) = take(body)?;
-        let (counts, amount_bytes) = take(body)?;
+        let (counts, amount_bytes) = body
+            .split_at_checked(order_count)
+            .ok_or(ProgramError::InvalidInstructionData)?;
         let (amounts, []) = amount_bytes.as_chunks::<8>() else {
             return Err(ProgramError::InvalidInstructionData);
         };
@@ -292,7 +282,6 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
             token_program_account,
             orders: SettledOrders {
                 order_accounts,
-                bumps,
                 counts,
                 amounts,
             },
@@ -307,6 +296,7 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::tests::assert_readonly_nonsigner;
     use hex_literal::hex;
     use solana_account_view::AccountView;
     use solana_address::Address;
@@ -333,7 +323,6 @@ mod tests {
             finalize_ix_index: 0x1337,
             auction_id: 0x0102_0304_0506_0708,
             order_pdas: &[],
-            order_pda_bumps: &[],
             sell_token_accounts: &[],
             sell_account_rent_recipients: &[],
             pulls: &[],
@@ -349,16 +338,14 @@ mod tests {
                 [0],                      // order count
             ],
         );
-        // No orders: the three fixed accounts (sysvar, state PDA, token program).
+        // No orders: the three fixed accounts (sysvar, state PDA, token
+        // program). They are all generic accounts that don't play an active
+        // role in the base instruction (the state PDA CPI signature isn't
+        // relevant here).
         assert_eq!(accounts.len(), 3);
-        assert_eq!(accounts[0].pubkey, INSTRUCTIONS_SYSVAR_ID);
-        assert_eq!(accounts[1].pubkey, state_pda);
-        assert_eq!(accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
-        // They are all generic accounts that don't play an active role in the
-        // transaction.
-        assert!(accounts
-            .iter()
-            .all(|account| !account.is_writable && !account.is_signer));
+        assert_readonly_nonsigner(&accounts[0], INSTRUCTIONS_SYSVAR_ID);
+        assert_readonly_nonsigner(&accounts[1], state_pda);
+        assert_readonly_nonsigner(&accounts[2], SPL_TOKEN_PROGRAM_ID);
     }
 
     #[test]
@@ -370,25 +357,21 @@ mod tests {
         let high_order_pda = Pubkey::new_from_array([0xbb; 32]);
         let high_sell_token_account = Pubkey::new_from_array([0xa0; 32]);
         let high_rent_recipient = Pubkey::new_from_array([0xa2; 32]);
-        let high_bump = 0xaa;
         let low_order_pda = Pubkey::new_from_array([0xaa; 32]);
         let low_sell_token_account = Pubkey::new_from_array([0xb0; 32]);
         let low_rent_recipient = Pubkey::new_from_array([0xb2; 32]);
-        let low_bump = 0xbb;
         let Instruction { data, accounts, .. } = BeginSettle {
             program_id,
             state_pda,
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
             order_pdas: &[high_order_pda, low_order_pda],
-            order_pda_bumps: &[high_bump, low_bump],
             sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
             sell_account_rent_recipients: &[high_rent_recipient, low_rent_recipient],
             pulls: &[&[], &[]],
         }
         .into();
 
-        // Bumps follow the sorted order: the low PDA's bump comes first.
         assert_eq!(
             data,
             ix_data![
@@ -396,7 +379,6 @@ mod tests {
                 hex!("3713"),             // counterpart index, little endian
                 AUCTION_ID.to_le_bytes(), // auction id, little endian
                 [2],                      // order count
-                [low_bump, high_bump],    // bumps
                 [0, 0],                   // transfer counts (both zero)
             ],
         );
@@ -414,8 +396,7 @@ mod tests {
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts and the order PDAs are read-only; the sell token
-        // accounts and rent recipients are writable, following the sorted order.
+        // The fixed accounts are read-only; the rest are writable and should be sorted
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -424,8 +405,10 @@ mod tests {
         assert_eq!(
             writable,
             vec![
+                low_order_pda,
                 low_sell_token_account,
                 low_rent_recipient,
+                high_order_pda,
                 high_sell_token_account,
                 high_rent_recipient,
             ],
@@ -454,7 +437,6 @@ mod tests {
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
             order_pdas: &[order_a, order_b],
-            order_pda_bumps: &[0xa1, 0xb1],
             sell_token_accounts: &[sell_a, sell_b],
             sell_account_rent_recipients: &[rent_a, rent_b],
             pulls: &[
@@ -483,7 +465,6 @@ mod tests {
                 hex!("3713"),             // counterpart index, little endian
                 AUCTION_ID.to_le_bytes(), // auction id, little endian
                 [2],                      // order count
-                [0xa1, 0xb1],             // bumps
                 [2, 1],                   // counts
                 // amounts, little endian
                 hex!("0201000000000000"),
@@ -508,8 +489,7 @@ mod tests {
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts and the order PDAs are read-only; the sell token
-        // accounts, rent recipients, and destinations are writable.
+        // The fixed accounts are read-only; the rest are writable
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -517,7 +497,7 @@ mod tests {
             .collect();
         assert_eq!(
             writable,
-            vec![sell_a, rent_a, dest_a0, dest_a1, sell_b, rent_b, dest_b0],
+            vec![order_a, sell_a, rent_a, dest_a0, dest_a1, order_b, sell_b, rent_b, dest_b0],
         );
         assert!(accounts.iter().all(|account| !account.is_signer));
     }
@@ -543,14 +523,14 @@ mod tests {
             finalize_ix_index,
             auction_id,
             instructions_sysvar_account,
-            orders,
+            mut orders,
             token_program_account,
             state_pda_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(auction_id, 0x0102_0304_0506_0708);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
-        assert_eq!(orders.iter().count(), 0);
+        assert_eq!(orders.iter_mut().count(), 0);
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
     }
@@ -598,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn begin_settle_input_parses_order_bumps_and_pairs() {
+    fn begin_settle_input_pairs_orders_with_their_accounts() {
         let sysvar = Address::new_from_array([1u8; 32]);
         let state = Address::new_from_array([0xa1u8; 32]);
         let token_program = Address::new_from_array([0xa2u8; 32]);
@@ -618,14 +598,13 @@ mod tests {
             [0x37, 0x13],             // finalize index, little-endian
             AUCTION_ID.to_le_bytes(), // auction id, little-endian
             [0x01],                   // order count
-            [0xab],                   // one order's bump
             [0x00],                   // that order's transfer count
         ];
         let BeginSettleInput {
             finalize_ix_index,
             auction_id,
             instructions_sysvar_account,
-            orders,
+            mut orders,
             state_pda_account,
             token_program_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
@@ -635,12 +614,11 @@ mod tests {
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
 
-        let mut orders = orders.iter();
+        let mut orders = orders.iter_mut();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
         assert_eq!(order.sell_account_rent_recipient.address(), &rent_recipient);
-        assert_eq!(order.bump, 0xab);
         assert_eq!(order.destinations.len(), 0);
         assert!(orders.next().is_none());
     }
@@ -670,21 +648,19 @@ mod tests {
             [0x37, 0x13],             // finalize index, little-endian
             AUCTION_ID.to_le_bytes(), // auction id, little-endian
             [0x01],                   // order count
-            [0xab],                   // bump
             [0x02],                   // transfer count
             0x1122u64.to_le_bytes(),
             0x3344u64.to_le_bytes(),
         ];
 
-        let BeginSettleInput { orders, .. } =
+        let BeginSettleInput { mut orders, .. } =
             BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        let mut orders = orders.iter();
+        let mut orders = orders.iter_mut();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
         assert_eq!(order.sell_account_rent_recipient.address(), &rent_recipient);
-        assert_eq!(order.bump, 0xab);
         let transfers: Vec<(&Address, u64)> = order
             .destinations
             .iter()
@@ -696,16 +672,15 @@ mod tests {
     }
 
     #[test]
-    fn begin_settle_input_pairs_every_order_with_its_bump() {
+    fn begin_settle_input_pairs_every_order_with_its_sell_token_account() {
         const ORDER_COUNT: usize = 16;
 
-        let mut expected: Vec<(Address, Address, Address, u8)> = Vec::new();
+        let mut expected: Vec<(Address, Address, Address)> = Vec::new();
         for i in 0..ORDER_COUNT {
             let order_pda = Address::new_from_array([i as u8; 32]);
             let sell_token = Address::new_from_array([(i + ORDER_COUNT) as u8; 32]);
             let rent_recipient = Address::new_from_array([(i + 2 * ORDER_COUNT) as u8; 32]);
-            let bump: u8 = (i + 3 * ORDER_COUNT) as u8;
-            expected.push((order_pda, sell_token, rent_recipient, bump));
+            expected.push((order_pda, sell_token, rent_recipient));
         }
 
         // The three fixed accounts (`[0xff..]`, `[0xfe..]`, `[0xfd..]`) differ
@@ -715,35 +690,37 @@ mod tests {
             fake_account_from_array([0xfe; 32]),
             fake_account_from_array([0xfd; 32]),
         ];
-        let mut bumps = Vec::new();
-        for &(order_pda, sell_token, rent_recipient, bump) in &expected {
+        for &(order_pda, sell_token, rent_recipient) in &expected {
             accounts.push(fake_account(order_pda));
             accounts.push(fake_account(sell_token));
             accounts.push(fake_account(rent_recipient));
-            bumps.push(bump);
         }
         // Grouped data: discriminator, finalize index, auction id, order count,
-        // all bumps, then all transfer counts (every order has zero transfers).
+        // then all transfer counts (every order has zero transfers).
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
             [0x37, 0x13],             // finalize index, little-endian
             AUCTION_ID.to_le_bytes(), // auction id, little-endian
             [ORDER_COUNT as u8],      // order count
-            bumps,
             [0u8; ORDER_COUNT],
         ];
 
-        let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
-        let orders: Vec<_> = parsed.orders.iter().collect();
+        let mut parsed =
+            BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        assert_eq!(orders.len(), ORDER_COUNT);
-        for (order, (order_pda, sell_token, rent_recipient, bump)) in orders.iter().zip(&expected) {
-            assert_eq!(order.order_pda.address(), order_pda);
-            assert_eq!(order.sell_token_account.address(), sell_token);
-            assert_eq!(order.sell_account_rent_recipient.address(), rent_recipient);
-            assert_eq!(order.bump, *bump);
-            assert_eq!(order.destinations.len(), 0);
-        }
+        let actual: Vec<(Address, Address, Address)> = parsed
+            .orders
+            .iter_mut()
+            .map(|order| {
+                assert_eq!(order.destinations.len(), 0);
+                (
+                    *order.order_pda.address(),
+                    *order.sell_token_account.address(),
+                    *order.sell_account_rent_recipient.address(),
+                )
+            })
+            .collect();
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -759,7 +736,6 @@ mod tests {
             [0, 0],                   // finalize index
             AUCTION_ID.to_le_bytes(), // auction id
             [0x01],                   // order count
-            [0xab],                   // the order's bump
             [0x00],                   // the order's transfer count
         ];
         assert_eq!(
@@ -779,7 +755,6 @@ mod tests {
             [0, 0],                   // finalize index
             AUCTION_ID.to_le_bytes(), // auction id
             [0x01],                   // order count
-            [0xab],                   // bump
             [0x01],                   // count says one, but two amounts/destinations exist
             0u64.to_le_bytes(),
             0u64.to_le_bytes(),
@@ -807,34 +782,16 @@ mod tests {
     }
 
     #[test]
-    fn begin_settle_input_rejects_body_too_short_for_bumps() {
-        // The order count claims two orders, but only one bump byte follows, so
-        // the bumps can't be split off.
+    fn begin_settle_input_rejects_body_too_short_for_counts() {
+        // The order count claims two orders, but only one transfer-count byte
+        // follows, so the counts can't be split off.
         let mut accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
             [0, 0],                   // finalize index
             AUCTION_ID.to_le_bytes(), // auction id
             [0x02],                   // order count: two orders...
-            [0xab],                   // ...but only one bump byte
-        ];
-        assert_eq!(
-            BeginSettleInput::parse(&data, &mut accounts).err(),
-            Some(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
-    fn begin_settle_input_rejects_body_too_short_for_counts() {
-        // One order with its bump, but no transfer-count byte after it, so the
-        // counts can't be split off.
-        let mut accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
-        let data = ix_data![
-            [SettlementInstruction::BeginSettle.discriminator()],
-            [0, 0],                   // finalize index
-            AUCTION_ID.to_le_bytes(), // auction id
-            [0x01],                   // order count
-            [0xab],                   // the order's bump, with no transfer count after it
+            [0x00],                   // ...but only one transfer-count byte
         ];
         assert_eq!(
             BeginSettleInput::parse(&data, &mut accounts).err(),
@@ -852,7 +809,6 @@ mod tests {
             [0, 0],                   // finalize index
             AUCTION_ID.to_le_bytes(), // auction id
             [0x01],                   // order count
-            [0xab],                   // bump
             [0x00],                   // transfer count
             [0x11, 0x22, 0x33, 0x44], // a partial (4-byte) amount
         ];

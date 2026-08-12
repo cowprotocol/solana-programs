@@ -45,17 +45,17 @@ pub fn process_create_buffer(
     let (state_pda, _) = Address::find_program_address(&state_pda_seeds(), program_id);
 
     for CreateBufferEntry { buffer_pda, mint } in buffers.iter().map(read_buffer_entry) {
-        // One buffer per token. `CanonicalPda::create` derives the canonical
-        // bump and, by signing the allocation with the buffer seeds, rejects
-        // any `buffer_pda` that isn't the canonical address. The buffer is a
-        // token account, so it's assigned to the SPL Token program rather than
-        // to us.
+        // One buffer per token. `CanonicalPda::create_idempotent` derives the
+        // canonical bump and, by signing the allocation with the buffer seeds,
+        // rejects any `buffer_pda` that isn't the canonical address. The buffer
+        // is a token account, so it's assigned to the SPL Token program rather
+        // than to the settlement program.
         //
         // We don't validate `mint` here. `InitializeAccount3` requires a real,
         // token-program-owned mint (and special-cases the native mint), so a
         // check of our own would be redundant.
         let mint_key = mint.address().as_array();
-        CanonicalPda {
+        let (created, _) = CanonicalPda {
             program_id,
             payer,
             pda: &buffer_pda,
@@ -63,9 +63,13 @@ pub fn process_create_buffer(
             owner: &SPL_TOKEN_PROGRAM_ID,
             seeds: buffer_pda_seeds(mint_key),
         }
-        .create()?;
+        .create_idempotent()?;
 
-        InitializeAccount3::new(&buffer_pda, &mint, &state_pda).invoke()?;
+        // An existing buffer is already an initialized token account, so only
+        // initialize a freshly created one.
+        if created {
+            InitializeAccount3::new(&buffer_pda, &mint, &state_pda).invoke()?;
+        }
     }
 
     Ok(())

@@ -35,11 +35,13 @@ pub fn process_create_order(
         return Err(SettlementError::OwnerMismatch.into());
     }
 
-    // We want a single order per uid; `create_canonical_pda` derives the
+    // We want a single order per uid; `CanonicalPda::create_new` derives the
     // canonical bump and, by signing the creation with the order seeds, rejects
-    // any `order_pda` that isn't the canonical address. The rest of the code
-    // can assume that if an account has data, then the bump is valid.
-    CanonicalPda {
+    // any `order_pda` that isn't the canonical address. This is the owner's own
+    // create flow, so recreating an order that already exists is a user error:
+    // `create_new` then reverts. The rest of the code can assume that if an
+    // account has data, then the bump is valid.
+    let bump = CanonicalPda {
         program_id,
         payer: created_by,
         pda: order_pda,
@@ -47,14 +49,21 @@ pub fn process_create_order(
         owner: program_id,
         seeds: order_pda_seeds(&intent_uid),
     }
-    .create()?;
+    .create_new()?;
 
-    // Note: `intent_bytes` were validated before and are known to represent a valid intent.
-    let mut buffer = order_pda.try_borrow_mut()?;
-    let buffer: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *buffer)
+    let mut order_data = order_pda.try_borrow_mut()?;
+    let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    order::write_account(buffer, false, 0, 0, created_by.address(), &intent_bytes);
+    order::write_account(
+        order_data,
+        bump,
+        false,
+        0,
+        0,
+        created_by.address(),
+        &intent_bytes,
+    );
 
     Ok(())
 }
