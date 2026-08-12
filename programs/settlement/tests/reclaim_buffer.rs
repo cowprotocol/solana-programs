@@ -19,9 +19,10 @@ use crate::common::unique_pubkey;
 mod common;
 
 #[test]
-fn funded_buffer_is_skipped() {
+fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
     let (mut svm, program_id, payer) = common::setup();
     let reclaim_authority = common::unique_keypair();
+    let recipient = common::unique_keypair().pubkey();
 
     initialize(
         &mut svm,
@@ -36,22 +37,36 @@ fn funded_buffer_is_skipped() {
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
-    let amount = 1_000;
-    common::token::mint_to(&mut svm, &payer, &mint, &buffer_pda, amount);
+    let buffer_lamports_before = svm
+        .get_account(&buffer_pda)
+        .expect("buffer must exist before reclaim")
+        .lamports;
+    let authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
+    let recipient_lamports_before = common::lamports(&svm, &recipient);
 
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
-        reclaim_recipient: reclaim_authority.pubkey(),
+        reclaim_recipient: recipient,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
+    svm.send_transaction(tx)
         .expect("reclaim_buffer should succeed");
 
     assert!(
-        svm.get_account(&buffer_pda).is_some(),
-        "buffer PDA should have been untouched despite transaction succeeding"
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed after reclaim"
+    );
+    assert_eq!(
+        common::lamports(&svm, &recipient) - recipient_lamports_before,
+        buffer_lamports_before,
+        "the chosen recipient must receive exactly the buffer's rent lamports"
+    );
+    assert_eq!(
+        common::lamports(&svm, &reclaim_authority.pubkey()),
+        authority_lamports_before,
+        "reclaim_authority must not be credited when it named someone else"
     );
 }
 
@@ -101,10 +116,9 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
 }
 
 #[test]
-fn reclaims_to_a_recipient_chosen_by_the_authority() {
+fn funded_buffer_is_skipped() {
     let (mut svm, program_id, payer) = common::setup();
     let reclaim_authority = common::unique_keypair();
-    let recipient = common::unique_keypair().pubkey();
 
     initialize(
         &mut svm,
@@ -119,36 +133,22 @@ fn reclaims_to_a_recipient_chosen_by_the_authority() {
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
-    let buffer_lamports_before = svm
-        .get_account(&buffer_pda)
-        .expect("buffer must exist before reclaim")
-        .lamports;
-    let authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
-    let recipient_lamports_before = common::lamports(&svm, &recipient);
+    let amount = 1_000;
+    common::token::mint_to(&mut svm, &payer, &mint, &buffer_pda, amount);
 
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
-        reclaim_recipient: recipient,
+        reclaim_recipient: reclaim_authority.pubkey(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
         .expect("reclaim_buffer should succeed");
 
     assert!(
-        svm.get_account(&buffer_pda).is_none(),
-        "buffer PDA must be closed after reclaim"
-    );
-    assert_eq!(
-        common::lamports(&svm, &recipient) - recipient_lamports_before,
-        buffer_lamports_before,
-        "the chosen recipient must receive exactly the buffer's rent lamports"
-    );
-    assert_eq!(
-        common::lamports(&svm, &reclaim_authority.pubkey()),
-        authority_lamports_before,
-        "reclaim_authority must not be credited when it named someone else"
+        svm.get_account(&buffer_pda).is_some(),
+        "buffer PDA should have been untouched despite transaction succeeding"
     );
 }
 
