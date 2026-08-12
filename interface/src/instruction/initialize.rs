@@ -2,7 +2,6 @@
 //!
 //! Allocates the singleton settlement state PDA (see [`crate::pda::state`]).
 
-use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -23,11 +22,15 @@ use crate::SettlementInstruction;
 /// [`crate::pda::state::find_state_pda`]; the program derives the bump itself
 /// and rejects any other address.
 ///
-/// The state account is owned by the settlement program. This instruction takes
-/// no parameters and succeeds only once: a second call fails because the
-/// account already exists.
+/// `reclaim_authority` is recorded verbatim in the state PDA's data: it's the
+/// account authorized to reclaim rent for buffers. See
+/// [`crate::data::state::StateAccount::reclaim_authority`].
 ///
-/// Wire format: just `[discriminator=3]`, 1 byte.
+/// The state account is owned by the settlement program. This instruction
+/// succeeds only once: a second call fails because the account already
+/// exists.
+///
+/// Wire format: `[discriminator=3, reclaim_authority (32 bytes)]`, 33 bytes.
 /// Required accounts: `[payer (W,S), state_pda (W), system_program (R)]`.
 /// The system program must be available for the `CreateAccount` CPI but doesn't
 /// need to sit at that specific position.
@@ -35,10 +38,13 @@ pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,
     pub state_pda: Pubkey,
+    pub reclaim_authority: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
     fn from(builder: Initialize) -> Self {
+        let mut data = vec![SettlementInstruction::Initialize.discriminator()];
+        data.extend_from_slice(&builder.reclaim_authority.to_bytes());
         Instruction {
             program_id: builder.program_id,
             accounts: vec![
@@ -46,27 +52,27 @@ impl From<Initialize> for Instruction {
                 AccountMeta::new(builder.state_pda, false),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             ],
-            data: vec![SettlementInstruction::Initialize.discriminator()],
+            data,
         }
     }
 }
 
 /// Parsed inputs of an `Initialize` instruction.
-pub struct InitializeInput<'a> {
-    pub payer: &'a AccountView,
-    pub state_pda: &'a mut AccountView,
+pub struct InitializeInput<'a, A> {
+    pub payer: &'a A,
+    pub state_pda: &'a mut A,
+    pub reclaim_authority: Pubkey,
 }
 
-impl<'a> InstructionInputParsing<'a> for InitializeInput<'a> {
+impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::Initialize;
 
-    fn parse_body(
-        instruction_data: &[u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
-        if !instruction_data.is_empty() {
-            return Err(ProgramError::InvalidInstructionData);
-        }
+    fn parse_body(instruction_data: &[u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+        let reclaim_authority: [u8; 32] = instruction_data
+            .try_into()
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+        let reclaim_authority = Pubkey::new_from_array(reclaim_authority);
+
         // Accounts: [payer (W,S), state_pda (W), system_program (R)]. The system
         // program needs to be present for the `CreateAccount` CPI but doesn't
         // need to be referenced directly and can be at any later position.
@@ -74,7 +80,11 @@ impl<'a> InstructionInputParsing<'a> for InitializeInput<'a> {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
-        Ok(Self { payer, state_pda })
+        Ok(Self {
+            payer,
+            state_pda,
+            reclaim_authority,
+        })
     }
 }
 
@@ -97,6 +107,7 @@ pub mod fixtures {
             program_id: zero,
             payer: zero,
             state_pda: zero,
+            reclaim_authority: zero,
         })
         .data
     }
@@ -106,7 +117,12 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::{initialize_data, NUM_ACCOUNTS};
     use super::*;
+    use crate::data::state::EncodedStateAccount;
     use crate::instruction::fixtures::{fake_account_from_array, fake_sequential_accounts};
+    use crate::instruction::tests::{
+        assert_readonly_nonsigner, assert_writable_nonsigner, assert_writable_signer,
+    };
+    use solana_account_view::AccountView;
     use solana_address::Address;
 
     #[test]
@@ -114,10 +130,12 @@ mod tests {
         let program_id = Address::new_unique();
         let payer = fake_account_from_array([1; 32]);
         let state_pda = fake_account_from_array([2; 32]);
+        let reclaim_authority = Address::new_from_array([4; 32]);
         let data = Instruction::from(Initialize {
             program_id,
             payer: *payer.address(),
             state_pda: *state_pda.address(),
+            reclaim_authority,
         })
         .data;
 
@@ -127,16 +145,29 @@ mod tests {
         let InitializeInput {
             payer: parsed_payer,
             state_pda: parsed_state_pda,
+            reclaim_authority: parsed_reclaim_authority,
         } = InitializeInput::parse(&data, &mut accounts).expect("parse should succeed");
 
         assert_eq!(parsed_payer.address(), payer.address());
         assert_eq!(parsed_state_pda.address(), state_pda.address());
+        assert_eq!(parsed_reclaim_authority, reclaim_authority);
     }
 
     #[test]
     fn initialize_input_rejects_long_data() {
         let mut data = initialize_data();
         data.push(0); // trailing byte
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        assert_eq!(
+            InitializeInput::parse(&data, &mut accounts).err(),
+            Some(ProgramError::InvalidInstructionData),
+        );
+    }
+
+    #[test]
+    fn initialize_input_rejects_short_data() {
+        let mut data = initialize_data();
+        data.pop(); // one byte short of a full reclaim_authority pubkey
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
             InitializeInput::parse(&data, &mut accounts).err(),
@@ -160,17 +191,18 @@ mod tests {
         let program_id = Pubkey::new_from_array([1; 32]);
         let payer = Pubkey::new_from_array([2; 32]);
         let state_pda = Pubkey::new_from_array([3; 32]);
+        let reclaim_authority = Pubkey::new_from_array([4; 32]);
 
         let Instruction { data, .. } = Initialize {
             program_id,
             payer,
             state_pda,
+            reclaim_authority,
         }
         .into();
-        assert_eq!(
-            data,
-            vec![SettlementInstruction::Initialize.discriminator()]
-        );
+        assert_eq!(data.len(), EncodedStateAccount::SIZE);
+        assert_eq!(data[0], SettlementInstruction::Initialize.discriminator());
+        assert_eq!(&data[1..], &reclaim_authority.to_bytes());
     }
 
     #[test]
@@ -178,26 +210,21 @@ mod tests {
         let program_id = Pubkey::new_from_array([1; 32]);
         let payer = Pubkey::new_from_array([2; 32]);
         let state_pda = Pubkey::new_from_array([3; 32]);
+        let reclaim_authority = Pubkey::new_from_array([4; 32]);
 
         let Instruction { accounts, .. } = Initialize {
             program_id,
             payer,
             state_pda,
+            reclaim_authority,
         }
         .into();
 
         assert_eq!(accounts.len(), 3);
-        // payer: writable, signer (funds the new account's rent)
-        assert_eq!(accounts[0].pubkey, payer);
-        assert!(accounts[0].is_writable);
-        assert!(accounts[0].is_signer);
-        // state_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(accounts[1].pubkey, state_pda);
-        assert!(accounts[1].is_writable);
-        assert!(!accounts[1].is_signer);
-        // system program: read-only
-        assert_eq!(accounts[2].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!accounts[2].is_writable);
-        assert!(!accounts[2].is_signer);
+        // payer funds the new account's rent; state_pda is signed for by the
+        // program via PDA seeds; the system program is only referenced.
+        assert_writable_signer(&accounts[0], payer);
+        assert_writable_nonsigner(&accounts[1], state_pda);
+        assert_readonly_nonsigner(&accounts[2], SYSTEM_PROGRAM_ID);
     }
 }

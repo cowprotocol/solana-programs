@@ -10,7 +10,6 @@
 //! Required accounts:
 //! `[order_pda (W), reclaim_recipient (W)]`.
 
-use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -49,19 +48,16 @@ impl ReclaimOrder {
 }
 
 /// Parsed inputs of a `ReclaimOrder` instruction.
-pub struct ReclaimOrderInput<'a> {
-    pub order_pda: &'a mut AccountView,
+pub struct ReclaimOrderInput<'a, A> {
+    pub order_pda: &'a mut A,
     pub bump: u8,
-    pub reclaim_recipient: &'a mut AccountView,
+    pub reclaim_recipient: &'a mut A,
 }
 
-impl<'a> InstructionInputParsing<'a> for ReclaimOrderInput<'a> {
+impl<'a, A> InstructionInputParsing<'a, A> for ReclaimOrderInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::ReclaimOrder;
 
-    fn parse_body(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         // Body is a single bump byte, already stripped of the discriminator.
         let &[bump] = instruction_data else {
             return Err(ProgramError::InvalidInstructionData);
@@ -108,6 +104,8 @@ mod tests {
     use super::fixtures::{default_reclaim_data, NUM_ACCOUNTS};
     use super::*;
     use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
+    use crate::instruction::tests::assert_writable_nonsigner;
+    use solana_account_view::AccountView;
     use solana_address::Address;
 
     #[test]
@@ -206,13 +204,9 @@ mod tests {
         .instruction();
 
         assert_eq!(ix.accounts.len(), 2);
-        // order_pda: writable, not signer (the PDA being closed)
-        assert_eq!(ix.accounts[0].pubkey, order_pda);
-        assert!(ix.accounts[0].is_writable);
-        assert!(!ix.accounts[0].is_signer);
-        // reclaim_recipient: writable, not signer (receives the recovered rent)
-        assert_eq!(ix.accounts[1].pubkey, reclaim_recipient);
-        assert!(ix.accounts[1].is_writable);
-        assert!(!ix.accounts[1].is_signer);
+        // order_pda is the PDA being closed; reclaim_recipient receives the
+        // recovered rent. Neither signs.
+        assert_writable_nonsigner(&ix.accounts[0], order_pda);
+        assert_writable_nonsigner(&ix.accounts[1], reclaim_recipient);
     }
 }

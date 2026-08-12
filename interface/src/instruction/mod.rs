@@ -4,7 +4,6 @@
 //! settlement instructions, encoding their discriminator (see
 //! [`crate::SettlementInstruction`]) and laying out the required accounts.
 
-use solana_account_view::AccountView;
 use solana_program_error::ProgramError;
 
 use crate::{recover_discriminator, SettlementInstruction};
@@ -15,24 +14,24 @@ pub mod initialize;
 pub mod reclaim_order;
 pub mod settle;
 
-/// Shared components for parsing generic instruction input.
+/// Shared components for parsing an instruction's input (data fields and
+/// accounts).
 ///
 /// Implementations declare which [`SettlementInstruction`] discriminator they
 /// belong to and parse the remaining instruction data and accounts. The
-/// discriminator check is shared via the default [`parse`] implementation; an
-/// impl only needs to provide [`parse_body`].
-pub trait InstructionInputParsing<'a>: Sized {
+/// discriminator check is shared via the default [`Self::parse`] implementation;
+/// an impl only needs to provide [`Self::parse_body`].
+///
+/// Parsing accounts is purely positional: they are picked out by their index in
+/// the slice, never by inspecting them. The account type `A` is left generic so
+/// the same layout can be parsed from any account representation, on-chain
+/// (`solana_account_view::AccountView`) or off-chain.
+pub trait InstructionInputParsing<'a, A>: Sized {
     const DISCRIMINATOR: SettlementInstruction;
 
-    fn parse_body(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError>;
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError>;
 
-    fn parse(
-        instruction_data: &'a [u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         match recover_discriminator(instruction_data)? {
             (discriminator, remaining_data) if discriminator == Self::DISCRIMINATOR => {
                 Self::parse_body(remaining_data, accounts)
@@ -46,8 +45,9 @@ pub trait InstructionInputParsing<'a>: Sized {
 /// and the settlement program's own tests.
 ///
 /// Exposed under the `test-fixtures` feature (and unconditionally for this
-/// crate's own `cargo test`) so both crates can build [`AccountView`]s without
-/// duplicating the unsafe initializer below.
+/// crate's own `cargo test`) so both crates can build
+/// [`AccountView`](solana_account_view::AccountView)s without duplicating the
+/// unsafe initializer below.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
     use solana_account_view::{AccountView, RuntimeAccount};
@@ -59,7 +59,7 @@ pub mod fixtures {
     ///
     /// This is trickier to do than it should be. There's no safe initializer for
     /// `AccountView` in Pinocchio. The only initializer is:
-    /// https://docs.rs/solana-account-view/2.0.0/solana_account_view/struct.AccountView.html#method.new_unchecked
+    /// <https://docs.rs/solana-account-view/2.0.0/solana_account_view/struct.AccountView.html#method.new_unchecked>
     ///
     /// `AccountView::new_unchecked` requires (1) a pointer to an initialized
     /// `RuntimeAccount`, (2) immediately followed by exactly `data_len` bytes of
@@ -72,7 +72,7 @@ pub mod fixtures {
     /// a dropped `Box` or a returned stack slot would leave the pointer
     /// dangling. We ignore the memory leak since this function is only intended to
     /// use in tests.
-    /// https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak
+    /// <https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak>
     ///
     /// Every `AccountView` method is safe to call on the result. Header
     /// accessors read fields out of the `RuntimeAccount`. Data-region accessors
@@ -80,8 +80,8 @@ pub mod fixtures {
     /// primitive underneath them) defines as sound for any non-null, aligned
     /// pointer. This is true for us because the pointer itself comes boxed data
     /// and not some manual allocation.
-    /// https://docs.rs/crate/solana-account-view/2.0.0/source/src/lib.rs#98-295
-    /// https://doc.rust-lang.org/beta/core/slice/fn.from_raw_parts.html
+    /// <https://docs.rs/crate/solana-account-view/2.0.0/source/src/lib.rs#98-295>
+    /// <https://doc.rust-lang.org/beta/core/slice/fn.from_raw_parts.html>
     pub fn fake_account_from(runtime_account: RuntimeAccount) -> AccountView {
         let backing = Box::leak(Box::new(runtime_account));
         unsafe { AccountView::new_unchecked(backing as *mut RuntimeAccount) }
@@ -89,7 +89,7 @@ pub mod fixtures {
 
     /// Adapted from pinocchio's crate-private test helper; kept structurally
     /// close for comparison:
-    /// https://docs.rs/crate/pinocchio/0.11.1/source/src/sysvars/slot_hashes/test_utils.rs#120-160
+    /// <https://docs.rs/crate/pinocchio/0.11.1/source/src/sysvars/slot_hashes/test_utils.rs#120-160>
     ///
     /// Allocate a heap-backed `AccountView` whose data region is initialized with
     /// `data`, whose address is `address`, and whose borrow flag is `borrow_state`.
@@ -104,7 +104,7 @@ pub mod fixtures {
     /// fully enforced in this hand-rolled representation.
     #[allow(
         clippy::arithmetic_side_effects,
-        reason = "the function is mostly vendored and don't want to introduce unnecessary changes"
+        reason = "the function is mostly vendored and we don't want to introduce unnecessary changes"
     )]
     pub unsafe fn make_account_view(
         address: Address,
@@ -171,11 +171,57 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{AccountMeta, Pubkey};
+    use solana_account_view::AccountView;
+
+    #[track_caller]
+    pub(crate) fn assert_writable_signer(account: &AccountMeta, pubkey: Pubkey) {
+        assert_eq!(account.pubkey, pubkey, "unexpected account pubkey");
+        assert!(account.is_writable, "{} should be writable", account.pubkey);
+        assert!(account.is_signer, "{} should be a signer", account.pubkey);
+    }
+
+    #[track_caller]
+    pub(crate) fn assert_writable_nonsigner(account: &AccountMeta, pubkey: Pubkey) {
+        assert_eq!(account.pubkey, pubkey, "unexpected account pubkey");
+        assert!(account.is_writable, "{} should be writable", account.pubkey);
+        assert!(
+            !account.is_signer,
+            "{} should not be a signer",
+            account.pubkey
+        );
+    }
+
+    #[track_caller]
+    pub(crate) fn assert_readonly_signer(account: &AccountMeta, pubkey: Pubkey) {
+        assert_eq!(account.pubkey, pubkey, "unexpected account pubkey");
+        assert!(
+            !account.is_writable,
+            "{} should be read-only",
+            account.pubkey
+        );
+        assert!(account.is_signer, "{} should be a signer", account.pubkey);
+    }
+
+    #[track_caller]
+    pub(crate) fn assert_readonly_nonsigner(account: &AccountMeta, pubkey: Pubkey) {
+        assert_eq!(account.pubkey, pubkey, "unexpected account pubkey");
+        assert!(
+            !account.is_writable,
+            "{} should be read-only",
+            account.pubkey
+        );
+        assert!(
+            !account.is_signer,
+            "{} should not be a signer",
+            account.pubkey
+        );
+    }
 
     #[test]
     fn input_parsing_rejects_different_discriminator() {
         struct TestInputParsing {}
-        impl<'a> InstructionInputParsing<'a> for TestInputParsing {
+        impl<'a> InstructionInputParsing<'a, AccountView> for TestInputParsing {
             const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
             fn parse_body(

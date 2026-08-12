@@ -5,7 +5,6 @@
 //! token authority. Each token is identified by its `mint` account; the buffer
 //! address must be the canonical PDA for that mint.
 
-use solana_account_view::AccountView;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -26,6 +25,10 @@ pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 /// [`crate::pda::buffer::find_buffer_pda`] for its `mint`; the program derives
 /// the bump itself and rejects any other address. `payer` funds every new token
 /// account's rent.
+///
+/// Buffer creation is idempotent: an already-existing `buffer_pda` is left
+/// unchanged and the instruction still succeeds, so two parties racing to
+/// create the same buffer both succeed.
 ///
 /// Wire format: `[discriminator=4]`, 1 byte. The tokens are implied by the
 /// `mint` accounts, so no further data is needed.
@@ -60,20 +63,17 @@ impl From<CreateBuffers<'_>> for Instruction {
 }
 
 /// Parsed inputs of a `CreateBuffer` instruction.
-pub struct CreateBufferInput<'a> {
-    pub payer: &'a AccountView,
-    pub token_program: &'a AccountView,
+pub struct CreateBufferInput<'a, A> {
+    pub payer: &'a A,
+    pub token_program: &'a A,
     /// One `[buffer_pda, mint]` pair per buffer to create.
-    pub buffers: &'a [[AccountView; 2]],
+    pub buffers: &'a [[A; 2]],
 }
 
-impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
+impl<'a, A> InstructionInputParsing<'a, A> for CreateBufferInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateBuffer;
 
-    fn parse_body(
-        instruction_data: &[u8],
-        accounts: &'a mut [AccountView],
-    ) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &[u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -89,7 +89,7 @@ impl<'a> InstructionInputParsing<'a> for CreateBufferInput<'a> {
         // buffer needs both, so a stray odd account left over is a malformed
         // instruction. There must be at least one pair: an instruction that
         // creates no buffers is rejected as a likely encoding issue.
-        let rest: &'a [AccountView] = rest;
+        let rest: &'a [A] = rest;
         let (buffers, remainder) = rest.as_chunks::<2>();
         if !remainder.is_empty() || buffers.is_empty() {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -135,6 +135,10 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
+    use crate::instruction::tests::{
+        assert_readonly_nonsigner, assert_writable_nonsigner, assert_writable_signer,
+    };
+    use solana_account_view::AccountView;
     use solana_address::Address;
 
     #[test]
@@ -228,8 +232,9 @@ mod tests {
     fn create_buffer_input_rejects_long_data() {
         let mut data = create_buffer_data();
         data.push(0); // trailing byte
+        let mut accounts: [AccountView; 0] = [];
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut []).err(),
+            CreateBufferInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -288,26 +293,14 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 5);
-        // payer: writable, signer
-        assert_eq!(accounts[0].pubkey, payer);
-        assert!(accounts[0].is_writable);
-        assert!(accounts[0].is_signer);
-        // system program: read-only
-        assert_eq!(accounts[1].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!accounts[1].is_writable);
-        assert!(!accounts[1].is_signer);
-        // token program: read-only
-        assert_eq!(accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
-        assert!(!accounts[2].is_writable);
-        assert!(!accounts[2].is_signer);
-        // buffer_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(accounts[3].pubkey, buffer_pda);
-        assert!(accounts[3].is_writable);
-        assert!(!accounts[3].is_signer);
-        // mint: read-only
-        assert_eq!(accounts[4].pubkey, mint);
-        assert!(!accounts[4].is_writable);
-        assert!(!accounts[4].is_signer);
+        // payer funds rent; the system and token programs and the mint are only
+        // referenced; buffer_pda is created (written) and the mint is
+        // untouched.
+        assert_writable_signer(&accounts[0], payer);
+        assert_readonly_nonsigner(&accounts[1], SYSTEM_PROGRAM_ID);
+        assert_readonly_nonsigner(&accounts[2], SPL_TOKEN_PROGRAM_ID);
+        assert_writable_nonsigner(&accounts[3], buffer_pda);
+        assert_readonly_nonsigner(&accounts[4], mint);
     }
 
     #[test]
@@ -327,14 +320,10 @@ mod tests {
 
         // Three shared accounts followed by two (buffer, mint) pairs.
         assert_eq!(accounts.len(), 3 + 2 * 2);
-        assert_eq!(accounts[3].pubkey, buffer_a);
-        assert!(accounts[3].is_writable);
-        assert_eq!(accounts[4].pubkey, mint_a);
-        assert!(!accounts[4].is_writable);
-        assert_eq!(accounts[5].pubkey, buffer_b);
-        assert!(accounts[5].is_writable);
-        assert_eq!(accounts[6].pubkey, mint_b);
-        assert!(!accounts[6].is_writable);
+        assert_writable_nonsigner(&accounts[3], buffer_a);
+        assert_readonly_nonsigner(&accounts[4], mint_a);
+        assert_writable_nonsigner(&accounts[5], buffer_b);
+        assert_readonly_nonsigner(&accounts[6], mint_b);
     }
 
     #[test]

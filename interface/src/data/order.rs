@@ -224,6 +224,17 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
     }
 }
 
+impl TryFrom<&[u8]> for OrderAccount {
+    type Error = ProgramError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let bytes: &[u8; EncodedOrderAccount::SIZE] = bytes
+            .try_into()
+            .map_err(|_| ProgramError::InvalidAccountData)?;
+        OrderAccount::try_from(*bytes)
+    }
+}
+
 impl TryFrom<EncodedOrderAccount> for OrderAccount {
     type Error = ProgramError;
 
@@ -417,6 +428,44 @@ mod tests {
         let err = EncodedOrderAccount::decode_and_hash(&bytes)
             .expect_err("decode_and_hash must propagate the try_from error");
         assert_eq!(err, ProgramError::InvalidAccountData);
+    }
+
+    #[test]
+    fn try_from_exact_length_slice_decodes() {
+        let account = sample_account(false);
+        let bytes: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(account.clone()).into();
+
+        let decoded = OrderAccount::try_from(&bytes[..]).expect("exact-length slice must decode");
+        assert_eq!(decoded, account);
+    }
+
+    #[test]
+    fn try_from_wrong_length_slice_is_rejected() {
+        let bytes: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(sample_account(false)).into();
+
+        assert_eq!(
+            OrderAccount::try_from(&bytes[..EncodedOrderAccount::SIZE - 1]),
+            Err(ProgramError::InvalidAccountData),
+        );
+
+        let too_long = [bytes.as_slice(), [0].as_slice()].concat();
+        assert_eq!(
+            OrderAccount::try_from(&too_long[..]),
+            Err(ProgramError::InvalidAccountData),
+        );
+    }
+
+    #[test]
+    fn try_from_slice_forwards_decoding_errors() {
+        let mut bytes: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(sample_account(false)).into();
+        bytes[CANCELLED_OFFSET] = 0xff;
+        assert_eq!(
+            OrderAccount::try_from(&bytes[..]),
+            Err(ProgramError::InvalidAccountData),
+        );
     }
 
     mod load_from_pda {

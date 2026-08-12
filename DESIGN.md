@@ -6,24 +6,44 @@ The settlement program stores funds through dedicated token accounts (_buffer ac
 
 It uses a dedicated state account to:
 
+- Store the account that can reclaim buffer rent.
 - Manage solver authentication (including fee access by the protocol).
 - Act as a token delegate to manage user funds.
 
-Its state is stored in a PDA generated using seed `["settlement"]`.
+Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement    v0.1"]`.
 
-Once deployed, we will make the code at that account unchangeable.
+Once the testing phase has ended, we will make the code at that account unchangeable.
+
+## State versioning
+
+Every PDA the program derives starts with the same prefix seed: the string `settlement`, then the current cargo package major and minor version prefixed by `v`, space-padded to a fixed width to prevent accidental prefix collisions. While we expect the ultimate settlement program to be immutable so this measure would normally not be needed, during development we want to avoid any possible confusion or losses that could occur as a result of stale data still existing within the settlement program.
+
+Bumping the minor version relocates the program's entire account storage at once — the state account, every buffer, and every order.
+
+A bump is not a migration. There are some other consequences that should be considered before the new program version is deployed:
+
+- **User delegations stop working.** Users delegate their token accounts to the state PDA (see [user delegation](#user-delegation-ie-approvals)). A bump moves that address, so every user has to delegate again before they can trade.
+- **Whatever the buffers still hold is stranded.** A buffer's funds are only spendable by the state PDA that is its SPL authority. After a bump the program can no longer sign for the old state PDA, so it can never move those funds again. Buffers must be drained under the old program version *before* deploying a bump.
+
+## Program initialization
+
+The state PDA is created once, after deployment, by the `Initialize` instruction.
+
+### Reclaim Authority
+
+The _reclaim authority_ is the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
 
 ## Buffer accounts
 
-Buffer accounts are token accounts that hold funds on behalf of the settlement contract.
+Buffer accounts are token accounts that hold funds on behalf of the settlement program throught the state PDA.
 
-These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to collect user funds, send out funds to the user, and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
+These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
-Corresponding PDAs are generated using seed `["settlement", token, "buffer"]`.
+Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
 Differences with Ethereum:
 
-- In a settlement, a solver can only access buffers for tokens that are part of some order.
+- In a settlement, a solver can't access buffers directly but needs to invoke a dedicated instruction or use the funds in them to pay out the proceeds of an order.
 - Traded funds aren't sent automatically to the buffers at the start of the trade. Solvers can specify arbitrary receiver accounts for the user's sell tokens, as well as send the trade proceeds from any arbitrary account. In practice, buffers may still be used by solvers for pooling funds before interactions for efficiency reasons.
 
 ## Solver authentication
@@ -37,7 +57,7 @@ There are two roles for authentication:
 
 The settlement program state PDA stores the state used for authentication.
 
-On settlement program deployment, the program state is initialized with a fixed initial manager controlled by CoW and an empty list of solvers.
+On settlement program deployment, the program state is initialized with a fixed initial manager, controlled by CoW Core as mandated by CoW DAO, and an empty list of solvers.
 
 Transferring the role of manager is done in a two-step process: first the current manager proposes a new manager; then the new manager accepts the role, finalizing the role transfer.
 
@@ -60,7 +80,7 @@ Withdrawing is triggered by the `CollectFromBuffer` instruction.
 Differences with Ethereum:
 
 - We don’t want to let the settlement program create orders for itself because, unlike in the EVM, it requires a specific code branch for that. This means that we can't follow the same withdraw mechanism we use right now. Pragmatically, at the start we should use the solver to withdraw the funds to a dedicated "dump" account and create orders to swap all funds to the same token (SOL). We don't plan to improve on this on the current iteration of the program.
-- Withdrawing fees is done outside of a settlement.
+- Withdrawing fees may be done outside of a settlement.
 
 ## User delegation (i.e., "approvals")
 
@@ -74,7 +94,7 @@ As long as the settlement program is immutable, there's no other way to access u
 
 Differences with Ethereum:
 
-- There can only be a single delegate. This could create situations where the user delegates us, creates an order, and then another dapp delegates a different program and the order can't be settled anymore. This is very different from approvals, where an approval for one dapp doesn't affect approvals for other dapps.
+- There can only be a single delegate. This could create situations where the user delegates the settlement state PDA, creates an order, and then another dapp delegates a different program and the order can't be settled anymore. This is very different from approvals, where an approval for one dapp doesn't affect approvals for other dapps.
 - There's no dedicated vault relayer, the user delegates their tokens to the settlement state PDA (_not_ the settlement program!). This is because "interactions" aren't executed by the settlement program but as dedicated instructions originating from the transaction signer.
 
 ## Orders
@@ -126,13 +146,13 @@ created_by: Pubkey
 intent: OrderIntent
 ```
 
-There are also other parameters, like `snapshot`, used internally during the settlement.
+`amount_withdrawn` and `amount_received` are cumulative across all of the order's settlements. They cap how much of the order can still be traded, so it can't be filled beyond its sell and buy amounts.
 
 An order PDA can only exist and hold data if the order has been [authenticated](#authenticating-an-order). If this account exists and is not cancelled, filled, or expired, then the order can be traded.
 
 At the time of order creation, the executor can specify a different address as the `created_by` address. This allows rent to be reclaimed by a different account than the one that signed the instruction.
 
-Corresponding PDAs are generated using seed `["settlement", hash(intent), "order"]`.
+Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, hash(intent), "order"]`.
 
 The serialization of the parameters before hashing and the hashing function will be formally specified at a later point.
 
@@ -168,7 +188,7 @@ Note that deleting the order PDA is _not_ enough to invalidate an order. In fact
 
 Allocating an order PDA requires paying rent.
 
-If the order is expired, anyone can close the order account. On account closure, the rent is sent to the original creator of the order.
+If the order is expired, anyone can close the order account through the `ReclaimOrder` instruction. On account closure, the rent is sent to the order's `created_by` account, i.e., the original creator of the order.
 
 This is useful for solvers who need to allocate the order for executing it, but the allocation itself would be orders of magnitude more expensive than the compute cost for executing an instruction. This is particularly relevant to make small orders economically viable.
 
@@ -206,7 +226,7 @@ Differences with Ethereum:
 
 Orders can be created by the owner by executing an instruction on-chain.
 
-The order owner executes the `OwnerCreateOrderIntent` instruction. The settlement program checks that the order comes from the owner and [creates the order PDA](#orders-are-accounts).
+The order owner executes the `CreateOrder` instruction. The settlement program checks that the order comes from the owner and [creates the order PDA](#orders-are-accounts).
 
 In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered by the user once the order has expired by [clearing the order](#order-clearing).
 
@@ -255,11 +275,11 @@ Differences with Ethereum:
 
 A settlement transaction is split into multiple instructions. All settlement operations occur between a `BeginSettle` and a `FinalizeSettle` instruction with the exception of arbitrary interactions, which can take place at any point of a transaction. Except for that, the order of instructions in the transaction is arbitrary.
 
-- `BeginSettle`: Snapshots each order's receiver token account, spender token account, and withdrawal balances. Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
+- `BeginSettle`: Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Validates each order's limit price and that its cumulative fill stays within the order's sell and buy amounts (fully filling a fill-or-kill order), and updates the order's `amount_withdrawn`/`amount_received`. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
 - (arbitrary interactions): Any instruction from the solver. This could be a token transfer, an AMM swap, or anything else.
-- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. Reads balances again, computes deltas against the snapshots, validates clearing/limit prices, updates `amount_received` and order status, revokes solver approvals. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
+- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
 
-Additionally, a settlement transaction will include the batch number as part of the instruction bytes of `BeginSettle`.
+Additionally, `BeginSettle` includes the `auction_id` (an `i64`) as part of its instruction data. This value is unused by the program and only relied upon by the off-chain back-end services.
 
 Only a single settlement can be executed at a time. This means that there can’t be a `BeginSettle` instruction or a spurious `FinalizeSettle` instruction between a coupled pair of `Begin`/`FinalizeSettle`.
 
