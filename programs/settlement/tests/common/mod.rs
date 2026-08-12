@@ -110,12 +110,7 @@ pub fn assert_instruction_error<T>(
     );
 }
 
-/// Place a fresh, rent-exempt account holding `data` and owned by `owner` at a
-/// new address, and return it. Lets a test populate an arbitrary account (e.g.
-/// program-owned, with a crafted body or a deliberately wrong size or owner)
-/// directly, bypassing the runtime.
-pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey {
-    let address = unique_pubkey();
+pub fn create_account_at(svm: &mut LiteSVM, address: Pubkey, owner: &Pubkey, data: &[u8]) {
     let lamports = svm.minimum_balance_for_rent_exemption(data.len());
     svm.set_account(
         address,
@@ -128,6 +123,15 @@ pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey 
         },
     )
     .expect("set_account should succeed");
+}
+
+/// Place a fresh, rent-exempt account holding `data` and owned by `owner` at a
+/// new address, and return it. Lets a test populate an arbitrary account (e.g.
+/// program-owned, with a crafted body or a deliberately wrong size or owner)
+/// directly, bypassing the runtime.
+pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey {
+    let address = unique_pubkey();
+    create_account_at(svm, address, owner, data);
     address
 }
 
@@ -212,23 +216,4 @@ pub fn send(
 ) -> Result<TransactionMetadata, TransactionError> {
     let tx = payer_signed_tx(svm, payer, instructions);
     svm.send_transaction(tx).map_err(|e| e.err)
-}
-
-/// [`send`], additionally recording the compute units the settlement program
-/// spent across the whole transaction under `label`. Since a settlement is
-/// always the `[BeginSettle, FinalizeSettle]` pair, the figure covers both
-/// instructions.
-pub fn send_metered(
-    svm: &mut LiteSVM,
-    payer: &Keypair,
-    instructions: Vec<Instruction>,
-    label: BenchLabel,
-) -> Result<TransactionMetadata, TransactionError> {
-    let tx = Transaction::new_signed_with_payer(
-        &instructions,
-        Some(&payer.pubkey()),
-        &[payer],
-        svm.latest_blockhash(),
-    );
-    send_transaction_metered(svm, tx, label).map_err(|e| e.err)
 }

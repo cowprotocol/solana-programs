@@ -196,17 +196,8 @@ fn rejects_wrong_stored_bump() {
         intent: intent.clone(),
     })
     .into();
-    svm.set_account(
-        order_pda,
-        Account {
-            lamports: svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE),
-            data: data.to_vec(),
-            owner: program_id,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .expect("overwriting the order body should succeed");
+
+    common::create_account_at(&mut svm, order_pda, &program_id, &data);
 
     let instructions = settle_and_pay(
         &mut svm,
@@ -524,17 +515,8 @@ fn rejects_cancelled_order() {
         intent: intent.clone(),
     })
     .into();
-    svm.set_account(
-        order_pda,
-        Account {
-            lamports: svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE),
-            data: data.to_vec(),
-            owner: program_id,
-            executable: false,
-            rent_epoch: 0,
-        },
-    )
-    .expect("placing a cancelled order at its canonical PDA should succeed");
+
+    common::create_account_at(&mut svm, order_pda, &program_id, &data);
 
     let instructions = settle_and_pay(
         &mut svm,
