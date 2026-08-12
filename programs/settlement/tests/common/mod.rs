@@ -26,8 +26,6 @@ use solana_sdk::{
 };
 use std::cell::Cell;
 
-use crate::common::benchmark::{send_transaction_metered, BenchLabel};
-
 pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/deploy/cow_settlement.so"

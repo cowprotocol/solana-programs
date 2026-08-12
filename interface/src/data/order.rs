@@ -270,12 +270,10 @@ pub mod fixtures {
 
     // Hardcoded but verified in a sanity-check test.
     pub const DISCRIMINATOR_OFFSET: usize = 0;
-    pub const BUMP_OFFSET: usize = 1;
     pub const CANCELLED_OFFSET: usize = 2;
     pub const INTENT_OFFSET: usize = 51;
 
-    /// Hand-picked example order account wrapping [`sample_intent`]. The `bump`
-    /// is a placeholder.
+    /// Hand-picked example order account wrapping [`sample_intent`].
     pub fn sample_account(cancelled: bool) -> OrderAccount {
         OrderAccount {
             bump: 0xfd,
@@ -316,9 +314,7 @@ pub mod fixtures {
 mod tests {
     use core::mem::size_of;
 
-    use super::fixtures::{
-        sample_account, BUMP_OFFSET, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET,
-    };
+    use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
     use crate::data::intent::{
         fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
@@ -387,17 +383,6 @@ mod tests {
         assert_eq!(
             first_differing_byte(&base, &cancelled).expect("should differ in the cancelled byte"),
             CANCELLED_OFFSET
-        );
-
-        // Differs only in the bump.
-        let bumped: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
-            bump: sample_account_base.bump ^ 0xff,
-            ..sample_account_base.clone()
-        })
-        .into();
-        assert_eq!(
-            first_differing_byte(&base, &bumped).expect("should differ in the bump byte"),
-            BUMP_OFFSET
         );
 
         // Differs only in the embedded intent.

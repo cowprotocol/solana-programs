@@ -42,7 +42,6 @@ use settlement_client::settlement_interface::{
 };
 use settlement_interface::data::intent::OrderIntent;
 use solana_sdk::{
-    account::Account,
     instruction::{AccountMeta, InstructionError},
     pubkey::Pubkey,
     signature::{Keypair, Signer},
