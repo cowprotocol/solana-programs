@@ -41,7 +41,7 @@ These token accounts are accessible to all solvers and effectively work like the
 
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
-A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#reclaim-authority) can call. A buffer that still holds a token balance is skipped rather than closed, and skipping is silent.
+A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#reclaim-authority) can call.
 
 Differences with Ethereum:
 

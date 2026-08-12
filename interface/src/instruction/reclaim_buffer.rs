@@ -3,19 +3,9 @@
 //! Closes one or more buffer PDAs (see [`crate::pda::buffer`]) and sends each
 //! closed buffer's rent lamports to a `reclaim_recipient` of the caller's
 //! choosing. Only the settlement's configured `reclaim_authority` (see
-//! [`crate::data::state::StateAccount`]) may authorize this; the recipient is
-//! unconstrained, so the authority can direct the rent anywhere, including to
-//! itself.
+//! [`crate::data::state::StateAccount`]) may authorize this.
 //!
-//! # A buffer that still holds tokens is skipped, not closed
-//!
-//! An SPL token account can only be closed once its balance is zero, and this
-//! instruction neither moves nor destroys a buffer's balance. A funded buffer
-//! is therefore left standing and the remaining buffers are still processed —
-//! silently, so a `ReclaimBuffer` that closed nothing at all is
-//! indistinguishable from one that closed every buffer it was given. Callers
-//! that need to know which buffers went away must check whether the accounts
-//! still exist afterwards.
+//! A buffer that still holds tokens is skipped, not closed.
 //!
 //! Wire format: `[discriminator=6]`, 1 byte.
 //! Required accounts:
@@ -35,14 +25,13 @@ use crate::SettlementInstruction;
 /// `state_pda` must be the canonical PDA returned by
 /// [`crate::pda::state::find_state_pda`]. `reclaim_authority` must sign and
 /// must match the `reclaim_authority` recorded in the state PDA's data.
-/// `reclaim_recipient` receives every closed buffer's rent lamports and is
-/// otherwise unconstrained: the authority picks it freely, and may name itself.
+/// `reclaim_recipient` is the account receiving the closed buffer's lamports.
 /// Each `buffer_pda` must be the canonical PDA returned by
 /// [`crate::pda::buffer::find_buffer_pda`] for its paired `mint`, which is
 /// passed only so that derivation can be checked on-chain.
 ///
 /// Buffers that still hold a token balance are skipped without failing the
-/// instruction; see the module docs.
+/// instruction.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
@@ -164,9 +153,9 @@ mod tests {
         let program_id = Address::new_from_array([1; 32]);
         let state_pda = Address::new_from_array([2; 32]);
         let reclaim_authority = Address::new_from_array([3; 32]);
-        let reclaim_recipient = Address::new_from_array([6; 32]);
-        let buffer_pda = Address::new_from_array([4; 32]);
-        let mint = Address::new_from_array([5; 32]);
+        let reclaim_recipient = Address::new_from_array([4; 32]);
+        let buffer_pda = Address::new_from_array([5; 32]);
+        let mint = Address::new_from_array([6; 32]);
 
         let data = Instruction::from(ReclaimBuffer {
             program_id,
@@ -211,12 +200,12 @@ mod tests {
         let program_id = Address::new_from_array([1; 32]);
         let state_pda = Address::new_from_array([2; 32]);
         let reclaim_authority = Address::new_from_array([3; 32]);
-        let reclaim_recipient = Address::new_from_array([9; 32]);
-        let token_program = Address::new_from_array([4; 32]);
-        let buffer_a = Address::new_from_array([5; 32]);
-        let mint_a = Address::new_from_array([6; 32]);
-        let buffer_b = Address::new_from_array([7; 32]);
-        let mint_b = Address::new_from_array([8; 32]);
+        let reclaim_recipient = Address::new_from_array([4; 32]);
+        let token_program = Address::new_from_array([5; 32]);
+        let buffer_a = Address::new_from_array([6; 32]);
+        let mint_a = Address::new_from_array([7; 32]);
+        let buffer_b = Address::new_from_array([8; 32]);
+        let mint_b = Address::new_from_array([9; 32]);
 
         let data = Instruction::from(ReclaimBuffer {
             program_id,
@@ -289,7 +278,7 @@ mod tests {
         let data = reclaim_buffer_data();
         // The shared accounts plus one dangling account that can't form a
         // full pair.
-        let mut accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + 1 }>();
+        let mut accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + 3 }>();
         assert_eq!(
             ReclaimBufferInput::parse(&data, &mut accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
@@ -322,9 +311,9 @@ mod tests {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
         let reclaim_authority = Pubkey::new_from_array([3; 32]);
-        let reclaim_recipient = Pubkey::new_from_array([6; 32]);
-        let buffer_pda = Pubkey::new_from_array([4; 32]);
-        let mint = Pubkey::new_from_array([5; 32]);
+        let reclaim_recipient = Pubkey::new_from_array([4; 32]);
+        let buffer_pda = Pubkey::new_from_array([5; 32]);
+        let mint = Pubkey::new_from_array([6; 32]);
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
@@ -348,10 +337,10 @@ mod tests {
 
     #[test]
     fn recipient_may_be_the_reclaim_authority_itself() {
-        let reclaim_authority = Pubkey::new_from_array([3; 32]);
+        let reclaim_authority = Pubkey::new_from_array([1; 32]);
         let Instruction { accounts, .. } = ReclaimBuffer {
-            program_id: Pubkey::new_from_array([1; 32]),
-            state_pda: Pubkey::new_from_array([2; 32]),
+            program_id: Pubkey::new_from_array([2; 32]),
+            state_pda: Pubkey::new_from_array([3; 32]),
             reclaim_authority,
             reclaim_recipient: reclaim_authority,
             buffers: &[(
@@ -406,6 +395,6 @@ mod tests {
             buffers: &[],
         }
         .into();
-        assert_eq!(accounts.len(), 4);
+        assert_eq!(accounts.len(), NUM_SHARED_ACCOUNTS);
     }
 }

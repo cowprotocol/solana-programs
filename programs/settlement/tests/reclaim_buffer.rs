@@ -69,8 +69,6 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
         .lamports;
     let reclaim_authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
 
-    // The authority names itself as the recipient: the same account appears
-    // both as the read-only signer and as the writable recipient.
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
