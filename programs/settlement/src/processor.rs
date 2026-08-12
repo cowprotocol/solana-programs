@@ -66,8 +66,6 @@ impl<const N: usize> CanonicalPda<'_, N> {
             return Ok((false, bump));
         }
 
-        let bump = [bump];
-
         // A PDA has at most `MAX_SEEDS` seeds, so `N` stays well below
         // `usize::MAX` and the `N + 1` below cannot overflow. Asserting it in a
         // `const` block makes that a compile-time guarantee rather than a
@@ -79,7 +77,8 @@ impl<const N: usize> CanonicalPda<'_, N> {
         // that: the `N` base seeds plus the trailing bump.
         let mut signer_seeds = Vec::with_capacity(const { N + 1 });
         signer_seeds.extend(self.seeds.iter().map(|seed| Seed::from(*seed)));
-        signer_seeds.push(Seed::from(&bump[..]));
+        let bump_ptr = [bump];
+        signer_seeds.push(Seed::from(&bump_ptr));
         let signer = Signer::from(&signer_seeds[..]);
 
         // `CreateAccountAllowPrefund` mirrors `CreateAccount` but does not
@@ -92,7 +91,7 @@ impl<const N: usize> CanonicalPda<'_, N> {
             self.payer, self.pda, self.size, self.owner, None,
         )?
         .invoke_signed(&[signer])?;
-        Ok((true, bump[0]))
+        Ok((true, bump))
     }
 
     /// Create the canonical account, reverting with
