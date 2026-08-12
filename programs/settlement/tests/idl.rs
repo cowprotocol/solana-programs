@@ -13,7 +13,7 @@ mod common;
 
 use std::collections::BTreeSet;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 use settlement_interface::{
     pda::{buffer::BUFFER_SEED, order::ORDER_SEED, SETTLEMENT_SEED},
     SettlementAccount, SettlementInstruction,
@@ -24,6 +24,7 @@ const IDL_SCHEMA_JSON: &str = include_str!("../idl/schema/idl-spec-v0.1.0.json")
 const INTERFACE_LIB_RS: &str = include_str!("../../../interface/src/lib.rs");
 const INTENT_RS: &str = include_str!("../../../interface/src/data/intent.rs");
 const ORDER_RS: &str = include_str!("../../../interface/src/data/order.rs");
+const STATE_RS: &str = include_str!("../../../interface/src/data/state.rs");
 
 fn idl() -> Value {
     serde_json::from_str(IDL_JSON).expect("IDL must be valid JSON")
@@ -176,29 +177,69 @@ fn idl_matches_account_discriminators() {
     }
 }
 
-fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, type_name: &str) {
+/// Translates a Rust field type into the IDL spec's type grammar, so field
+/// types can be compared as JSON. Panics on anything the program's data types
+/// don't currently use.
+fn rust_type_to_idl(ty: &syn::Type, context: &str) -> Value {
+    match ty {
+        syn::Type::Path(path) => {
+            let ident = path
+                .path
+                .get_ident()
+                .unwrap_or_else(|| panic!("{context}: expected a plain type name"))
+                .to_string();
+            match ident.as_str() {
+                "Pubkey" => json!("pubkey"),
+                "bool" | "u8" | "u16" | "u32" | "u64" | "u128" | "i8" | "i16" | "i32" | "i64"
+                | "i128" => json!(ident),
+                // Anything else is one of this crate's own types, which the IDL
+                // carries as its own `types[]` entry and references by name.
+                _ => json!({ "defined": { "name": ident } }),
+            }
+        }
+        syn::Type::Array(array) => {
+            let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Int(len),
+                ..
+            }) = &array.len
+            else {
+                panic!("{context}: array length must be an integer literal");
+            };
+            let len: u64 = len.base10_parse().expect("array length must be a u64");
+            json!({ "array": [rust_type_to_idl(&array.elem, context), len] })
+        }
+        _ => panic!("{context}: unsupported field type"),
+    }
+}
+
+/// Cross-checks one IDL `types[]` entry against the Rust struct it describes.
+///
+/// `idl_name` is passed separately because the two don't always agree:
+/// `StateAccount` is called `SettlementState` in the IDL, matching the
+/// `SettlementAccount` discriminator variant that names the account.
+fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, rust_type_name: &str, idl_type_name: &str) {
     // load in the idl and rust type definitions
     let type_in_idl = idl["types"]
         .as_array()
         .expect("types must be an array")
         .iter()
-        .find(|t| t["name"] == type_name)
-        .unwrap_or_else(|| panic!("IDL types[] must contain {type_name}"));
+        .find(|t| t["name"] == idl_type_name)
+        .unwrap_or_else(|| panic!("IDL types[] must contain {idl_type_name}"));
 
     let file = syn::parse_file(rust_file_name).expect("Rust source must parse");
     let rust_struct = file
         .items
         .iter()
         .find_map(|item| match item {
-            syn::Item::Struct(s) if s.ident == type_name => Some(s),
+            syn::Item::Struct(s) if s.ident == rust_type_name => Some(s),
             _ => None,
         })
-        .unwrap_or_else(|| panic!("struct {type_name} not found in Rust source"));
+        .unwrap_or_else(|| panic!("struct {rust_type_name} not found in Rust source"));
 
     // confirm the docs match
     let idl_docs: Vec<String> = type_in_idl["docs"]
         .as_array()
-        .unwrap_or_else(|| panic!("docs should be an array for {type_name}"))
+        .unwrap_or_else(|| panic!("docs should be an array for {rust_type_name}"))
         .iter()
         .map(|i| i.as_str().expect("doc item should be a string").to_string())
         .collect();
@@ -207,37 +248,42 @@ fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, type_name: &str) {
 
     assert_eq!(
         idl_docs, rust_docs,
-        "documentation between rust and IDL types should be the same for {type_name}"
+        "documentation between rust and IDL types should be the same for {rust_type_name} and {idl_type_name}"
     );
 
-    // confirm fields match
-    let idl_fields: Vec<String> = type_in_idl["type"]["fields"]
+    // confirm fields match, both in name/order and in type
+    let idl_fields: Vec<(String, Value)> = type_in_idl["type"]["fields"]
         .as_array()
-        .unwrap_or_else(|| panic!("struct type {type_name} should have a fields array"))
+        .unwrap_or_else(|| panic!("struct type {idl_type_name} should have a fields array"))
         .iter()
         .map(|f| {
-            f["name"]
-                .as_str()
-                .expect("field name must be a string")
-                .to_string()
+            (
+                f["name"]
+                    .as_str()
+                    .expect("field name must be a string")
+                    .to_string(),
+                f["type"].clone(),
+            )
         })
         .collect();
 
-    let rust_fields: Vec<String> = rust_struct
+    let rust_fields: Vec<(String, Value)> = rust_struct
         .fields
         .iter()
         .map(|f| {
-            f.ident
+            let name = f
+                .ident
                 .as_ref()
-                .unwrap_or_else(|| panic!("{type_name} should have named fields"))
-                .to_string()
+                .unwrap_or_else(|| panic!("{idl_type_name} should have named fields"))
+                .to_string();
+            let idl_type = rust_type_to_idl(&f.ty, &format!("{idl_type_name}.{name}"));
+            (name, idl_type)
         })
         .collect();
 
     assert_eq!(
-        idl_fields,
-        rust_fields,
-        "{type_name}'s IDL field list/order must match the Rust struct (field order is load-bearing: it's the wire format)"
+        idl_fields, rust_fields,
+        "{idl_type_name}'s IDL fields must match the Rust struct {idl_type_name} in name, order and type"
     );
 }
 
@@ -245,8 +291,9 @@ fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, type_name: &str) {
 fn idl_matches_rust_types() {
     let idl = idl();
 
-    confirm_idl_types_entry(&idl, INTENT_RS, "OrderIntent");
-    confirm_idl_types_entry(&idl, ORDER_RS, "OrderAccount");
+    confirm_idl_types_entry(&idl, INTENT_RS, "OrderIntent", "OrderIntent");
+    confirm_idl_types_entry(&idl, ORDER_RS, "OrderAccount", "OrderAccount");
+    confirm_idl_types_entry(&idl, STATE_RS, "StateAccount", "SettlementState");
 }
 
 #[test]

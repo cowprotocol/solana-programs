@@ -42,13 +42,22 @@
                   109,
                   101,
                   110,
-                  116
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  49,
+                  32,
+                  32,
+                  32,
+                  32
                 ]
               }
             ]
           },
           "docs": [
-            "Canonical PDA seeded by the literal string \"settlement\"."
+            "Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's. The const bytes below are authoritative and change on every minor version bump."
           ]
         },
         {
@@ -56,14 +65,22 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "reclaim_authority",
+          "docs": [
+            "Recorded verbatim in the state PDA's body as SettlementState.reclaim_authority."
+          ],
+          "type": "pubkey"
+        }
+      ]
     },
     {
       "name": "create_buffer",
       "docs": [
         "Creates one or more per-token buffer PDAs (SPL token accounts) in a single instruction.",
         "IDL MODELING NOTE: the real instruction accepts an unbounded number of (buffer_pda, mint) pairs as remaining accounts, one pair per buffer, with at least one pair required (CreateBuffer rejects zero buffers). Anchor's IDL grammar has no 'repeated group' construct, so this file only declares the guaranteed index-0 template (buffer_pda_0/mint_0). This instruction is solver/internal tooling only, not part of the public client surface, so buffers beyond the first are intentionally left unmodeled here: callers needing more than one buffer per transaction append the extra (buffer_pda, mint) account-meta pairs by hand after building the base instruction.",
-        "Each buffer_pda_i must be the canonical PDA for seeds [\"settlement\", mint_i, \"buffer\"]."
+        "Each buffer_pda_i must be the canonical PDA for seeds [SETTLEMENT_SEED, mint_i, \"buffer\"]."
       ],
       "discriminator": [
         4
@@ -99,7 +116,16 @@
                   109,
                   101,
                   110,
-                  116
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  49,
+                  32,
+                  32,
+                  32,
+                  32
                 ]
               },
               {
@@ -136,7 +162,7 @@
       "name": "create_order",
       "docs": [
         "Allocates a per-order PDA and writes the initial OrderAccount body.",
-        "order_pda's canonical seeds are [\"settlement\", sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the Anchor PDA-seed grammar (const / arg / account) can describe."
+        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the Anchor PDA-seed grammar (const / arg / account) can describe."
       ],
       "discriminator": [
         2
@@ -348,10 +374,16 @@
     {
       "name": "SettlementState",
       "docs": [
-        "Body of the singleton settlement state PDA. Carries no fields beyond the 1-byte discriminator; its existence and address are what matter."
+        "Idiomatic representation of the state PDA's body."
       ],
       "type": {
-        "kind": "struct"
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "reclaim_authority",
+            "type": "pubkey"
+          }
+        ]
       }
     },
     {
@@ -550,11 +582,41 @@
     },
     {
       "code": 24,
+      "name": "LimitPriceViolated",
+      "msg": "BeginSettle: a settled order's executed price (amount_out/amount_in) is worse than the order's limit price (buy_amount/sell_amount)."
+    },
+    {
+      "code": 25,
+      "name": "PullAmountOverflow",
+      "msg": "BeginSettle: an order's pull amounts sum to more than u64::MAX."
+    },
+    {
+      "code": 26,
+      "name": "FillExceedsOrderAmount",
+      "msg": "BeginSettle: filling this order would consume more tokens than the maximum the user is willing to trade on this intent. Sell: amount_in > sell_amount; buy: amount_out > buy_amount."
+    },
+    {
+      "code": 27,
+      "name": "OrderNotExactlyFilled",
+      "msg": "BeginSettle: a non-partially_fillable order isn't filled exactly to its amount (either under- or over-filled). Sell: amount_in != sell_amount; buy: total amount_out != buy_amount."
+    },
+    {
+      "code": 28,
+      "name": "AmountWithdrawnOverflow",
+      "msg": "BeginSettle: the order's cumulative amount_withdrawn would exceed u64::MAX once this settlement's pulls are added."
+    },
+    {
+      "code": 29,
+      "name": "AmountReceivedOverflow",
+      "msg": "BeginSettle: the order's cumulative amount_received would exceed u64::MAX once this settlement's push is added."
+    },
+    {
+      "code": 30,
       "name": "OrderNotExpired",
       "msg": "ReclaimOrder was called before the order's valid_to has elapsed."
     },
     {
-      "code": 25,
+      "code": 31,
       "name": "ReclaimRecipientMismatch",
       "msg": "ReclaimOrder's reclaim_recipient account doesn't match the created_by address recorded in the order."
     }
