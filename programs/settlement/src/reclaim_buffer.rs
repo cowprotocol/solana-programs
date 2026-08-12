@@ -88,11 +88,9 @@ mod tests {
 
     use super::*;
 
-    const PROGRAM_ID: Address = Address::new_from_array([1; 32]);
-    /// The `reclaim_authority` recorded in the state PDA these tests encode.
-    const AUTHORITY: Address = Address::new_from_array([2; 32]);
-    const RECIPIENT: Address = Address::new_from_array([8; 32]);
-    const MINT: Address = Address::new_from_array([5; 32]);
+    const PROGRAM_ID: Address = Address::new_from_array([100; 32]);
+    const AUTHORITY: Address = Address::new_from_array([101; 32]);
+    const UNRELATED: Address = Address::new_from_array([254; 32]);
 
     /// Number of accounts in a one-buffer reclaim: the shared ones plus a
     /// single `(buffer_pda, mint)` pair.
@@ -106,6 +104,9 @@ mod tests {
 
     /// Accounts for reclaiming a single buffer, each one well-formed.
     fn base_accounts() -> [AccountView; NUM_ACCOUNTS] {
+        let recipient: Address = Address::new_from_array([1; 32]);
+        let mint: Address = Address::new_from_array([2; 32]);
+
         [
             fake_account_with_data(
                 Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
@@ -114,10 +115,10 @@ mod tests {
                 }),
             ), // state PDA
             fake_signer(AUTHORITY),             // reclaim authority
-            fake_account(RECIPIENT),            // reclaim recipient
+            fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
-            fake_account(find_buffer_pda(&PROGRAM_ID, &MINT).0), // buffer PDA
-            fake_account(MINT),                 // mint
+            fake_account(find_buffer_pda(&PROGRAM_ID, &mint).0), // buffer PDA
+            fake_account(mint),                 // mint
         ]
     }
 
@@ -143,7 +144,7 @@ mod tests {
     #[test]
     fn process_reclaim_buffer_rejects_wrong_token_program() {
         let mut accounts = base_accounts();
-        accounts[TOKEN_PROGRAM] = fake_account(Address::new_from_array([3; 32]));
+        accounts[TOKEN_PROGRAM] = fake_account(UNRELATED);
         assert_rejects(accounts, ProgramError::IncorrectProgramId);
     }
 
@@ -151,7 +152,7 @@ mod tests {
     fn process_reclaim_buffer_rejects_wrong_state_pda() {
         let mut accounts = base_accounts();
         accounts[STATE_PDA] = fake_account_with_data(
-            Address::new_from_array([6; 32]),
+            UNRELATED,
             &*EncodedStateAccount::from(StateAccount {
                 reclaim_authority: AUTHORITY,
             }),
@@ -189,7 +190,7 @@ mod tests {
     fn process_reclaim_buffer_rejects_wrong_reclaim_authority() {
         let mut accounts = base_accounts();
         // A different, unauthorized signer.
-        accounts[RECLAIM_AUTHORITY] = fake_signer(Address::new_from_array([7; 32]));
+        accounts[RECLAIM_AUTHORITY] = fake_signer(UNRELATED);
         assert_rejects(accounts, SettlementError::ReclaimAuthorityMismatch.into());
     }
 
@@ -205,7 +206,7 @@ mod tests {
     fn process_reclaim_buffer_rejects_wrong_buffer_pda() {
         let mut accounts = base_accounts();
         // Not the buffer PDA derived from the paired mint.
-        accounts[BUFFER_PDA] = fake_account(Address::new_from_array([4; 32]));
+        accounts[BUFFER_PDA] = fake_account(UNRELATED);
         assert_rejects(accounts, SettlementError::ReclaimBufferNotCanonical.into());
     }
 
