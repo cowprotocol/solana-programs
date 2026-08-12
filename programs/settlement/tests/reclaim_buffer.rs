@@ -282,7 +282,6 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     common::assert_instruction_error(
-        0,
         svm.send_transaction(tx).map_err(|e| e.err),
         InstructionError::InvalidAccountData,
     );

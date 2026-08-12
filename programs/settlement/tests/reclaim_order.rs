@@ -145,7 +145,6 @@ fn rejects_when_order_not_yet_expired() {
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
     assert_instruction_error(
-        0,
         svm.send_transaction(tx).map_err(|e| e.err),
         to_instruction_error(SettlementError::OrderNotExpired),
     );
@@ -229,7 +228,6 @@ fn rejects_when_reclaim_recipient_mismatch() {
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
     assert_instruction_error(
-        0,
         svm.send_transaction(tx).map_err(|e| e.err),
         to_instruction_error(SettlementError::ReclaimRecipientMismatch),
     );

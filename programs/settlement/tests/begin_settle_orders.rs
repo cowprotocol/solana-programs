@@ -295,7 +295,6 @@ fn rejects_non_order_account_in_order_slot() {
     let instructions = vec![begin.into(), finalize.into()];
 
     assert_instruction_error(
-        0,
         send(&mut svm, &payer, instructions),
         InstructionError::InvalidAccountData,
     );
@@ -894,7 +893,6 @@ fn rejects_wrong_token_program() {
     );
 
     assert_instruction_error(
-        0,
         send(&mut svm, &payer, instructions),
         InstructionError::IncorrectProgramId,
     );
@@ -929,7 +927,6 @@ fn rejects_pull_delegated_to_incorrect_address() {
         }],
     );
     assert_instruction_error(
-        0,
         send(&mut svm, &payer, instructions),
         InstructionError::Custom(TokenError::OwnerMismatch as u32),
     );
@@ -970,7 +967,6 @@ fn rejects_pull_exceeding_delegation() {
         }],
     );
     assert_instruction_error(
-        0,
         send(&mut svm, &payer, instructions),
         InstructionError::Custom(TokenError::InsufficientFunds as u32),
     );

@@ -114,7 +114,6 @@ pub fn assert_recreate_is_rejected(
     make_tx: impl Fn(&LiteSVM) -> Transaction,
 ) {
     super::assert_instruction_error(
-        0,
         recreate_leaving_account_unchanged(svm, account, make_tx),
         InstructionError::AccountAlreadyInitialized,
     );
