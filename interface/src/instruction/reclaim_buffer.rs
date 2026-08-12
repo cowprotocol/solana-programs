@@ -290,13 +290,14 @@ mod tests {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
         let reclaim_authority = Pubkey::new_from_array([3; 32]);
-        let buffer_pda = Pubkey::new_from_array([4; 32]);
-        let mint = Pubkey::new_from_array([5; 32]);
+        let reclaim_recipient = Pubkey::new_from_array([4; 32]);
+        let buffer_pda = Pubkey::new_from_array([5; 32]);
+        let mint = Pubkey::new_from_array([6; 32]);
         let Instruction { data, .. } = ReclaimBuffer {
             program_id,
             state_pda,
             reclaim_authority,
-            reclaim_recipient: Pubkey::new_from_array([6; 32]),
+            reclaim_recipient,
             buffers: &[(buffer_pda, mint)],
         }
         .into();
@@ -361,15 +362,16 @@ mod tests {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
         let reclaim_authority = Pubkey::new_from_array([3; 32]);
-        let buffer_a = Pubkey::new_from_array([4; 32]);
-        let mint_a = Pubkey::new_from_array([5; 32]);
-        let buffer_b = Pubkey::new_from_array([6; 32]);
-        let mint_b = Pubkey::new_from_array([7; 32]);
+        let reclaim_recipient = Pubkey::new_from_array([4; 32]);
+        let buffer_a = Pubkey::new_from_array([5; 32]);
+        let mint_a = Pubkey::new_from_array([6; 32]);
+        let buffer_b = Pubkey::new_from_array([7; 32]);
+        let mint_b = Pubkey::new_from_array([8; 32]);
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
             reclaim_authority,
-            reclaim_recipient: Pubkey::new_from_array([8; 32]),
+            reclaim_recipient,
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
         }
         .into();
@@ -387,11 +389,12 @@ mod tests {
         let program_id = Pubkey::new_from_array([1; 32]);
         let state_pda = Pubkey::new_from_array([2; 32]);
         let reclaim_authority = Pubkey::new_from_array([3; 32]);
+        let reclaim_recipient = Pubkey::new_from_array([4; 32]);
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
             reclaim_authority,
-            reclaim_recipient: Pubkey::new_from_array([4; 32]),
+            reclaim_recipient,
             buffers: &[],
         }
         .into();
