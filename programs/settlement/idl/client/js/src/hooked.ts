@@ -3,7 +3,7 @@
 // via the fixed "../../hooked" specifier (see generate.mjs). Never touched
 // by rendering, which only manages src/generated.
 //
-// create_order's order PDA is seeded by ["settlement", sha256(borsh(intent)), "order"].
+// create_order's order PDA is seeded by [SETTLEMENT_SEED, sha256(intent_bytes), "order"].
 // The middle seed is a hash of the whole `intent` argument rather than a plain
 // field/account reference, which the Anchor PDA-seed grammar (const / arg / account)
 // can't express — see cow_settlement.json's create_order docs — so it's handed off
@@ -13,6 +13,7 @@
 
 import { getProgramDerivedAddress, type Address } from "@solana/kit";
 import { getOrderIntentEncoder, type OrderIntentArgs } from "./generated";
+import { SETTLEMENT_SEED } from "./generated/settlementSeed";
 
 export async function resolveOrderPda({
   programAddress,
@@ -27,7 +28,7 @@ export async function resolveOrderPda({
   );
   const [address] = await getProgramDerivedAddress({
     programAddress,
-    seeds: ["settlement", orderUid, "order"],
+    seeds: [SETTLEMENT_SEED, orderUid, "order"],
   });
   return { value: address };
 }
