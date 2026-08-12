@@ -1,6 +1,6 @@
 # CoW Protocol on Solana
 
-[CoW Protocol](https://cow.fi) is an open-source, permissionless trading protocol that settles user intents in batch auctions. It supports direct matching between users (Coincidence of Wants) as well as on-chain liquidity sources.
+[CoW Protocol](https://cow.fi) is an open-source trading protocol that settles user intents in batch auctions. It supports direct matching between users (Coincidence of Wants) as well as on-chain liquidity sources.
 
 This repository hosts the Solana implementation, currently in early development. The protocol is already live on Ethereum and other EVM chains; the Solidity contracts are at [cowprotocol/contracts](https://github.com/cowprotocol/contracts).
 
@@ -49,6 +49,14 @@ just build
 just test
 ```
 
+### Benchmarks
+
+`just bench` runs the test suite and regenerates `bench-report.json`:
+
+```sh
+just bench
+```
+
 ## How to build a verified (reproducible) build
 
 Requires [Docker](https://docs.docker.com/engine/install/).
@@ -77,11 +85,16 @@ just deploy ./program-keypair.json ./deployer-keypair.json
 
 ### Upgrading an existing program
 
+> [!IMPORTANT]
+> Before upgrading, if the storage format has been changed for any existing PDAs, ensure that the MINOR (aka v0.x.0) version in the Cargo.toml is bumped. This will relocate all program storage, preventing unintended collisions with incompatible data.
+
 Pass the **program's public key (address)** as the first argument. The deployer wallet must already be the upgrade authority:
 
 ```sh
 just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ./deployer-keypair.json
 ```
+
+If the package minor or major has been changed, it is also necessary to run initialize again.
 
 ### Devnet example
 

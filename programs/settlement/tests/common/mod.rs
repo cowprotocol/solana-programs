@@ -5,6 +5,7 @@
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
+pub mod benchmark;
 pub mod buffer;
 pub mod lookup_table;
 pub mod order;
@@ -23,6 +24,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     transaction::{Transaction, TransactionError},
 };
+use std::cell::Cell;
 
 pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -34,15 +36,42 @@ pub const CPI_CALLER_SO: &str = concat!(
     "/../../target/deploy/test_cpi_caller.so"
 );
 
+thread_local! {
+    /// Counter behind [`unique_pubkey`] and [`unique_keypair`], reset by
+    /// [`setup`]. Needs to be thread local because parallel executed tests would share the same memory cell
+    static NEXT_SEED: Cell<u64> = const { Cell::new(0) };
+}
+
+fn next_seed() -> [u8; 32] {
+    let n = NEXT_SEED.with(|next| {
+        let n = next.get();
+        next.set(n.wrapping_add(1));
+        n
+    });
+    solana_sha256_hasher::hashv(&[b"settlement tests seed", &n.to_le_bytes()]).to_bytes()
+}
+
+/// A deterministic stand-in for `Pubkey::new_unique`, which is banned in these
+/// tests (see `clippy.toml`).
+pub fn unique_pubkey() -> Pubkey {
+    Pubkey::new_from_array(next_seed())
+}
+
+/// A deterministic stand-in for `Keypair::new`, which is banned in these tests
+/// (see `clippy.toml`). `Keypair::new` draws from the OS random source
+pub fn unique_keypair() -> Keypair {
+    Keypair::new_from_array(next_seed())
+}
+
 /// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
 /// generated program ID, and airdrop a payer keypair.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     let mut svm = LiteSVM::new();
-    let program_id = Pubkey::new_unique();
+    let program_id = unique_pubkey();
     svm.add_program_from_file(program_id, PROGRAM_SO)
         .expect("compiled program .so not found, run `just build-program` first");
 
-    let payer = Keypair::new();
+    let payer = unique_keypair();
     svm.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("airdrop to payer should succeed");
 
@@ -51,7 +80,7 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
 
 /// Adds CPI caller test helper to the given SVM
 pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
-    let cpi_caller_id = Pubkey::new_unique();
+    let cpi_caller_id = unique_pubkey();
     svm.add_program_from_file(cpi_caller_id, CPI_CALLER_SO)
         .expect("test-cpi-caller .so not found, run `just build-program` first");
     cpi_caller_id
@@ -68,6 +97,7 @@ pub fn to_instruction_error(e: SettlementError) -> InstructionError {
     InstructionError::Custom(e.into())
 }
 
+#[track_caller]
 pub fn assert_instruction_error<T>(
     result: Result<T, TransactionError>,
     expected: InstructionError,
@@ -83,7 +113,7 @@ pub fn assert_instruction_error<T>(
 /// program-owned, with a crafted body or a deliberately wrong size or owner)
 /// directly, bypassing the runtime.
 pub fn create_account(svm: &mut LiteSVM, owner: &Pubkey, data: &[u8]) -> Pubkey {
-    let address = Pubkey::new_unique();
+    let address = unique_pubkey();
     let lamports = svm.minimum_balance_for_rent_exemption(data.len());
     svm.set_account(
         address,
@@ -114,6 +144,7 @@ pub fn lamports(svm: &LiteSVM, address: &Pubkey) -> u64 {
 /// Assert that `account` holds exactly the rent-exempt minimum for its current
 /// data size. The size is taken from `account.data` rather than passed in, so
 /// the check can't drift from the account it's checking.
+#[track_caller]
 pub fn assert_rent_exempt(svm: &LiteSVM, account: &Account) {
     let rent = svm.minimum_balance_for_rent_exemption(account.data.len());
     assert_eq!(
@@ -143,6 +174,7 @@ pub fn signed_tx(
 /// use it to corrupt one account of an otherwise-valid instruction; it panics if
 /// `instruction` doesn't reference `from`, so a stale swap fails loudly rather
 /// than silently testing nothing.
+#[track_caller]
 pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubkey, to: Pubkey) {
     let meta = instruction
         .accounts
@@ -150,6 +182,22 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
         .find(|meta| meta.pubkey == *from)
         .unwrap_or_else(|| panic!("instruction should reference {from}"));
     meta.pubkey = to;
+}
+
+/// Assemble `instructions` into a transaction with `payer` as both fee payer and
+/// sole signer. Shared with [`benchmark::send_metered`] so a metered test
+/// submits exactly the transaction its unmetered twin would.
+pub fn payer_signed_tx(
+    svm: &LiteSVM,
+    payer: &Keypair,
+    instructions: Vec<Instruction>,
+) -> Transaction {
+    Transaction::new_signed_with_payer(
+        &instructions,
+        Some(&payer.pubkey()),
+        &[payer],
+        svm.latest_blockhash(),
+    )
 }
 
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
@@ -160,11 +208,6 @@ pub fn send(
     payer: &Keypair,
     instructions: Vec<Instruction>,
 ) -> Result<TransactionMetadata, TransactionError> {
-    let tx = Transaction::new_signed_with_payer(
-        &instructions,
-        Some(&payer.pubkey()),
-        &[payer],
-        svm.latest_blockhash(),
-    );
+    let tx = payer_signed_tx(svm, payer, instructions);
     svm.send_transaction(tx).map_err(|e| e.err)
 }

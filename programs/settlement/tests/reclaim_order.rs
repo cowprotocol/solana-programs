@@ -9,7 +9,11 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 
-use crate::common::{assert_instruction_error, signed_tx, to_instruction_error};
+use crate::common::{
+    assert_instruction_error,
+    benchmark::{send_transaction_metered, BenchLabel},
+    signed_tx, to_instruction_error, unique_keypair, unique_pubkey,
+};
 
 mod common;
 
@@ -60,7 +64,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
 
     // `reclaim_recipient` is the `created_by` funder; it's separate from the fee
     // payer so its balance change reflects only the returned rent, not tx fees.
-    let reclaim_recipient = Keypair::new();
+    let reclaim_recipient = unique_keypair();
     svm.airdrop(&reclaim_recipient.pubkey(), 1_000_000_000)
         .expect("airdrop should succeed");
 
@@ -107,7 +111,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
     }
     .instruction();
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimOrder)
         .expect("reclaim_order should succeed after expiry");
 
     // PDA is gone.
@@ -150,6 +154,68 @@ fn rejects_when_order_not_yet_expired() {
 }
 
 #[test]
+fn recreating_a_reclaimed_order_creates_it_fresh() {
+    let (mut svm, program_id, owner) = common::setup();
+
+    let other_creator = unique_keypair();
+    svm.airdrop(&other_creator.pubkey(), 1_000_000_000)
+        .expect("airdrop to other_creator should succeed");
+
+    let intent = reclaim_sample_intent(owner.pubkey());
+    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+    let (_, bump) = find_order_pda(&program_id, &EncodedOrderIntent::from(&intent).hash());
+
+    // First creation records `owner` as `created_by`.
+    create_order(&mut svm, &program_id, &owner, &intent);
+    let before = svm.get_account(&pda).expect("order PDA should exist");
+
+    // Closing the PDA clears all on-chain account data, so the same order can be
+    // recreated afterwards.
+    common::set_unix_timestamp(&mut svm, (VALID_TO + 1).into());
+    let ix = ReclaimOrder {
+        program_id,
+        order_pda: pda,
+        bump,
+        reclaim_recipient: owner.pubkey(),
+    }
+    .instruction();
+    let tx = signed_tx(&svm, &owner, &owner, ix);
+    svm.send_transaction(tx)
+        .expect("reclaim_order should succeed after expiry");
+    assert!(
+        svm.get_account(&pda).is_none(),
+        "order PDA must be closed after reclaim"
+    );
+
+    // Recreate the same order (same uid, so same PDA) but with a different
+    // `created_by`. Because the PDA was closed this is a genuine fresh creation,
+    // not a no-op: the freshly written body records the new `created_by`, so the
+    // account data differs from the original.
+    svm.expire_blockhash();
+    let ix = CreateOrder {
+        program_id,
+        owner: owner.pubkey(),
+        created_by: other_creator.pubkey(),
+        order_pda: pda,
+        intent_bytes: encoded,
+    };
+    let tx = signed_tx(&svm, &other_creator, &owner, ix);
+    svm.send_transaction(tx)
+        .expect("recreating a reclaimed order should succeed");
+    let after = svm
+        .get_account(&pda)
+        .expect("order PDA must exist again after being recreated");
+    assert_eq!(
+        after.owner, program_id,
+        "recreated order must be program-owned"
+    );
+    assert_ne!(
+        before.data, after.data,
+        "recreating a reclaimed order must write fresh data (the new created_by)"
+    );
+}
+
+#[test]
 fn rejects_when_reclaim_recipient_mismatch() {
     let (mut svm, program_id, owner) = common::setup();
 
@@ -159,7 +225,7 @@ fn rejects_when_reclaim_recipient_mismatch() {
 
     common::set_unix_timestamp(&mut svm, (VALID_TO + 1).into());
 
-    let wrong_recipient = Pubkey::new_unique();
+    let wrong_recipient = unique_pubkey();
     let ix = ReclaimOrder {
         program_id,
         order_pda: pda,

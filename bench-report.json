@@ -1,0 +1,53 @@
+{
+  "accounts": {
+    "create_buffers/happy_path_creates_initialized_buffer_token_account": 6,
+    "create_buffers/happy_path_creates_multiple_buffers_in_one_instruction": 10,
+    "create_buffers/max_buffers_in_one_instruction": 64,
+    "create_order/happy_path_creates_order_pda_with_expected_body": 4,
+    "initialize/happy_path_initializes_state_pda_with_expected_data": 4,
+    "reclaim_order/happy_path_returns_lamports_and_closes_pda": 4,
+    "settle/finalizes_with_no_pushes": 5,
+    "settle/pulls_from_multiple_orders": 15,
+    "settle/pulls_funds_to_destination": 10,
+    "settle/pulls_to_multiple_destinations": 11,
+    "settle/pushes_a_single_order": 9,
+    "settle/pushes_several_orders_from_different_buffers": 13,
+    "settle/pushes_several_orders_from_one_buffer": 12,
+    "settle/settles_a_single_order": 9,
+    "settle/settles_multiple_orders": 17
+  },
+  "compute_units": {
+    "create_buffers/happy_path_creates_initialized_buffer_token_account": 13325,
+    "create_buffers/happy_path_creates_multiple_buffers_in_one_instruction": 23190,
+    "create_buffers/max_buffers_in_one_instruction": 173555,
+    "create_order/happy_path_creates_order_pda_with_expected_body": 3391,
+    "initialize/happy_path_initializes_state_pda_with_expected_data": 10531,
+    "reclaim_order/happy_path_returns_lamports_and_closes_pda": 2138,
+    "settle/finalizes_with_no_pushes": 19051,
+    "settle/pulls_from_multiple_orders": 31750,
+    "settle/pulls_funds_to_destination": 25423,
+    "settle/pulls_to_multiple_destinations": 26571,
+    "settle/pushes_a_single_order": 24272,
+    "settle/pushes_several_orders_from_different_buffers": 29449,
+    "settle/pushes_several_orders_from_one_buffer": 29450,
+    "settle/settles_a_single_order": 24290,
+    "settle/settles_multiple_orders": 34670
+  },
+  "transaction_bytes": {
+    "create_buffers/happy_path_creates_initialized_buffer_token_account": 303,
+    "create_buffers/happy_path_creates_multiple_buffers_in_one_instruction": 435,
+    "create_buffers/max_buffers_in_one_instruction": 331,
+    "create_order/happy_path_creates_order_pda_with_expected_body": 389,
+    "initialize/happy_path_initializes_state_pda_with_expected_data": 269,
+    "reclaim_order/happy_path_returns_lamports_and_closes_pda": 237,
+    "settle/finalizes_with_no_pushes": 289,
+    "settle/pulls_from_multiple_orders": 657,
+    "settle/pulls_funds_to_destination": 473,
+    "settle/pulls_to_multiple_destinations": 514,
+    "settle/pushes_a_single_order": 432,
+    "settle/pushes_several_orders_from_different_buffers": 575,
+    "settle/pushes_several_orders_from_one_buffer": 543,
+    "settle/settles_a_single_order": 432,
+    "settle/settles_multiple_orders": 718
+  }
+}

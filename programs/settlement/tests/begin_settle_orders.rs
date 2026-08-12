@@ -18,11 +18,13 @@
 //! whose output is a properly built instruction.
 
 use crate::common::{
-    assert_instruction_error, buffer, create_account,
+    assert_instruction_error,
+    benchmark::{send_metered, BenchLabel},
+    buffer, create_account,
     order::{create_order_pda, sample_intent, OrderBuilder},
     replace_first_matching_account, send, set_unix_timestamp,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
-    setup, to_instruction_error, token,
+    setup, to_instruction_error, token, unique_pubkey,
 };
 use litesvm::LiteSVM;
 use litesvm_token::spl_token::error::TokenError;
@@ -152,7 +154,8 @@ fn settles_a_single_order() {
             pulls: &[],
         }],
     );
-    send(&mut svm, &payer, instructions).expect("settlement should succeed");
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+        .expect("settlement should succeed");
 }
 
 #[test]
@@ -173,7 +176,8 @@ fn settles_multiple_orders() {
         .map(|intent| InitializedIntent { intent, pulls: &[] })
         .collect();
     let instructions = settle_and_pay(&mut svm, &program_id, &payer, &orders);
-    send(&mut svm, &payer, instructions).expect("multi-order settlement should succeed");
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+        .expect("multi-order settlement should succeed");
 }
 
 #[test]
@@ -200,7 +204,7 @@ fn rejects_wrong_bump() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: 0,
-        source_buffers: &[Pubkey::new_unique()],
+        source_buffers: &[unique_pubkey()],
         destinations: &[intent.buy_token_account],
         bumps: &[0],
         amounts: &[0],
@@ -248,7 +252,7 @@ fn rejects_fabricated_program_owned_account() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: 0,
-        source_buffers: &[Pubkey::new_unique()],
+        source_buffers: &[unique_pubkey()],
         destinations: &[intent.buy_token_account],
         bumps: &[0],
         amounts: &[0],
@@ -287,8 +291,8 @@ fn rejects_non_order_account_in_order_slot() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: 0,
-        source_buffers: &[Pubkey::new_unique()],
-        destinations: &[Pubkey::new_unique()],
+        source_buffers: &[unique_pubkey()],
+        destinations: &[unique_pubkey()],
         bumps: &[0],
         amounts: &[0],
     };
@@ -335,7 +339,7 @@ fn rejects_sell_token_owner_mismatch() {
     let sell_mint = token::create_mint(&mut svm, &payer);
     let buy_mint = token::create_mint(&mut svm, &payer);
 
-    let other_owner = Pubkey::new_unique();
+    let other_owner = unique_pubkey();
     let sell_token = token::create_token_account(&mut svm, &payer, &sell_mint, &other_owner);
     let buy_token = token::create_token_account(&mut svm, &payer, &buy_mint, &payer.pubkey());
 
@@ -364,7 +368,7 @@ fn rejects_sell_token_owner_mismatch() {
 fn rejects_non_token_sell_account() {
     let (mut svm, program_id, payer) = setup();
 
-    let non_token = Pubkey::new_unique();
+    let non_token = unique_pubkey();
     let buy_mint = token::create_mint(&mut svm, &payer);
     let buy_token = token::create_token_account(&mut svm, &payer, &buy_mint, &payer.pubkey());
 
@@ -480,7 +484,7 @@ fn rejects_orders_in_wrong_address_order() {
     // account and aligned with begin's decreasing order. `BeginSettle` rejects
     // the ordering before the pushes execute, so only the destinations and their
     // count matter, not the source buffers they'd draw from.
-    let source_buffers: Vec<Pubkey> = orders.iter().map(|_| Pubkey::new_unique()).collect();
+    let source_buffers: Vec<Pubkey> = orders.iter().map(|_| unique_pubkey()).collect();
     let destinations: Vec<Pubkey> = orders.iter().map(|&(_, _, buy, _)| buy).collect();
     let bumps = vec![0u8; orders.len()];
     let amounts = vec![0u64; orders.len()];
@@ -611,8 +615,7 @@ fn pulls_funds_to_destination() {
     let sell_token = intent.sell_token_account;
     let initial_amount = 42_000_000;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
-    let destination =
-        token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
+    let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     let instructions = settle_and_pay_amounts(
         &mut svm,
@@ -627,7 +630,7 @@ fn pulls_funds_to_destination() {
         }],
         &[paid],
     );
-    send(&mut svm, &payer, instructions)
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
         .expect("a pull within the approved delegation, paid at the limit, should succeed");
 
     assert_eq!(token::balance(&svm, &destination), amount);
@@ -649,8 +652,8 @@ fn pulls_to_multiple_destinations() {
     let sell_token = intent.sell_token_account;
     let initial_amount: u64 = 1_000_000;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
-    let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
-    let dest1 = token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
+    let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
+    let dest1 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     let pulled0 = 300_000;
     let pulled1 = 100_000;
@@ -675,7 +678,8 @@ fn pulls_to_multiple_destinations() {
         }],
         &[paid],
     );
-    send(&mut svm, &payer, instructions).expect("multiple pulls from one order should succeed");
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+        .expect("multiple pulls from one order should succeed");
 
     assert_eq!(token::balance(&svm, &dest0), pulled0);
     assert_eq!(token::balance(&svm, &dest1), pulled1);
@@ -719,10 +723,8 @@ fn pulls_from_multiple_orders() {
         &second.sell_token_account,
         initial_amount_second,
     );
-    let dest_first =
-        token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
-    let dest_second =
-        token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
+    let dest_first = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
+    let dest_second = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     let pulled_first = 42_000;
     let pulled_second = 67_000;
@@ -752,7 +754,8 @@ fn pulls_from_multiple_orders() {
         ],
         &[paid_first, paid_second],
     );
-    send(&mut svm, &payer, instructions).expect("pulls from several orders should succeed");
+    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+        .expect("pulls from several orders should succeed");
 
     assert_eq!(token::balance(&svm, &dest_first), pulled_first);
     assert_eq!(token::balance(&svm, &dest_second), pulled_second);
@@ -776,8 +779,8 @@ fn rejects_pulls_summing_beyond_u64() {
         .build();
     let sell_token = intent.sell_token_account;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 1);
-    let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
-    let dest1 = token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
+    let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
+    let dest1 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     // Two pulls whose declared amounts sum is larger than `u64::MAX`.
     // No real token account could hold this, but a solver can craft the
@@ -876,7 +879,7 @@ fn rejects_wrong_state_pda() {
     replace_first_matching_account(
         &mut instructions[usize::from(BEGIN_INDEX)],
         &state_pda,
-        Pubkey::new_unique(),
+        unique_pubkey(),
     );
 
     assert_begin_error(
@@ -905,7 +908,7 @@ fn rejects_wrong_token_program() {
     replace_first_matching_account(
         &mut instructions[usize::from(BEGIN_INDEX)],
         &SPL_TOKEN_PROGRAM_ID,
-        Pubkey::new_unique(),
+        unique_pubkey(),
     );
 
     assert_instruction_error(
@@ -927,9 +930,8 @@ fn rejects_pull_delegated_to_incorrect_address() {
     // Funds are present but some account other than the state PDA was
     // approved as a delegate.
     token::mint_to(&mut svm, &payer, &sell_mint, &sell_token, 1_000_000);
-    token::delegate(&mut svm, &payer, &sell_token, &Pubkey::new_unique(), amount);
-    let destination =
-        token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
+    token::delegate(&mut svm, &payer, &sell_token, &unique_pubkey(), amount);
+    let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     let instructions = settle_and_pay(
         &mut svm,
@@ -969,8 +971,7 @@ fn rejects_pull_exceeding_delegation() {
         &find_state_pda(&program_id).0,
         delegated,
     );
-    let destination =
-        token::create_token_account(&mut svm, &payer, &sell_mint, &Pubkey::new_unique());
+    let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     let instructions = settle_and_pay(
         &mut svm,
@@ -1013,7 +1014,7 @@ fn rejects_extra_account() {
     // matches the `2n + T` the instruction data implies.
     instructions[usize::from(BEGIN_INDEX)]
         .accounts
-        .push(AccountMeta::new_readonly(Pubkey::new_unique(), false));
+        .push(AccountMeta::new_readonly(unique_pubkey(), false));
 
     assert_begin_error(
         send(&mut svm, &payer, instructions),
@@ -1027,7 +1028,7 @@ fn rejects_push_to_wrong_destination() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint: unique_pubkey(),
         amount: 100,
     }];
 
@@ -1039,7 +1040,7 @@ fn rejects_push_to_wrong_destination() {
     // Redirect the push to an account that isn't the order's buy token account.
     // Accounts: `[sysvar, state, token_program, source, destination]`.
     let destination_index = 4;
-    finalize.accounts[destination_index].pubkey = Pubkey::new_unique();
+    finalize.accounts[destination_index].pubkey = unique_pubkey();
 
     let instructions = build_settlement(&program_id, &orders, finalize);
     assert_begin_error(
@@ -1054,7 +1055,7 @@ fn rejects_fewer_pushes_than_orders() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint: unique_pubkey(),
         amount: 100,
     }];
 
@@ -1084,7 +1085,7 @@ fn rejects_more_pushes_than_orders() {
         begin_ix_index: BEGIN_INDEX.into(),
         orders: &[FinalizedIntent {
             intent: &intent,
-            mint: Pubkey::new_unique(),
+            mint: unique_pubkey(),
             amount: 0,
         }],
     };
@@ -1102,7 +1103,7 @@ fn rejects_partial_push_amount_in_finalize_settle() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: Pubkey::new_unique(),
+        mint: unique_pubkey(),
         amount: 100,
     }];
 
