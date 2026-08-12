@@ -1,6 +1,7 @@
 use settlement_client::instructions::Initialize;
 use settlement_client::settlement_interface::{
-    data::state::EncodedStateAccount, instruction::initialize::Initialize as InitializeRaw,
+    data::state::{EncodedStateAccount, StateAccount},
+    instruction::initialize::Initialize as InitializeRaw,
     pda::state::find_state_pda,
 };
 use solana_sdk::signature::Signer;
@@ -17,6 +18,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let reclaim_authority = unique_pubkey();
+    let manager = unique_pubkey();
 
     // `payer` is both the transaction fee payer and the account funding the
     // state PDA's rent.
@@ -24,6 +26,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         program_id,
         payer: payer.pubkey(),
         reclaim_authority,
+        manager,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
@@ -36,16 +39,14 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         account.owner, program_id,
         "state PDA must be owned by the settlement program"
     );
+    let expected_body: [u8; EncodedStateAccount::SIZE] = StateAccount {
+        reclaim_authority,
+        manager,
+    }
+    .into();
     assert_eq!(
-        account.data[0],
-        EncodedStateAccount::DISCRIMINATOR,
-        "state PDA must hold the discriminator as the starting byte"
-    );
-
-    assert_eq!(
-        &account.data[1..],
-        &reclaim_authority.to_bytes()[..],
-        "state PDA must store exactly the configured reclaim_authority"
+        account.data, expected_body,
+        "state PDA body must match the expected layout (discriminator + authorities)"
     );
 
     let rent = svm.minimum_balance_for_rent_exemption(EncodedStateAccount::SIZE);
@@ -65,6 +66,7 @@ fn initializes_state_pda_when_address_is_prefunded() {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
+            manager: unique_pubkey(),
             reclaim_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
@@ -85,6 +87,7 @@ fn funding_payer_can_differ_from_fee_payer() {
         program_id,
         payer: funder.pubkey(),
         reclaim_authority: unique_pubkey(),
+        manager: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -111,6 +114,7 @@ fn rejects_arbitrary_wrong_state_pda() {
         payer: payer.pubkey(),
         state_pda: wrong_pda,
         reclaim_authority: unique_pubkey(),
+        manager: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
@@ -127,6 +131,7 @@ fn rejects_initializing_twice() {
             program_id,
             payer: payer.pubkey(),
             reclaim_authority: unique_pubkey(),
+            manager: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });

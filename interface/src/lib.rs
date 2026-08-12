@@ -197,6 +197,14 @@ impl From<SettlementError> for solana_program_error::ProgramError {
 mod tests {
     use super::*;
 
+    /// Deterministically generate a [`Pubkey`](solana_pubkey::Pubkey) by hashing
+    /// a seed string, for building fixtures with stable, readable addresses.
+    pub(crate) fn pubkey_from_seed(seed: &str) -> solana_pubkey::Pubkey {
+        solana_pubkey::Pubkey::new_from_array(
+            solana_sha256_hasher::hash(seed.as_bytes()).to_bytes(),
+        )
+    }
+
     #[test]
     fn rejects_empty_payload() {
         assert_eq!(
