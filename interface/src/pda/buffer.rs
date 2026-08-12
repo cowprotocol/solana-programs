@@ -17,8 +17,7 @@
 //!
 //! Unlike the order PDA, which stores its own bump (see
 //! [`crate::data::order::OrderAccount`]), a buffer is a fixed-size SPL token
-//! account with no room for one. Its bump therefore stays an instruction
-//! parameter, re-derived by [`validate_buffer_pda`].
+//! account with no room for one.
 
 use solana_account_view::AccountView;
 use solana_address::Address;

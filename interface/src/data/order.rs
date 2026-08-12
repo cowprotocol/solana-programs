@@ -225,8 +225,6 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
         }
 
         Ok(OrderAccount {
-            // Any byte is a syntactically valid bump; whether it is the
-            // canonical one is proven by `load_from_pda`.
             bump: bump[0],
             cancelled: match cancelled {
                 [0] => false,
