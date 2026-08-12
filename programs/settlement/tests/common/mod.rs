@@ -15,6 +15,7 @@ pub mod state;
 pub mod token;
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
+use settlement_client::instructions::Initialize;
 use settlement_client::settlement_interface::SettlementError;
 use settlement_interface::Instruction;
 use solana_sdk::{
@@ -77,6 +78,24 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
         .expect("airdrop to payer should succeed");
 
     (svm, program_id, payer)
+}
+
+/// [`setup`] followed by a successful `Initialize`, with a freshly generated
+/// `reclaim_authority` returned alongside the rest.
+pub fn setup_init() -> (LiteSVM, Pubkey, Keypair, Keypair) {
+    let (mut svm, program_id, payer) = setup();
+    let reclaim_authority = unique_keypair();
+    state::initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
+
+    (svm, program_id, payer, reclaim_authority)
 }
 
 /// Adds CPI caller test helper to the given SVM
