@@ -181,8 +181,7 @@ pub enum SettlementError {
     ReclaimRecipientMismatch = 31,
     /// `BeginSettle`: a settlement closing an order's sell token account
     /// supplied a rent recipient account that doesn't match the
-    /// `sell_account_rent_recipient` recorded in the order's intent. Only
-    /// checked when the account is closed; otherwise the slot is unused.
+    /// `sell_account_rent_recipient` recorded in the order's intent.
     SellAccountRentRecipientMismatch = 32,
 }
 

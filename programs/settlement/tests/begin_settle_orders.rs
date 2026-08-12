@@ -964,6 +964,10 @@ fn leaves_sell_token_account_open_without_matching_close_authority() {
     // The sell token account is empty but wasn't closed, since the state PDA
     // was never authorized as its close authority.
     assert_eq!(token::balance(&svm, &sell_token), 0);
+    assert!(
+        svm.get_account(&sell_token).is_some(),
+        "the sell token account should still be open"
+    );
 }
 
 #[test]

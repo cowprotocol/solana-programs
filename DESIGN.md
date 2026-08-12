@@ -188,9 +188,9 @@ Creating the order in advance is _not_ needed: if the order wasn’t created bef
 
 Note that deleting the order PDA is _not_ enough to invalidate an order. In fact, if an order signature is available, the same order could always be created again until it expires.
 
-### Sell Token Account Clearing
+### Sell Token Account clearing
 
-Upon settlement, if an order whose `sell_token_account` is left with 0 funds *and* the settlement account's state account has been granted close authority, the account will be automatically closed and the rent proceeds sent to `sell_account_rent_recipient`. 
+Upon settlement, if an order whose `sell_token_account` is left with 0 funds *and* the settlement account's state account has been granted close authority, the sell token account will be automatically closed and the rent proceeds sent to `sell_account_rent_recipient`.
 
 If the `sell_token_account` has not granted close authority or has any remaining funds, the account will not be closed and `sell_account_rent_recipient` is ignored.
 

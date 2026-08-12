@@ -54,3 +54,22 @@ pub fn approve(
     )
     .context("failed to build Approve instruction")
 }
+
+/// Build `SetAuthority` instruction which modifies the current CloseAuthority
+/// for an account.
+pub fn set_close_authority(
+    program_id: &Pubkey,
+    token_account: &Pubkey,
+    owner: &Pubkey,
+    new_close_authority: &Pubkey,
+) -> anyhow::Result<Instruction> {
+    token_ix::set_authority(
+        program_id,
+        token_account,
+        Some(new_close_authority),
+        token_ix::AuthorityType::CloseAccount,
+        owner,
+        &[],
+    )
+    .context("failed to build SetAuthority instruction")
+}

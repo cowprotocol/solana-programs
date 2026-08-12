@@ -227,8 +227,7 @@ fn settle_orders(
 /// are executed and its settlement limit price is validated against the intent.
 /// Finally, a sell token account left empty by the pulls is closed if the state
 /// PDA holds its SPL close authority, sending the reclaimed lamports to the
-/// intent's `sell_account_rent_recipient`, which is the only case where the
-/// order's rent recipient account is checked at all.
+/// intent's `sell_account_rent_recipient`.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order(
     program_id: &Address,
@@ -324,9 +323,10 @@ fn process_order(
             && token_account.close_authority() == Some(state_account.address())
     };
     if should_close {
-        // Confirm the rent recipient account given by the solver is the one intended for the user.
-        // We explicitly only check this here so that the solver can specify different/duplicated account if the account
-        // will not be closed.
+        // Confirm the rent recipient account given by the solver is the
+        // one intended for the user. We explicitly only check this here
+        // so that the solver can specify a different/duplicated account
+        // if the account will not be closed.
         if sell_account_rent_recipient.address() != &expected_rent_recipient {
             return Err(SettlementError::SellAccountRentRecipientMismatch.into());
         }

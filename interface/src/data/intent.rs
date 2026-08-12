@@ -82,7 +82,6 @@ pub struct OrderIntent {
     /// happens if the account is left empty by the settlement and its SPL
     /// close authority is the settlement state PDA, which is the owner's
     /// opt-in.
-    /// This field is unused unless the sell account is to be closed.
     pub sell_account_rent_recipient: Pubkey,
 
     /// Opaque 32 bytes set by the order creator. Not interpreted by the
@@ -106,7 +105,7 @@ pub struct OrderIntent {
 /// │             owner             │       buy_token_account       │       sell_token_account      │       │       │id_│││          rent_recipient       │            app_data           │
 /// │                               │                               │                               │amount │amount │to │││                               │                               │
 /// └───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────┴───────┴───┴┴┴───────────────────────────────┴───────────────────────────────┘
-/// 0                               32                              64                              96      104    112 116 118                             150                            182
+/// 0                               32                              64                              96      104    112 116 118                            150                             182
 ///                                                                                                                     117
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]

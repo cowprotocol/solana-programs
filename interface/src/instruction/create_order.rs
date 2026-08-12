@@ -40,7 +40,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// instruction reverts with `AccountAlreadyInitialized`. Recreating the same
 /// order is only possible after its PDA has been closed.
 ///
-/// Wire format: `[discriminator=2, ..intent bytes]`,  bytes.
+/// Wire format: `[discriminator=2, ..intent bytes]`
 /// Required accounts:
 /// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
 /// The system program needs to be available but doesn't need to be at that
