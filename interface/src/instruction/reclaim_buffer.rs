@@ -137,22 +137,20 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::{reclaim_buffer_data, NUM_SHARED_ACCOUNTS};
     use super::*;
-    use crate::instruction::fixtures::{
-        fake_account, fake_account_from_array, fake_sequential_accounts,
-    };
+    use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
     use crate::instruction::tests::{
         assert_readonly_nonsigner, assert_readonly_signer, assert_writable_nonsigner,
     };
-    use solana_address::Address;
+    use crate::tests::pubkey_from_seed;
 
     #[test]
     fn reclaim_buffer_input_parses_valid_input() {
-        let program_id = Address::new_from_array([1; 32]);
-        let state_pda = Address::new_from_array([2; 32]);
-        let reclaim_authority = Address::new_from_array([3; 32]);
-        let reclaim_recipient = Address::new_from_array([4; 32]);
-        let buffer_pda = Address::new_from_array([5; 32]);
-        let mint = Address::new_from_array([6; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let buffer_pda = pubkey_from_seed("buffer pda");
+        let mint = pubkey_from_seed("mint");
 
         let data = Instruction::from(ReclaimBuffer {
             program_id,
@@ -162,12 +160,12 @@ mod tests {
             buffers: &[(buffer_pda, mint)],
         })
         .data;
-        let token_program = fake_account_from_array([7; 32]);
+        let token_program = pubkey_from_seed("token program");
         let mut accounts = [
             fake_account(state_pda),
             fake_account(reclaim_authority),
             fake_account(reclaim_recipient),
-            token_program,
+            fake_account(token_program),
             fake_account(buffer_pda),
             fake_account(mint),
         ];
@@ -183,10 +181,7 @@ mod tests {
         assert_eq!(*parsed_state_pda.address(), state_pda);
         assert_eq!(*parsed_reclaim_authority.address(), reclaim_authority);
         assert_eq!(*parsed_reclaim_recipient.address(), reclaim_recipient);
-        assert_eq!(
-            *parsed_token_program.address(),
-            Address::new_from_array([7; 32])
-        );
+        assert_eq!(*parsed_token_program.address(), token_program);
         assert_eq!(buffers.len(), 1, "one buffer is one pair");
         assert_eq!(*buffers[0][0].address(), buffer_pda);
         assert_eq!(*buffers[0][1].address(), mint);
@@ -194,15 +189,15 @@ mod tests {
 
     #[test]
     fn reclaim_buffer_input_parses_multiple_buffers() {
-        let program_id = Address::new_from_array([1; 32]);
-        let state_pda = Address::new_from_array([2; 32]);
-        let reclaim_authority = Address::new_from_array([3; 32]);
-        let reclaim_recipient = Address::new_from_array([4; 32]);
-        let token_program = Address::new_from_array([5; 32]);
-        let buffer_a = Address::new_from_array([6; 32]);
-        let mint_a = Address::new_from_array([7; 32]);
-        let buffer_b = Address::new_from_array([8; 32]);
-        let mint_b = Address::new_from_array([9; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let token_program = pubkey_from_seed("token program");
+        let buffer_a = pubkey_from_seed("buffer a");
+        let mint_a = pubkey_from_seed("mint a");
+        let buffer_b = pubkey_from_seed("buffer b");
+        let mint_b = pubkey_from_seed("mint b");
 
         let data = Instruction::from(ReclaimBuffer {
             program_id,
@@ -284,12 +279,12 @@ mod tests {
 
     #[test]
     fn instruction_data_has_expected_layout() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let state_pda = Pubkey::new_from_array([2; 32]);
-        let reclaim_authority = Pubkey::new_from_array([3; 32]);
-        let reclaim_recipient = Pubkey::new_from_array([4; 32]);
-        let buffer_pda = Pubkey::new_from_array([5; 32]);
-        let mint = Pubkey::new_from_array([6; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let buffer_pda = pubkey_from_seed("buffer pda");
+        let mint = pubkey_from_seed("mint");
         let Instruction { data, .. } = ReclaimBuffer {
             program_id,
             state_pda,
@@ -306,12 +301,12 @@ mod tests {
 
     #[test]
     fn single_buffer_has_expected_accounts() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let state_pda = Pubkey::new_from_array([2; 32]);
-        let reclaim_authority = Pubkey::new_from_array([3; 32]);
-        let reclaim_recipient = Pubkey::new_from_array([4; 32]);
-        let buffer_pda = Pubkey::new_from_array([5; 32]);
-        let mint = Pubkey::new_from_array([6; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let buffer_pda = pubkey_from_seed("buffer pda");
+        let mint = pubkey_from_seed("mint");
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
@@ -332,16 +327,13 @@ mod tests {
 
     #[test]
     fn recipient_may_be_the_reclaim_authority_itself() {
-        let reclaim_authority = Pubkey::new_from_array([1; 32]);
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
         let Instruction { accounts, .. } = ReclaimBuffer {
-            program_id: Pubkey::new_from_array([2; 32]),
-            state_pda: Pubkey::new_from_array([3; 32]),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             reclaim_authority,
             reclaim_recipient: reclaim_authority,
-            buffers: &[(
-                Pubkey::new_from_array([4; 32]),
-                Pubkey::new_from_array([5; 32]),
-            )],
+            buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"))],
         }
         .into();
 
@@ -351,14 +343,14 @@ mod tests {
 
     #[test]
     fn multiple_buffers_append_pairs_after_shared_accounts() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let state_pda = Pubkey::new_from_array([2; 32]);
-        let reclaim_authority = Pubkey::new_from_array([3; 32]);
-        let reclaim_recipient = Pubkey::new_from_array([4; 32]);
-        let buffer_a = Pubkey::new_from_array([5; 32]);
-        let mint_a = Pubkey::new_from_array([6; 32]);
-        let buffer_b = Pubkey::new_from_array([7; 32]);
-        let mint_b = Pubkey::new_from_array([8; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let buffer_a = pubkey_from_seed("buffer a");
+        let mint_a = pubkey_from_seed("mint a");
+        let buffer_b = pubkey_from_seed("buffer b");
+        let mint_b = pubkey_from_seed("mint b");
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
@@ -378,10 +370,10 @@ mod tests {
 
     #[test]
     fn empty_buffers_has_only_shared_accounts() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let state_pda = Pubkey::new_from_array([2; 32]);
-        let reclaim_authority = Pubkey::new_from_array([3; 32]);
-        let reclaim_recipient = Pubkey::new_from_array([4; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
