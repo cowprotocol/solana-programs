@@ -13,40 +13,47 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 anyhow = "1"
 arrayref = "0.3"
+bincode = "1"
 clap = { version = "4", features = ["derive", "env"] }
 solana-commitment-config = "3"
 solana-program-pack = "3"
-solana-rpc-client = "3"
+solana-rpc-client = "4"
 derive_more = { version = "1", features = ["deref"] }
 hex-literal = "1"
-litesvm = "0.12.0"
-litesvm-token = "0.12.0"
+litesvm = "0.15"
+litesvm-token = "0.15"
 num_enum = "0.7"
-pinocchio = "0.11.1"
+pinocchio = "0.11"
 pinocchio-system = "0.6"
 pinocchio-token = "0.6"
 proptest = "1"
 settlement-client = { path = "client" }
 settlement-interface = { path = "interface" }
 solana-account-view = "2"
-solana-address = "2"
+# Held below 2.7 on purpose. solana-address 2.7 switched to wincode 0.6, but the
+# released solana-rpc-client 4.1.x stack (pulled by test-cli) still builds against
+# wincode 0.5. Allowing 2.7 drags two incompatible wincode majors into the
+# solana-transaction-status-client-types build, which then fails to compile. Lift
+# this cap once solana-rpc-client ships a wincode-0.6 release.
+solana-address = "~2.6"
 solana-address-lookup-table-interface = "3"
-solana-hash = "3"
+solana-compute-budget = "4"
+solana-hash = "4"
 solana-instruction = "3"
-solana-instructions-sysvar = "3"
+solana-instructions-sysvar = "4"
 solana-program-error = "3"
-solana-pubkey = "3"
-solana-sdk = "3"
+solana-pubkey = "4"
+solana-sdk = "4"
 solana-sdk-ids = "3"
 solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
-spl-associated-token-account-interface = { version = "2" }
+spl-associated-token-account-interface = "2"
 spl-token = "9"
-spl-token-interface = "2"
+spl-token-interface = "3"
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.
-solana = "3.1.14"
+solana = "4.0.3"
 
 [workspace.lints.clippy]
 # Promote arithmetic side effect lint to hard error.

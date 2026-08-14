@@ -14,6 +14,9 @@ use settlement_client::settlement_interface::{
         state::find_state_pda,
     },
 };
+use solana_compute_budget::{
+    compute_budget::ComputeBudget, compute_budget_limits::MAX_COMPUTE_UNIT_LIMIT,
+};
 use solana_sdk::{
     instruction::{Instruction, InstructionError},
     program_error::ProgramError,
@@ -21,6 +24,11 @@ use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::TransactionError,
+};
+
+use crate::common::{
+    benchmark::{send_transaction_metered, BenchLabel},
+    unique_keypair, unique_pubkey,
 };
 
 mod common;
@@ -38,7 +46,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("create_buffer should succeed");
 
     let account = svm
@@ -110,7 +118,7 @@ fn buffer_can_receive_tokens() {
 
     // Fund a sender by minting into its own token account, then have the sender
     // transfer those tokens into the buffer.
-    let sender = Keypair::new();
+    let sender = unique_keypair();
     svm.airdrop(&sender.pubkey(), 1_000_000_000)
         .expect("airdrop to sender should succeed");
     let sender_account =
@@ -178,7 +186,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("create_buffers should create every buffer at once");
 
     for mint in &mints {
@@ -243,7 +251,7 @@ fn rejects_arbitrary_wrong_buffer_pda() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
 
-    let wrong_pda = Pubkey::new_unique();
+    let wrong_pda = unique_pubkey();
     let ix = CreateBuffersRaw {
         program_id,
         payer: payer.pubkey(),
@@ -291,7 +299,7 @@ fn rejects_non_spl_token_program() {
         ix.accounts[token_program_index].pubkey, SPL_TOKEN_PROGRAM_ID,
         "sanity: should replace token program"
     );
-    ix.accounts[token_program_index].pubkey = Pubkey::new_unique();
+    ix.accounts[token_program_index].pubkey = unique_pubkey();
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
     let err = svm
@@ -320,7 +328,7 @@ fn rejects_invalid_mint() {
     // which rejects it: a non-mint account isn't owned by the token program, so
     // the CPI fails with IncorrectProgramId after the buffer was allocated,
     // reverting the whole instruction.
-    let not_a_mint = Pubkey::new_unique();
+    let not_a_mint = unique_pubkey();
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &not_a_mint);
 
     let ix = CreateBuffers {
@@ -347,6 +355,22 @@ fn rejects_invalid_mint() {
         svm.get_account(&buffer_pda).is_none(),
         "buffer must not have been created when the mint is invalid",
     );
+}
+
+#[test]
+fn creates_buffer_when_address_is_prefunded() {
+    let (mut svm, program_id, payer) = common::setup();
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
+
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &buffer_pda, |svm| {
+        let ix = CreateBuffers {
+            program_id,
+            payer: payer.pubkey(),
+            mints: &[mint],
+        };
+        common::signed_tx(svm, &payer, &payer, ix)
+    });
 }
 
 #[test]
@@ -420,7 +444,7 @@ fn one_failing_buffer_reverts_the_whole_batch() {
     let (mut svm, program_id, payer) = common::setup();
 
     let fresh = common::token::create_mint(&mut svm, &payer);
-    let not_a_mint = Pubkey::new_unique();
+    let not_a_mint = unique_pubkey();
 
     let ix = CreateBuffers {
         program_id,
@@ -480,9 +504,8 @@ fn same_mint_twice_in_one_instruction_is_idempotent() {
 fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> usize {
     let mut n: usize = 1;
     loop {
-        let pairs: Vec<(Pubkey, Pubkey)> = (0..n)
-            .map(|_| (Pubkey::new_unique(), Pubkey::new_unique()))
-            .collect();
+        let pairs: Vec<(Pubkey, Pubkey)> =
+            (0..n).map(|_| (unique_pubkey(), unique_pubkey())).collect();
         let ix = CreateBuffersRaw {
             program_id: *program_id,
             payer: payer.pubkey(),
@@ -530,6 +553,28 @@ fn bench_assert_known_max_buffer_count() {
 #[test]
 fn max_buffers_in_one_instruction() {
     let (mut svm, program_id, payer) = common::setup();
+    // A maxed-out batch costs close to the 200k default and the exact cost
+    // varies with the random mints' bump searches, so we increase the default
+    // compute limit to avoid this edge case.
+    // Not doing this leads to a flaky test, not an immediate failure: it works
+    // most of the times but sometimes (~2%) execution would fail.
+    svm = svm.with_compute_budget(ComputeBudget {
+        compute_unit_limit: u64::from(MAX_COMPUTE_UNIT_LIMIT),
+        // I'd like to use `ComputeBudget::default()` but it's behind a crate
+        // feature `dev-context-only-utils` which has broken in the past after
+        // updating Solana packages.
+        // This is the closest we get to that without extra features.
+        // `false` is about whether the feature SIMD-0268 is active; right now
+        // this defaults to false and there isn't an easy way to get this from
+        // the node itself in a test. Check with:
+        //
+        // ```
+        // $ solana feature status 6TkHkRmP7JZy1fdM6fg5uXn76wChQBWGokHBJzrLB3mj
+        // ```
+        //
+        // TODO: try to restore ``::default()` once Solana v4 gets more stable.
+        ..ComputeBudget::new_with_defaults(false)
+    });
     let (state_pda, _) = find_state_pda(&program_id);
 
     let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
@@ -551,13 +596,8 @@ fn max_buffers_in_one_instruction() {
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
-    let meta = svm
-        .send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateBuffers)
         .expect("a transaction filled to the buffer limit should succeed");
-    println!(
-        "create_buffers with {max_buffers} buffers consumed {} compute units",
-        meta.compute_units_consumed
-    );
 
     for mint in &mints {
         let (buffer_pda, _bump) = find_buffer_pda(&program_id, mint);

@@ -35,13 +35,13 @@ pub fn process_create_buffer(
         // canonical bump and, by signing the allocation with the buffer seeds,
         // rejects any `buffer_pda` that isn't the canonical address. The buffer
         // is a token account, so it's assigned to the SPL Token program rather
-        // than to us.
+        // than to the settlement program.
         //
         // We don't validate `mint` here. `InitializeAccount3` requires a real,
         // token-program-owned mint (and special-cases the native mint), so a
         // check of our own would be redundant.
         let mint_key = mint.address().as_array();
-        let created = CanonicalPda {
+        let (created, _) = CanonicalPda {
             program_id,
             payer: input.payer,
             pda: buffer_pda,

@@ -121,6 +121,9 @@ mod tests {
     use super::*;
     use crate::data::state::EncodedStateAccount;
     use crate::instruction::fixtures::{fake_account_from_array, fake_sequential_accounts};
+    use crate::instruction::tests::{
+        assert_readonly_nonsigner, assert_writable_nonsigner, assert_writable_signer,
+    };
     use solana_account_view::AccountView;
     use solana_address::Address;
 
@@ -220,17 +223,10 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 3);
-        // payer: writable, signer (funds the new account's rent)
-        assert_eq!(accounts[0].pubkey, payer);
-        assert!(accounts[0].is_writable);
-        assert!(accounts[0].is_signer);
-        // state_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(accounts[1].pubkey, state_pda);
-        assert!(accounts[1].is_writable);
-        assert!(!accounts[1].is_signer);
-        // system program: read-only
-        assert_eq!(accounts[2].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!accounts[2].is_writable);
-        assert!(!accounts[2].is_signer);
+        // payer funds the new account's rent; state_pda is signed for by the
+        // program via PDA seeds; the system program is only referenced.
+        assert_writable_signer(&accounts[0], payer);
+        assert_writable_nonsigner(&accounts[1], state_pda);
+        assert_readonly_nonsigner(&accounts[2], SYSTEM_PROGRAM_ID);
     }
 }

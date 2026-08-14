@@ -25,7 +25,7 @@ use settlement_interface::{
         },
         InstructionInputParsing,
     },
-    recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
+    recover_discriminator, SettlementError, SettlementInstruction,
 };
 
 use crate::processor::is_cpi_call;
@@ -235,14 +235,13 @@ fn process_order(
     let SettledOrder {
         order_pda,
         sell_token_account,
-        bump,
         destinations,
         amounts,
     } = order;
 
     // Decode the order body and prove its provenance: `load_from_pda` checks
     // that `order_pda` is the canonical order PDA for the intent it stores.
-    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
+    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
     let intent = &account.intent;
 
     if account.cancelled {
@@ -254,13 +253,13 @@ fn process_order(
     }
 
     // The push paying this order must send to the order's buy token account.
-    if !address_matches_pubkey(push_destination, &intent.buy_token_account) {
+    if push_destination != &intent.buy_token_account {
         return Err(SettlementError::PushDestinationMismatch.into());
     }
 
     // The sell token account must be the one named in the intent, owned by
     // the intent owner: an order can only sell funds its own owner controls.
-    if !address_matches_pubkey(sell_token_account.address(), &intent.sell_token_account) {
+    if sell_token_account.address() != &intent.sell_token_account {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
     // Assert the order intent owner matches that of the sell token account.
@@ -271,7 +270,7 @@ fn process_order(
         // before the transfers below touch the same account.
         let token_account = TokenAccount::from_account_view(sell_token_account)
             .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
-        if !address_matches_pubkey(token_account.owner(), &intent.owner) {
+        if token_account.owner() != &intent.owner {
             return Err(SettlementError::SellTokenOwnerMismatch.into());
         }
     }
@@ -370,10 +369,6 @@ fn validated_final_amounts(
     Ok((amount_withdrawn, amount_received))
 }
 
-fn address_matches_pubkey(address: &Address, pubkey: &Pubkey) -> bool {
-    address.as_array() == &pubkey.to_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,6 +378,7 @@ mod tests {
     use settlement_interface::instruction::settle::fixtures::arb_pushes;
     use settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
     use settlement_interface::instruction::InstructionInputParsing;
+    use settlement_interface::Pubkey;
     use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).
@@ -945,7 +941,8 @@ mod tests {
         // From the Solana docs for this function: "construct the account data
         // for the instructions sysvar."
         let instructions_sysvar_data =
-            solana_instructions_sysvar::construct_instructions_data(&[borrowed]);
+            solana_instructions_sysvar::construct_instructions_data(&[borrowed])
+                .expect("instruction serialization should succeed for well-formed instructions");
         // SAFETY: from Pinocchio's docs for `new_unchecked`: "this function is
         // unsafe because it does not check if the provided data is from the
         // Sysvar Account."

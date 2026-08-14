@@ -3,9 +3,11 @@ use settlement_client::settlement_interface::{
     data::state::EncodedStateAccount, instruction::initialize::Initialize as InitializeRaw,
     pda::state::find_state_pda,
 };
-use solana_sdk::{
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
+use solana_sdk::signature::Signer;
+
+use crate::common::{
+    benchmark::{send_transaction_metered, BenchLabel},
+    unique_keypair, unique_pubkey,
 };
 
 mod common;
@@ -14,7 +16,7 @@ mod common;
 fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
-    let reclaim_authority = Pubkey::new_unique();
+    let reclaim_authority = unique_pubkey();
 
     // `payer` is both the transaction fee payer and the account funding the
     // state PDA's rent.
@@ -24,7 +26,8 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         reclaim_authority,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx).expect("initialize should succeed");
+    send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
+        .expect("initialize should succeed");
 
     let account = svm
         .get_account(&state_pda)
@@ -54,11 +57,26 @@ fn happy_path_initializes_state_pda_with_expected_data() {
 }
 
 #[test]
+fn initializes_state_pda_when_address_is_prefunded() {
+    let (mut svm, program_id, payer) = common::setup();
+    let (state_pda, _bump) = find_state_pda(&program_id);
+
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &state_pda, |svm| {
+        let ix = Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            reclaim_authority: unique_pubkey(),
+        };
+        common::signed_tx(svm, &payer, &payer, ix)
+    });
+}
+
+#[test]
 fn funding_payer_can_differ_from_fee_payer() {
     let (mut svm, program_id, fee_payer) = common::setup();
     let (_, _bump) = find_state_pda(&program_id);
 
-    let funder = Keypair::new();
+    let funder = unique_keypair();
     let funder_airdrop = 1_000_000_000;
     svm.airdrop(&funder.pubkey(), funder_airdrop)
         .expect("airdrop to funder should succeed");
@@ -66,7 +84,7 @@ fn funding_payer_can_differ_from_fee_payer() {
     let ix = Initialize {
         program_id,
         payer: funder.pubkey(),
-        reclaim_authority: Pubkey::new_unique(),
+        reclaim_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -87,12 +105,12 @@ fn rejects_arbitrary_wrong_state_pda() {
 
     // The program only signs for the canonical PDA, so the lower-level interface
     // builder lets us point the instruction at a deliberately wrong address.
-    let wrong_pda = Pubkey::new_unique();
+    let wrong_pda = unique_pubkey();
     let ix = InitializeRaw {
         program_id,
         payer: payer.pubkey(),
         state_pda: wrong_pda,
-        reclaim_authority: Pubkey::new_unique(),
+        reclaim_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
@@ -108,7 +126,7 @@ fn rejects_initializing_twice() {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
-            reclaim_authority: Pubkey::new_unique(),
+            reclaim_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });
