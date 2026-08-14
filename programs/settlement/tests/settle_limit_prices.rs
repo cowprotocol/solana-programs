@@ -13,10 +13,10 @@ use crate::common::{
     setup, to_instruction_error, token, unique_pubkey,
 };
 use litesvm::LiteSVM;
-use settlement_client::instructions::{
+use cow_settlement_client::instructions::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
 };
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
     data::order::OrderAccount,
     pda::order::find_order_pda,

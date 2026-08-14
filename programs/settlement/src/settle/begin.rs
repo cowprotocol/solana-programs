@@ -13,7 +13,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::{
         intent::{OrderIntent, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},
@@ -373,12 +373,12 @@ fn validated_final_amounts(
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
-    use settlement_interface::instruction::fixtures::fake_account;
-    use settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
-    use settlement_interface::instruction::InstructionInputParsing;
-    use settlement_interface::Pubkey;
+    use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use cow_settlement_interface::instruction::fixtures::fake_account;
+    use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
+    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
+    use cow_settlement_interface::instruction::InstructionInputParsing;
+    use cow_settlement_interface::Pubkey;
     use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).

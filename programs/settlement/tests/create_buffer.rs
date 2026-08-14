@@ -6,8 +6,8 @@ use litesvm_token::{
         state::{Account as TokenAccount, AccountState},
     },
 };
-use settlement_client::instructions::CreateBuffers;
-use settlement_client::settlement_interface::{
+use cow_settlement_client::instructions::CreateBuffers;
+use cow_settlement_client::cow_settlement_interface::{
     instruction::create_buffer::{CreateBuffers as CreateBuffersRaw, SPL_TOKEN_PROGRAM_ID},
     pda::{
         buffer::{buffer_pda_seeds, find_buffer_pda},

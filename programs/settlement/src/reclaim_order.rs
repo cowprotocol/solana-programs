@@ -5,7 +5,7 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use settlement_interface::{
+use cow_settlement_interface::{
     data::order::OrderAccount,
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
     SettlementError,
@@ -50,13 +50,13 @@ pub fn process_reclaim_order(
 #[cfg(test)]
 mod tests {
     use pinocchio::Address;
-    use settlement_interface::data::order::EncodedOrderAccount;
-    use settlement_interface::instruction::{
+    use cow_settlement_interface::data::order::EncodedOrderAccount;
+    use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
     };
-    use settlement_interface::pda::order::find_order_pda;
-    use settlement_interface::SettlementInstruction;
+    use cow_settlement_interface::pda::order::find_order_pda;
+    use cow_settlement_interface::SettlementInstruction;
 
     use super::*;
 

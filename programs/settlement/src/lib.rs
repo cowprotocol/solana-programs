@@ -13,7 +13,7 @@ use initialize::process_initialize;
 use pinocchio::{entrypoint, AccountView, Address, ProgramResult};
 use reclaim_order::process_reclaim_order;
 use settle::{process_begin_settle, process_finalize_settle};
-use settlement_interface::{recover_discriminator, SettlementInstruction};
+use cow_settlement_interface::{recover_discriminator, SettlementInstruction};
 
 entrypoint!(process_instruction);
 

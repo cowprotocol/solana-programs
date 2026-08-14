@@ -1,6 +1,6 @@
 use litesvm::{types::FailedTransactionMetadata, LiteSVM};
-use settlement_client::instructions::{BeginSettle, FinalizeSettle};
-use settlement_client::settlement_interface::{SettlementError, SettlementInstruction};
+use cow_settlement_client::instructions::{BeginSettle, FinalizeSettle};
+use cow_settlement_client::cow_settlement_interface::{SettlementError, SettlementInstruction};
 use solana_sdk::{
     instruction::{AccountMeta, Instruction, InstructionError},
     pubkey::Pubkey,

@@ -2,7 +2,7 @@
 
 use crate::token;
 use anyhow::Context as _;
-use settlement_client::settlement_interface::{pda::state::find_state_pda, Pubkey};
+use cow_settlement_client::cow_settlement_interface::{pda::state::find_state_pda, Pubkey};
 use solana_instruction::Instruction;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_token_interface::instruction::{self as token_ix};

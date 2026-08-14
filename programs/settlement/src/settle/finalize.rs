@@ -4,7 +4,7 @@ use pinocchio::{
     cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
-use settlement_interface::{
+use cow_settlement_interface::{
     instruction::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,

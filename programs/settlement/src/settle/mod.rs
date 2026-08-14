@@ -8,7 +8,7 @@ use pinocchio::{
     sysvars::instructions::Instructions,
     AccountView, Address, ProgramResult,
 };
-use settlement_interface::{
+use cow_settlement_interface::{
     instruction::{create_buffer::SPL_TOKEN_PROGRAM_ID, settle::recover_counterpart},
     pda::state::{state_pda_seeds, state_pda_signer_seeds},
     recover_discriminator, SettlementError, SettlementInstruction,

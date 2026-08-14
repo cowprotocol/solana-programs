@@ -1,8 +1,8 @@
 use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser};
-use settlement_client::{
+use cow_settlement_client::{
     instructions::CreateOrder,
-    settlement_interface::{
+    cow_settlement_interface::{
         data::intent::{OrderIntent, OrderKind},
         pda::order::find_order_pda,
     },

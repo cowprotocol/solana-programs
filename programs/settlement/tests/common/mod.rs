@@ -14,8 +14,8 @@ pub mod settlement;
 pub mod token;
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
-use settlement_client::settlement_interface::SettlementError;
-use settlement_interface::Instruction;
+use cow_settlement_client::cow_settlement_interface::SettlementError;
+use cow_settlement_interface::Instruction;
 use solana_sdk::{
     account::Account,
     clock::Clock,

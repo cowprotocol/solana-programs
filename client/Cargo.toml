@@ -1,15 +1,15 @@
 [package]
-name = "settlement-client"
+name = "cow-settlement-client"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-settlement-interface.workspace = true
+cow-settlement-interface.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-settlement-interface = { workspace = true, features = ["test-fixtures"] }
+cow-settlement-interface = { workspace = true, features = ["test-fixtures"] }
 
 [lints]
 workspace = true

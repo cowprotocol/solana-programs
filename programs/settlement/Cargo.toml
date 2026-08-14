@@ -16,7 +16,7 @@ crate-type = ["cdylib", "lib"]
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system.workspace = true
 pinocchio-token.workspace = true
-settlement-interface.workspace = true
+cow-settlement-interface.workspace = true
 solana-instruction = { workspace = true, features = ["syscalls"] }
 
 [dev-dependencies]
@@ -25,8 +25,8 @@ bincode.workspace = true
 litesvm.workspace = true
 litesvm-token.workspace = true
 proptest.workspace = true
-settlement-client.workspace = true
-settlement-interface = { workspace = true, features = ["test-fixtures"] }
+cow-settlement-client.workspace = true
+cow-settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-address-lookup-table-interface = { workspace = true, features = ["bincode"] }
 solana-compute-budget.workspace = true
 solana-instructions-sysvar.workspace = true

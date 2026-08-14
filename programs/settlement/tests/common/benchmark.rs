@@ -4,7 +4,7 @@ use litesvm::{
     types::{TransactionMetadata, TransactionResult},
     LiteSVM,
 };
-use settlement_interface::Instruction;
+use cow_settlement_interface::Instruction;
 use solana_sdk::{
     message::v0::MessageAddressTableLookup,
     signature::Keypair,

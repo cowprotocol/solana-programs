@@ -1,9 +1,9 @@
 //! Buffer-account helpers for the settlement integration tests.
 
 use litesvm::LiteSVM;
-use settlement_client::instructions::CreateBuffers;
-use settlement_client::settlement_interface::pda::buffer::find_buffer_pda;
-use settlement_client::settlement_interface::Instruction;
+use cow_settlement_client::instructions::CreateBuffers;
+use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
+use cow_settlement_client::cow_settlement_interface::Instruction;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
