@@ -78,13 +78,16 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
+    use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use settlement_interface::instruction::fixtures::{
-        fake_account, fake_account_with_data, fake_sequential_accounts, fake_signer,
+        fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
+        fake_signer,
     };
     use settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
     use settlement_interface::pda::state::state_pda_seeds;
+    use solana_program_pack::Pack;
 
     use super::*;
 
@@ -102,14 +105,28 @@ mod tests {
     const TOKEN_PROGRAM: usize = 3;
     const BUFFER_PDA: usize = 4;
 
+    fn empty_buffer_data(mint: Address, state_pda: Address) -> Vec<u8> {
+        let mut data = vec![0; SplTokenAccount::LEN];
+        SplTokenAccount {
+            mint,
+            owner: state_pda,
+            amount: 0,
+            state: AccountState::Initialized,
+            ..Default::default()
+        }
+        .pack_into_slice(&mut data);
+        data
+    }
+
     /// Accounts for reclaiming a single buffer, each one well-formed.
     fn base_accounts() -> [AccountView; NUM_ACCOUNTS] {
         let recipient: Address = Address::new_from_array([1; 32]);
         let mint: Address = Address::new_from_array([2; 32]);
+        let state_pda = Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0;
 
         [
             fake_account_with_data(
-                Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0,
+                state_pda,
                 &*EncodedStateAccount::from(StateAccount {
                     reclaim_authority: AUTHORITY,
                 }),
@@ -117,7 +134,11 @@ mod tests {
             fake_signer(AUTHORITY),             // reclaim authority
             fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
-            fake_account(find_buffer_pda(&PROGRAM_ID, &mint).0), // buffer PDA
+            fake_account_owned_by(
+                find_buffer_pda(&PROGRAM_ID, &mint).0,
+                SPL_TOKEN_PROGRAM_ID,
+                &empty_buffer_data(mint, state_pda),
+            ), // buffer PDA
             fake_account(mint),                 // mint
         ]
     }
@@ -139,6 +160,14 @@ mod tests {
             process_reclaim_buffer(&PROGRAM_ID, &mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
         );
+    }
+
+    #[test]
+    fn process_reclaim_buffer_happy_path() {
+        let mut accounts = base_accounts();
+
+        process_reclaim_buffer(&PROGRAM_ID, &mut accounts, &reclaim_buffer_data())
+            .unwrap_or_else(|err| panic!("reclaim buffer happy path should succeed: {err}"));
     }
 
     #[test]
@@ -212,11 +241,11 @@ mod tests {
 
     #[test]
     fn process_reclaim_buffer_rejects_uninitialized_buffer_pda() {
-        // Nothing to swap in: the base buffer already sits at the canonical
-        // address with no token account created there. A buffer that can't be
-        // read as a token account is an error rather than a silent skip: only
-        // a *funded* buffer is skipped, and there is no balance here to judge
-        // that by.
-        assert_rejects(base_accounts(), ProgramError::InvalidAccountData);
+        let mut accounts = base_accounts();
+
+        let buffer_pda = *accounts[BUFFER_PDA].address();
+        accounts[BUFFER_PDA] = fake_account(buffer_pda);
+
+        assert_rejects(accounts, ProgramError::InvalidAccountData);
     }
 }

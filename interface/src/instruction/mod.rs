@@ -93,7 +93,8 @@ pub mod fixtures {
     /// <https://docs.rs/crate/pinocchio/0.11.1/source/src/sysvars/slot_hashes/test_utils.rs#120-160>
     ///
     /// Allocate a heap-backed `AccountView` whose data region is initialized with
-    /// `data`, whose address is `address`, and whose borrow flag is `borrow_state`.
+    /// `data`, whose address is `address`, whose owning program is `owner`, and
+    /// whose borrow flag is `borrow_state`.
     ///
     /// The function also returns the backing `Vec<u64>` so the caller can keep it
     /// alive for the duration of the test (otherwise the memory would be freed and
@@ -109,6 +110,7 @@ pub mod fixtures {
     )]
     pub unsafe fn make_account_view(
         address: Address,
+        owner: Address,
         data: &[u8],
         borrow_state: u8,
     ) -> (AccountView, Vec<u64>) {
@@ -132,6 +134,7 @@ pub mod fixtures {
             hdr_ptr,
             RuntimeAccount {
                 address,
+                owner,
                 borrow_state,
                 data_len: data.len() as u64,
                 ..Default::default()
@@ -147,12 +150,17 @@ pub mod fixtures {
         (AccountView::new_unchecked(hdr_ptr), backing)
     }
 
-    /// Create an account view storing the input data.
-    pub fn fake_account_with_data(address: Address, data: &[u8]) -> AccountView {
+    /// Create an account view storing the input data, owned by `owner`.
+    pub fn fake_account_owned_by(address: Address, owner: Address, data: &[u8]) -> AccountView {
         let (account, backing) =
-            unsafe { make_account_view(address, data, solana_account_view::NOT_BORROWED) };
+            unsafe { make_account_view(address, owner, data, solana_account_view::NOT_BORROWED) };
         core::mem::forget(backing);
         account
+    }
+
+    /// Create an account view storing the input data.
+    pub fn fake_account_with_data(address: Address, data: &[u8]) -> AccountView {
+        fake_account_owned_by(address, Address::default(), data)
     }
 
     pub fn fake_account(address: Address) -> AccountView {
