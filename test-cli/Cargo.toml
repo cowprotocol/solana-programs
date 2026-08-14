@@ -1,5 +1,6 @@
 [package]
 name = "cow-test-cli"
+description = "Development and testing CLI for driving the CoW Protocol Solana settlement program."
 version.workspace = true
 edition.workspace = true
 
