@@ -27,8 +27,8 @@ pinocchio = "0.11"
 pinocchio-system = "0.6"
 pinocchio-token = "0.6"
 proptest = "1"
-settlement-client = { path = "client" }
-settlement-interface = { path = "interface" }
+settlement-client = { path = "client", version = "0.1.0" }
+settlement-interface = { path = "interface", version = "0.1.0" }
 solana-account-view = "2"
 # Held below 2.7 on purpose. solana-address 2.7 switched to wincode 0.6, but the
 # released solana-rpc-client 4.1.x stack (pulled by test-cli) still builds against
