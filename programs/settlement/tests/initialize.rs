@@ -17,16 +17,16 @@ mod common;
 fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
-    let reclaim_authority = unique_pubkey();
     let manager = unique_pubkey();
+    let reclaim_authority = unique_pubkey();
 
     // `payer` is both the transaction fee payer and the account funding the
     // state PDA's rent.
     let ix = Initialize {
         program_id,
         payer: payer.pubkey(),
-        reclaim_authority,
         manager,
+        reclaim_authority,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
