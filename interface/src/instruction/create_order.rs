@@ -81,8 +81,6 @@ pub struct CreateOrderInput<'a, A> {
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for CreateOrderInput<'a, A> {
-    type Accounts = &'a [A];
-
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateOrder;
 
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
@@ -183,7 +181,7 @@ mod tests {
             intent_bytes,
         })
         .data;
-        let mut accounts = [
+        let accounts = [
             fake_account(owner),
             fake_account(created_by),
             fake_account(order_pda),
@@ -195,7 +193,7 @@ mod tests {
             owner: derived_owner,
             created_by: derived_created_by,
             order_pda: derived_order_pda,
-        } = CreateOrderInput::parse(&data, &mut accounts).expect("parse should succeed");
+        } = CreateOrderInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(derived_intent_bytes, intent_bytes);
         assert_eq!(*derived_order_pda.address(), order_pda);
@@ -208,9 +206,9 @@ mod tests {
         let intent_bytes = valid_intent_bytes();
         let mut data = default_order_data(&intent_bytes);
         data.pop();
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            CreateOrderInput::parse(&data, &mut accounts).err(),
+            CreateOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -220,9 +218,9 @@ mod tests {
         let intent_bytes = valid_intent_bytes();
         let mut data = default_order_data(&intent_bytes);
         data.push(0); // trailing byte
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            CreateOrderInput::parse(&data, &mut accounts).err(),
+            CreateOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -234,7 +232,7 @@ mod tests {
         let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
         accounts.pop();
         assert_eq!(
-            CreateOrderInput::parse(&data, &mut accounts).err(),
+            CreateOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }

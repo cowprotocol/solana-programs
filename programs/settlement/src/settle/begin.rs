@@ -990,9 +990,9 @@ mod tests {
                 .map(|(&destination, amount)| (destination, amount))
                 .collect();
 
-            let mut accounts: Vec<AccountView> =
+            let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
-            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
             let parsed: Vec<(Address, u64)> = parsed_raw
                 .pushes

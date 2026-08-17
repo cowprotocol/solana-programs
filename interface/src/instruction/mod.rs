@@ -29,16 +29,9 @@ pub mod settle;
 pub trait InstructionInputParsing<'a, A>: Sized {
     const DISCRIMINATOR: SettlementInstruction;
 
-    /// The account-slice borrow this input takes: shared where parsing only
-    /// reads the accounts, mutable where the program writes through them.
-    type Accounts;
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError>;
 
-    fn parse_body(
-        instruction_data: &'a [u8],
-        accounts: Self::Accounts,
-    ) -> Result<Self, ProgramError>;
-
-    fn parse(instruction_data: &'a [u8], accounts: Self::Accounts) -> Result<Self, ProgramError> {
+    fn parse(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         match recover_discriminator(instruction_data)? {
             (discriminator, remaining_data) if discriminator == Self::DISCRIMINATOR => {
                 Self::parse_body(remaining_data, accounts)
@@ -230,11 +223,10 @@ mod tests {
         struct TestInputParsing {}
         impl<'a> InstructionInputParsing<'a, AccountView> for TestInputParsing {
             const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
-            type Accounts = &'a mut [AccountView];
 
             fn parse_body(
                 _instruction_data: &'a [u8],
-                _accounts: Self::Accounts,
+                _accounts: &'a [AccountView],
             ) -> Result<Self, ProgramError> {
                 Ok(Self {})
             }
@@ -245,7 +237,7 @@ mod tests {
         assert_ne!(TestInputParsing::DISCRIMINATOR, different_discriminator);
         data[0] = different_discriminator.discriminator();
         assert_eq!(
-            TestInputParsing::parse(&data, &mut []).err(),
+            TestInputParsing::parse(&data, &[]).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }

@@ -85,8 +85,6 @@ impl<'a, A> CreateBufferInput<'a, A> {
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for CreateBufferInput<'a, A> {
-    type Accounts = &'a [A];
-
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateBuffer;
 
     fn parse_body(instruction_data: &[u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
@@ -172,7 +170,7 @@ mod tests {
             buffers: &[(buffer_pda, mint)],
         })
         .data;
-        let mut accounts = [
+        let accounts = [
             fake_account(payer),
             system_program,
             fake_account(token_program),
@@ -180,7 +178,7 @@ mod tests {
             fake_account(mint),
         ];
 
-        let input = CreateBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
+        let input = CreateBufferInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(*input.payer.address(), payer);
         assert_eq!(*input.token_program.address(), token_program);
@@ -206,7 +204,7 @@ mod tests {
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
         })
         .data;
-        let mut accounts = [
+        let accounts = [
             fake_account(payer),
             fake_account_from_array([4; 32]),
             fake_account(token_program),
@@ -216,7 +214,7 @@ mod tests {
             fake_account(mint_b),
         ];
 
-        let input = CreateBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
+        let input = CreateBufferInput::parse(&data, &accounts).expect("parse should succeed");
 
         let buffers: Vec<_> = input.buffers().collect();
         assert_eq!(
@@ -233,9 +231,9 @@ mod tests {
     fn create_buffer_input_rejects_zero_buffers() {
         let data = vec![SettlementInstruction::CreateBuffer.discriminator()];
         // Only the three shared accounts, no (pda, mint) pairs.
-        let mut accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut accounts).err(),
+            CreateBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
             "an instruction that creates no buffers is rejected",
         );
@@ -245,9 +243,9 @@ mod tests {
     fn create_buffer_input_rejects_long_data() {
         let mut data = create_buffer_data();
         data.push(0); // trailing byte
-        let mut accounts: [AccountView; 0] = [];
+        let accounts: [AccountView; 0] = [];
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut accounts).err(),
+            CreateBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -256,9 +254,9 @@ mod tests {
     fn create_buffer_input_rejects_missing_accounts() {
         let data = create_buffer_data();
         // Fewer than the three shared accounts.
-        let mut accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS - 1 }>();
+        let accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS - 1 }>();
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut accounts).err(),
+            CreateBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -267,9 +265,9 @@ mod tests {
     fn create_buffer_input_rejects_odd_pair_accounts() {
         let data = create_buffer_data();
         // Three shared accounts plus a dangling account that can't form a pair.
-        let mut accounts = fake_sequential_accounts::<4>();
+        let accounts = fake_sequential_accounts::<4>();
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut accounts).err(),
+            CreateBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }

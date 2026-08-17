@@ -236,12 +236,12 @@ mod tests {
                 .collect();
             expected.sort_by_key(|(order_pda, _)| *order_pda);
 
-            let mut accounts: Vec<_> = ix
+            let accounts: Vec<_> = ix
                 .accounts
                 .iter()
                 .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
                 .collect();
-            let parsed = BeginSettleInput::parse(&ix.data, &mut accounts)
+            let parsed = BeginSettleInput::parse(&ix.data, &accounts)
                 .map_err(|e| TestCaseError::fail(format!("parse failed: {e:?}")))?;
 
             prop_assert_eq!(parsed.finalize_ix_index, finalize_ix_index);
@@ -316,12 +316,12 @@ mod tests {
                 .collect();
             expected.sort_by_key(|push| push.order_pda);
 
-            let mut accounts: Vec<_> = ix
+            let accounts: Vec<_> = ix
                 .accounts
                 .iter()
                 .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
                 .collect();
-            let parsed = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .map_err(|e| TestCaseError::fail(format!("parse failed: {e:?}")))?;
 
             prop_assert_eq!(parsed.begin_ix_index, begin_ix_index);
