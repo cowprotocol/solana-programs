@@ -118,7 +118,7 @@ impl From<BeginSettle<'_>> for Instruction {
 /// A single settled order, resulted from parsing `BeginSettle`, together with
 /// the funds to pull from its sell token account.
 pub struct SettledOrder<'a, A> {
-    pub order_pda: &'a mut A,
+    pub order_pda: &'a A,
     pub sell_token_account: &'a A,
     /// Destination accounts for this order's transfers.
     pub destinations: &'a [A],
@@ -135,7 +135,7 @@ pub struct SettledOrders<'a, A> {
     /// - each order_accounts is a series of accounts:
     ///   `order_pda_N, sell_token_account_N, destination_N_1, destination_N_2, ..., destination_N_M`
     /// - and M is `counts[N]`
-    order_accounts: &'a mut [A],
+    order_accounts: &'a [A],
     /// One transfer count per order.
     counts: &'a [u8],
     /// Transfer amounts (little-endian `u64`), shared across orders and
@@ -144,19 +144,16 @@ pub struct SettledOrders<'a, A> {
 }
 
 impl<'a, A> SettledOrders<'a, A> {
-    /// Returns an iterator yielding one [`SettledOrder`] per step. Each order's
-    /// `order_pda` is handed out mutably (so `BeginSettle` can update its filled
-    /// amounts), so the items borrow the iterator and must be processed one at a
-    /// time rather than collected.
+    /// Returns an iterator yielding one [`SettledOrder`] per step.
     #[allow(
         clippy::arithmetic_side_effects,
         reason = "offsets are bounded by tx limits"
     )]
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = SettledOrder<'_, A>> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = SettledOrder<'a, A>> + '_ {
         let (counts, amounts) = (self.counts, self.amounts);
         // Cursor over the remaining order accounts; each step splits one order's
         // `[order_pda, sell_token_account, destinations..count]` off the front.
-        let mut rest: &mut [A] = self.order_accounts;
+        let mut rest: &'a [A] = self.order_accounts;
         let mut i = 0usize;
         let mut amount_offset = 0usize;
         std::iter::from_fn(move || {
@@ -166,10 +163,9 @@ impl<'a, A> SettledOrders<'a, A> {
             let count = usize::from(counts[i]);
             i += 1;
 
-            let taken = core::mem::take(&mut rest);
-            let (order_pda, tail) = taken.split_first_mut()?;
-            let (sell_token_account, tail) = tail.split_first_mut()?;
-            let (destinations, remainder) = tail.split_at_mut(count);
+            let (order_pda, tail) = rest.split_first()?;
+            let (sell_token_account, tail) = tail.split_first()?;
+            let (destinations, remainder) = tail.split_at(count);
             rest = remainder;
 
             let amount_end = amount_offset + count;
@@ -208,11 +204,11 @@ pub struct BeginSettleInput<'a, A> {
 /// in the transaction. It's the source of truth for deciding where the data
 /// is stored.
 impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
-    type Accounts = &'a mut [A];
+    type Accounts = &'a [A];
 
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
-    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (finalize_ix_index, body) = recover_counterpart(instruction_data)?;
 
         let [instructions_sysvar_account, state_pda_account, token_program_account, order_accounts @ ..] =
@@ -500,14 +496,14 @@ mod tests {
             finalize_ix_index,
             auction_id,
             instructions_sysvar_account,
-            mut orders,
+            orders,
             token_program_account,
             state_pda_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(auction_id, 0x0102_0304_0506_0708);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
-        assert_eq!(orders.iter_mut().count(), 0);
+        assert_eq!(orders.iter().count(), 0);
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
     }
@@ -579,7 +575,7 @@ mod tests {
             finalize_ix_index,
             auction_id,
             instructions_sysvar_account,
-            mut orders,
+            orders,
             state_pda_account,
             token_program_account,
         } = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
@@ -589,7 +585,7 @@ mod tests {
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
 
-        let mut orders = orders.iter_mut();
+        let mut orders = orders.iter();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
@@ -625,10 +621,10 @@ mod tests {
             0x3344u64.to_le_bytes(),
         ];
 
-        let BeginSettleInput { mut orders, .. } =
+        let BeginSettleInput { orders, .. } =
             BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
 
-        let mut orders = orders.iter_mut();
+        let mut orders = orders.iter();
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
@@ -674,12 +670,11 @@ mod tests {
             [0u8; ORDER_COUNT],
         ];
 
-        let mut parsed =
-            BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
+        let parsed = BeginSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
 
         let actual: Vec<(Address, Address)> = parsed
             .orders
-            .iter_mut()
+            .iter()
             .map(|order| {
                 assert_eq!(order.destinations.len(), 0);
                 (

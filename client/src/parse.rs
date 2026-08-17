@@ -26,22 +26,21 @@ pub enum ParsedInstruction<'a, A> {
     ReclaimOrder(ReclaimOrderInput<'a, A>),
 }
 
-/// Parses any settlement instruction by its discriminator. Takes the mutable
-/// slice the settle inputs require. Read-only inputs reborrow it shared.
+/// Parses any settlement instruction by its discriminator.
 pub fn parse_instruction<'a, A>(
     instruction_data: &'a [u8],
-    accounts: &'a mut [A],
+    accounts: &'a [A],
 ) -> Result<ParsedInstruction<'a, A>, ProgramError> {
     let (discriminator, remaining_data) = recover_discriminator(instruction_data)?;
     Ok(match discriminator {
         SettlementInstruction::Initialize => {
-            ParsedInstruction::Initialize(InitializeInput::parse_body(remaining_data, &*accounts)?)
+            ParsedInstruction::Initialize(InitializeInput::parse_body(remaining_data, accounts)?)
         }
-        SettlementInstruction::CreateOrder => ParsedInstruction::CreateOrder(
-            CreateOrderInput::parse_body(remaining_data, &*accounts)?,
-        ),
+        SettlementInstruction::CreateOrder => {
+            ParsedInstruction::CreateOrder(CreateOrderInput::parse_body(remaining_data, accounts)?)
+        }
         SettlementInstruction::CreateBuffer => ParsedInstruction::CreateBuffer(
-            CreateBufferInput::parse_body(remaining_data, &*accounts)?,
+            CreateBufferInput::parse_body(remaining_data, accounts)?,
         ),
         SettlementInstruction::BeginSettle => {
             ParsedInstruction::BeginSettle(BeginSettleInput::parse_body(remaining_data, accounts)?)
@@ -50,7 +49,7 @@ pub fn parse_instruction<'a, A>(
             FinalizeSettleInput::parse_body(remaining_data, accounts)?,
         ),
         SettlementInstruction::ReclaimOrder => ParsedInstruction::ReclaimOrder(
-            ReclaimOrderInput::parse_body(remaining_data, &*accounts)?,
+            ReclaimOrderInput::parse_body(remaining_data, accounts)?,
         ),
     })
 }

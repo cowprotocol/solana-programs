@@ -241,7 +241,7 @@ mod tests {
                 .iter()
                 .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
                 .collect();
-            let mut parsed = BeginSettleInput::parse(&ix.data, &mut accounts)
+            let parsed = BeginSettleInput::parse(&ix.data, &mut accounts)
                 .map_err(|e| TestCaseError::fail(format!("parse failed: {e:?}")))?;
 
             prop_assert_eq!(parsed.finalize_ix_index, finalize_ix_index);
@@ -252,7 +252,7 @@ mod tests {
 
             let actual: Vec<(Pubkey, Pubkey)> = parsed
                 .orders
-                .iter_mut()
+                .iter()
                 .map(|order| {
                     (
                         *order.order_pda.address(),
