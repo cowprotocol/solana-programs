@@ -11,19 +11,21 @@
 
 use crate::common::{
     benchmark::{send_metered, BenchLabel},
-    buffer, create_account,
-    order::{create_order_pda, sample_intent, OrderBuilder},
+    buffer,
+    order::OrderBuilder,
     replace_first_matching_account, send,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
 };
+use litesvm_token::spl_token::error::TokenError;
 use settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
 use settlement_client::settlement_interface::{
-    instruction::settle::SPL_TOKEN_PROGRAM_ID, pda::state::find_state_pda, Instruction,
-    SettlementError,
+    instruction::settle::{FinalizeSettle as FinalizeSettleRaw, SPL_TOKEN_PROGRAM_ID},
+    pda::{buffer::find_buffer_pda, state::find_state_pda},
+    Instruction, SettlementError,
 };
 use solana_sdk::{
-    instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signature::Signer,
+    instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey,
     transaction::TransactionError,
 };
 
@@ -35,6 +37,16 @@ fn assert_finalize_error<T>(result: Result<T, TransactionError>, expected: Instr
     assert_eq!(
         result.err(),
         Some(TransactionError::InstructionError(FINALIZE_INDEX, expected)),
+    );
+}
+
+/// Assert the transaction failed in the paired `BeginSettle` (at [`BEGIN_INDEX`])
+/// with `expected`. `BeginSettle` validates the finalize's pushes, so a malformed
+/// push is often rejected there rather than in the finalize itself.
+fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: InstructionError) {
+    assert_eq!(
+        result.err(),
+        Some(TransactionError::InstructionError(BEGIN_INDEX, expected)),
     );
 }
 
@@ -73,7 +85,6 @@ fn pushes_a_single_order() {
         &program_id,
         &[FinalizedIntent {
             intent: &intent,
-            mint,
             amount,
         }],
     );
@@ -108,12 +119,10 @@ fn pushes_several_orders_from_one_buffer() {
         &[
             FinalizedIntent {
                 intent: &intent0,
-                mint,
                 amount: amount0,
             },
             FinalizedIntent {
                 intent: &intent1,
-                mint,
                 amount: amount1,
             },
         ],
@@ -151,12 +160,10 @@ fn pushes_several_orders_from_different_buffers() {
         &[
             FinalizedIntent {
                 intent: &intent0,
-                mint: mint0,
                 amount: amount0,
             },
             FinalizedIntent {
                 intent: &intent1,
-                mint: mint1,
                 amount: amount1,
             },
         ],
@@ -171,23 +178,36 @@ fn pushes_several_orders_from_different_buffers() {
 }
 
 #[test]
-fn rejects_push_if_buffer_does_not_match_mint() {
+fn rejects_push_if_buffer_does_not_match_buy_mint() {
     let (mut svm, program_id, payer) = setup();
     let buy_mint = token::create_mint(&mut svm, &payer);
     let other_mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&buy_mint)
         .build();
-    // The push draws from the buffer for `other_mint`, not the buy token's mint,
-    // which `FinalizeSettle` rejects when it reads the destination's mint.
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: other_mint,
         amount: 100,
     }];
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &other_mint, 1_000);
 
-    let instructions = finalize(&program_id, &orders);
-    assert_finalize_error(
+    // The push draws from the buffer for `other_mint`, not the order's buy mint.
+    // The client builder always picks the buy mint's buffer, so name the source
+    // by hand. `BeginSettle` derives the buffer it expects from the order's
+    // `buy_mint` and rejects this one.
+    let (other_buffer, other_bump) = find_buffer_pda(&program_id, &other_mint);
+    let finalize = FinalizeSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        begin_ix_index: BEGIN_INDEX.into(),
+        source_buffers: &[other_buffer],
+        destinations: &[intent.buy_token_account],
+        bumps: &[other_bump],
+        amounts: &[100],
+    };
+
+    let instructions = build_settlement(&program_id, &orders, finalize);
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         to_instruction_error(SettlementError::PushSourceNotBuffer),
     );
@@ -203,7 +223,6 @@ fn rejects_push_from_substituted_source() {
     buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, 1_000);
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint,
         amount: 100,
     }];
 
@@ -214,16 +233,46 @@ fn rejects_push_from_substituted_source() {
     });
     // Point the push at an account that isn't the canonical buffer, leaving the
     // rest well-formed. Accounts: `[sysvar, state, token_program, source,
-    // destination]`. `BeginSettle` doesn't validate the source, so it passes;
-    // `FinalizeSettle` re-derives the buffer from the destination's mint and
-    // rejects the mismatch before touching the substituted account.
+    // destination]`. `BeginSettle` reads the source off this instruction through
+    // introspection and rejects it before the substituted account is ever
+    // touched.
     let source_index = 3;
     finalize.accounts[source_index].pubkey = unique_pubkey();
 
     let instructions = build_settlement(&program_id, &orders, finalize);
-    assert_finalize_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         to_instruction_error(SettlementError::PushSourceNotBuffer),
+    );
+}
+
+#[test]
+fn rejects_buy_token_account_recreated_for_another_mint() {
+    let (mut svm, program_id, payer) = setup();
+    let buy_mint = token::create_mint(&mut svm, &payer);
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_mint(&buy_mint)
+        .build();
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, 1_000);
+
+    // The buy token account comes back at the same address holding a different
+    // mint. The push still has to draw from the buffer for the order's stated
+    // `buy_mint` (that's what `BeginSettle` checks), and a buffer only ever holds
+    // its own mint, so the SPL transfer into the recreated account is what fails:
+    // the user can't be paid in a token the order never asked for.
+    let another_mint = token::create_mint(&mut svm, &payer);
+    token::overwrite_token_account(&mut svm, &payer, &intent.buy_token_account, &another_mint);
+
+    let instructions = finalize(
+        &program_id,
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: 100,
+        }],
+    );
+    assert_finalize_error(
+        send(&mut svm, &payer, instructions),
+        InstructionError::Custom(TokenError::MintMismatch as u32),
     );
 }
 
@@ -233,7 +282,6 @@ fn rejects_wrong_token_program() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: unique_pubkey(),
         amount: 0,
     }];
 
@@ -256,7 +304,6 @@ fn rejects_wrong_state_pda() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: unique_pubkey(),
         amount: 0,
     }];
 
@@ -280,7 +327,6 @@ fn rejects_push_account_count_mismatch() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: unique_pubkey(),
         amount: 100,
     }];
 
@@ -346,7 +392,6 @@ fn rejects_two_too_few_accounts() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: unique_pubkey(),
         amount: 1_000,
     }];
 
@@ -372,74 +417,11 @@ fn rejects_two_too_few_accounts() {
 }
 
 #[test]
-fn rejects_invalid_buy_token_account() {
-    let (mut svm, program_id, payer) = setup();
-    let mint = token::create_mint(&mut svm, &payer);
-    let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
-
-    // The order's buy token account (the push destination) isn't a token account,
-    // so `FinalizeSettle` can't read its mint to derive the buffer. `BeginSettle`
-    // accepts it: the push destination still matches the intent's buy token.
-    let not_a_token_account = unique_pubkey();
-    let mut intent = sample_intent(payer.pubkey(), sell_token, 0);
-    intent.buy_token_account = not_a_token_account;
-    create_order_pda(&mut svm, &program_id, &payer, &intent);
-    let orders = [FinalizedIntent {
-        intent: &intent,
-        mint,
-        amount: 0,
-    }];
-
-    let instructions = finalize(&program_id, &orders);
-    assert_finalize_error(
-        send(&mut svm, &payer, instructions),
-        to_instruction_error(SettlementError::InvalidBuyTokenAccount),
-    );
-}
-
-#[test]
-fn rejects_buy_token_account_owned_by_wrong_program() {
-    let (mut svm, program_id, payer) = setup();
-    let mint = token::create_mint(&mut svm, &payer);
-    let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
-
-    // Genuine token-account bytes: right length, a real mint at offset 0, so
-    // `from_account_view` would gladly read the mint. Assign those exact bytes
-    // to an account not owned by the token program, so it's not a valid
-    // token account.
-    let genuine = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
-    let token_shaped = svm
-        .get_account(&genuine)
-        .expect("the genuine token account exists")
-        .data;
-    let impostor = create_account(&mut svm, &unique_pubkey(), &token_shaped);
-
-    // `BeginSettle` only checks the push destination matches the intent's buy
-    // token, so it accepts the impostor; `FinalizeSettle` rejects it when the
-    // owner check in `from_account_view` fails, before the mint is ever read.
-    let mut intent = sample_intent(payer.pubkey(), sell_token, 0);
-    intent.buy_token_account = impostor;
-    create_order_pda(&mut svm, &program_id, &payer, &intent);
-    let orders = [FinalizedIntent {
-        intent: &intent,
-        mint,
-        amount: 0,
-    }];
-
-    let instructions = finalize(&program_id, &orders);
-    assert_finalize_error(
-        send(&mut svm, &payer, instructions),
-        to_instruction_error(SettlementError::InvalidBuyTokenAccount),
-    );
-}
-
-#[test]
 fn rejects_partial_push_amount() {
     let (mut svm, program_id, payer) = setup();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
-        mint: unique_pubkey(),
         amount: 100,
     }];
 

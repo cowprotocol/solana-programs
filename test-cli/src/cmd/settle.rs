@@ -120,7 +120,6 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .iter()
         .map(|intent| FinalizedIntent {
             intent: &intent.data,
-            mint: intent.buy.mint,
             amount: intent.data.buy_amount,
         })
         .collect();

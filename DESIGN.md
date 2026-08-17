@@ -108,10 +108,12 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
-	// Origin and destination of funds in this order.
-	// They implicitly encode both the receiver account and the traded tokens.
+	// Origin and destination of funds in this order, each with the mint it
+	// should hold.
 	buy_token_account: Pubkey
+	buy_mint: Pubkey
 	sell_token_account: Pubkey
+	sell_mint: Pubkey
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
@@ -277,7 +279,7 @@ Differences with Ethereum:
 
 A settlement transaction is split into multiple instructions. All settlement operations occur between a `BeginSettle` and a `FinalizeSettle` instruction with the exception of arbitrary interactions, which can take place at any point of a transaction. Except for that, the order of instructions in the transaction is arbitrary.
 
-- `BeginSettle`: Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Validates each order's limit price and that its cumulative fill stays within the order's sell and buy amounts (fully filling a fill-or-kill order), and updates the order's `amount_withdrawn`/`amount_received`. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
+- `BeginSettle`: Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Validates each order's limit price and that its cumulative fill stays within the order's sell and buy amounts (fully filling a fill-or-kill order), and updates the order's `amount_withdrawn`/`amount_received`. It also validates the paired push of each order, read through instruction introspection: its destination is the order's buy token account and its source is the buffer of the order's `buy_mint`. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
 - (arbitrary interactions): Any instruction from the solver. This could be a token transfer, an AMM swap, or anything else.
 - `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
 

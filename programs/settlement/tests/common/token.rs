@@ -189,6 +189,22 @@ pub fn assert_no_token_instruction_touching(
     }
 }
 
+/// Overwrite the account at `address` with a newly created account with the given parameters
+pub fn overwrite_token_account(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    address: &Pubkey,
+    mint: &Pubkey,
+) {
+    let template = create_token_account(svm, payer, mint, &payer.pubkey());
+    let data = svm
+        .get_account(&template)
+        .expect("the freshly created template exists")
+        .data;
+    let token_program = Pubkey::new_from_array(TOKEN_ID.to_bytes());
+    super::create_account_at(svm, *address, &token_program, &data);
+}
+
 /// Read the mint that `account` holds tokens of.
 pub fn mint_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
     litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, account)

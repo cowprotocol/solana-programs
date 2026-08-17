@@ -3,13 +3,12 @@
 use pinocchio::{
     cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
+use pinocchio_token::instructions::Transfer;
 use settlement_interface::{
     instruction::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::buffer::validate_buffer_pda,
     SettlementError, SettlementInstruction,
 };
 
@@ -41,42 +40,34 @@ pub fn process_finalize_settle(
     )?;
 
     // `BeginSettle` (which the counterpart check above guarantees ran) already
-    // validated the push count and destinations. `push_funds` adds the only
-    // remaining check: each push draws from the buffer for its mint.
+    // validated every push: its count, its destination, and that its source is
+    // the canonical buffer for the order's buy mint. Nothing is left to check
+    // here, so `push_funds` only executes the transfers.
 
     validate_token_program_account(input.token_program_account)?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
-        push_funds(
-            program_id,
-            input.state_pda_account,
-            state_pda_signer,
-            input.pushes,
-        )
+        push_funds(input.state_pda_account, state_pda_signer, input.pushes)
     })
 }
 
 /// Push each order's proceeds out of the settlement's buffers, signing each
-/// transfer as the canonical state PDA (the buffers' SPL authority). Each push's
-/// source must be the derived buffer for its destination's mint; pairing the
-/// destination to an order is `BeginSettle`'s job.
+/// transfer as the canonical state PDA (the buffers' SPL authority).
+///
+/// Validating the pushes is done in `BeginSettle`. It does so by checking:
+/// 1. the `destination` matches the `buy_token_account` in the OrderIntent
+/// 2. the sending buffer in the instruction is derived from the `buy_mint` in
+///    the OrderIntent
+///
+/// So ultimately, we are relying that the SPL token program rejects a transfer
+/// whose source and destination mints differ
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(
-    program_id: &Address,
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
     pushes: Pushes<'a, AccountView>,
 ) -> ProgramResult {
     for push in pushes.iter() {
-        // Read the destination's mint; the borrow ends with this block, before
-        // the transfer reuses the account.
-        let mint = {
-            let destination = TokenAccount::from_account_view(push.destination)
-                .map_err(|_| SettlementError::InvalidBuyTokenAccount)?;
-            *destination.mint()
-        };
-        validate_buffer_pda(program_id, push.source_buffer, &mint, push.bump)?;
-
         Transfer::new(
             push.source_buffer,
             push.destination,

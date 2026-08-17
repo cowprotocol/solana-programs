@@ -148,12 +148,11 @@ pub enum SettlementError {
     /// to the order's buy token account; its destination differs from the
     /// `buy_token_account` in the order's intent.
     PushDestinationMismatch = 21,
-    /// `FinalizeSettle`: a push doesn't draw funds from the canonical buffer
-    /// for its destination's mint.
+    /// `BeginSettle`: a paired `FinalizeSettle` push doesn't draw funds from the
+    /// canonical buffer for the order's `buy_mint`.
     PushSourceNotBuffer = 22,
-    /// `FinalizeSettle`: a push's destination isn't a valid SPL token account
-    /// (wrong data length or not owned by the token program), so its mint can't
-    /// be read to derive the buffer.
+    /// `CreateOrder`: the intent's `buy_token_account` isn't a valid SPL token
+    /// account.
     InvalidBuyTokenAccount = 23,
     /// `BeginSettle`: a settled order's executed price (`amount_out/amount_in`)
     /// is worse than the order's limit price (`buy_amount/sell_amount`).
@@ -179,6 +178,16 @@ pub enum SettlementError {
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 31,
+    /// `CreateOrder` or `BeginSettle`: the sell token account holds a different
+    /// mint than the `sell_mint` the intent declares.
+    SellMintMismatch = 32,
+    /// `CreateOrder`: the account passed in the buy-token slot isn't the
+    /// `buy_token_account` recorded in the intent
+    BuyTokenAccountMismatch = 33,
+    /// `CreateOrder`: the buy token account holds a different mint than the
+    /// `buy_mint` the intent declares. At settlement the same mismatch surfaces
+    /// as [`Self::PushSourceNotBuffer`].
+    BuyMintMismatch = 34,
 }
 
 impl From<SettlementError> for u32 {
