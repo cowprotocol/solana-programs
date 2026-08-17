@@ -130,20 +130,21 @@ mod tests {
     use super::fixtures::{initialize_data, NUM_ACCOUNTS};
     use super::*;
     use crate::data::state::EncodedStateAccount;
-    use crate::instruction::fixtures::{fake_account_from_array, fake_sequential_accounts};
+    use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
     use crate::instruction::tests::{
         assert_readonly_nonsigner, assert_writable_nonsigner, assert_writable_signer,
     };
+    use crate::tests::pubkey_from_seed;
     use solana_account_view::AccountView;
     use solana_address::Address;
 
     #[test]
     fn initialize_input_parses_valid_input() {
         let program_id = Address::new_unique();
-        let payer = fake_account_from_array([1; 32]);
-        let state_pda = fake_account_from_array([2; 32]);
-        let reclaim_authority = Address::new_from_array([3; 32]);
-        let manager = Address::new_from_array([4; 32]);
+        let payer = fake_account(pubkey_from_seed("payer"));
+        let state_pda = fake_account(pubkey_from_seed("state pda"));
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let manager = pubkey_from_seed("manager");
         let data = Instruction::from(Initialize {
             program_id,
             payer: *payer.address(),
@@ -153,7 +154,7 @@ mod tests {
         })
         .data;
 
-        let system_program = fake_account_from_array([5; 32]);
+        let system_program = fake_account(pubkey_from_seed("system program"));
         let mut accounts = [payer, state_pda, system_program];
 
         let InitializeInput {
@@ -204,11 +205,11 @@ mod tests {
 
     #[test]
     fn instruction_data_has_expected_layout() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let payer = Pubkey::new_from_array([2; 32]);
-        let state_pda = Pubkey::new_from_array([3; 32]);
-        let reclaim_authority = Pubkey::new_from_array([4; 32]);
-        let manager = Pubkey::new_from_array([5; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
+        let state_pda = pubkey_from_seed("state pda");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let manager = pubkey_from_seed("manager");
 
         let Instruction { data, .. } = Initialize {
             program_id,
@@ -230,9 +231,9 @@ mod tests {
         let reclaim_authority = Pubkey::new_from_array([0x22; 32]);
 
         let Instruction { data, .. } = Initialize {
-            program_id: Pubkey::new_from_array([1; 32]),
-            payer: Pubkey::new_from_array([2; 32]),
-            state_pda: Pubkey::new_from_array([3; 32]),
+            program_id: pubkey_from_seed("program id"),
+            payer: pubkey_from_seed("payer"),
+            state_pda: pubkey_from_seed("state pda"),
             manager,
             reclaim_authority,
         }
@@ -258,11 +259,11 @@ mod tests {
 
     #[test]
     fn instruction_has_expected_accounts() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let payer = Pubkey::new_from_array([2; 32]);
-        let state_pda = Pubkey::new_from_array([3; 32]);
-        let manager = Pubkey::new_from_array([4; 32]);
-        let reclaim_authority = Pubkey::new_from_array([5; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
+        let state_pda = pubkey_from_seed("state pda");
+        let manager = pubkey_from_seed("manager");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
 
         let Instruction { accounts, .. } = Initialize {
             program_id,
