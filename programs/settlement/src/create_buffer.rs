@@ -1,7 +1,5 @@
 //! `CreateBuffer` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use pinocchio_token::{instructions::InitializeAccount3, state::Account as TokenAccount};
 use cow_settlement_interface::{
     instruction::{
         create_buffer::{CreateBufferInput, SPL_TOKEN_PROGRAM_ID},
@@ -9,6 +7,8 @@ use cow_settlement_interface::{
     },
     pda::{buffer::buffer_pda_seeds, state::state_pda_seeds},
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio_token::{instructions::InitializeAccount3, state::Account as TokenAccount};
 
 use crate::processor::CanonicalPda;
 

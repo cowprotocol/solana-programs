@@ -1,10 +1,10 @@
 //! Compute-unit benchmarking helpers for the settlement integration tests.
 
+use cow_settlement_interface::Instruction;
 use litesvm::{
     types::{TransactionMetadata, TransactionResult},
     LiteSVM,
 };
-use cow_settlement_interface::Instruction;
 use solana_sdk::{
     message::v0::MessageAddressTableLookup,
     signature::Keypair,

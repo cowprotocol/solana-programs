@@ -1,8 +1,8 @@
-use cow_settlement_client::instructions::Initialize;
 use cow_settlement_client::cow_settlement_interface::{
     data::state::EncodedStateAccount, instruction::initialize::Initialize as InitializeRaw,
     pda::state::find_state_pda,
 };
+use cow_settlement_client::instructions::Initialize;
 use solana_sdk::signature::Signer;
 
 use crate::common::{

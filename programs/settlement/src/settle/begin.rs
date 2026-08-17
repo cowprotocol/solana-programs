@@ -2,17 +2,6 @@
 
 use std::ops::Deref;
 
-use pinocchio::{
-    cpi::Signer,
-    error::ProgramError,
-    sysvars::{
-        clock::Clock,
-        instructions::{Instructions, IntrospectedInstruction},
-        Sysvar,
-    },
-    AccountView, Address, ProgramResult,
-};
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 use cow_settlement_interface::{
     data::{
         intent::{OrderIntent, OrderKind},
@@ -27,6 +16,17 @@ use cow_settlement_interface::{
     },
     recover_discriminator, SettlementError, SettlementInstruction,
 };
+use pinocchio::{
+    cpi::Signer,
+    error::ProgramError,
+    sysvars::{
+        clock::Clock,
+        instructions::{Instructions, IntrospectedInstruction},
+        Sysvar,
+    },
+    AccountView, Address, ProgramResult,
+};
+use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 
 use crate::processor::is_cpi_call;
 
@@ -372,13 +372,13 @@ fn validated_final_amounts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
     use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
     use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
+    use proptest::prelude::*;
     use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).

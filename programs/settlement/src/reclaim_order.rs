@@ -1,14 +1,14 @@
 //! `ReclaimOrder` instruction handler.
 
-use pinocchio::{
-    error::ProgramError,
-    sysvars::{clock::Clock, Sysvar},
-    AccountView, ProgramResult,
-};
 use cow_settlement_interface::{
     data::order::OrderAccount,
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
     SettlementError,
+};
+use pinocchio::{
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, ProgramResult,
 };
 
 pub fn process_reclaim_order(
@@ -49,7 +49,6 @@ pub fn process_reclaim_order(
 
 #[cfg(test)]
 mod tests {
-    use pinocchio::Address;
     use cow_settlement_interface::data::order::EncodedOrderAccount;
     use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
@@ -57,6 +56,7 @@ mod tests {
     };
     use cow_settlement_interface::pda::order::find_order_pda;
     use cow_settlement_interface::SettlementInstruction;
+    use pinocchio::Address;
 
     use super::*;
 

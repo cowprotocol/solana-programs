@@ -1,6 +1,5 @@
 //! `CreateOrder` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use cow_settlement_interface::{
     data::{
         intent::EncodedOrderIntent,
@@ -10,6 +9,7 @@ use cow_settlement_interface::{
     pda::order::order_pda_seeds,
     SettlementError,
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::processor::CanonicalPda;
 
