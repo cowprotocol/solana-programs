@@ -60,7 +60,7 @@ mod tests {
 
     use super::*;
 
-    const PROGRAM_ID: pinocchio::Address = pinocchio::Address::new_from_array([1; 32]);
+    const PROGRAM_ID: pinocchio::Address = pinocchio::Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_reclaim_order_propagates_parse_error() {

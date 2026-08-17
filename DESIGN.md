@@ -29,9 +29,23 @@ A bump is not a migration. There are some other consequences that should be cons
 
 The state PDA is created once, after deployment, by the `Initialize` instruction.
 
-### Reclaim Authority
+## Authorities
 
-The _reclaim authority_ is the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
+The program grant privileged roles to specific accounts (_authorities_). They are:
+
+- Manager: the account that can add and remove solvers. It can also update the address of all other roles.
+- Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
+
+### Updating authorities
+
+Any authority that holds a role can transfer it to another account. This is a two-step process:
+
+1. The current authority needs to execute `ProposeAuthority` for its own role and the prospective new authority.
+   Even after execution, the actual authority doesn't change.
+2. The proposed account from the previous step needs to call `AcceptAuthority`.
+   At this point, the authority transfer is finalized.
+
+The manager can propose an authority change for any role.
 
 ## Buffer accounts
 
@@ -58,8 +72,6 @@ There are two roles for authentication:
 The settlement program state PDA stores the state used for authentication.
 
 On settlement program deployment, the program state is initialized with a fixed initial manager, controlled by CoW Core as mandated by CoW DAO, and an empty list of solvers.
-
-Transferring the role of manager is done in a two-step process: first the current manager proposes a new manager; then the new manager accepts the role, finalizing the role transfer.
 
 Differences with Ethereum:
 

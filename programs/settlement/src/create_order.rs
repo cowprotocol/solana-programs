@@ -85,7 +85,7 @@ mod tests {
     /// Arbitrary placeholder program id for handler-level tests. The
     /// failure paths exercised below return before the program id is used
     /// for any syscall, so any 32-byte value works.
-    const PROGRAM_ID: Address = Address::new_from_array([1; 32]);
+    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_create_order_propagates_parse_error() {

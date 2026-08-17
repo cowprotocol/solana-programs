@@ -4,7 +4,7 @@ use settlement_client::settlement_interface::{
     instruction::initialize::Initialize as InitializeRaw,
     pda::state::find_state_pda,
 };
-use solana_sdk::signature::Signer;
+use solana_sdk::{pubkey::Pubkey, signature::Signer};
 
 use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
@@ -42,6 +42,9 @@ fn happy_path_initializes_state_pda_with_expected_data() {
     let expected_body: [u8; EncodedStateAccount::SIZE] = StateAccount {
         reclaim_authority,
         manager,
+        // No authority changes are expected.
+        pending_manager: Pubkey::default(),
+        pending_reclaim_authority: Pubkey::default(),
     }
     .into();
     assert_eq!(

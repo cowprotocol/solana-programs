@@ -85,7 +85,7 @@ mod tests {
 
     /// Arbitrary placeholder program id. The failure path exercised below
     /// returns before the program id is used for any syscall.
-    const PROGRAM_ID: Address = Address::new_from_array([1; 32]);
+    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_create_buffer_propagates_error() {

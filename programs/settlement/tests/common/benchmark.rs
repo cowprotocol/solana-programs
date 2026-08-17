@@ -22,6 +22,7 @@ pub enum BenchLabel {
     CreateBuffers,
     ReclaimOrder,
     Settle,
+    ProposeAuthority,
 }
 
 impl fmt::Display for BenchLabel {
@@ -34,6 +35,7 @@ impl fmt::Display for BenchLabel {
             Self::CreateBuffers => "create_buffers",
             Self::ReclaimOrder => "reclaim_order",
             Self::Settle => "settle",
+            Self::ProposeAuthority => "propose_authority",
         })
     }
 }

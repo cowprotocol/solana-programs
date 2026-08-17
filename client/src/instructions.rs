@@ -8,7 +8,7 @@
 use settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
-    Instruction, Pubkey,
+    Instruction, Pubkey, Role,
 };
 
 // Reexport the instruction builders that don't change from the interface.
@@ -183,6 +183,30 @@ impl From<Initialize> for Instruction {
             state_pda,
             manager: builder.manager,
             reclaim_authority: builder.reclaim_authority,
+        }
+        .into()
+    }
+}
+
+/// Proposes `new_authority` as the next holder of `role`. Signed by `signer`,
+/// which must be the manager or the current holder of `role`. The transfer only
+/// takes effect once `new_authority` accepts in a separate acceptance step.
+pub struct ProposeAuthority {
+    pub program_id: Pubkey,
+    pub signer: Pubkey,
+    pub role: Role,
+    pub new_authority: Pubkey,
+}
+
+impl From<ProposeAuthority> for Instruction {
+    fn from(builder: ProposeAuthority) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
+        settlement_interface::instruction::authority::ProposeAuthority {
+            program_id: builder.program_id,
+            signer: builder.signer,
+            state_pda,
+            role: builder.role,
+            new_authority: builder.new_authority,
         }
         .into()
     }

@@ -23,6 +23,7 @@ pub enum SettlementInstruction {
     Initialize = 3,
     CreateBuffer = 4,
     ReclaimOrder = 5,
+    ProposeAuthority = 6,
 }
 
 impl SettlementInstruction {
@@ -31,6 +32,37 @@ impl SettlementInstruction {
     }
 
     fn unknown_discriminator(_: u8) -> ProgramError {
+        ProgramError::InvalidInstructionData
+    }
+}
+
+/// A transferable authority stored in the state PDA.
+///
+/// The discriminant is the wire value carried by the authority-transfer
+/// instructions (see [`crate::instruction::authority`]). Adding a role here and
+/// a matching field pair to [`StateAccount`](data::state::StateAccount) is all
+/// that a new authority needs: the transfer instructions and their
+/// authorization rule are role-agnostic.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
+#[repr(u8)]
+#[num_enum(error_type(name = ProgramError, constructor = Role::unknown_role))]
+pub enum Role {
+    /// The account authorized to add and remove solvers and to transfer roles.
+    /// It is the highest authority: it may propose a change to any role.
+    Manager = 0,
+    /// The account authorized to close buffer accounts and reclaim their rent,
+    /// choosing where that rent goes.
+    ReclaimAuthority = 1,
+}
+
+impl Role {
+    /// The single wire byte that selects this role in the authority-transfer
+    /// instructions.
+    pub fn discriminator(self) -> u8 {
+        self as u8
+    }
+
+    fn unknown_role(_: u8) -> ProgramError {
         ProgramError::InvalidInstructionData
     }
 }
@@ -179,6 +211,9 @@ pub enum SettlementError {
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 31,
+    /// `ProposeAuthority`'s signer is neither the manager nor the current
+    /// holder of the role being transferred, so it may not propose the change.
+    UnauthorizedAuthorityProposal = 32,
 }
 
 impl From<SettlementError> for u32 {
@@ -267,5 +302,20 @@ mod tests {
             SettlementAccount::OrderAccount.discriminator(),
             SettlementAccount::SettlementState.discriminator(),
         );
+    }
+
+    #[test]
+    fn role_try_from_partitions_all_bytes() {
+        for i in u8::MIN..=u8::MAX {
+            match Role::try_from(i) {
+                Ok(role) => assert_eq!(role as u8, i),
+                Err(err) => assert_eq!(err, ProgramError::InvalidInstructionData),
+            }
+        }
+    }
+
+    #[test]
+    fn role_try_from_matches_manager() {
+        assert_eq!(Role::try_from(0), Ok(Role::Manager));
     }
 }

@@ -129,7 +129,6 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::{initialize_data, NUM_ACCOUNTS};
     use super::*;
-    use crate::data::state::EncodedStateAccount;
     use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
     use crate::instruction::tests::{
         assert_readonly_nonsigner, assert_writable_nonsigner, assert_writable_signer,
@@ -219,7 +218,7 @@ mod tests {
             manager,
         }
         .into();
-        assert_eq!(data.len(), EncodedStateAccount::SIZE);
+        assert_eq!(data.len(), 1 + 2 * core::mem::size_of::<Pubkey>());
         assert_eq!(data[0], SettlementInstruction::Initialize.discriminator());
         assert_eq!(&data[1..33], &manager.to_bytes());
         assert_eq!(&data[33..], &reclaim_authority.to_bytes());
@@ -240,7 +239,7 @@ mod tests {
         .into();
 
         #[rustfmt::skip]
-        let expected: [u8; EncodedStateAccount::SIZE] = [
+        let expected: [u8; 1 + 2 * core::mem::size_of::<Pubkey>()] = [
             // discriminator (Initialize = 3)
             0x03,
             // manager

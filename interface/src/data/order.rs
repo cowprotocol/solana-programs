@@ -495,7 +495,7 @@ mod tests {
         use crate::instruction::fixtures::fake_account_with_data;
         use crate::pda::order::find_order_pda;
 
-        const PROGRAM_ID: Address = Address::new_from_array([9; 32]);
+        const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
         /// [`sample_account`] carrying its own canonical bump, plus the address
         /// of the PDA it belongs at.

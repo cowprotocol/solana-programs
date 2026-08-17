@@ -5,6 +5,7 @@ use settlement_interface::{
     data::state::{write_account, EncodedStateAccount, StateAccount},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
+    Pubkey,
 };
 
 use crate::processor::CanonicalPda;
@@ -45,6 +46,9 @@ pub fn process_initialize(
         &StateAccount {
             manager,
             reclaim_authority,
+            // No authority changes are proposed at initialization.
+            pending_manager: Pubkey::default(),
+            pending_reclaim_authority: Pubkey::default(),
         },
     );
 

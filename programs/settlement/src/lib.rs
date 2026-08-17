@@ -1,5 +1,6 @@
 //! On-chain CoW Protocol settlement program.
 
+mod authority;
 mod create_buffer;
 mod create_order;
 mod initialize;
@@ -7,6 +8,7 @@ mod processor;
 mod reclaim_order;
 mod settle;
 
+use authority::process_propose_authority;
 use create_buffer::process_create_buffer;
 use create_order::process_create_order;
 use initialize::process_initialize;
@@ -41,6 +43,9 @@ pub fn process_instruction(
         }
         SettlementInstruction::ReclaimOrder => {
             process_reclaim_order(program_id, accounts, instruction_data)
+        }
+        SettlementInstruction::ProposeAuthority => {
+            process_propose_authority(program_id, accounts, instruction_data)
         }
     }
 }
