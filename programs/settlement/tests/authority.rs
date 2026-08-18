@@ -1,12 +1,12 @@
 //! Integration tests for the authority proposal instruction.
 
-use litesvm::LiteSVM;
-use settlement_client::instructions::{Initialize, ProposeAuthority};
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::state::{EncodedStateAccount, StateAccount},
     pda::state::find_state_pda,
     Instruction, Role, SettlementError,
 };
+use cow_settlement_client::instructions::{Initialize, ProposeAuthority};
+use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,

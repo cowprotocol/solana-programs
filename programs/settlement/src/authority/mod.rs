@@ -1,5 +1,5 @@
 //! Instruction handlers for transferring a
-//! [`Role`](settlement_interface::Role) stored in the state PDA.
+//! [`Role`](cow_settlement_interface::Role) stored in the state PDA.
 //!
 //! A transfer is two steps: a proposal by the manager or the role's current
 //! holder (see [`process_propose_authority`]), then an acceptance by the

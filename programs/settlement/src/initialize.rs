@@ -1,12 +1,12 @@
 //! `Initialize` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::state::{write_account, EncodedStateAccount, StateAccount},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
     Pubkey,
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::processor::CanonicalPda;
 
@@ -58,9 +58,11 @@ pub fn process_initialize(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use cow_settlement_interface::instruction::initialize::fixtures::{
+        initialize_data, NUM_ACCOUNTS,
+    };
     use pinocchio::error::ProgramError;
-    use settlement_interface::instruction::fixtures::fake_sequential_accounts;
-    use settlement_interface::instruction::initialize::fixtures::{initialize_data, NUM_ACCOUNTS};
 
     #[test]
     fn process_initialize_propagates_parse_error() {

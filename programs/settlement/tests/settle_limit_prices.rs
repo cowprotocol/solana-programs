@@ -7,21 +7,21 @@
 //! succeeds or is rejected with the expected error.
 
 use crate::common::{
-    buffer,
+    assert_settlement_error, buffer,
     order::OrderBuilder,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
 };
-use litesvm::LiteSVM;
-use settlement_client::instructions::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
-};
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
     data::order::OrderAccount,
     pda::order::find_order_pda,
     SettlementError,
 };
+use cow_settlement_client::instructions::{
+    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
+};
+use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
@@ -29,17 +29,6 @@ use solana_sdk::{
 };
 
 mod common;
-
-#[track_caller]
-fn assert_settlement_error(result: Result<(), TransactionError>, expected: SettlementError) {
-    assert_eq!(
-        result.err(),
-        Some(TransactionError::InstructionError(
-            BEGIN_INDEX,
-            to_instruction_error(expected),
-        )),
-    );
-}
 
 /// Read `intent`'s order PDA and return its persisted `(amount_withdrawn,
 /// amount_received)` cumulative fill totals.
@@ -166,6 +155,7 @@ fn sell_order_below_limit_price_is_rejected() {
 
     // One token short of the proportional minimum (600_000) for the pull.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle(&mut svm, &program_id, &payer, &intent, 300_000, 599_999),
         SettlementError::LimitPriceViolated,
     );
@@ -234,6 +224,7 @@ fn buy_order_below_limit_price_is_rejected() {
 
     // One token more than the proportional maximum spend (800_000) for the buy.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle(&mut svm, &program_id, &payer, &intent, 800_001, 200_000),
         SettlementError::LimitPriceViolated,
     );
@@ -337,6 +328,7 @@ fn multiple_pulls_below_the_limit_are_rejected() {
     // One token short of the 1_200_000 the summed 600_000 pull requires; the
     // shortfall can't be hidden by splitting the pull across parts.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle_all(
             &mut svm,
             &program_id,
@@ -362,6 +354,7 @@ fn sell_order_cannot_exceed_its_sell_amount() {
     // Pull 1_500_000 > the 1_000_000 sell amount, paid to match the limit price
     // so only the sell cap can reject it.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle(&mut svm, &program_id, &payer, &intent, 1_500_000, 3_000_000),
         SettlementError::FillExceedsOrderAmount,
     );
@@ -380,6 +373,7 @@ fn buy_order_cannot_exceed_its_buy_amount() {
 
     // Receive 1_500_000 > the 1_000_000 buy amount, spending within the limit.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 1_500_000),
         SettlementError::FillExceedsOrderAmount,
     );
@@ -398,6 +392,7 @@ fn fill_or_kill_order_must_be_filled_completely() {
 
     // Selling only half a fill-or-kill order isn't allowed, even at the limit.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle(&mut svm, &program_id, &payer, &intent, 500_000, 1_000_000),
         SettlementError::OrderNotExactlyFilled,
     );
@@ -450,6 +445,7 @@ fn order_cannot_be_overfilled_across_settlements() {
 
     // A second 500_000 pull would take 1_100_000 in total, past the sell amount.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle(&mut svm, &program_id, &payer, &intent, 500_000, 1_000_000),
         SettlementError::FillExceedsOrderAmount,
     );
@@ -475,6 +471,7 @@ fn buy_order_cannot_be_overfilled_across_settlements() {
     // Buying another 500_000 would total 1_100_000, past the buy amount, even
     // though this settlement's spend stays within the limit price.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 500_000),
         SettlementError::FillExceedsOrderAmount,
     );
@@ -503,6 +500,7 @@ fn fill_or_kill_order_cannot_be_settled_twice() {
     // fill-or-kill, the resulting cumulative fill isn't exactly the order's
     // amount, so it's rejected as not exactly filled.
     assert_settlement_error(
+        BEGIN_INDEX,
         settle(&mut svm, &program_id, &payer, &intent, 1_000_000, 2_000_000),
         SettlementError::OrderNotExactlyFilled,
     );
@@ -528,6 +526,7 @@ fn settlement_rejected_when_one_order_exceeds_its_amount() {
         .build();
 
     assert_settlement_error(
+        BEGIN_INDEX,
         settle_all(
             &mut svm,
             &program_id,

@@ -23,7 +23,7 @@ use crate::{Role, SettlementInstruction};
 /// over `role`; it takes effect only once it accepts in a separate acceptance
 /// step.
 ///
-/// Wire format: `[discriminator=6, role (1 byte), new_authority (32 bytes)]`.
+/// Wire format: `[discriminator=7, role (1 byte), new_authority (32 bytes)]`.
 /// Required accounts: `[signer (S), state_pda (W)]`.
 pub struct ProposeAuthority {
     pub program_id: Pubkey,

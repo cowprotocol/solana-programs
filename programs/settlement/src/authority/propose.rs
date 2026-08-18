@@ -5,12 +5,12 @@
 //! only once the proposed account accepts in a separate acceptance step. See
 //! the [module docs](super) for the full transfer flow.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::state::{write_account, EncodedStateAccount, StateAccount},
     instruction::{authority::ProposeAuthorityInput, InstructionInputParsing},
     SettlementError,
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 pub fn process_propose_authority(
     program_id: &Address,
@@ -50,10 +50,10 @@ pub fn process_propose_authority(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use settlement_interface::instruction::authority::propose::fixtures::{
+    use cow_settlement_interface::instruction::authority::propose::fixtures::{
         propose_authority_data, NUM_ACCOUNTS,
     };
-    use settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
 
     const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 

@@ -55,6 +55,8 @@ These token accounts are accessible to all solvers and effectively work like the
 
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
+A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#reclaim-authority) can call.
+
 Differences with Ethereum:
 
 - In a settlement, a solver can't access buffers directly but needs to invoke a dedicated instruction or use the funds in them to pay out the proceeds of an order.

@@ -1,9 +1,9 @@
-use settlement_client::instructions::Initialize;
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::state::{EncodedStateAccount, StateAccount},
     instruction::initialize::Initialize as InitializeRaw,
     pda::state::find_state_pda,
 };
+use cow_settlement_client::instructions::Initialize;
 use solana_sdk::{pubkey::Pubkey, signature::Signer};
 
 use crate::common::{

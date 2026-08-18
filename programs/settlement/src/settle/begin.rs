@@ -2,18 +2,7 @@
 
 use std::ops::Deref;
 
-use pinocchio::{
-    cpi::Signer,
-    error::ProgramError,
-    sysvars::{
-        clock::Clock,
-        instructions::{Instructions, IntrospectedInstruction},
-        Sysvar,
-    },
-    AccountView, Address, ProgramResult,
-};
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::{
         intent::{OrderIntent, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},
@@ -27,10 +16,21 @@ use settlement_interface::{
     },
     recover_discriminator, SettlementError, SettlementInstruction,
 };
+use pinocchio::{
+    cpi::Signer,
+    error::ProgramError,
+    sysvars::{
+        clock::Clock,
+        instructions::{Instructions, IntrospectedInstruction},
+        Sysvar,
+    },
+    AccountView, Address, ProgramResult,
+};
+use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 
-use crate::processor::is_cpi_call;
+use crate::processor::{is_cpi_call, with_state_pda_signer};
 
-use super::{validate_counterpart, validate_token_program_account, with_state_pda_signer};
+use super::{validate_counterpart, validate_token_program_account};
 
 pub fn process_begin_settle(
     program_id: &Address,
@@ -372,13 +372,13 @@ fn validated_final_amounts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use cow_settlement_interface::instruction::fixtures::fake_account;
+    use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
+    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
+    use cow_settlement_interface::instruction::InstructionInputParsing;
+    use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
-    use settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
-    use settlement_interface::instruction::fixtures::fake_account;
-    use settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
-    use settlement_interface::instruction::InstructionInputParsing;
-    use settlement_interface::Pubkey;
     use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).

@@ -1,10 +1,10 @@
 //! Compute-unit benchmarking helpers for the settlement integration tests.
 
+use cow_settlement_interface::Instruction;
 use litesvm::{
     types::{TransactionMetadata, TransactionResult},
     LiteSVM,
 };
-use settlement_interface::Instruction;
 use solana_sdk::{
     message::v0::MessageAddressTableLookup,
     signature::Keypair,
@@ -20,6 +20,7 @@ pub enum BenchLabel {
     Initialize,
     CreateOrder,
     CreateBuffers,
+    ReclaimBuffer,
     ReclaimOrder,
     Settle,
     ProposeAuthority,
@@ -33,6 +34,7 @@ impl fmt::Display for BenchLabel {
             Self::Initialize => "initialize",
             Self::CreateOrder => "create_order",
             Self::CreateBuffers => "create_buffers",
+            Self::ReclaimBuffer => "reclaim_buffer",
             Self::ReclaimOrder => "reclaim_order",
             Self::Settle => "settle",
             Self::ProposeAuthority => "propose_authority",
