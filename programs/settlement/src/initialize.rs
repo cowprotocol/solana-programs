@@ -46,7 +46,6 @@ pub fn process_initialize(
         &StateAccount {
             manager,
             reclaim_authority,
-            // No authority changes are proposed at initialization.
             pending_manager: Pubkey::default(),
             pending_reclaim_authority: Pubkey::default(),
         },

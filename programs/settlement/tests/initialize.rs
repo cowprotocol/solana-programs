@@ -42,7 +42,6 @@ fn happy_path_initializes_state_pda_with_expected_data() {
     let expected_body: [u8; EncodedStateAccount::SIZE] = StateAccount {
         reclaim_authority,
         manager,
-        // No authority changes are expected.
         pending_manager: Pubkey::default(),
         pending_reclaim_authority: Pubkey::default(),
     }
