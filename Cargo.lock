@@ -924,7 +924,6 @@ dependencies = [
  "solana-instruction",
  "solana-program-pack",
  "solana-pubkey 4.2.1",
- "solana-reward-info",
  "solana-rpc-client",
  "solana-sdk",
  "solana-system-interface 3.2.0",
