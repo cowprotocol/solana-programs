@@ -4,7 +4,7 @@ pub use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK");
+solana_pubkey::declare_id!("J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w");
 
 pub mod data;
 pub mod instruction;
