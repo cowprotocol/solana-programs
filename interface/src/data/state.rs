@@ -35,15 +35,16 @@ pub struct StateAccount {
     pub pending_reclaim_authority: Pubkey,
 }
 
-/// Canonical representation of a [`StateAccount`]: the discriminator byte
-/// followed by the current holder and the pending proposed holder of each role.
+/// Canonical representation of a [`StateAccount`]: the discriminator byte, the
+/// current holder and the pending proposed holder of each role, and a trailing
+/// region reserved for the eventual on-chain solver list.
 ///
 /// ```text
 ///  ┌──── discriminator
-///  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┐
-///  ││            manager            │        pending_manager        │       reclaim_authority       │   pending_reclaim_authority   │
-///  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┘
-/// 0 1                               33                              65                              97                              129
+///  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬─────────────────────┐
+///  ││            manager            │        pending_manager        │       reclaim_authority       │   pending_reclaim_authority   │  solvers (0xff …)    │
+///  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴─────────────────────┘
+/// 0 1                               33                              65                              97                              129                   3329
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedStateAccount([u8; Self::SIZE]);
@@ -56,7 +57,20 @@ impl EncodedStateAccount {
     const W_RECLAIM_AUTHORITY: usize = size_of::<Pubkey>();
     const W_PENDING_RECLAIM_AUTHORITY: usize = size_of::<Pubkey>();
 
-    pub const SIZE: usize = 129;
+    /// Number of solver slots reserved after the authorities. This trailing
+    /// region is a placeholder for the eventual on-chain solver list; for now
+    /// it is filled with `0xff` so the account occupies its real deployed size
+    /// and every copy of the encoding pays the real cost.
+    const SOLVER_SLOTS: usize = 100;
+    /// Width of the reserved solver region.
+    const W_SOLVERS: usize = Self::SOLVER_SLOTS * size_of::<Pubkey>();
+
+    pub const SIZE: usize = Self::W_DISCRIMINATOR
+        + Self::W_MANAGER
+        + Self::W_PENDING_MANAGER
+        + Self::W_RECLAIM_AUTHORITY
+        + Self::W_PENDING_RECLAIM_AUTHORITY
+        + Self::W_SOLVERS;
 
     /// Single-byte account discriminator. See [`crate::SettlementAccount`].
     pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator();
@@ -77,19 +91,22 @@ pub fn write_account(buffer: &mut [u8; EncodedStateAccount::SIZE], account: &Sta
         pending_manager_slot,
         reclaim_authority_slot,
         pending_reclaim_authority_slot,
+        solvers_slot,
     ) = mut_array_refs![
         buffer,
         EncodedStateAccount::W_DISCRIMINATOR,
         EncodedStateAccount::W_MANAGER,
         EncodedStateAccount::W_PENDING_MANAGER,
         EncodedStateAccount::W_RECLAIM_AUTHORITY,
-        EncodedStateAccount::W_PENDING_RECLAIM_AUTHORITY
+        EncodedStateAccount::W_PENDING_RECLAIM_AUTHORITY,
+        EncodedStateAccount::W_SOLVERS
     ];
     *discriminator_slot = [EncodedStateAccount::DISCRIMINATOR];
     *manager_slot = manager.to_bytes();
     *pending_manager_slot = pending_manager.to_bytes();
     *reclaim_authority_slot = reclaim_authority.to_bytes();
     *pending_reclaim_authority_slot = pending_reclaim_authority.to_bytes();
+    solvers_slot.fill(0xff);
 }
 
 impl StateAccount {
@@ -172,13 +189,21 @@ impl TryFrom<[u8; EncodedStateAccount::SIZE]> for StateAccount {
     type Error = ProgramError;
 
     fn try_from(bytes: [u8; EncodedStateAccount::SIZE]) -> Result<Self, Self::Error> {
-        let (discriminator, manager, pending_manager, reclaim_authority, pending_reclaim_authority) = array_refs![
+        let (
+            discriminator,
+            manager,
+            pending_manager,
+            reclaim_authority,
+            pending_reclaim_authority,
+            _solvers,
+        ) = array_refs![
             &bytes,
             EncodedStateAccount::W_DISCRIMINATOR,
             EncodedStateAccount::W_MANAGER,
             EncodedStateAccount::W_PENDING_MANAGER,
             EncodedStateAccount::W_RECLAIM_AUTHORITY,
-            EncodedStateAccount::W_PENDING_RECLAIM_AUTHORITY
+            EncodedStateAccount::W_PENDING_RECLAIM_AUTHORITY,
+            EncodedStateAccount::W_SOLVERS
         ];
 
         if *discriminator != [EncodedStateAccount::DISCRIMINATOR] {
@@ -377,6 +402,9 @@ mod tests {
                 mut bytes in any::<[u8; EncodedStateAccount::SIZE]>(),
             ) {
                 bytes[DISCRIMINATOR_OFFSET] = EncodedStateAccount::DISCRIMINATOR;
+                // The canonical encoding fills the reserved solver region with
+                // `0xff`, so a byte pattern only round-trips if it already does.
+                bytes[EncodedStateAccount::SIZE - EncodedStateAccount::W_SOLVERS..].fill(0xff);
                 let encoded = EncodedStateAccount(bytes);
 
                 let decoded = StateAccount::try_from(encoded.clone()).expect("should decode from valid bytes");
