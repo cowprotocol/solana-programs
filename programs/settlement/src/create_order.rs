@@ -1,7 +1,6 @@
 //! `CreateOrder` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::{
         intent::EncodedOrderIntent,
         order::{self, EncodedOrderAccount},
@@ -10,6 +9,7 @@ use settlement_interface::{
     pda::order::order_pda_seeds,
     SettlementError,
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::processor::CanonicalPda;
 
@@ -70,11 +70,11 @@ pub fn process_create_order(
 
 #[cfg(test)]
 mod tests {
-    use settlement_interface::data::intent::{OrderIntent, OrderKind};
-    use settlement_interface::instruction::create_order::fixtures::{
+    use cow_settlement_interface::data::intent::{OrderIntent, OrderKind};
+    use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
-    use settlement_interface::instruction::fixtures::{
+    use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_from, fake_sequential_accounts,
     };
 

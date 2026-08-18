@@ -1,10 +1,6 @@
 //! `FinalizeSettle` instruction handler.
 
-use pinocchio::{
-    cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
-};
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
-use settlement_interface::{
+use cow_settlement_interface::{
     instruction::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
@@ -12,6 +8,10 @@ use settlement_interface::{
     pda::buffer::validate_buffer_pda,
     SettlementError, SettlementInstruction,
 };
+use pinocchio::{
+    cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
+};
+use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 
 use crate::processor::{is_cpi_call, with_state_pda_signer};
 

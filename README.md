@@ -96,6 +96,16 @@ just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ./deployer-keypair.json
 
 If the package minor or major has been changed, it is also necessary to run initialize again.
 
+### Publishing the cargo packages
+
+Authenticate your cargo cli with `cargo login`. Ensure you have permission to publish `cow-settlement-interface`, `cow-settlement-client`, and `cow-test-cli`.
+
+Then, all packages can published in one go:
+
+```sh
+cargo publish
+```
+
 ### Devnet example
 
 ```sh

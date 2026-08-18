@@ -2,12 +2,12 @@
 
 use std::ops::Deref;
 
-use pinocchio::{
-    error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
-};
-use settlement_interface::{
+use cow_settlement_interface::{
     instruction::{create_buffer::SPL_TOKEN_PROGRAM_ID, settle::recover_counterpart},
     recover_discriminator, SettlementError, SettlementInstruction,
+};
+use pinocchio::{
+    error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
 
 mod begin;

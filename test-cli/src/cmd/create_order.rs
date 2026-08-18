@@ -1,11 +1,11 @@
 use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser};
-use settlement_client::{
-    instructions::CreateOrder,
-    settlement_interface::{
+use cow_settlement_client::{
+    cow_settlement_interface::{
         data::intent::{OrderIntent, OrderKind},
         pda::order::find_order_pda,
     },
+    instructions::CreateOrder,
 };
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};

@@ -5,7 +5,7 @@
 //! provide a simplified interface at the price of more computation done
 //! by the function, making it more suitable for off-chain use.
 
-use settlement_interface::{
+use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
@@ -13,7 +13,7 @@ use settlement_interface::{
 
 // Reexport the instruction builders that don't change from the interface.
 // We want the client to provide all instruction builders.
-pub use settlement_interface::instruction::settle::Pull;
+pub use cow_settlement_interface::instruction::settle::Pull;
 
 /// An order ready to be settled, together with the funds to pull from it:
 /// `intent` identifies the order and `pulls` lists the [`Pull`]s to make from
@@ -45,7 +45,7 @@ impl From<BeginSettle<'_>> for Instruction {
             pull_lists.push(order.pulls);
         }
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        settlement_interface::instruction::settle::BeginSettle {
+        cow_settlement_interface::instruction::settle::BeginSettle {
             program_id: builder.program_id,
             state_pda,
             finalize_ix_index: builder.finalize_ix_index,
@@ -109,7 +109,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             amounts.push(builder.orders[i].amount);
         }
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        settlement_interface::instruction::settle::FinalizeSettle {
+        cow_settlement_interface::instruction::settle::FinalizeSettle {
             program_id: builder.program_id,
             state_pda,
             begin_ix_index: builder.begin_ix_index,
@@ -134,7 +134,7 @@ impl From<CreateOrder<'_>> for Instruction {
         let encoded = EncodedOrderIntent::from(builder.intent);
         let (order_pda, _bump) = find_order_pda(&builder.program_id, &encoded.hash());
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-        settlement_interface::instruction::create_order::CreateOrder {
+        cow_settlement_interface::instruction::create_order::CreateOrder {
             program_id: builder.program_id,
             owner: builder.owner,
             created_by: builder.created_by,
@@ -158,7 +158,7 @@ impl From<CreateBuffers<'_>> for Instruction {
             .iter()
             .map(|mint| (find_buffer_pda(&builder.program_id, mint).0, *mint))
             .collect();
-        settlement_interface::instruction::create_buffer::CreateBuffers {
+        cow_settlement_interface::instruction::create_buffer::CreateBuffers {
             program_id: builder.program_id,
             payer: builder.payer,
             buffers: &buffers,
@@ -176,7 +176,7 @@ pub struct Initialize {
 impl From<Initialize> for Instruction {
     fn from(builder: Initialize) -> Self {
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        settlement_interface::instruction::initialize::Initialize {
+        cow_settlement_interface::instruction::initialize::Initialize {
             program_id: builder.program_id,
             payer: builder.payer,
             state_pda,
@@ -211,7 +211,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
                 (buffer_pda, *mint)
             })
             .collect();
-        settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
+        cow_settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
             program_id: builder.program_id,
             state_pda,
             reclaim_authority: builder.reclaim_authority,
@@ -226,7 +226,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
 mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
-    use settlement_interface::{
+    use cow_settlement_interface::{
         data::intent::fixtures::arb_order_intent,
         instruction::{
             fixtures::fake_account_from_array,
