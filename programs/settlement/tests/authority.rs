@@ -2,10 +2,9 @@
 
 use cow_settlement_client::cow_settlement_interface::{
     data::state::{EncodedStateAccount, StateAccount},
-    pda::state::find_state_pda,
     Instruction, Role, SettlementError,
 };
-use cow_settlement_client::instructions::{Initialize, ProposeAuthority};
+use cow_settlement_client::instructions::ProposeAuthority;
 use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::InstructionError,
@@ -16,52 +15,10 @@ use solana_sdk::{
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    signed_tx, to_instruction_error,
+    setup_init, signed_tx, to_instruction_error, InitializedParams,
 };
 
 mod common;
-
-/// A settlement initialized by [`setup_initialized`], with the manager and
-/// reclaim authority held as keypairs the test can sign transfers with.
-struct InitializedParams {
-    program_id: Pubkey,
-    payer: Keypair,
-    state_pda: Pubkey,
-    manager: Keypair,
-    reclaim: Keypair,
-}
-
-/// Spin up an initialized settlement whose manager and reclaim authority are
-/// keypairs the test controls, so it can sign transfers on their behalf.
-///
-/// Returns the SVM and an [`InitializedParams`] bundling the program id, the
-/// fee payer, the state PDA, and the manager and reclaim authority keypairs.
-fn setup_initialized() -> (LiteSVM, InitializedParams) {
-    let (mut svm, program_id, payer) = common::setup();
-    let (state_pda, _bump) = find_state_pda(&program_id);
-    let manager = common::unique_keypair();
-    let reclaim = common::unique_keypair();
-
-    let ix = Initialize {
-        program_id,
-        payer: payer.pubkey(),
-        manager: manager.pubkey(),
-        reclaim_authority: reclaim.pubkey(),
-    };
-    let tx = signed_tx(&svm, &payer, &payer, ix);
-    svm.send_transaction(tx).expect("initialize should succeed");
-
-    (
-        svm,
-        InitializedParams {
-            program_id,
-            payer,
-            state_pda,
-            manager,
-            reclaim,
-        },
-    )
-}
 
 fn read_state(svm: &LiteSVM, state_pda: &Pubkey) -> StateAccount {
     let account = svm
@@ -130,7 +87,7 @@ fn assert_proposal_rejected(
     assert_instruction_error(res, to_instruction_error(expected));
 }
 
-/// The keypair currently holding `role` in a freshly [`setup_initialized`]
+/// The keypair currently holding `role` in a freshly [`setup_init`]
 /// settlement.
 fn role_holder(role: Role, params: &InitializedParams) -> &Keypair {
     match role {
@@ -151,7 +108,7 @@ macro_rules! propose_authority_tests {
     ($($name:ident: $proposer:ident proposes $role:expr;)*) => {$(
         #[test]
         fn $name() {
-            let (mut svm, params) = setup_initialized();
+            let (mut svm, params) = setup_init();
             assert_records_pending_proposal(&mut svm, &params, $role, &params.$proposer);
         }
     )*};
@@ -159,7 +116,7 @@ macro_rules! propose_authority_tests {
     ($($name:ident: $proposer:ident proposes $role:expr, error $err:expr;)*) => {$(
         #[test]
         fn $name() {
-            let (mut svm, params) = setup_initialized();
+            let (mut svm, params) = setup_init();
             assert_proposal_rejected(&mut svm, &params, $role, &params.$proposer, $err);
         }
     )*};
@@ -192,7 +149,7 @@ fn signer_must_sign_the_transaction() {
             manager,
             ..
         },
-    ) = setup_initialized();
+    ) = setup_init();
     let new_manager = common::unique_keypair();
 
     let mut ix: Instruction = ProposeAuthority {

@@ -15,6 +15,7 @@ pub mod state;
 pub mod token;
 
 use cow_settlement_client::instructions::Initialize;
+use cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::SettlementError;
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -80,23 +81,47 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     (svm, program_id, payer)
 }
 
-/// [`setup`] followed by a successful `Initialize`, with a freshly generated
-/// `reclaim_authority` returned alongside the rest.
-pub fn setup_init() -> (LiteSVM, Pubkey, Keypair, Keypair) {
+/// A settlement initialized by [`setup_init`], with the manager and
+/// reclaim authority held as keypairs the test can sign transfers with.
+pub struct InitializedParams {
+    pub program_id: Pubkey,
+    pub payer: Keypair,
+    pub state_pda: Pubkey,
+    pub manager: Keypair,
+    pub reclaim: Keypair,
+}
+
+/// [`setup`] followed by a successful `Initialize` whose manager and reclaim
+/// authority are keypairs the test controls, so it can sign on their behalf.
+///
+/// Returns the SVM and an [`InitializedParams`] bundling the program id, the
+/// fee payer, the state PDA, and the manager and reclaim authority keypairs.
+pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let (mut svm, program_id, payer) = setup();
-    let reclaim_authority = unique_keypair();
+    let (state_pda, _bump) = find_state_pda(&program_id);
+    let manager = unique_keypair();
+    let reclaim = unique_keypair();
     state::initialize(
         &mut svm,
         &payer,
         Initialize {
             program_id,
             payer: payer.pubkey(),
-            manager: unique_pubkey(),
-            reclaim_authority: reclaim_authority.pubkey(),
+            manager: manager.pubkey(),
+            reclaim_authority: reclaim.pubkey(),
         },
     );
 
-    (svm, program_id, payer, reclaim_authority)
+    (
+        svm,
+        InitializedParams {
+            program_id,
+            payer,
+            state_pda,
+            manager,
+            reclaim,
+        },
+    )
 }
 
 /// Adds CPI caller test helper to the given SVM
