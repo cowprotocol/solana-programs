@@ -248,7 +248,7 @@ mod tests {
         let mut data = reclaim_buffer_data();
         data.push(0); // trailing byte
         assert_eq!(
-            ReclaimBufferInput::parse(&data, &mut [0]).err(),
+            ReclaimBufferInput::parse(&data, &[0]).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
