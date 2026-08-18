@@ -1,14 +1,14 @@
 //! `CreateBuffer` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use pinocchio_token::{instructions::InitializeAccount3, state::Account as TokenAccount};
-use settlement_interface::{
+use cow_settlement_interface::{
     instruction::{
         create_buffer::{BufferAccounts, CreateBufferInput, SPL_TOKEN_PROGRAM_ID},
         InstructionInputParsing,
     },
     pda::{buffer::buffer_pda_seeds, state::state_pda_seeds},
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio_token::{instructions::InitializeAccount3, state::Account as TokenAccount};
 
 use crate::processor::CanonicalPda;
 
@@ -64,10 +64,10 @@ pub fn process_create_buffer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use settlement_interface::instruction::create_buffer::fixtures::{
+    use cow_settlement_interface::instruction::create_buffer::fixtures::{
         create_buffer_data, NUM_SHARED_ACCOUNTS,
     };
-    use settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
 
     /// Arbitrary placeholder program id. The failure path exercised below
     /// returns before the program id is used for any syscall.

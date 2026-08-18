@@ -1,8 +1,8 @@
 //! On-chain order construction shared by the settlement integration tests.
 
+use cow_settlement_client::cow_settlement_interface::data::intent::{OrderIntent, OrderKind};
+use cow_settlement_client::instructions::CreateOrder;
 use litesvm::LiteSVM;
-use settlement_client::instructions::CreateOrder;
-use settlement_client::settlement_interface::data::intent::{OrderIntent, OrderKind};
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},

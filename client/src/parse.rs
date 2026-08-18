@@ -3,11 +3,12 @@
 //! up front. The program itself dispatches in its entrypoint and never uses
 //! this.
 
-use settlement_interface::{
+use cow_settlement_interface::{
     instruction::{
         create_buffer::CreateBufferInput,
         create_order::CreateOrderInput,
         initialize::InitializeInput,
+        reclaim_buffer::ReclaimBufferInput,
         reclaim_order::ReclaimOrderInput,
         settle::{BeginSettleInput, FinalizeSettleInput},
         InstructionInputParsing,
@@ -24,6 +25,7 @@ pub enum ParsedInstruction<'a, A> {
     BeginSettle(BeginSettleInput<'a, A>),
     FinalizeSettle(FinalizeSettleInput<'a, A>),
     ReclaimOrder(ReclaimOrderInput<'a, A>),
+    ReclaimBuffer(ReclaimBufferInput<'a, A>),
 }
 
 /// Parses any settlement instruction by its discriminator.
@@ -51,6 +53,9 @@ pub fn parse_instruction<'a, A>(
         SettlementInstruction::ReclaimOrder => ParsedInstruction::ReclaimOrder(
             ReclaimOrderInput::parse_body(remaining_data, accounts)?,
         ),
+        SettlementInstruction::ReclaimBuffer => ParsedInstruction::ReclaimBuffer(
+            ReclaimBufferInput::parse_body(remaining_data, accounts)?,
+        ),
     })
 }
 
@@ -60,36 +65,26 @@ mod tests {
     use crate::instructions::{
         BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize, InitializedIntent,
     };
-    use settlement_interface::{
-        data::intent::{OrderIntent, OrderKind},
-        instruction::{fixtures::fake_account_from_array, reclaim_order::ReclaimOrder},
+    use cow_settlement_interface::{
+        data::intent::{fixtures::sample_intent, OrderKind},
+        instruction::{
+            fixtures::fake_account_from_array, reclaim_buffer::ReclaimBuffer,
+            reclaim_order::ReclaimOrder,
+        },
         Instruction, Pubkey,
     };
-
-    fn intent() -> OrderIntent {
-        OrderIntent {
-            owner: Pubkey::new_from_array([0x11; 32]),
-            buy_token_account: Pubkey::new_from_array([0x22; 32]),
-            sell_token_account: Pubkey::new_from_array([0x33; 32]),
-            sell_amount: 1_000,
-            buy_amount: 2_000,
-            valid_to: 42,
-            kind: OrderKind::Sell,
-            partially_fillable: false,
-            app_data: [0x44; 32],
-        }
-    }
 
     /// One buildable instruction per discriminator. The exhaustive match makes
     /// a new instruction a compile error until this test covers it.
     fn build(instruction: SettlementInstruction) -> Instruction {
         let program_id = Pubkey::new_from_array([9; 32]);
         let payer = Pubkey::new_from_array([8; 32]);
-        let intent = intent();
+        let intent = sample_intent(OrderKind::Sell, false);
         match instruction {
             SettlementInstruction::Initialize => Initialize {
                 program_id,
                 payer,
+                manager: payer,
                 reclaim_authority: payer,
             }
             .into(),
@@ -128,6 +123,17 @@ mod tests {
                 reclaim_recipient: payer,
             }
             .instruction(),
+            SettlementInstruction::ReclaimBuffer => ReclaimBuffer {
+                program_id,
+                state_pda: Pubkey::new_from_array([5; 32]),
+                reclaim_authority: payer,
+                reclaim_recipient: payer,
+                buffers: &[(
+                    Pubkey::new_from_array([4; 32]),
+                    Pubkey::new_from_array([7; 32]),
+                )],
+            }
+            .into(),
         }
     }
 
@@ -143,6 +149,7 @@ mod tests {
             SettlementInstruction::BeginSettle,
             SettlementInstruction::FinalizeSettle,
             SettlementInstruction::ReclaimOrder,
+            SettlementInstruction::ReclaimBuffer,
         ] {
             let ix = build(expected);
             let accounts: Vec<_> = ix
@@ -159,6 +166,7 @@ mod tests {
                 ParsedInstruction::BeginSettle(_) => SettlementInstruction::BeginSettle,
                 ParsedInstruction::FinalizeSettle(_) => SettlementInstruction::FinalizeSettle,
                 ParsedInstruction::ReclaimOrder(_) => SettlementInstruction::ReclaimOrder,
+                ParsedInstruction::ReclaimBuffer(_) => SettlementInstruction::ReclaimBuffer,
             };
             assert_eq!(actual, expected);
         }

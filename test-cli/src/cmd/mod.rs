@@ -1,4 +1,4 @@
-use settlement_client::settlement_interface::Pubkey;
+use cow_settlement_client::cow_settlement_interface::Pubkey;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::signature::read_keypair_file;

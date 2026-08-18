@@ -24,7 +24,7 @@ use solana_address::Address;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::pda::SETTLEMENT_SEED;
+use crate::pda::{is_pda_with_signer_seeds, SETTLEMENT_SEED};
 use crate::SettlementError;
 
 /// Trailing seed identifying the buffer PDAs.
@@ -59,15 +59,13 @@ pub fn validate_buffer_pda(
     mint: &Address,
     bump: u8,
 ) -> Result<(), ProgramError> {
-    let derived = Address::create_program_address(
-        &buffer_pda_signer_seeds(&mint.to_bytes(), &[bump]),
+    is_pda_with_signer_seeds(
+        buffer,
         program_id,
+        buffer_pda_signer_seeds(&mint.to_bytes(), &[bump]),
     )
-    .map_err(|_| SettlementError::PushSourceNotBuffer)?;
-    if buffer.address() != &derived {
-        return Err(SettlementError::PushSourceNotBuffer.into());
-    }
-    Ok(())
+    .then_some(())
+    .ok_or(SettlementError::PushSourceNotBuffer.into())
 }
 
 #[cfg(test)]

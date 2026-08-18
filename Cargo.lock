@@ -884,12 +884,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
+name = "cow-settlement-client"
+version = "0.1.1"
+dependencies = [
+ "cow-settlement-interface",
+ "proptest",
+ "solana-program-error",
+]
+
+[[package]]
+name = "cow-settlement-interface"
+version = "0.1.1"
+dependencies = [
+ "arrayref",
+ "derive_more",
+ "hex-literal",
+ "num_enum",
+ "proptest",
+ "solana-account-view",
+ "solana-address 2.6.1",
+ "solana-hash 4.5.0",
+ "solana-instruction",
+ "solana-program-error",
+ "solana-pubkey 4.2.1",
+ "solana-sdk-ids",
+ "solana-sha256-hasher",
+ "solana-system-interface 3.2.0",
+ "spl-token-interface 3.0.0",
+]
+
+[[package]]
 name = "cow-test-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
- "settlement-client",
+ "cow-settlement-client",
  "solana-commitment-config",
  "solana-hash 4.5.0",
  "solana-instruction",
@@ -3104,18 +3134,18 @@ dependencies = [
 
 [[package]]
 name = "settlement"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrayref",
  "bincode",
+ "cow-settlement-client",
+ "cow-settlement-interface",
  "litesvm",
  "litesvm-token",
  "pinocchio",
  "pinocchio-system",
  "pinocchio-token",
  "proptest",
- "settlement-client",
- "settlement-interface",
  "solana-address-lookup-table-interface",
  "solana-compute-budget",
  "solana-instruction",
@@ -3124,36 +3154,6 @@ dependencies = [
  "solana-sdk",
  "solana-sha256-hasher",
  "solana-system-interface 3.2.0",
-]
-
-[[package]]
-name = "settlement-client"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "settlement-interface",
- "solana-program-error",
-]
-
-[[package]]
-name = "settlement-interface"
-version = "0.1.0"
-dependencies = [
- "arrayref",
- "derive_more",
- "hex-literal",
- "num_enum",
- "proptest",
- "solana-account-view",
- "solana-address 2.6.1",
- "solana-hash 4.5.0",
- "solana-instruction",
- "solana-program-error",
- "solana-pubkey 4.2.1",
- "solana-sdk-ids",
- "solana-sha256-hasher",
- "solana-system-interface 3.2.0",
- "spl-token-interface 3.0.0",
 ]
 
 [[package]]
@@ -5653,7 +5653,7 @@ dependencies = [
 
 [[package]]
 name = "test-cpi-caller"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pinocchio",
 ]

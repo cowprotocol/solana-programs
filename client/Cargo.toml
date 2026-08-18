@@ -1,16 +1,24 @@
 [package]
-name = "settlement-client"
+name = "cow-settlement-client"
+description = "Off-chain client helpers for building CoW Protocol Solana settlement program instructions."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/cow-settlement-client"
+keywords.workspace = true
+categories = ["cryptography::cryptocurrencies", "finance", "api-bindings"]
+publish = true
 
 [dependencies]
-settlement-interface.workspace = true
+cow-settlement-interface.workspace = true
 solana-program-error.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-settlement-interface = { workspace = true, features = ["test-fixtures"] }
+cow-settlement-interface = { workspace = true, features = ["test-fixtures"] }
 
 [lints]
 workspace = true
