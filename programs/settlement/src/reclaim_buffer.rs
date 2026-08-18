@@ -5,9 +5,7 @@
 //! instruction never moves or destroys that balance. Skipping is silent, so
 //! reclaiming a set of buffers succeeds even when none of them were closed.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use pinocchio_token::{instructions::CloseAccount, state::Account as TokenAccount};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::state::{EncodedStateAccount, StateAccount},
     instruction::{
         create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
@@ -16,6 +14,8 @@ use settlement_interface::{
     pda::buffer::find_buffer_pda,
     Pubkey, SettlementError,
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio_token::{instructions::CloseAccount, state::Account as TokenAccount};
 
 use crate::processor::with_state_pda_signer;
 
@@ -78,15 +78,15 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
-    use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
-    use settlement_interface::instruction::fixtures::{
+    use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
     };
-    use settlement_interface::instruction::reclaim_buffer::fixtures::{
+    use cow_settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
-    use settlement_interface::pda::state::state_pda_seeds;
+    use cow_settlement_interface::pda::state::state_pda_seeds;
+    use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use solana_program_pack::Pack;
 
     use super::*;

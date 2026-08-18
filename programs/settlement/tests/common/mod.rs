@@ -15,8 +15,8 @@ pub mod state;
 pub mod token;
 
 use cow_settlement_client::instructions::Initialize;
-use cow_settlement_client::settlement_interface::SettlementError;
 use cow_settlement_interface::Instruction;
+use cow_settlement_interface::SettlementError;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{
     account::Account,

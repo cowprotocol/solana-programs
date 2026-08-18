@@ -1,10 +1,10 @@
-use litesvm::LiteSVM;
-use settlement_client::instructions::ReclaimBuffer;
-use settlement_client::settlement_interface::{
+use cow_settlement_client::instructions::ReclaimBuffer;
+use cow_settlement_interface::Instruction;
+use cow_settlement_interface::{
     instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
     pda::state::find_state_pda, SettlementError,
 };
-use settlement_interface::Instruction;
+use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,

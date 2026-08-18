@@ -211,7 +211,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
                 (buffer_pda, *mint)
             })
             .collect();
-        settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
+        cow_settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
             program_id: builder.program_id,
             state_pda,
             reclaim_authority: builder.reclaim_authority,
