@@ -11,9 +11,11 @@ pub mod lookup_table;
 pub mod order;
 pub mod pda;
 pub mod settlement;
+pub mod state;
 pub mod token;
 
 use litesvm::{types::TransactionMetadata, LiteSVM};
+use settlement_client::instructions::Initialize;
 use settlement_client::settlement_interface::SettlementError;
 use settlement_interface::Instruction;
 use solana_sdk::{
@@ -78,6 +80,25 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     (svm, program_id, payer)
 }
 
+/// [`setup`] followed by a successful `Initialize`, with a freshly generated
+/// `reclaim_authority` returned alongside the rest.
+pub fn setup_init() -> (LiteSVM, Pubkey, Keypair, Keypair) {
+    let (mut svm, program_id, payer) = setup();
+    let reclaim_authority = unique_keypair();
+    state::initialize(
+        &mut svm,
+        &payer,
+        Initialize {
+            program_id,
+            payer: payer.pubkey(),
+            manager: unique_pubkey(),
+            reclaim_authority: reclaim_authority.pubkey(),
+        },
+    );
+
+    (svm, program_id, payer, reclaim_authority)
+}
+
 /// Adds CPI caller test helper to the given SVM
 pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
     let cpi_caller_id = unique_pubkey();
@@ -97,15 +118,38 @@ pub fn to_instruction_error(e: SettlementError) -> InstructionError {
     InstructionError::Custom(e.into())
 }
 
+/// Assert that the transaction failed with `expected` on its first
+/// instruction. Use [`assert_instruction_error_at`] when the failing
+/// instruction isn't the first one.
 #[track_caller]
 pub fn assert_instruction_error<T>(
     result: Result<T, TransactionError>,
     expected: InstructionError,
 ) {
+    assert_instruction_error_at(0, result, expected);
+}
+
+#[track_caller]
+pub fn assert_instruction_error_at<T>(
+    ix_idx: u8,
+    result: Result<T, TransactionError>,
+    expected: InstructionError,
+) {
     assert_eq!(
         result.err(),
-        Some(TransactionError::InstructionError(0, expected))
+        Some(TransactionError::InstructionError(ix_idx, expected))
     );
+}
+
+/// Convenience wrapper around [`assert_instruction_error_at`] for the common
+/// case of asserting a specific [`SettlementError`].
+#[track_caller]
+pub fn assert_settlement_error<T>(
+    ix_idx: u8,
+    result: Result<T, TransactionError>,
+    expected: SettlementError,
+) {
+    assert_instruction_error_at(ix_idx, result, to_instruction_error(expected));
 }
 
 pub fn create_account_at(svm: &mut LiteSVM, address: Pubkey, owner: &Pubkey, data: &[u8]) {

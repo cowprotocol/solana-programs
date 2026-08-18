@@ -4,11 +4,15 @@ use pinocchio::{
     address::MAX_SEEDS,
     cpi::{Seed, Signer},
     error::ProgramError,
-    AccountView, Address,
+    AccountView, Address, ProgramResult,
 };
 
 use pinocchio_system::instructions::CreateAccountAllowPrefund;
 
+use settlement_interface::{
+    pda::state::{state_pda_seeds, state_pda_signer_seeds},
+    SettlementError,
+};
 use solana_instruction::{syscalls::get_stack_height, TRANSACTION_LEVEL_STACK_HEIGHT};
 
 /// Description of a canonical PDA to create: the account at `pda`, assigned to
@@ -105,6 +109,29 @@ impl<const N: usize> CanonicalPda<'_, N> {
             Err(ProgramError::AccountAlreadyInitialized)
         }
     }
+}
+
+/// Validate that `state_pda_account` is the canonical state PDA and run `f` with
+/// a signer for it. The state PDA is the authority over the accounts settlement
+/// touches — user token delegations and the buffers — so it must sign every CPI
+/// that acts on them.
+///
+/// The signer only borrows its seed buffers, which are local to this frame;
+/// running `f` here rather than returning the signer keeps them alive for as
+/// long as `f` needs it.
+pub fn with_state_pda_signer(
+    program_id: &Address,
+    state_pda_account: &AccountView,
+    f: impl FnOnce(&Signer) -> ProgramResult,
+) -> ProgramResult {
+    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
+    if state_pda_account.address() != &state_pda {
+        return Err(SettlementError::StateAccountMismatch.into());
+    }
+
+    let state_bump = [state_bump];
+    let signer_seeds = state_pda_signer_seeds(&state_bump).map(Seed::from);
+    f(&Signer::from(&signer_seeds))
 }
 
 pub fn is_cpi_call() -> bool {
