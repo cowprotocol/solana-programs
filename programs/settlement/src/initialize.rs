@@ -36,6 +36,8 @@ pub fn process_initialize(
     }
     .create_new()?;
 
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut state_pda = *state_pda;
     let mut buffer = state_pda.try_borrow_mut()?;
     let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
         .try_into()

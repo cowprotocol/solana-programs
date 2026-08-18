@@ -51,6 +51,8 @@ pub fn process_create_order(
     }
     .create_new()?;
 
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut order_pda = *order_pda;
     let mut order_data = order_pda.try_borrow_mut()?;
     let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
         .try_into()

@@ -889,6 +889,7 @@ version = "0.1.1"
 dependencies = [
  "cow-settlement-interface",
  "proptest",
+ "solana-program-error",
 ]
 
 [[package]]

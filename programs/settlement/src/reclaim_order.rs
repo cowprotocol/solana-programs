@@ -33,6 +33,8 @@ pub fn process_reclaim_order(
     }
 
     // Transfer the rent lamports to the reclaim_recipient account, then close the PDA.
+    // Copied `AccountView` handles write through to the same runtime accounts.
+    let (mut order_pda, mut reclaim_recipient) = (*order_pda, *reclaim_recipient);
     let order_lamports = order_pda.lamports();
     reclaim_recipient.set_lamports(
         reclaim_recipient
