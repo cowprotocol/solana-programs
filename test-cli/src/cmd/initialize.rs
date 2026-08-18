@@ -1,7 +1,7 @@
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
-use settlement_client::{
-    instructions::Initialize, settlement_interface::pda::state::find_state_pda,
+use cow_settlement_client::{
+    cow_settlement_interface::pda::state::find_state_pda, instructions::Initialize,
 };
 use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 
