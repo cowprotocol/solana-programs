@@ -53,7 +53,7 @@ pub enum Role {
     Manager = 0,
     /// The account authorized to close buffer accounts and reclaim their rent,
     /// choosing where that rent goes.
-    ReclaimAuthority = 1,
+    ReclaimAuthority,
 }
 
 impl Role {
