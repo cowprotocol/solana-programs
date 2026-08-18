@@ -12,7 +12,7 @@ use solana_sdk::{
     message::{v0, AddressLookupTableAccount, VersionedMessage},
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::VersionedTransaction,
+    transaction::{TransactionError, VersionedTransaction},
 };
 
 /// Seed an Address Lookup Table holding `addresses` directly into the SVM,
@@ -74,4 +74,38 @@ pub fn lookup_table_tx(
     .expect("v0 message compiles");
     VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer])
         .expect("versioned transaction signs")
+}
+
+/// Largest `n` an ALT-backed transaction built by `build_tx` can carry, bounded
+/// by the transaction account-lock limit (litesvm and current mainnet both cap
+/// this at 64).
+///
+/// `build_tx` is asked for the transaction handling `n` items and must build one
+/// the program rejects (throwaway, non-canonical PDAs, say), so that a probe
+/// which does reach execution leaves no state behind.
+pub fn max_items_via_lookup_table(
+    svm: &mut LiteSVM,
+    mut build_tx: impl FnMut(&mut LiteSVM, usize) -> VersionedTransaction,
+) -> usize {
+    let mut n: usize = 1;
+    loop {
+        let tx = build_tx(svm, n);
+        match svm.send_transaction(tx) {
+            // Over the lock limit: rejected at sanitization, before executing.
+            Err(failed) if failed.err == TransactionError::TooManyAccountLocks => {
+                return n
+                    .checked_sub(1)
+                    .expect("Overflow means zero accounts are too many")
+            }
+            // Within the limit: the transaction reached the program, which, as
+            // expected, rejected it.
+            Err(failed) if matches!(failed.err, TransactionError::InstructionError(..)) => {
+                n = n.strict_add(1)
+            }
+            // Anything else (an unexpected error, or a transaction that somehow
+            // succeeded) means the probe's own setup is broken, not a real signal
+            // about the limit. Fail loudly rather than miscount.
+            other => panic!("unexpected result probing {n} items: {other:?}"),
+        }
+    }
 }
