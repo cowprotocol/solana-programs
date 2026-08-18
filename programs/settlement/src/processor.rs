@@ -9,7 +9,7 @@ use pinocchio::{
 
 use pinocchio_system::instructions::CreateAccountAllowPrefund;
 
-use settlement_interface::{
+use cow_settlement_interface::{
     pda::state::{state_pda_seeds, state_pda_signer_seeds},
     SettlementError,
 };

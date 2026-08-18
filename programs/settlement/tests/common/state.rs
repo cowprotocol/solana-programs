@@ -1,4 +1,4 @@
-use settlement_client::instructions::Initialize;
+use cow_settlement_client::instructions::Initialize;
 use solana_sdk::signature::Keypair;
 
 /// Send `ix` as the settlement's `Initialize`, signed by `payer`.

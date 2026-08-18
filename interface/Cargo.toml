@@ -1,8 +1,16 @@
 [package]
-name = "settlement-interface"
+name = "cow-settlement-interface"
+description = "Account layouts, PDA derivations, and instruction builders for the CoW Protocol Solana settlement program."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/cow-settlement-interface"
+keywords.workspace = true
+categories = ["cryptography::cryptocurrencies", "finance", "api-bindings"]
+publish = true
 
 [dependencies]
 arrayref.workspace = true
