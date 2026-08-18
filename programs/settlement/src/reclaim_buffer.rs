@@ -93,6 +93,7 @@ mod tests {
 
     const PROGRAM_ID: Address = Address::new_from_array([100; 32]);
     const AUTHORITY: Address = Address::new_from_array([101; 32]);
+    const MANAGER: Address = Address::new_from_array([102; 32]);
     const UNRELATED: Address = Address::new_from_array([254; 32]);
 
     /// Number of accounts in a one-buffer reclaim: the shared ones plus a
@@ -128,6 +129,7 @@ mod tests {
             fake_account_with_data(
                 state_pda,
                 &*EncodedStateAccount::from(StateAccount {
+                    manager: MANAGER,
                     reclaim_authority: AUTHORITY,
                 }),
             ), // state PDA
@@ -183,6 +185,7 @@ mod tests {
         accounts[STATE_PDA] = fake_account_with_data(
             UNRELATED,
             &*EncodedStateAccount::from(StateAccount {
+                manager: MANAGER,
                 reclaim_authority: AUTHORITY,
             }),
         );

@@ -1,7 +1,7 @@
 //! `Initialize` instruction handler.
 
 use cow_settlement_interface::{
-    data::state::{write_account, EncodedStateAccount},
+    data::state::{write_account, EncodedStateAccount, StateAccount},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
 };
@@ -17,6 +17,7 @@ pub fn process_initialize(
     let InitializeInput {
         payer,
         state_pda,
+        manager,
         reclaim_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
@@ -35,11 +36,19 @@ pub fn process_initialize(
     }
     .create_new()?;
 
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut state_pda = *state_pda;
     let mut buffer = state_pda.try_borrow_mut()?;
     let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    write_account(buffer, &reclaim_authority);
+    write_account(
+        buffer,
+        &StateAccount {
+            manager,
+            reclaim_authority,
+        },
+    );
 
     Ok(())
 }

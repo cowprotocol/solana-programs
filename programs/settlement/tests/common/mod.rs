@@ -91,6 +91,7 @@ pub fn setup_init() -> (LiteSVM, Pubkey, Keypair, Keypair) {
         Initialize {
             program_id,
             payer: payer.pubkey(),
+            manager: unique_pubkey(),
             reclaim_authority: reclaim_authority.pubkey(),
         },
     );

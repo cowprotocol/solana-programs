@@ -41,7 +41,7 @@ pub fn process_begin_settle(
         return Err(SettlementError::CalledViaCpi.into());
     }
 
-    let mut input = BeginSettleInput::parse(instruction_data, accounts)?;
+    let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
     // any address since parsing doesn't validate the input. We rely on the
@@ -76,7 +76,7 @@ pub fn process_begin_settle(
             program_id,
             input.state_pda_account,
             state_pda_signer,
-            &mut input.orders,
+            &input.orders,
             &finalize_ix,
         )
     })
@@ -177,7 +177,7 @@ fn settle_orders(
     program_id: &Address,
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
-    orders: &mut SettledOrders<'_, AccountView>,
+    orders: &SettledOrders<'_, AccountView>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
@@ -191,7 +191,7 @@ fn settle_orders(
     // is caught after.
     let mut pushes = finalize_pushes(finalize_ix)?;
 
-    for order in orders.iter_mut() {
+    for order in orders.iter() {
         let order_pda_address = *order.order_pda.address();
         if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
@@ -303,6 +303,8 @@ fn process_order(
         ..account
     })
     .into();
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut order_pda = *order_pda;
     order_pda.try_borrow_mut()?.copy_from_slice(&updated);
 
     Ok(())
@@ -988,9 +990,9 @@ mod tests {
                 .map(|(&destination, amount)| (destination, amount))
                 .collect();
 
-            let mut accounts: Vec<AccountView> =
+            let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
-            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
             let parsed: Vec<(Address, u64)> = parsed_raw
                 .pushes
