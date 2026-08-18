@@ -97,44 +97,38 @@ fn role_holder(role: Role, params: &InitializedParams) -> &Keypair {
     }
 }
 
-/// Generates one integration test per row, `<proposer> proposes <role>`. Two
-/// options:
-///
-/// - "Entry proposes Role", for successes
-/// - "Entry proposes Role, error Error", for reverts
-///
-/// "Entry" names a keypair field of [`InitializedParams`].
-/// "Error" is the expected [`SettlementError`].
-macro_rules! propose_authority_tests {
-    ($($name:ident: $proposer:ident proposes $role:expr;)*) => {$(
-        #[test]
-        fn $name() {
-            let (mut svm, params) = setup_init();
-            assert_records_pending_proposal(&mut svm, &params, $role, &params.$proposer);
-        }
-    )*};
-
-    ($($name:ident: $proposer:ident proposes $role:expr, error $err:expr;)*) => {$(
-        #[test]
-        fn $name() {
-            let (mut svm, params) = setup_init();
-            assert_proposal_rejected(&mut svm, &params, $role, &params.$proposer, $err);
-        }
-    )*};
-}
-
 // The manager (the highest authority) may propose a new holder for any role; a
 // role's current holder may propose its own replacement.
-propose_authority_tests! {
-    manager_can_propose_new_manager: manager proposes Role::Manager;
-    manager_can_propose_new_reclaim_authority: manager proposes Role::ReclaimAuthority;
-    reclaim_authority_can_propose_replacement: reclaim proposes Role::ReclaimAuthority;
+
+#[test]
+fn manager_can_propose_new_manager() {
+    let (mut svm, params) = setup_init();
+    assert_records_pending_proposal(&mut svm, &params, Role::Manager, &params.manager);
+}
+
+#[test]
+fn manager_can_propose_new_reclaim_authority() {
+    let (mut svm, params) = setup_init();
+    assert_records_pending_proposal(&mut svm, &params, Role::ReclaimAuthority, &params.manager);
+}
+
+#[test]
+fn reclaim_authority_can_propose_replacement() {
+    let (mut svm, params) = setup_init();
+    assert_records_pending_proposal(&mut svm, &params, Role::ReclaimAuthority, &params.reclaim);
 }
 
 // A non-manager authority may not touch the manager role.
-propose_authority_tests! {
-    reclaim_authority_cannot_change_the_manager:
-        reclaim proposes Role::Manager, error SettlementError::UnauthorizedAuthorityProposal;
+#[test]
+fn reclaim_authority_cannot_change_the_manager() {
+    let (mut svm, params) = setup_init();
+    assert_proposal_rejected(
+        &mut svm,
+        &params,
+        Role::Manager,
+        &params.reclaim,
+        SettlementError::UnauthorizedAuthorityProposal,
+    );
 }
 
 /// Index of the signer account in a `ProposeAuthority` instruction.
