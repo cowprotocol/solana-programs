@@ -1,10 +1,9 @@
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::{EncodedStateAccount, StateAccount},
-    instruction::initialize::Initialize as InitializeRaw,
+    data::state::EncodedStateAccount, instruction::initialize::Initialize as InitializeRaw,
     pda::state::find_state_pda,
 };
 use cow_settlement_client::instructions::Initialize;
-use solana_sdk::{pubkey::Pubkey, signature::Signer};
+use solana_sdk::signature::Signer;
 
 use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
@@ -46,16 +45,11 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         account.owner, program_id,
         "state PDA must be owned by the settlement program"
     );
-    let expected_body: [u8; EncodedStateAccount::SIZE] = StateAccount {
-        reclaim_authority,
-        manager,
-        pending_manager: Pubkey::default(),
-        pending_reclaim_authority: Pubkey::default(),
-    }
-    .into();
+    let mut expected_body = [0u8; EncodedStateAccount::SIZE];
+    EncodedStateAccount::write_initial(&mut expected_body, &manager, &reclaim_authority);
     assert_eq!(
         account.data, expected_body,
-        "state PDA body must match the expected layout (discriminator + authorities)"
+        "state PDA body must match the expected layout (discriminator + authorities + solvers)"
     );
 
     let rent = svm.minimum_balance_for_rent_exemption(EncodedStateAccount::SIZE);

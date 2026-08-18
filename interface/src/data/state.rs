@@ -3,11 +3,15 @@
 //! The state PDA (see [`crate::pda::state`]) stores the protocol's authority
 //! configuration: for every [`Role`] it holds the current holder and, while a
 //! transfer is in flight, the proposed next holder.
+//!
+//! The account is never decoded into an owned struct. Handlers borrow the raw
+//! account data as an [`EncodedStateAccount`] and read or write individual
+//! fields in place through its byte accessors, so nothing copies the (large,
+//! solver-padded) body.
 
 use core::mem::size_of;
 
-use arrayref::{array_refs, mut_array_refs};
-use derive_more::Deref;
+use arrayref::{array_mut_ref, array_ref, mut_array_refs};
 use solana_account_view::AccountView;
 use solana_address::Address;
 use solana_program_error::ProgramError;
@@ -16,28 +20,20 @@ use solana_pubkey::Pubkey;
 use crate::pda::state::state_pda_seeds;
 use crate::{Role, SettlementAccount, SettlementError};
 
-/// Idiomatic representation of the state PDA's body.
+/// Canonical byte layout of the settlement state PDA: the discriminator byte,
+/// the current holder and the pending proposed holder of each role, and a
+/// trailing region reserved for the eventual on-chain solver list.
 ///
-/// Each authority is stored as a pair: its current holder and its
-/// `pending_*` proposed next holder. A pending slot equal to [`Pubkey::default`]
-/// (the all-zero address) means there is no outstanding transfer proposal for
-/// that role; a real authority is never the zero address, so the sentinel is
-/// unambiguous.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StateAccount {
-    /// Current [`Role::Manager`].
-    pub manager: Pubkey,
-    /// Proposed next [`Role::Manager`], or [`Pubkey::default`] if none.
-    pub pending_manager: Pubkey,
-    /// Current [`Role::ReclaimAuthority`].
-    pub reclaim_authority: Pubkey,
-    /// Proposed next [`Role::ReclaimAuthority`], or [`Pubkey::default`] if none.
-    pub pending_reclaim_authority: Pubkey,
-}
-
-/// Canonical representation of a [`StateAccount`]: the discriminator byte, the
-/// current holder and the pending proposed holder of each role, and a trailing
-/// region reserved for the eventual on-chain solver list.
+/// A pending slot equal to [`Pubkey::default`] (the all-zero address) means
+/// there is no outstanding transfer proposal for that role; a real authority is
+/// never the zero address, so the sentinel is unambiguous.
+///
+/// It is a transparent wrapper over the account bytes: [`from_account_data`] and
+/// [`from_account_data_mut`] reinterpret a borrowed buffer as `Self` with no
+/// copy, and the accessors read and write fields directly within it.
+///
+/// [`from_account_data`]: Self::from_account_data
+/// [`from_account_data_mut`]: Self::from_account_data_mut
 ///
 /// ```text
 ///  ┌──── discriminator
@@ -46,11 +42,12 @@ pub struct StateAccount {
 ///  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴─────────────────────┘
 /// 0 1                               33                              65                              97                              129                  32129
 /// ```
-#[derive(Clone, Debug, Deref, Eq, PartialEq)]
+#[repr(transparent)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct EncodedStateAccount([u8; Self::SIZE]);
 
 impl EncodedStateAccount {
-    // Per-field widths, derived from the `StateAccount` field types.
+    // Per-field widths, derived from the field types.
     const W_DISCRIMINATOR: usize = size_of::<u8>();
     const W_MANAGER: usize = size_of::<Pubkey>();
     const W_PENDING_MANAGER: usize = size_of::<Pubkey>();
@@ -59,148 +56,132 @@ impl EncodedStateAccount {
 
     /// Number of solver slots reserved after the authorities. This trailing
     /// region is a placeholder for the eventual on-chain solver list; for now
-    /// it is filled with `0xff` so the account occupies its real deployed size
-    /// and every copy of the encoding pays the real cost.
+    /// it is filled with `0xff` so the account occupies its real deployed size.
     const SOLVER_SLOTS: usize = 1000;
     /// Width of the reserved solver region.
     const W_SOLVERS: usize = Self::SOLVER_SLOTS * size_of::<Pubkey>();
 
-    pub const SIZE: usize = Self::W_DISCRIMINATOR
-        + Self::W_MANAGER
-        + Self::W_PENDING_MANAGER
-        + Self::W_RECLAIM_AUTHORITY
-        + Self::W_PENDING_RECLAIM_AUTHORITY
-        + Self::W_SOLVERS;
+    // Byte offset of each field, chained from the widths above.
+    const O_MANAGER: usize = Self::W_DISCRIMINATOR;
+    const O_PENDING_MANAGER: usize = Self::O_MANAGER + Self::W_MANAGER;
+    const O_RECLAIM_AUTHORITY: usize = Self::O_PENDING_MANAGER + Self::W_PENDING_MANAGER;
+    const O_PENDING_RECLAIM_AUTHORITY: usize =
+        Self::O_RECLAIM_AUTHORITY + Self::W_RECLAIM_AUTHORITY;
+    const O_SOLVERS: usize = Self::O_PENDING_RECLAIM_AUTHORITY + Self::W_PENDING_RECLAIM_AUTHORITY;
+
+    pub const SIZE: usize = Self::O_SOLVERS + Self::W_SOLVERS;
 
     /// Single-byte account discriminator. See [`crate::SettlementAccount`].
     pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator();
-}
 
-/// Writes the canonical [`EncodedStateAccount`] encoding of `account` into
-/// `buffer`.
-pub fn write_account(buffer: &mut [u8; EncodedStateAccount::SIZE], account: &StateAccount) {
-    let StateAccount {
-        manager,
-        pending_manager,
-        reclaim_authority,
-        pending_reclaim_authority,
-    } = account;
-    let (
-        discriminator_slot,
-        manager_slot,
-        pending_manager_slot,
-        reclaim_authority_slot,
-        pending_reclaim_authority_slot,
-        solvers_slot,
-    ) = mut_array_refs![
-        buffer,
-        EncodedStateAccount::W_DISCRIMINATOR,
-        EncodedStateAccount::W_MANAGER,
-        EncodedStateAccount::W_PENDING_MANAGER,
-        EncodedStateAccount::W_RECLAIM_AUTHORITY,
-        EncodedStateAccount::W_PENDING_RECLAIM_AUTHORITY,
-        EncodedStateAccount::W_SOLVERS
-    ];
-    *discriminator_slot = [EncodedStateAccount::DISCRIMINATOR];
-    *manager_slot = manager.to_bytes();
-    *pending_manager_slot = pending_manager.to_bytes();
-    *reclaim_authority_slot = reclaim_authority.to_bytes();
-    *pending_reclaim_authority_slot = pending_reclaim_authority.to_bytes();
-    solvers_slot.fill(0xff);
-}
+    /// Byte offset of the current holder of `role`.
+    const fn authority_offset(role: Role) -> usize {
+        match role {
+            Role::Manager => Self::O_MANAGER,
+            Role::ReclaimAuthority => Self::O_RECLAIM_AUTHORITY,
+        }
+    }
 
-impl StateAccount {
-    /// Load and decode the settlement state at `state_pda`, confirming it is the
-    /// canonical state PDA under `program_id`.
+    /// Byte offset of the pending proposed holder of `role`.
+    const fn pending_offset(role: Role) -> usize {
+        match role {
+            Role::Manager => Self::O_PENDING_MANAGER,
+            Role::ReclaimAuthority => Self::O_PENDING_RECLAIM_AUTHORITY,
+        }
+    }
+
+    /// Reinterpret account `data` as the state encoding, validating its length
+    /// and discriminator. Borrows in place — the body is never copied.
+    pub fn from_account_data(data: &[u8]) -> Result<&Self, ProgramError> {
+        let bytes: &[u8; Self::SIZE] = data
+            .try_into()
+            .map_err(|_| ProgramError::InvalidAccountData)?;
+        if bytes[0] != Self::DISCRIMINATOR {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        // SAFETY: `EncodedStateAccount` is `#[repr(transparent)]` over
+        // `[u8; SIZE]`, so a `&[u8; SIZE]` of the right length reinterprets as
+        // `&Self` with identical layout.
+        Ok(unsafe { &*(bytes as *const [u8; Self::SIZE] as *const Self) })
+    }
+
+    /// Mutable counterpart of [`from_account_data`](Self::from_account_data),
+    /// for writing fields back into the account in place.
+    pub fn from_account_data_mut(data: &mut [u8]) -> Result<&mut Self, ProgramError> {
+        let bytes: &mut [u8; Self::SIZE] = data
+            .try_into()
+            .map_err(|_| ProgramError::InvalidAccountData)?;
+        if bytes[0] != Self::DISCRIMINATOR {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        // SAFETY: as in `from_account_data`, with unique access preserved.
+        Ok(unsafe { &mut *(bytes as *mut [u8; Self::SIZE] as *mut Self) })
+    }
+
+    /// Confirm `state_pda` is the canonical state PDA under `program_id`.
     ///
     /// The state PDA stores no bump, so its address is re-derived and compared,
     /// the same provenance check the settlement handlers use when signing for
-    /// it. Decoding validates the account discriminator.
-    pub fn load_from_pda(
+    /// it. This only inspects the address; borrow the account separately and
+    /// pass its data to [`from_account_data`](Self::from_account_data) (or its
+    /// mutable counterpart) to read or edit the body in place.
+    pub fn assert_canonical_pda(
         state_pda: &AccountView,
         program_id: &Address,
-    ) -> Result<Self, ProgramError> {
+    ) -> Result<(), ProgramError> {
         let (expected, _bump) = Address::find_program_address(&state_pda_seeds(), program_id);
         if state_pda.address() != &expected {
             return Err(SettlementError::StateAccountMismatch.into());
         }
-
-        let data = state_pda.try_borrow()?;
-        let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
-            .try_into()
-            .map_err(|_| ProgramError::InvalidAccountData)?;
-        StateAccount::try_from(bytes)
+        Ok(())
     }
 
     /// Current holder of `role`.
     pub fn authority(&self, role: Role) -> Pubkey {
-        match role {
-            Role::Manager => self.manager,
-            Role::ReclaimAuthority => self.reclaim_authority,
-        }
-    }
-
-    /// Mutable slot holding the current holder of `role`.
-    pub fn authority_mut(&mut self, role: Role) -> &mut Pubkey {
-        match role {
-            Role::Manager => &mut self.manager,
-            Role::ReclaimAuthority => &mut self.reclaim_authority,
-        }
+        Pubkey::new_from_array(*array_ref![
+            &self.0,
+            EncodedStateAccount::authority_offset(role),
+            EncodedStateAccount::W_MANAGER
+        ])
     }
 
     /// Proposed next holder of `role`; [`Pubkey::default`] if none.
     pub fn pending(&self, role: Role) -> Pubkey {
-        match role {
-            Role::Manager => self.pending_manager,
-            Role::ReclaimAuthority => self.pending_reclaim_authority,
-        }
+        Pubkey::new_from_array(*array_ref![
+            &self.0,
+            EncodedStateAccount::pending_offset(role),
+            EncodedStateAccount::W_MANAGER
+        ])
     }
 
-    /// Mutable slot holding the proposed next holder of `role`.
-    pub fn pending_mut(&mut self, role: Role) -> &mut Pubkey {
-        match role {
-            Role::Manager => &mut self.pending_manager,
-            Role::ReclaimAuthority => &mut self.pending_reclaim_authority,
-        }
+    /// Record `new_authority` as the pending proposed holder of `role`, written
+    /// straight into the account bytes.
+    pub fn set_pending(&mut self, role: Role, new_authority: &Pubkey) {
+        *array_mut_ref![
+            &mut self.0,
+            EncodedStateAccount::pending_offset(role),
+            EncodedStateAccount::W_MANAGER
+        ] = new_authority.to_bytes();
     }
-}
 
-impl From<EncodedStateAccount> for [u8; EncodedStateAccount::SIZE] {
-    fn from(encoded: EncodedStateAccount) -> Self {
-        encoded.0
-    }
-}
-
-impl From<StateAccount> for EncodedStateAccount {
-    fn from(account: StateAccount) -> Self {
-        let mut out = [0u8; Self::SIZE];
-        write_account(&mut out, &account);
-        Self(out)
-    }
-}
-
-impl From<StateAccount> for [u8; EncodedStateAccount::SIZE] {
-    fn from(account: StateAccount) -> Self {
-        EncodedStateAccount::from(account).into()
-    }
-}
-
-impl TryFrom<&[u8; EncodedStateAccount::SIZE]> for StateAccount {
-    type Error = ProgramError;
-
-    /// Decode by reference so the caller's buffer is read in place. The solver
-    /// region makes the encoding tens of kilobytes, far past an on-chain stack
-    /// frame, so a by-value decode would overflow it; this borrows instead.
-    fn try_from(bytes: &[u8; EncodedStateAccount::SIZE]) -> Result<Self, Self::Error> {
+    /// Write the initial layout into a freshly allocated `buffer`: the
+    /// discriminator, the two current authorities, cleared pending slots, and
+    /// the reserved solver region. This is the only place that lays the whole
+    /// encoding down at once; every later change edits a single field in place.
+    pub fn write_initial(
+        buffer: &mut [u8; Self::SIZE],
+        manager: &Pubkey,
+        reclaim_authority: &Pubkey,
+    ) {
         let (
-            discriminator,
-            manager,
-            pending_manager,
-            reclaim_authority,
-            pending_reclaim_authority,
-            _solvers,
-        ) = array_refs![
-            bytes,
+            discriminator_slot,
+            manager_slot,
+            pending_manager_slot,
+            reclaim_authority_slot,
+            pending_reclaim_authority_slot,
+            solvers_slot,
+        ) = mut_array_refs![
+            buffer,
             EncodedStateAccount::W_DISCRIMINATOR,
             EncodedStateAccount::W_MANAGER,
             EncodedStateAccount::W_PENDING_MANAGER,
@@ -208,33 +189,12 @@ impl TryFrom<&[u8; EncodedStateAccount::SIZE]> for StateAccount {
             EncodedStateAccount::W_PENDING_RECLAIM_AUTHORITY,
             EncodedStateAccount::W_SOLVERS
         ];
-
-        if *discriminator != [EncodedStateAccount::DISCRIMINATOR] {
-            return Err(ProgramError::InvalidAccountData);
-        }
-
-        Ok(StateAccount {
-            manager: Pubkey::new_from_array(*manager),
-            pending_manager: Pubkey::new_from_array(*pending_manager),
-            reclaim_authority: Pubkey::new_from_array(*reclaim_authority),
-            pending_reclaim_authority: Pubkey::new_from_array(*pending_reclaim_authority),
-        })
-    }
-}
-
-impl TryFrom<[u8; EncodedStateAccount::SIZE]> for StateAccount {
-    type Error = ProgramError;
-
-    fn try_from(bytes: [u8; EncodedStateAccount::SIZE]) -> Result<Self, Self::Error> {
-        StateAccount::try_from(&bytes)
-    }
-}
-
-impl TryFrom<EncodedStateAccount> for StateAccount {
-    type Error = ProgramError;
-
-    fn try_from(encoded: EncodedStateAccount) -> Result<Self, Self::Error> {
-        StateAccount::try_from(encoded.0)
+        *discriminator_slot = [Self::DISCRIMINATOR];
+        *manager_slot = manager.to_bytes();
+        *pending_manager_slot = [0; EncodedStateAccount::W_PENDING_MANAGER];
+        *reclaim_authority_slot = reclaim_authority.to_bytes();
+        *pending_reclaim_authority_slot = [0; EncodedStateAccount::W_PENDING_RECLAIM_AUTHORITY];
+        solvers_slot.fill(0xff);
     }
 }
 
@@ -243,144 +203,179 @@ mod tests {
     use super::*;
     use crate::tests::pubkey_from_seed;
 
-    /// Byte offset of the account discriminator within the encoding.
-    const DISCRIMINATOR_OFFSET: usize = 0;
-
-    fn sample_account() -> StateAccount {
-        StateAccount {
-            manager: pubkey_from_seed("sample_account's manager"),
-            reclaim_authority: pubkey_from_seed("sample_account's reclaim authority"),
-            pending_manager: pubkey_from_seed("sample_account's pending manager"),
-            pending_reclaim_authority: pubkey_from_seed(
-                "sample_account's pending reclaim authority",
-            ),
-        }
-    }
-
-    /// Generates one test per [`Role`], asserting that both its read and
-    /// mutable accessors are consistent with the coresponding role's
-    /// `current`/`pending` fields.
-    macro_rules! role_accessor_tests {
-        ($($name:ident: $role:expr => {current: $current:ident, pending: $pending:ident}),+ $(,)?) => {$(
-            #[test]
-            fn $name() {
-                let mut account = sample_account();
-
-                assert_eq!(account.authority($role), account.$current);
-                assert_eq!(account.pending($role), account.$pending);
-
-                let new_current = pubkey_from_seed("role_accessor_tests's new current");
-                let new_pending = pubkey_from_seed("role_accessor_tests's new pending");
-                *account.authority_mut($role) = new_current;
-                *account.pending_mut($role) = new_pending;
-                assert_eq!(account.$current, new_current);
-                assert_eq!(account.$pending, new_pending);
-            }
-        )+};
-    }
-
-    role_accessor_tests! {
-        manager_accessors_match_named_fields:
-            Role::Manager => {current: manager, pending: pending_manager},
-        reclaim_authority_accessors_match_named_fields:
-            Role::ReclaimAuthority => {current: reclaim_authority, pending: pending_reclaim_authority},
-    }
-
-    #[test]
-    fn decode_rejects_wrong_discriminator() {
-        let mut bytes: [u8; EncodedStateAccount::SIZE] =
-            EncodedStateAccount::from(sample_account()).into();
-        bytes[0] ^= 0xff;
-        let err = StateAccount::try_from(bytes).expect_err("wrong discriminator must be rejected");
-        assert_eq!(err, ProgramError::InvalidAccountData);
-    }
-
-    #[test]
-    fn direct_write_account_matches_state_account_encoding() {
-        let account = sample_account();
+    /// A valid encoding for `manager`/`reclaim_authority` with no pending
+    /// proposals, as [`EncodedStateAccount::write_initial`] lays it out.
+    fn encoded(manager: Pubkey, reclaim_authority: Pubkey) -> [u8; EncodedStateAccount::SIZE] {
         let mut buffer = [0u8; EncodedStateAccount::SIZE];
-        write_account(&mut buffer, &account);
-        let direct = EncodedStateAccount(buffer);
-        let via_state_account = EncodedStateAccount::from(account);
-        assert_eq!(direct, via_state_account);
+        EncodedStateAccount::write_initial(&mut buffer, &manager, &reclaim_authority);
+        buffer
+    }
+
+    #[test]
+    fn write_initial_lays_out_every_field() {
+        let manager = pubkey_from_seed("manager");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
+        let bytes = encoded(manager, reclaim_authority);
+
+        assert_eq!(bytes[0], EncodedStateAccount::DISCRIMINATOR);
+        let state = EncodedStateAccount::from_account_data(&bytes).expect("valid encoding");
+        assert_eq!(state.authority(Role::Manager), manager);
+        assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
+        assert_eq!(state.pending(Role::Manager), Pubkey::default());
+        assert_eq!(state.pending(Role::ReclaimAuthority), Pubkey::default());
+        assert!(
+            bytes[EncodedStateAccount::O_SOLVERS..]
+                .iter()
+                .all(|&b| b == 0xff),
+            "the reserved solver region must be filled with 0xff"
+        );
+    }
+
+    /// One test per [`Role`]: reading the current holder, reading the initially
+    /// empty pending slot, and setting the pending slot in place without
+    /// disturbing the current holder.
+    fn assert_role_accessors_are_consistent(role: Role) {
+        let manager = pubkey_from_seed("current manager");
+        let reclaim_authority = pubkey_from_seed("current reclaim authority");
+        let current = match role {
+            Role::Manager => manager,
+            Role::ReclaimAuthority => reclaim_authority,
+        };
+
+        let mut bytes = encoded(manager, reclaim_authority);
+        let state = EncodedStateAccount::from_account_data_mut(&mut bytes).expect("valid encoding");
+
+        assert_eq!(state.authority(role), current);
+        assert_eq!(state.pending(role), Pubkey::default());
+
+        let new_pending = pubkey_from_seed("new pending holder");
+        state.set_pending(role, &new_pending);
+        assert_eq!(state.pending(role), new_pending);
+        assert_eq!(
+            state.authority(role),
+            current,
+            "setting the pending slot must not touch the current holder"
+        );
+    }
+
+    #[test]
+    fn manager_accessors_are_consistent() {
+        assert_role_accessors_are_consistent(Role::Manager);
+    }
+
+    #[test]
+    fn reclaim_authority_accessors_are_consistent() {
+        assert_role_accessors_are_consistent(Role::ReclaimAuthority);
+    }
+
+    #[test]
+    fn set_pending_touches_only_its_own_role() {
+        let mut bytes = encoded(
+            pubkey_from_seed("manager"),
+            pubkey_from_seed("reclaim authority"),
+        );
+        let state = EncodedStateAccount::from_account_data_mut(&mut bytes).expect("valid encoding");
+
+        let new_manager = pubkey_from_seed("new pending manager");
+        state.set_pending(Role::Manager, &new_manager);
+        assert_eq!(state.pending(Role::Manager), new_manager);
+        assert_eq!(
+            state.pending(Role::ReclaimAuthority),
+            Pubkey::default(),
+            "the other role's pending slot must be left empty"
+        );
+    }
+
+    #[test]
+    fn from_account_data_rejects_wrong_discriminator() {
+        let mut bytes = encoded(
+            pubkey_from_seed("manager"),
+            pubkey_from_seed("reclaim authority"),
+        );
+        bytes[0] ^= 0xff;
+        assert_eq!(
+            EncodedStateAccount::from_account_data(&bytes).err(),
+            Some(ProgramError::InvalidAccountData),
+        );
+    }
+
+    #[test]
+    fn from_account_data_rejects_wrong_length() {
+        let bytes = [EncodedStateAccount::DISCRIMINATOR; EncodedStateAccount::SIZE - 1];
+        assert_eq!(
+            EncodedStateAccount::from_account_data(&bytes).err(),
+            Some(ProgramError::InvalidAccountData),
+        );
     }
 
     #[test]
     fn widths_match_field_sizes() {
-        use core::mem::{size_of, size_of_val};
+        use core::mem::size_of;
 
-        // Any `StateAccount` works: `size_of_val` only consults the field type,
-        // never the data.
-        let StateAccount {
-            manager,
-            pending_manager,
-            reclaim_authority,
-            pending_reclaim_authority,
-        } = sample_account();
-
-        assert_eq!(EncodedStateAccount::W_MANAGER, size_of_val(&manager));
-        assert_eq!(
-            EncodedStateAccount::W_PENDING_MANAGER,
-            size_of_val(&pending_manager)
-        );
+        assert_eq!(EncodedStateAccount::W_DISCRIMINATOR, size_of::<u8>());
+        assert_eq!(EncodedStateAccount::W_MANAGER, size_of::<Pubkey>());
+        assert_eq!(EncodedStateAccount::W_PENDING_MANAGER, size_of::<Pubkey>());
         assert_eq!(
             EncodedStateAccount::W_RECLAIM_AUTHORITY,
-            size_of_val(&reclaim_authority)
+            size_of::<Pubkey>()
         );
         assert_eq!(
             EncodedStateAccount::W_PENDING_RECLAIM_AUTHORITY,
-            size_of_val(&pending_reclaim_authority)
+            size_of::<Pubkey>()
         );
 
         assert_eq!(EncodedStateAccount::SIZE, size_of::<EncodedStateAccount>());
     }
 
-    mod load_from_pda {
+    mod assert_canonical_pda {
         use super::*;
         use crate::instruction::fixtures::fake_account_with_data;
         use crate::pda::state::find_state_pda;
 
         const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
+        fn sample() -> [u8; EncodedStateAccount::SIZE] {
+            encoded(
+                pubkey_from_seed("sample manager"),
+                pubkey_from_seed("sample reclaim authority"),
+            )
+        }
+
         #[test]
         fn accepts_the_canonical_pda() {
-            let account = sample_account();
+            let manager = pubkey_from_seed("manager");
+            let reclaim_authority = pubkey_from_seed("reclaim authority");
             let (pda_address, _bump) = find_state_pda(&PROGRAM_ID);
-            let state_pda = fake_account_with_data(
-                pda_address,
-                &EncodedStateAccount::from(account.clone())[..],
-            );
+            let state_pda =
+                fake_account_with_data(pda_address, &encoded(manager, reclaim_authority));
 
-            let loaded = StateAccount::load_from_pda(&state_pda, &PROGRAM_ID)
-                .expect("canonical PDA must load");
-            assert_eq!(loaded, account);
+            EncodedStateAccount::assert_canonical_pda(&state_pda, &PROGRAM_ID)
+                .expect("canonical PDA must be accepted");
+            let data = state_pda.try_borrow().expect("account is not borrowed");
+            let state = EncodedStateAccount::from_account_data(&data).expect("valid encoding");
+            assert_eq!(state.authority(Role::Manager), manager);
+            assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
         }
 
         #[test]
         fn rejects_a_non_canonical_address() {
             // Any address other than the canonical state PDA for this program.
             let wrong_address = pubkey_from_seed("a non-canonical state PDA");
-            let state_pda = fake_account_with_data(
-                wrong_address,
-                &EncodedStateAccount::from(sample_account())[..],
-            );
+            let state_pda = fake_account_with_data(wrong_address, &sample());
 
-            let err = StateAccount::load_from_pda(&state_pda, &PROGRAM_ID)
+            let err = EncodedStateAccount::assert_canonical_pda(&state_pda, &PROGRAM_ID)
                 .expect_err("a non-canonical address must be rejected");
             assert_eq!(err, SettlementError::StateAccountMismatch.into());
         }
 
         #[test]
-        fn propagates_decode_errors() {
-            let (pda_address, _bump) = find_state_pda(&PROGRAM_ID);
-            let mut bytes: [u8; EncodedStateAccount::SIZE] =
-                EncodedStateAccount::from(sample_account()).into();
-            bytes[DISCRIMINATOR_OFFSET] = 0xff;
-            let state_pda = fake_account_with_data(pda_address, &bytes);
-
-            let err = StateAccount::load_from_pda(&state_pda, &PROGRAM_ID)
-                .expect_err("a corrupt account must fail to decode");
-            assert_eq!(err, ProgramError::InvalidAccountData);
+        fn from_account_data_rejects_a_corrupt_discriminator() {
+            let mut bytes = sample();
+            bytes[0] = 0xff;
+            assert_eq!(
+                EncodedStateAccount::from_account_data(&bytes).err(),
+                Some(ProgramError::InvalidAccountData),
+            );
         }
     }
 
@@ -391,37 +386,26 @@ mod tests {
 
         proptest! {
             #[test]
-            fn account_encode_roundtrip(
+            fn set_pending_roundtrips_through_the_bytes(
                 manager in any::<[u8; 32]>(),
-                pending_manager in any::<[u8; 32]>(),
                 reclaim_authority in any::<[u8; 32]>(),
-                pending_reclaim_authority in any::<[u8; 32]>(),
+                new_pending in any::<[u8; 32]>(),
             ) {
-                let account = StateAccount {
-                    manager: Pubkey::new_from_array(manager),
-                    reclaim_authority: Pubkey::new_from_array(reclaim_authority),
-                    pending_manager: Pubkey::new_from_array(pending_manager),
-                    pending_reclaim_authority: Pubkey::new_from_array(pending_reclaim_authority),
-                };
-                let encoded = EncodedStateAccount::from(account.clone());
-                let decoded = StateAccount::try_from(encoded).expect("should decode after encoding");
-                prop_assert_eq!(decoded, account);
-            }
+                let mut bytes = encoded(
+                    Pubkey::new_from_array(manager),
+                    Pubkey::new_from_array(reclaim_authority),
+                );
+                let state = EncodedStateAccount::from_account_data_mut(&mut bytes)
+                    .expect("valid encoding");
 
-            #[test]
-            fn account_decode_roundtrip(
-                mut bytes in any::<[u8; EncodedStateAccount::SIZE]>(),
-            ) {
-                bytes[DISCRIMINATOR_OFFSET] = EncodedStateAccount::DISCRIMINATOR;
-                // The canonical encoding fills the reserved solver region with
-                // `0xff`, so a byte pattern only round-trips if it already does.
-                bytes[EncodedStateAccount::SIZE - EncodedStateAccount::W_SOLVERS..].fill(0xff);
-                let encoded = EncodedStateAccount(bytes);
+                let new_pending = Pubkey::new_from_array(new_pending);
+                state.set_pending(Role::ReclaimAuthority, &new_pending);
 
-                let decoded = StateAccount::try_from(encoded.clone()).expect("should decode from valid bytes");
-                let re_encoded = EncodedStateAccount::from(decoded);
-
-                prop_assert_eq!(re_encoded, encoded);
+                prop_assert_eq!(state.pending(Role::ReclaimAuthority), new_pending);
+                prop_assert_eq!(
+                    state.authority(Role::ReclaimAuthority),
+                    Pubkey::new_from_array(reclaim_authority)
+                );
             }
         }
     }

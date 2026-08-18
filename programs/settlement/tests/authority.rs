@@ -1,15 +1,13 @@
 //! Integration tests for the authority proposal instruction.
 
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::{EncodedStateAccount, StateAccount},
-    instruction::authority::propose::fixtures::ROLE_OFFSET,
+    data::state::EncodedStateAccount, instruction::authority::propose::fixtures::ROLE_OFFSET,
     Instruction, Role, SettlementError,
 };
 use cow_settlement_client::instructions::ProposeAuthority;
 use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::InstructionError,
-    pubkey::Pubkey,
     signature::{Keypair, Signer},
 };
 
@@ -20,17 +18,6 @@ use crate::common::{
 };
 
 mod common;
-
-fn read_state(svm: &LiteSVM, state_pda: &Pubkey) -> StateAccount {
-    let account = svm
-        .get_account(state_pda)
-        .expect("state PDA should exist after initialize");
-    let bytes: [u8; EncodedStateAccount::SIZE] = account
-        .data
-        .try_into()
-        .expect("state PDA data should be exactly the encoded size");
-    StateAccount::try_from(bytes).expect("state PDA should decode")
-}
 
 /// Runs a `ProposeAuthority` that should succeed: `proposer` proposes a fresh
 /// holder for `role`. Asserts the proposal is recorded in the role's pending
@@ -53,7 +40,11 @@ fn assert_records_pending_proposal(
     send_transaction_metered(svm, tx, BenchLabel::ProposeAuthority)
         .expect("propose should succeed");
 
-    let state = read_state(svm, &params.state_pda);
+    let account = svm
+        .get_account(&params.state_pda)
+        .expect("state PDA should exist after initialize");
+    let state = EncodedStateAccount::from_account_data(&account.data)
+        .expect("state PDA should hold a valid encoding");
     assert_eq!(
         state.pending(role),
         new_authority.pubkey(),

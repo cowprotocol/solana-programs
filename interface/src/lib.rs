@@ -41,9 +41,10 @@ impl SettlementInstruction {
 ///
 /// The discriminant is the wire value carried by the authority-transfer
 /// instructions (see [`crate::instruction::authority`]). Adding a role here and
-/// a matching field pair to [`StateAccount`](data::state::StateAccount) is all
-/// that a new authority needs: the transfer instructions and their
-/// authorization rule are role-agnostic.
+/// a matching current/pending slot pair to
+/// [`EncodedStateAccount`](data::state::EncodedStateAccount) is all that a new
+/// authority needs: the transfer instructions and their authorization rule are
+/// role-agnostic.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
 #[num_enum(error_type(name = ProgramError, constructor = Role::unknown_role))]

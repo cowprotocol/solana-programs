@@ -1,6 +1,4 @@
-use cow_settlement_client::cow_settlement_interface::data::state::{
-    EncodedStateAccount, StateAccount,
-};
+use cow_settlement_client::cow_settlement_interface::data::state::EncodedStateAccount;
 use solana_sdk::pubkey::Pubkey;
 
 use super::create_account_at;
@@ -24,12 +22,7 @@ pub fn preallocate(
     manager: Pubkey,
     reclaim_authority: Pubkey,
 ) {
-    let body: [u8; EncodedStateAccount::SIZE] = StateAccount {
-        manager,
-        reclaim_authority,
-        pending_manager: Pubkey::default(),
-        pending_reclaim_authority: Pubkey::default(),
-    }
-    .into();
+    let mut body = [0u8; EncodedStateAccount::SIZE];
+    EncodedStateAccount::write_initial(&mut body, &manager, &reclaim_authority);
     create_account_at(svm, *state_pda, program_id, &body);
 }
