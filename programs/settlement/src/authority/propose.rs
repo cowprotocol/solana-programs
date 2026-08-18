@@ -6,9 +6,9 @@
 //! the [module docs](super) for the full transfer flow.
 
 use cow_settlement_interface::{
-    data::state::{write_account, EncodedStateAccount, StateAccount},
+    data::state::EncodedStateAccount,
     instruction::{authority::ProposeAuthorityInput, InstructionInputParsing},
-    SettlementError,
+    Role, SettlementError,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
@@ -24,25 +24,26 @@ pub fn process_propose_authority(
         new_authority,
     } = ProposeAuthorityInput::parse(instruction_data, accounts)?;
 
-    let mut state = StateAccount::load_from_pda(state_pda, program_id)?;
+    // Prove the state PDA is canonical before touching it.
+    EncodedStateAccount::assert_canonical_pda(state_pda, program_id)?;
 
     // Only the manager or the role's current holder may propose a transfer, and
     // they must sign it.
     if !signer.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
+
+    // Borrow the account and view it in place: no decode, no copy of the body.
+    let mut data = state_pda.try_borrow_mut()?;
+    let state = EncodedStateAccount::from_account_data_mut(&mut data)?;
+
     let signer_key = signer.address();
-    if signer_key != &state.manager && signer_key != &state.authority(role) {
+    if signer_key != &state.authority(Role::Manager) && signer_key != &state.authority(role) {
         return Err(SettlementError::UnauthorizedAuthorityProposal.into());
     }
 
-    *state.pending_mut(role) = new_authority;
-
-    let mut buffer = state_pda.try_borrow_mut()?;
-    let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
-        .try_into()
-        .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    write_account(buffer, &state);
+    // Record the proposal by writing the single pending slot in place.
+    state.set_pending(role, &new_authority);
 
     Ok(())
 }

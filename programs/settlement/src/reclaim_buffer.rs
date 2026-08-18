@@ -6,13 +6,13 @@
 //! reclaiming a set of buffers succeeds even when none of them were closed.
 
 use cow_settlement_interface::{
-    data::state::{EncodedStateAccount, StateAccount},
+    data::state::EncodedStateAccount,
     instruction::{
         create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
         InstructionInputParsing,
     },
     pda::buffer::find_buffer_pda,
-    Pubkey, SettlementError,
+    Role, SettlementError,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use pinocchio_token::{instructions::CloseAccount, state::Account as TokenAccount};
@@ -37,16 +37,13 @@ pub fn process_reclaim_buffer(
     }
 
     with_state_pda_signer(program_id, state_pda, |state_signer| {
-        let reclaim_authority_pubkey: Pubkey = {
+        // `with_state_pda_signer` already proved the PDA is canonical, so read
+        // the reclaim authority straight from the account bytes without copying.
+        let reclaim_authority_key = {
             let data = state_pda.try_borrow()?;
-            let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
-                .try_into()
-                .map_err(|_| ProgramError::InvalidAccountData)?;
-            StateAccount::try_from(*bytes)?.reclaim_authority
+            EncodedStateAccount::from_account_data(&data)?.authority(Role::ReclaimAuthority)
         };
-        if !reclaim_authority.is_signer()
-            || reclaim_authority.address() != &reclaim_authority_pubkey
-        {
+        if !reclaim_authority.is_signer() || reclaim_authority.address() != &reclaim_authority_key {
             return Err(SettlementError::ReclaimAuthorityMismatch.into());
         }
 
@@ -119,6 +116,17 @@ mod tests {
         data
     }
 
+    /// Canonical state encoding for `manager`/`reclaim_authority`, with no
+    /// pending proposals.
+    fn state_account_bytes(
+        manager: Address,
+        reclaim_authority: Address,
+    ) -> [u8; EncodedStateAccount::SIZE] {
+        let mut bytes = [0u8; EncodedStateAccount::SIZE];
+        EncodedStateAccount::write_initial(&mut bytes, &manager, &reclaim_authority);
+        bytes
+    }
+
     /// Accounts for reclaiming a single buffer, each one well-formed.
     fn base_accounts() -> [AccountView; NUM_ACCOUNTS] {
         let recipient: Address = Address::new_from_array([1; 32]);
@@ -126,15 +134,7 @@ mod tests {
         let state_pda = Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0;
 
         [
-            fake_account_with_data(
-                state_pda,
-                &*EncodedStateAccount::from(StateAccount {
-                    manager: MANAGER,
-                    reclaim_authority: AUTHORITY,
-                    pending_manager: Address::default(),
-                    pending_reclaim_authority: Address::default(),
-                }),
-            ), // state PDA
+            fake_account_with_data(state_pda, &state_account_bytes(MANAGER, AUTHORITY)), // state PDA
             fake_signer(AUTHORITY),             // reclaim authority
             fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
@@ -184,15 +184,8 @@ mod tests {
     #[test]
     fn process_reclaim_buffer_rejects_wrong_state_pda() {
         let mut accounts = base_accounts();
-        accounts[STATE_PDA] = fake_account_with_data(
-            UNRELATED,
-            &*EncodedStateAccount::from(StateAccount {
-                manager: MANAGER,
-                reclaim_authority: AUTHORITY,
-                pending_manager: Address::default(),
-                pending_reclaim_authority: Address::default(),
-            }),
-        );
+        accounts[STATE_PDA] =
+            fake_account_with_data(UNRELATED, &state_account_bytes(MANAGER, AUTHORITY));
         assert_rejects(accounts, SettlementError::StateAccountMismatch.into());
     }
 

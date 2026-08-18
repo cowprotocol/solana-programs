@@ -1,10 +1,9 @@
 //! `Initialize` instruction handler.
 
 use cow_settlement_interface::{
-    data::state::{write_account, EncodedStateAccount, StateAccount},
+    data::state::EncodedStateAccount,
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
-    Pubkey,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
@@ -41,15 +40,9 @@ pub fn process_initialize(
     let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    write_account(
-        buffer,
-        &StateAccount {
-            manager,
-            reclaim_authority,
-            pending_manager: Pubkey::default(),
-            pending_reclaim_authority: Pubkey::default(),
-        },
-    );
+    // A freshly created account starts zeroed, so the pending slots are already
+    // empty; `write_initial` still lays them down explicitly alongside the rest.
+    EncodedStateAccount::write_initial(buffer, &manager, &reclaim_authority);
 
     Ok(())
 }

@@ -3,7 +3,7 @@
 //! Closes one or more buffer PDAs (see [`crate::pda::buffer`]) and sends each
 //! closed buffer's rent lamports to a `reclaim_recipient` of the caller's
 //! choosing. Only the settlement's configured `reclaim_authority` (see
-//! [`crate::data::state::StateAccount`]) may authorize this.
+//! [`crate::data::state::EncodedStateAccount`]) may authorize this.
 //!
 //! A buffer that still holds tokens is skipped, not closed.
 //!

@@ -28,7 +28,7 @@ use crate::SettlementInstruction;
 /// `manager` and `reclaim_authority` are recorded verbatim in the state PDA's
 /// data: the account authorized to add and remove solvers, and the account
 /// authorized to reclaim rent for buffers. See
-/// [`crate::data::state::StateAccount`].
+/// [`crate::data::state::EncodedStateAccount`].
 ///
 /// The state account is owned by the settlement program. This instruction
 /// succeeds only once: a second call fails because the account already
