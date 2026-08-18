@@ -42,7 +42,7 @@ pub fn process_reclaim_buffer(
             let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
                 .try_into()
                 .map_err(|_| ProgramError::InvalidAccountData)?;
-            StateAccount::try_from(*bytes)?.reclaim_authority
+            StateAccount::try_from(bytes)?.reclaim_authority
         };
         if !reclaim_authority.is_signer()
             || reclaim_authority.address() != &reclaim_authority_pubkey

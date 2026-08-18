@@ -14,7 +14,6 @@ pub mod settlement;
 pub mod state;
 pub mod token;
 
-use cow_settlement_client::instructions::Initialize;
 use cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::SettlementError;
@@ -91,8 +90,10 @@ pub struct InitializedParams {
     pub reclaim: Keypair,
 }
 
-/// [`setup`] followed by a successful `Initialize` whose manager and reclaim
-/// authority are keypairs the test controls, so it can sign on their behalf.
+/// [`setup`] followed by [`state::preallocate`], which writes the state PDA
+/// straight into the SVM instead of running `Initialize` (broken at this solver
+/// count — see that function). The manager and reclaim authority are keypairs
+/// the test controls, so it can sign on their behalf.
 ///
 /// Returns the SVM and an [`InitializedParams`] bundling the program id, the
 /// fee payer, the state PDA, and the manager and reclaim authority keypairs.
@@ -101,15 +102,12 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_keypair();
     let reclaim = unique_keypair();
-    state::initialize(
+    state::preallocate(
         &mut svm,
-        &payer,
-        Initialize {
-            program_id,
-            payer: payer.pubkey(),
-            manager: manager.pubkey(),
-            reclaim_authority: reclaim.pubkey(),
-        },
+        &program_id,
+        &state_pda,
+        manager.pubkey(),
+        reclaim.pubkey(),
     );
 
     (

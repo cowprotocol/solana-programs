@@ -44,7 +44,7 @@ pub struct StateAccount {
 ///  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬─────────────────────┐
 ///  ││            manager            │        pending_manager        │       reclaim_authority       │   pending_reclaim_authority   │  solvers (0xff …)    │
 ///  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴─────────────────────┘
-/// 0 1                               33                              65                              97                              129                   3329
+/// 0 1                               33                              65                              97                              129                  32129
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedStateAccount([u8; Self::SIZE]);
@@ -61,7 +61,7 @@ impl EncodedStateAccount {
     /// region is a placeholder for the eventual on-chain solver list; for now
     /// it is filled with `0xff` so the account occupies its real deployed size
     /// and every copy of the encoding pays the real cost.
-    const SOLVER_SLOTS: usize = 100;
+    const SOLVER_SLOTS: usize = 1000;
     /// Width of the reserved solver region.
     const W_SOLVERS: usize = Self::SOLVER_SLOTS * size_of::<Pubkey>();
 
@@ -129,7 +129,7 @@ impl StateAccount {
         let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
             .try_into()
             .map_err(|_| ProgramError::InvalidAccountData)?;
-        StateAccount::try_from(*bytes)
+        StateAccount::try_from(bytes)
     }
 
     /// Current holder of `role`.
@@ -185,10 +185,13 @@ impl From<StateAccount> for [u8; EncodedStateAccount::SIZE] {
     }
 }
 
-impl TryFrom<[u8; EncodedStateAccount::SIZE]> for StateAccount {
+impl TryFrom<&[u8; EncodedStateAccount::SIZE]> for StateAccount {
     type Error = ProgramError;
 
-    fn try_from(bytes: [u8; EncodedStateAccount::SIZE]) -> Result<Self, Self::Error> {
+    /// Decode by reference so the caller's buffer is read in place. The solver
+    /// region makes the encoding tens of kilobytes, far past an on-chain stack
+    /// frame, so a by-value decode would overflow it; this borrows instead.
+    fn try_from(bytes: &[u8; EncodedStateAccount::SIZE]) -> Result<Self, Self::Error> {
         let (
             discriminator,
             manager,
@@ -197,7 +200,7 @@ impl TryFrom<[u8; EncodedStateAccount::SIZE]> for StateAccount {
             pending_reclaim_authority,
             _solvers,
         ) = array_refs![
-            &bytes,
+            bytes,
             EncodedStateAccount::W_DISCRIMINATOR,
             EncodedStateAccount::W_MANAGER,
             EncodedStateAccount::W_PENDING_MANAGER,
@@ -216,6 +219,14 @@ impl TryFrom<[u8; EncodedStateAccount::SIZE]> for StateAccount {
             reclaim_authority: Pubkey::new_from_array(*reclaim_authority),
             pending_reclaim_authority: Pubkey::new_from_array(*pending_reclaim_authority),
         })
+    }
+}
+
+impl TryFrom<[u8; EncodedStateAccount::SIZE]> for StateAccount {
+    type Error = ProgramError;
+
+    fn try_from(bytes: [u8; EncodedStateAccount::SIZE]) -> Result<Self, Self::Error> {
+        StateAccount::try_from(&bytes)
     }
 }
 
