@@ -8,6 +8,7 @@ mod reclaim_buffer;
 mod reclaim_order;
 mod settle;
 
+use cow_settlement_interface::{recover_discriminator, SettlementInstruction};
 use create_buffer::process_create_buffer;
 use create_order::process_create_order;
 use initialize::process_initialize;
@@ -15,7 +16,6 @@ use pinocchio::{entrypoint, AccountView, Address, ProgramResult};
 use reclaim_buffer::process_reclaim_buffer;
 use reclaim_order::process_reclaim_order;
 use settle::{process_begin_settle, process_finalize_settle};
-use settlement_interface::{recover_discriminator, SettlementInstruction};
 
 entrypoint!(process_instruction);
 

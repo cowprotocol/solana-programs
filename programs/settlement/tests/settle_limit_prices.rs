@@ -12,16 +12,16 @@ use crate::common::{
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
 };
-use litesvm::LiteSVM;
-use settlement_client::instructions::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
-};
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
     data::order::OrderAccount,
     pda::order::find_order_pda,
     SettlementError,
 };
+use cow_settlement_client::instructions::{
+    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
+};
+use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},

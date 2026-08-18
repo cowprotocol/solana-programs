@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use settlement_client::settlement_interface::Pubkey;
+use cow_settlement_client::cow_settlement_interface::Pubkey;
 
 mod cmd;
 mod instructions;
@@ -32,7 +32,7 @@ struct Cli {
     keypair: String,
 
     /// Settlement program ID
-    #[arg(long, global = true, default_value_t = settlement_client::settlement_interface::ID)]
+    #[arg(long, global = true, default_value_t = cow_settlement_client::cow_settlement_interface::ID)]
     program_id: Pubkey,
 
     #[command(subcommand)]

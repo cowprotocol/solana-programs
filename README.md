@@ -96,6 +96,16 @@ just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ./deployer-keypair.json
 
 `just deploy` finishes by running `initialize` to create the program's state PDA. On a plain upgrade that PDA already exists, so the step fails and prints a warning that can be ignored. After a minor or major bump the storage is relocated, so `initialize` creates the new PDA and is expected to succeed.
 
+### Publishing the cargo packages
+
+Authenticate your cargo cli with `cargo login`. Ensure you have permission to publish `cow-settlement-interface`, `cow-settlement-client`, and `cow-test-cli`.
+
+Then, all packages can published in one go:
+
+```sh
+cargo publish
+```
+
 ### Devnet example
 
 ```sh
