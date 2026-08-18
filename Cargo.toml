@@ -10,6 +10,13 @@ edition = "2021"
 # Most crates in this repository use MIT or Apache-2.0 dual license.
 license = "MIT OR Apache-2.0"
 
+# Inherited `readme` paths are resolved relative to the workspace root, so every
+# published crate points at the repository-level README.
+readme = "README.md"
+repository = "https://github.com/cowprotocol/solana-programs"
+homepage = "https://cow.fi"
+keywords = ["solana", "cow-protocol", "defi", "trading", "settlement"]
+
 [workspace.dependencies]
 anyhow = "1"
 arrayref = "0.3"

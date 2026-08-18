@@ -4,6 +4,13 @@ description = "Off-chain client helpers for building CoW Protocol Solana settlem
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/cow-settlement-client"
+keywords.workspace = true
+categories = ["cryptography::cryptocurrencies", "finance", "api-bindings"]
+publish = true
 
 [dependencies]
 cow-settlement-interface.workspace = true
