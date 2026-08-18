@@ -98,6 +98,10 @@ pub mod fixtures {
     /// authority and the state PDA.
     pub const NUM_ACCOUNTS: usize = 2;
 
+    /// Byte offset of the role selector in the instruction data: it follows the
+    /// one-byte discriminator.
+    pub const ROLE_OFFSET: usize = 1;
+
     /// `ProposeAuthority` instruction data with placeholder addresses, for
     /// failure cases where the actual addresses don't matter.
     pub fn propose_authority_data() -> Vec<u8> {
@@ -115,16 +119,12 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{propose_authority_data, NUM_ACCOUNTS};
+    use super::fixtures::{propose_authority_data, NUM_ACCOUNTS, ROLE_OFFSET};
     use super::*;
     use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
     use crate::instruction::tests::{assert_readonly_signer, assert_writable_nonsigner};
     use crate::tests::pubkey_from_seed;
     use solana_account_view::AccountView;
-
-    /// Byte offset of the role selector in the instruction data: it follows the
-    /// one-byte discriminator.
-    const ROLE_OFFSET: usize = 1;
 
     #[test]
     fn propose_authority_input_parses_valid_input() {

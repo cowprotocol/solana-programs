@@ -2,6 +2,7 @@
 
 use cow_settlement_client::cow_settlement_interface::{
     data::state::{EncodedStateAccount, StateAccount},
+    instruction::authority::propose::fixtures::ROLE_OFFSET,
     Instruction, Role, SettlementError,
 };
 use cow_settlement_client::instructions::ProposeAuthority;
@@ -169,6 +170,33 @@ fn signer_must_sign_the_transaction() {
 
     let res = common::send(&mut svm, &payer, vec![ix]);
     assert_instruction_error(res, InstructionError::MissingRequiredSignature);
+}
+
+#[test]
+fn rejects_out_of_bounds_role_id() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            manager,
+            ..
+        },
+    ) = setup_init();
+    let new_authority = common::unique_keypair();
+
+    let mut ix: Instruction = ProposeAuthority {
+        program_id,
+        signer: manager.pubkey(),
+        role: Role::Manager,
+        new_authority: new_authority.pubkey(),
+    }
+    .into();
+    ix.data[ROLE_OFFSET] = 0xff;
+
+    let tx = signed_tx(&svm, &payer, &manager, ix);
+    let res = svm.send_transaction(tx).map_err(|e| e.err);
+    assert_instruction_error(res, InstructionError::InvalidInstructionData);
 }
 
 #[test]
