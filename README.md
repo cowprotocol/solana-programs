@@ -94,7 +94,7 @@ Pass the **program's public key (address)** as the first argument. The deployer 
 just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ./deployer-keypair.json
 ```
 
-If the package minor or major has been changed, it is also necessary to run initialize again.
+`just deploy` finishes by running `initialize` to create the program's state PDA. On a plain upgrade that PDA already exists, so the step fails and prints a warning that can be ignored. After a minor or major bump the storage is relocated, so `initialize` creates the new PDA and is expected to succeed.
 
 ### Devnet example
 
