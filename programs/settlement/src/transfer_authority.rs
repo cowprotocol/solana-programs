@@ -34,7 +34,8 @@ pub fn process_transfer_authority(
     // mutable borrow to update the role goes through this local copy.
     let mut state_pda = *state_pda;
     let mut data = state_pda.try_borrow_mut()?;
-    let bytes: &mut [u8; EncodedStateAccount::SIZE] = (&mut *data)
+    let bytes: &mut [u8; EncodedStateAccount::SIZE] = data
+        .as_mut()
         .try_into()
         .map_err(|_| ProgramError::InvalidAccountData)?;
 

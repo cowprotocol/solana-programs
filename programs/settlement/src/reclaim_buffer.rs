@@ -39,7 +39,8 @@ pub fn process_reclaim_buffer(
     with_state_pda_signer(program_id, state_pda, |state_signer| {
         let reclaim_authority_pubkey: Pubkey = {
             let data = state_pda.try_borrow()?;
-            let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
+            let bytes: &[u8; EncodedStateAccount::SIZE] = data
+                .as_ref()
                 .try_into()
                 .map_err(|_| ProgramError::InvalidAccountData)?;
             EncodedStateAccount::authority(bytes, Role::ReclaimAuthority)
