@@ -4,7 +4,7 @@ pub use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK");
+solana_pubkey::declare_id!("J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w");
 
 pub mod data;
 pub mod instruction;
@@ -23,6 +23,7 @@ pub enum SettlementInstruction {
     Initialize = 3,
     CreateBuffer = 4,
     ReclaimOrder = 5,
+    ReclaimBuffer = 6,
 }
 
 impl SettlementInstruction {
@@ -179,10 +180,17 @@ pub enum SettlementError {
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 31,
+    /// `ReclaimBuffer`'s `reclaim_authority` account isn't a signer, or doesn't
+    /// match the `reclaim_authority` address recorded in the settlement state
+    /// PDA.
+    ReclaimAuthorityMismatch = 32,
+    /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
+    /// derived from its paired `mint`.
+    ReclaimBufferNotCanonical = 33,
     /// `BeginSettle`: a settlement closing an order's sell token account
     /// supplied a rent recipient account that doesn't match the
     /// `sell_account_rent_recipient` recorded in the order's intent.
-    SellAccountRentRecipientMismatch = 32,
+    SellAccountRentRecipientMismatch = 34,
 }
 
 impl From<SettlementError> for u32 {
@@ -200,6 +208,14 @@ impl From<SettlementError> for solana_program_error::ProgramError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Deterministically generate a [`Pubkey`](solana_pubkey::Pubkey) by hashing
+    /// a seed string, for building fixtures with stable, readable addresses.
+    pub(crate) fn pubkey_from_seed(seed: &str) -> solana_pubkey::Pubkey {
+        solana_pubkey::Pubkey::new_from_array(
+            solana_sha256_hasher::hash(seed.as_bytes()).to_bytes(),
+        )
+    }
 
     #[test]
     fn rejects_empty_payload() {

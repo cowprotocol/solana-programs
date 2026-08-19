@@ -1,5 +1,6 @@
 //! SPL Token helpers for the settlement integration tests.
 
+use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
     spl_token::{
@@ -8,7 +9,6 @@ use litesvm_token::{
     },
     Approve, CreateAccount, CreateAssociatedTokenAccount, MintTo, SetAuthority, Transfer, TOKEN_ID,
 };
-use settlement_client::settlement_interface::pda::state::find_state_pda;
 use solana_program_pack::Pack;
 use solana_sdk::{
     pubkey::Pubkey,

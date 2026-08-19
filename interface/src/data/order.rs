@@ -29,6 +29,7 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::data::intent::{self, EncodedOrderIntent, OrderIntent};
+use crate::pda::is_pda_with_signer_seeds;
 use crate::pda::order::order_pda_signer_seeds;
 use crate::SettlementError;
 
@@ -75,12 +76,11 @@ impl OrderAccount {
             EncodedOrderAccount::decode_and_hash(bytes)?
         };
 
-        let expected = Address::create_program_address(
-            &order_pda_signer_seeds(&uid, &[account.bump]),
+        if !is_pda_with_signer_seeds(
+            order_pda,
             program_id,
-        )
-        .map_err(|_| SettlementError::AccountNotDerivable)?;
-        if &expected != order_pda.address() {
+            order_pda_signer_seeds(&uid, &[account.bump]),
+        ) {
             return Err(SettlementError::AccountNotDerivable.into());
         }
 

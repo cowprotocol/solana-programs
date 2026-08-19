@@ -17,11 +17,11 @@ use crate::common::{
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
 };
-use settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     instruction::settle::SPL_TOKEN_PROGRAM_ID, pda::state::find_state_pda, Instruction,
     SettlementError,
 };
+use cow_settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
 use solana_sdk::{
     instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signature::Signer,
     transaction::TransactionError,

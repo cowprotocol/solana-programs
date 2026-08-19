@@ -1,11 +1,11 @@
 //! `Initialize` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::{
-    data::state::{write_account, EncodedStateAccount},
+use cow_settlement_interface::{
+    data::state::{write_account, EncodedStateAccount, StateAccount},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::processor::CanonicalPda;
 
@@ -17,6 +17,7 @@ pub fn process_initialize(
     let InitializeInput {
         payer,
         state_pda,
+        manager,
         reclaim_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
@@ -35,11 +36,19 @@ pub fn process_initialize(
     }
     .create_new()?;
 
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut state_pda = *state_pda;
     let mut buffer = state_pda.try_borrow_mut()?;
     let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    write_account(buffer, &reclaim_authority);
+    write_account(
+        buffer,
+        &StateAccount {
+            manager,
+            reclaim_authority,
+        },
+    );
 
     Ok(())
 }
@@ -47,9 +56,11 @@ pub fn process_initialize(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use cow_settlement_interface::instruction::initialize::fixtures::{
+        initialize_data, NUM_ACCOUNTS,
+    };
     use pinocchio::error::ProgramError;
-    use settlement_interface::instruction::fixtures::fake_sequential_accounts;
-    use settlement_interface::instruction::initialize::fixtures::{initialize_data, NUM_ACCOUNTS};
 
     #[test]
     fn process_initialize_propagates_parse_error() {

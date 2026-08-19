@@ -1,4 +1,4 @@
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::{
         intent::{fixtures, EncodedOrderIntent, OrderIntent, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},

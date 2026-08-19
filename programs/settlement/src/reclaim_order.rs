@@ -1,14 +1,14 @@
 //! `ReclaimOrder` instruction handler.
 
+use cow_settlement_interface::{
+    data::order::OrderAccount,
+    instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
+    SettlementError,
+};
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
-};
-use settlement_interface::{
-    data::order::OrderAccount,
-    instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
-    SettlementError,
 };
 
 pub fn process_reclaim_order(
@@ -33,6 +33,8 @@ pub fn process_reclaim_order(
     }
 
     // Transfer the rent lamports to the reclaim_recipient account, then close the PDA.
+    // Copied `AccountView` handles write through to the same runtime accounts.
+    let (mut order_pda, mut reclaim_recipient) = (*order_pda, *reclaim_recipient);
     let order_lamports = order_pda.lamports();
     reclaim_recipient.set_lamports(
         reclaim_recipient
@@ -49,14 +51,14 @@ pub fn process_reclaim_order(
 
 #[cfg(test)]
 mod tests {
-    use pinocchio::Address;
-    use settlement_interface::data::order::EncodedOrderAccount;
-    use settlement_interface::instruction::{
+    use cow_settlement_interface::data::order::EncodedOrderAccount;
+    use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
     };
-    use settlement_interface::pda::order::find_order_pda;
-    use settlement_interface::SettlementInstruction;
+    use cow_settlement_interface::pda::order::find_order_pda;
+    use cow_settlement_interface::SettlementInstruction;
+    use pinocchio::Address;
 
     use super::*;
 

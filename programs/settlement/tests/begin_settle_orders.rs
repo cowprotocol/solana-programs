@@ -26,12 +26,7 @@ use crate::common::{
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
 };
-use litesvm::LiteSVM;
-use litesvm_token::spl_token::error::TokenError;
-use settlement_client::instructions::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
-};
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::order::{EncodedOrderAccount, OrderAccount},
     instruction::settle::{
         BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw, INSTRUCTIONS_SYSVAR_ID,
@@ -40,7 +35,12 @@ use settlement_client::settlement_interface::{
     pda::{order::find_order_pda, state::find_state_pda},
     Instruction, SettlementError, SettlementInstruction,
 };
-use settlement_interface::data::intent::OrderIntent;
+use cow_settlement_client::instructions::{
+    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
+};
+use cow_settlement_interface::data::intent::OrderIntent;
+use litesvm::LiteSVM;
+use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
     instruction::{AccountMeta, InstructionError},
     pubkey::Pubkey,

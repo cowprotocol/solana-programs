@@ -1,7 +1,21 @@
 [package]
 name = "cow-test-cli"
+description = "Development and testing CLI for driving the CoW Protocol Solana settlement program."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/cow-test-cli"
+keywords.workspace = true
+categories = [
+    "cryptography::cryptocurrencies",
+    "finance",
+    "command-line-utilities",
+    "development-tools::testing",
+]
+publish = true
 
 [[bin]]
 name = "cow"
@@ -10,7 +24,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-settlement-client.workspace = true
+cow-settlement-client.workspace = true
 solana-commitment-config.workspace = true
 solana-hash.workspace = true
 solana-instruction.workspace = true

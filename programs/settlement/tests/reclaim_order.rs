@@ -1,4 +1,4 @@
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind},
     instruction::{create_order::CreateOrder, reclaim_order::ReclaimOrder},
     pda::order::find_order_pda,
@@ -77,7 +77,7 @@ fn happy_path_returns_lamports_and_closes_pda() {
     let (pda, _bump) = find_order_pda(&program_id, &encoded.hash());
 
     let pda_rent = svm.minimum_balance_for_rent_exemption(
-        settlement_client::settlement_interface::data::order::EncodedOrderAccount::SIZE,
+        cow_settlement_client::cow_settlement_interface::data::order::EncodedOrderAccount::SIZE,
     );
 
     // Create the order; `reclaim_recipient` funds the rent (`created_by`).
