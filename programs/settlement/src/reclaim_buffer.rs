@@ -6,13 +6,13 @@
 //! reclaiming a set of buffers succeeds even when none of them were closed.
 
 use cow_settlement_interface::{
-    data::state::{EncodedStateAccount, StateAccount},
+    data::state::EncodedStateAccount,
     instruction::{
         create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
         InstructionInputParsing,
     },
     pda::buffer::find_buffer_pda,
-    Pubkey, SettlementError,
+    Pubkey, Role, SettlementError,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use pinocchio_token::{instructions::CloseAccount, state::Account as TokenAccount};
@@ -42,7 +42,7 @@ pub fn process_reclaim_buffer(
             let bytes: &[u8; EncodedStateAccount::SIZE] = (&*data)
                 .try_into()
                 .map_err(|_| ProgramError::InvalidAccountData)?;
-            StateAccount::try_from(*bytes)?.reclaim_authority
+            EncodedStateAccount::authority(bytes, Role::ReclaimAuthority)
         };
         if !reclaim_authority.is_signer()
             || reclaim_authority.address() != &reclaim_authority_pubkey
@@ -78,6 +78,7 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
+    use cow_settlement_interface::data::state::StateAccount;
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
@@ -209,13 +210,13 @@ mod tests {
     fn process_reclaim_buffer_rejects_zeroed_state_pda() {
         let mut accounts = base_accounts();
 
-        // Allocated to the right size but never initialized, so the
-        // discriminator byte is still zero. Being the right size is not
-        // enough: the account also has to be *ours*.
+        // Allocated to the right size but never initialized, so its reclaim
+        // authority reads back as the all-zero address, which no real signer can
+        // match.
         let state_pda = *accounts[STATE_PDA].address();
         accounts[STATE_PDA] = fake_account_with_data(state_pda, &[0; EncodedStateAccount::SIZE]);
 
-        assert_rejects(accounts, ProgramError::InvalidAccountData);
+        assert_rejects(accounts, SettlementError::ReclaimAuthorityMismatch.into());
     }
 
     #[test]

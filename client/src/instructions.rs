@@ -8,7 +8,7 @@
 use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
-    Instruction, Pubkey,
+    Instruction, Pubkey, Role,
 };
 
 // Reexport the instruction builders that don't change from the interface.
@@ -219,6 +219,29 @@ impl From<ReclaimBuffer<'_>> for Instruction {
             reclaim_authority: builder.reclaim_authority,
             reclaim_recipient: builder.reclaim_recipient,
             buffers: &buffers,
+        }
+        .into()
+    }
+}
+
+/// Transfers `role` to `new_authority` in a single step. Signed by `signer`,
+/// which must be the manager or the current holder of `role`.
+pub struct TransferAuthority {
+    pub program_id: Pubkey,
+    pub signer: Pubkey,
+    pub role: Role,
+    pub new_authority: Pubkey,
+}
+
+impl From<TransferAuthority> for Instruction {
+    fn from(builder: TransferAuthority) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
+        cow_settlement_interface::instruction::transfer_authority::TransferAuthority {
+            program_id: builder.program_id,
+            signer: builder.signer,
+            state_pda,
+            role: builder.role,
+            new_authority: builder.new_authority,
         }
         .into()
     }
