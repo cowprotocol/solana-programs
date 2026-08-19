@@ -23,6 +23,7 @@ pub fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> Ord
         valid_to: 0xdead_beef,
         kind: OrderKind::Sell,
         partially_fillable: true,
+        sell_account_rent_recipient: Pubkey::new_from_array([0x44; 32]),
         app_data: [salt; 32],
     }
 }
@@ -121,6 +122,14 @@ impl<'a> OrderBuilder<'a> {
     /// Pin the mint of the order's buy token account. Defaults to a fresh mint.
     pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
         self.buy_mint = Some(*mint);
+        self
+    }
+
+    /// Set the account receiving the sell token account's rent when a
+    /// settlement closes it. Defaults to [`sample_intent`]'s placeholder
+    /// address, which no test asserts on.
+    pub fn sell_account_rent_recipient(mut self, recipient: &Pubkey) -> Self {
+        self.intent.sell_account_rent_recipient = *recipient;
         self
     }
 

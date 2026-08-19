@@ -187,6 +187,10 @@ pub enum SettlementError {
     /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
     /// derived from its paired `mint`.
     ReclaimBufferNotCanonical = 33,
+    /// `BeginSettle`: a settlement closing an order's sell token account
+    /// supplied a rent recipient account that doesn't match the
+    /// `sell_account_rent_recipient` recorded in the order's intent.
+    SellAccountRentRecipientMismatch = 34,
 }
 
 impl From<SettlementError> for u32 {

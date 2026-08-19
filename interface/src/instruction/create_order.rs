@@ -40,7 +40,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// instruction reverts with `AccountAlreadyInitialized`. Recreating the same
 /// order is only possible after its PDA has been closed.
 ///
-/// Wire format: `[discriminator=2, ..150 intent bytes]`, 151 bytes.
+/// Wire format: `[discriminator=2, ..intent bytes]`
 /// Required accounts:
 /// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
 /// The system program needs to be available but doesn't need to be at that
@@ -84,7 +84,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for CreateOrderInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateOrder;
 
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
-        // Body (discriminator already stripped): exactly the 150 intent bytes.
+        // Body (discriminator already stripped): exactly the 182 intent bytes.
         if instruction_data.len() != EncodedOrderIntent::SIZE {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -126,7 +126,7 @@ pub mod fixtures {
     /// and the system program.
     pub const NUM_ACCOUNTS: usize = 4;
 
-    /// Canonical 150-byte intent payload for a valid sell order owned by
+    /// Canonical 182-byte intent payload for a valid sell order owned by
     /// [`DEFAULT_OWNER`].
     pub fn valid_intent_bytes() -> [u8; EncodedOrderIntent::SIZE] {
         (&EncodedOrderIntent::from(&OrderIntent {

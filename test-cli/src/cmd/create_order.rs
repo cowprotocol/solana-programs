@@ -3,11 +3,13 @@ use clap::{Args as ClapArgs, Parser};
 use cow_settlement_client::{
     cow_settlement_interface::{
         data::intent::{OrderIntent, OrderKind},
-        pda::order::find_order_pda,
+        pda::{order::find_order_pda, state::find_state_pda},
     },
     instructions::CreateOrder,
 };
-use solana_sdk::{signature::Signer, transaction::Transaction};
+use solana_sdk::{
+    program_option::COption, pubkey::Pubkey, signature::Signer, transaction::Transaction,
+};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
@@ -22,6 +24,17 @@ struct CommonArgs {
     /// Allow partial fills across multiple settlements
     #[arg(long)]
     partially_fillable: bool,
+
+    /// Address receiving the sell token account's rent if a settlement closes
+    /// the account once it's empty (defaults to the payer). If specified, will also
+    /// set close authority to the settlement program unless otherwise specified.
+    #[arg(long)]
+    sell_account_rent_recipient: Option<Pubkey>,
+
+    /// Explicitly control. If unset, will grant close authority if `--sell-account-rent-recipient` is set
+    /// and the close authority is not already granted.
+    #[arg(long)]
+    set_close_authority: Option<bool>,
 }
 
 #[derive(Parser)]
@@ -134,7 +147,6 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     } = parsed;
 
     // If the sell token is SOL, wrap it into the payer's WSOL ATA first.
-    // NOTE: later this will be swapped for the solflow program.
     let mut ixs = Vec::new();
 
     if sell_is_sol {
@@ -147,11 +159,36 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     // Create the account on the buy side if necessary
     ixs.extend(buy.create_ata_ix(&ctx.payer.pubkey()));
 
+    let (state_pda, _bump) = find_state_pda(&ctx.program_id);
+
+    // Grant CloseAuthority permission to the settlement program state account if
+    // rent recipient was set.
+    if common
+        .set_close_authority
+        .unwrap_or(common.sell_account_rent_recipient.is_some())
+    {
+        // A sell account that doesn't exist yet (`None`) is created earlier in
+        // this same transaction, so it's still fine to set the authority on it.
+        if let Some(COption::Some(close_authority)) = sell.ta_data.map(|ta| ta.close_authority) {
+            if close_authority != state_pda {
+                println!("WARN: Skipping set of close authority: already set to non-settlement account {close_authority}");
+            }
+        } else {
+            ixs.push(crate::instructions::set_close_authority(
+                &spl_token_interface::ID,
+                &sell.ta,
+                &ctx.payer.pubkey(),
+                &state_pda,
+            )?);
+        }
+    }
+
     // Approve the settlement state PDA to pull sell tokens on the user's behalf.
     ixs.push(crate::instructions::approve(
-        &ctx.program_id,
+        &spl_token_interface::ID,
         &sell.ta,
         &ctx.payer.pubkey(),
+        &state_pda,
         sell_amount,
     )?);
 
@@ -164,6 +201,9 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         valid_to: common.valid_to,
         kind,
         partially_fillable: common.partially_fillable,
+        sell_account_rent_recipient: common
+            .sell_account_rent_recipient
+            .unwrap_or_else(|| ctx.payer.pubkey()),
         app_data: [0u8; 32],
     };
 

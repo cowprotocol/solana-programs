@@ -2,7 +2,7 @@
 
 use crate::token;
 use anyhow::Context as _;
-use cow_settlement_client::cow_settlement_interface::{pda::state::find_state_pda, Pubkey};
+use cow_settlement_client::cow_settlement_interface::Pubkey;
 use solana_instruction::Instruction;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_token_interface::instruction::{self as token_ix};
@@ -35,22 +35,40 @@ pub fn wrap_sol(
 }
 
 /// Build an `Approve` instruction delegating `amount` tokens on `token_account`
-/// to the PDA derived from `program_id`.
+/// to `delegate`.
 pub fn approve(
-    program_id: &Pubkey,
+    token_program_id: &Pubkey,
     token_account: &Pubkey,
     owner: &Pubkey,
+    delegate: &Pubkey,
     amount: u64,
 ) -> anyhow::Result<Instruction> {
-    let (settlement_pda, _) = find_state_pda(program_id);
-
     token_ix::approve(
-        &spl_token_interface::id(),
+        token_program_id,
         token_account,
-        &settlement_pda,
+        delegate,
         owner,
         &[],
         amount,
     )
     .context("failed to build Approve instruction")
+}
+
+/// Build `SetAuthority` instruction which modifies the current CloseAuthority
+/// for an account.
+pub fn set_close_authority(
+    token_program_id: &Pubkey,
+    token_account: &Pubkey,
+    owner: &Pubkey,
+    new_close_authority: &Pubkey,
+) -> anyhow::Result<Instruction> {
+    token_ix::set_authority(
+        token_program_id,
+        token_account,
+        Some(new_close_authority),
+        token_ix::AuthorityType::CloseAccount,
+        owner,
+        &[],
+    )
+    .context("failed to build SetAuthority instruction")
 }

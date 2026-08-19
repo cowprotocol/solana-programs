@@ -77,13 +77,20 @@ pub struct OrderIntent {
     /// must consume the full sell amount (fill-or-kill).
     pub partially_fillable: bool,
 
+    /// Account that receives the lamports reclaimed from
+    /// `sell_token_account` when a settlement closes it. Closing only
+    /// happens if the account is left empty by the settlement and its SPL
+    /// close authority is the settlement state PDA, which is the owner's
+    /// opt-in.
+    pub sell_account_rent_recipient: Pubkey,
+
     /// Opaque 32 bytes set by the order creator. Not interpreted by the
     /// settlement program; used off-chain for metadata such as the
     /// frontend version, slippage hints, or attribution.
     pub app_data: [u8; 32],
 }
 
-/// Canonical 150-byte representation of an [`OrderIntent`]. The wire format and
+/// Canonical 182-byte representation of an [`OrderIntent`]. The wire format and
 /// the order UID preimage.
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
@@ -93,12 +100,12 @@ pub struct OrderIntent {
 /// ```text
 ///                                                                                              partially_fillable ─────┐
 ///                                                                                                            kind ────┐│
-/// ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────┬───────┬───┬┬┬───────────────────────────────┐
-/// │                               │                               │                               │sell_  │buy_   │val│││                               │
-/// │             owner             │       buy_token_account       │       sell_token_account      │       │       │id_│││            app_data           │
-/// │                               │                               │                               │amount │amount │to │││                               │
-/// └───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────┴───────┴───┴┴┴───────────────────────────────┘
-/// 0                               32                              64                              96      104    112 116 118                            150
+/// ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────┬───────┬───┬┬┬───────────────────────────────┬───────────────────────────────┐
+/// │                               │                               │                               │sell_  │buy_   │val│││          sell_account_        │                               │
+/// │             owner             │       buy_token_account       │       sell_token_account      │       │       │id_│││          rent_recipient       │            app_data           │
+/// │                               │                               │                               │amount │amount │to │││                               │                               │
+/// └───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────┴───────┴───┴┴┴───────────────────────────────┴───────────────────────────────┘
+/// 0                               32                              64                              96      104    112 116 118                            150                             182
 ///                                                                                                                     117
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
@@ -114,9 +121,10 @@ impl EncodedOrderIntent {
     const WIDTH_VALID_TO: usize = size_of::<u32>();
     const WIDTH_KIND: usize = size_of::<OrderKind>();
     const WIDTH_PARTIALLY_FILLABLE: usize = size_of::<bool>();
+    const WIDTH_SELL_ACCOUNT_RENT_RECIPIENT: usize = size_of::<Pubkey>();
     const WIDTH_APP_DATA: usize = size_of::<[u8; 32]>();
 
-    pub const SIZE: usize = 150;
+    pub const SIZE: usize = 182;
 
     /// Canonical hash of the bytes.
     pub fn hash(&self) -> Hash {
@@ -163,6 +171,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
             valid_to,
             kind,
             partially_fillable,
+            sell_account_rent_recipient,
             app_data,
         ) = mut_array_refs![
             &mut out,
@@ -174,6 +183,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
             EncodedOrderIntent::WIDTH_VALID_TO,
             EncodedOrderIntent::WIDTH_KIND,
             EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_SELL_ACCOUNT_RENT_RECIPIENT,
             EncodedOrderIntent::WIDTH_APP_DATA
         ];
         *owner = intent.owner.to_bytes();
@@ -184,6 +194,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *valid_to = intent.valid_to.to_le_bytes();
         *kind = [intent.kind as u8];
         *partially_fillable = [intent.partially_fillable as u8];
+        *sell_account_rent_recipient = intent.sell_account_rent_recipient.to_bytes();
         *app_data = intent.app_data;
         Self(out)
     }
@@ -209,6 +220,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             valid_to,
             kind,
             partially_fillable,
+            sell_account_rent_recipient,
             app_data,
         ) = array_refs![
             bytes,
@@ -220,6 +232,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             EncodedOrderIntent::WIDTH_VALID_TO,
             EncodedOrderIntent::WIDTH_KIND,
             EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_SELL_ACCOUNT_RENT_RECIPIENT,
             EncodedOrderIntent::WIDTH_APP_DATA
         ];
 
@@ -240,6 +253,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
                 [1] => true,
                 _ => return Err(ProgramError::InvalidInstructionData),
             },
+            sell_account_rent_recipient: Pubkey::new_from_array(*sell_account_rent_recipient),
             app_data: *app_data,
         })
     }
@@ -285,6 +299,7 @@ pub mod fixtures {
             valid_to: 0xdead_beef,
             kind,
             partially_fillable,
+            sell_account_rent_recipient: Pubkey::new_from_array([0x55; 32]),
             app_data: [0x44; 32],
         }
     }
@@ -306,9 +321,21 @@ pub mod fixtures {
             arb_order_kind(),
             any::<bool>(),
             any::<[u8; 32]>(),
+            any::<[u8; 32]>(),
         )
             .prop_map(
-                |(owner, buy_tok, sell_tok, sell_amount, buy_amount, valid_to, kind, pf, app)| {
+                |(
+                    owner,
+                    buy_tok,
+                    sell_tok,
+                    sell_amount,
+                    buy_amount,
+                    valid_to,
+                    kind,
+                    pf,
+                    rent_recipient,
+                    app,
+                )| {
                     OrderIntent {
                         owner: Pubkey::new_from_array(owner),
                         buy_token_account: Pubkey::new_from_array(buy_tok),
@@ -318,6 +345,7 @@ pub mod fixtures {
                         valid_to,
                         kind,
                         partially_fillable: pf,
+                        sell_account_rent_recipient: Pubkey::new_from_array(rent_recipient),
                         app_data: app,
                     }
                 },
@@ -376,6 +404,10 @@ mod tests {
         assert_eq!(
             EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
             size_of_val(&intent.partially_fillable)
+        );
+        assert_eq!(
+            EncodedOrderIntent::WIDTH_SELL_ACCOUNT_RENT_RECIPIENT,
+            size_of_val(&intent.sell_account_rent_recipient)
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_APP_DATA,
@@ -458,7 +490,7 @@ mod tests {
     #[test]
     fn uid_digest_regression() {
         let intent = sample_intent(OrderKind::Buy, true);
-        let expected = hex!("7ce7c6a74671090771fa33851387444064aca759ce55b80708723076722f5e00");
+        let expected = hex!("7634777e7f671c95c082d21eb1e3d685d764d54f8716115c9baabdcb68ea5f61");
         assert_eq!(intent.uid(), Hash::from(expected));
     }
 
@@ -493,6 +525,11 @@ mod tests {
             0x01,
             // partially_fillable (true = 1)
             0x01,
+            // sell_account_rent_recipient ([0x55; 32])
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
             // app_data ([0x44; 32])
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
