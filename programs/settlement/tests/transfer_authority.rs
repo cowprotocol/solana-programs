@@ -80,45 +80,39 @@ fn assert_transfer_rejected(
     assert_instruction_error(res, to_instruction_error(expected));
 }
 
-/// Generates one integration test per row, `<signer> transfers <role>`. Two
-/// options:
+/// Generates one integration test, `<signer> transfers <role>`. Two forms:
 ///
 /// - "Entry transfers Role", for successes
 /// - "Entry transfers Role, error Error", for reverts
 ///
 /// "Entry" names a keypair field of [`InitializedParams`].
 /// "Error" is the expected [`SettlementError`].
-macro_rules! transfer_authority_tests {
-    ($($name:ident: $signer:ident transfers $role:expr;)*) => {$(
+macro_rules! transfer_authority_test {
+    ($name:ident: $signer:ident transfers $role:expr) => {
         #[test]
         fn $name() {
             let (mut svm, params) = setup_init();
             assert_transfers_authority(&mut svm, &params, $role, &params.$signer);
         }
-    )*};
+    };
 
-    ($($name:ident: $signer:ident transfers $role:expr, error $err:expr;)*) => {$(
+    ($name:ident: $signer:ident transfers $role:expr, error $err:expr) => {
         #[test]
         fn $name() {
             let (mut svm, params) = setup_init();
             assert_transfer_rejected(&mut svm, &params, $role, &params.$signer, $err);
         }
-    )*};
+    };
 }
 
 // The manager (the highest authority) may transfer any role; a role's current
 // holder may transfer it to a replacement.
-transfer_authority_tests! {
-    manager_can_transfer_manager: manager transfers Role::Manager;
-    manager_can_transfer_reclaim_authority: manager transfers Role::ReclaimAuthority;
-    reclaim_authority_can_transfer_itself: reclaim transfers Role::ReclaimAuthority;
-}
+transfer_authority_test!(manager_can_transfer_manager: manager transfers Role::Manager);
+transfer_authority_test!(manager_can_transfer_reclaim_authority: manager transfers Role::ReclaimAuthority);
+transfer_authority_test!(reclaim_authority_can_transfer_itself: reclaim transfers Role::ReclaimAuthority);
 
 // A non-manager authority may not touch the manager role.
-transfer_authority_tests! {
-    reclaim_authority_cannot_transfer_the_manager:
-        reclaim transfers Role::Manager, error SettlementError::UnauthorizedAuthorityTransfer;
-}
+transfer_authority_test!(reclaim_authority_cannot_transfer_the_manager: reclaim transfers Role::Manager, error SettlementError::UnauthorizedAuthorityTransfer);
 
 /// Index of the signer account in a `TransferAuthority` instruction.
 const SIGNER_INDEX: usize = 0;

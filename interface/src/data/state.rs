@@ -198,33 +198,37 @@ mod tests {
         }
     }
 
-    /// Generates one test per [`Role`], asserting that the encoded read accessor
-    /// returns the role's named field and the mutable accessor updates only that
-    /// field in place.
-    macro_rules! role_accessor_tests {
-        ($($name:ident: $role:expr => $field:ident),+ $(,)?) => {$(
+    /// Generates one test for a [`Role`], asserting that the encoded read
+    /// accessor returns the role's named field and the mutable accessor updates
+    /// only that field in place.
+    macro_rules! role_accessor_test {
+        ($name:ident: $role:expr => $field:ident) => {
             #[test]
             fn $name() {
                 let account = sample_account();
                 let mut bytes: [u8; EncodedStateAccount::SIZE] =
                     EncodedStateAccount::from(account.clone()).into();
 
-                assert_eq!(EncodedStateAccount::authority(&bytes, $role), account.$field);
+                assert_eq!(
+                    EncodedStateAccount::authority(&bytes, $role),
+                    account.$field
+                );
 
-                let new_authority = pubkey_from_seed("role_accessor_tests's new authority");
+                let new_authority = pubkey_from_seed("role_accessor_test's new authority");
                 *EncodedStateAccount::authority_mut(&mut bytes, $role) = new_authority.to_bytes();
 
                 let mut expected = account;
                 expected.$field = new_authority;
-                assert_eq!(StateAccount::try_from(bytes).expect("should decode"), expected);
+                assert_eq!(
+                    StateAccount::try_from(bytes).expect("should decode"),
+                    expected
+                );
             }
-        )+};
+        };
     }
 
-    role_accessor_tests! {
-        manager_accessors_match_named_fields: Role::Manager => manager,
-        reclaim_authority_accessors_match_named_fields: Role::ReclaimAuthority => reclaim_authority,
-    }
+    role_accessor_test!(manager_accessors_match_named_fields: Role::Manager => manager);
+    role_accessor_test!(reclaim_authority_accessors_match_named_fields: Role::ReclaimAuthority => reclaim_authority);
 
     #[test]
     fn decode_rejects_wrong_discriminator() {
