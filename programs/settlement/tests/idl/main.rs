@@ -12,12 +12,12 @@ mod parse_rust;
 
 use std::collections::BTreeSet;
 
-use parse_json::{Section, IDL};
-use serde_json::Value;
 use cow_settlement_interface::{
     pda::{buffer::BUFFER_SEED, order::ORDER_SEED, SETTLEMENT_SEED},
     SettlementAccount, SettlementInstruction,
 };
+use parse_json::{Section, IDL};
+use serde_json::Value;
 
 fn pascal_to_snake(s: &str) -> String {
     let mut out = String::new();
@@ -90,6 +90,18 @@ fn idl_address_matches_declared_program_id() {
         IDL["address"].as_str().expect("address must be a string"),
         cow_settlement_interface::ID.to_string(),
         "IDL `address` must match the program id declared via declare_id! in interface/src/lib.rs"
+    );
+}
+
+#[test]
+fn idl_version_matches_cargo_package_version() {
+    assert_eq!(
+        IDL["metadata"]["version"]
+            .as_str()
+            .expect("metadata.version must be a string"),
+        env!("CARGO_PKG_VERSION"),
+        "IDL `metadata.version` must match the settlement program's cargo package version; \
+         bumping the minor version also moves every PDA, so a stale value here hides that"
     );
 }
 
