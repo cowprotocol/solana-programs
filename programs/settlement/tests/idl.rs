@@ -55,12 +55,7 @@ fn doc_attr_text(attr: &syn::Attribute) -> Option<String> {
 }
 
 fn normalize_doc(lines: &[String]) -> String {
-    lines
-        .iter()
-        .map(|l| l.trim())
-        .collect::<Vec<_>>()
-        .join(" ")
-        .replace('`', "")
+    lines.join(" ").replace('`', "")
 }
 
 // ---------------------------------------------------------------------------
