@@ -34,14 +34,14 @@ fn pascal_to_snake(s: &str) -> String {
     out
 }
 
-fn confirm_idl_match(byte: u8, section: Section, idl_name: &str) {
-    let idl_element = parse_json::find_item(section, idl_name)
+fn confirm_idl_match(idl_section: Section, idl_name: &str, discriminator_byte: u8) {
+    let idl_element = parse_json::find_item(idl_section, idl_name)
         .unwrap_or_else(|| panic!("IDL does not contain defined settlement element {idl_name}"));
 
     // confirm the discriminator matches
     assert_eq!(
         parse_json::discriminator(idl_element, idl_name),
-        vec![byte],
+        vec![discriminator_byte],
         "IDL discriminator for {idl_name} should be the single byte the code uses"
     );
 
@@ -51,7 +51,7 @@ fn confirm_idl_match(byte: u8, section: Section, idl_name: &str) {
     // grammar can't express (`begin_settle`'s dynamically-shaped tail, for
     // one), which have no business being in the program's own docs.
     let idl_docs = parse_json::docs(idl_element, idl_name);
-    let rust_docs = parse_rust::discriminator_variant_docs(section, byte);
+    let rust_docs = parse_rust::discriminator_variant_docs(idl_section, discriminator_byte);
 
     let mut unmatched_idl_docs = idl_docs.iter();
     for rust_doc in &rust_docs {
@@ -123,9 +123,9 @@ fn idl_matches_instruction_discriminators() {
     for byte in 0u8..=255 {
         if let Ok(ix) = SettlementInstruction::try_from(byte) {
             confirm_idl_match(
-                byte,
                 Section::Instructions,
                 &pascal_to_snake(&format!("{ix:?}")),
+                byte,
             );
         }
     }
@@ -135,7 +135,7 @@ fn idl_matches_instruction_discriminators() {
 fn idl_matches_account_discriminators() {
     for byte in 0u8..=255 {
         if let Ok(account) = SettlementAccount::try_from(byte) {
-            confirm_idl_match(byte, Section::Accounts, &format!("{account:?}"));
+            confirm_idl_match(Section::Accounts, &format!("{account:?}"), byte);
         }
     }
 }
