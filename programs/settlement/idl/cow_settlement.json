@@ -4,14 +4,14 @@
     "name": "cow_settlement",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "CoW Protocol settlement program. HAND-WRITTEN IDL: this program is a native/Pinocchio program, not built with the Anchor framework, so this file was authored manually to describe its wire format as closely as the Anchor IDL grammar allows. See the per-instruction/type docs for spots where the on-chain format cannot be fully expressed (non-standard 1-byte instruction discriminators, and BeginSettle's dynamically-shaped tail)."
+    "description": "CoW Protocol settlement program. IDL may not be able to generate typical of Anchor programs, so please be careful to read the documentation on the function you are using.",
+    "repository": "https://github.com/cowprotocol/solana-programs"
   },
   "instructions": [
     {
       "name": "initialize",
       "docs": [
-        "Creates the singleton settlement state PDA. Succeeds only once.",
-        "Non-standard discriminator: this program uses a single instruction-selector byte (see SettlementInstruction in the Rust source), not Anchor's usual 8-byte sighash. The `discriminator` below reflects the real on-chain bytes."
+        "Creates the singleton settlement state PDA. Succeeds only once."
       ],
       "discriminator": [
         3
@@ -79,7 +79,7 @@
       "name": "create_buffer",
       "docs": [
         "Creates one or more per-token buffer PDAs (SPL token accounts) in a single instruction.",
-        "IDL MODELING NOTE: the real instruction accepts an unbounded number of (buffer_pda, mint) pairs as remaining accounts, one pair per buffer, with at least one pair required (CreateBuffer rejects zero buffers). Anchor's IDL grammar has no 'repeated group' construct, so this file only declares the guaranteed index-0 template (buffer_pda_0/mint_0). This instruction is solver/internal tooling only, not part of the public client surface, so buffers beyond the first are intentionally left unmodeled here: callers needing more than one buffer per transaction append the extra (buffer_pda, mint) account-meta pairs by hand after building the base instruction.",
+        "IDL LIMITATION: the real instruction accepts an unbounded number of (buffer_pda, mint) pairs as remaining accounts, one pair per buffer, with at least one pair required (CreateBuffer rejects zero buffers). IDL grammar has no 'repeated group' construct, so this file only declares the guaranteed index-0 template (buffer_pda_0/mint_0).",
         "Each buffer_pda_i must be the canonical PDA for seeds [SETTLEMENT_SEED, mint_i, \"buffer\"]."
       ],
       "discriminator": [
@@ -162,7 +162,7 @@
       "name": "create_order",
       "docs": [
         "Allocates a per-order PDA and writes the initial OrderAccount body.",
-        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the Anchor PDA-seed grammar (const / arg / account) can describe."
+        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe."
       ],
       "discriminator": [
         2
@@ -210,8 +210,7 @@
       "name": "begin_settle",
       "docs": [
         "Pulls funds for a batch of orders. Must be paired in the same transaction with a FinalizeSettle at `finalize_ix_index`.",
-        "IDL LIMITATION: only the fixed-size prefix (finalize_ix_index, auction_id) is represented as typed arguments. After it, the real wire format is `[order_count: u8][bump; order_count][transfer_count; order_count][amount: u64 LE; sum(transfer_count)]` — a hand-packed layout with no Borsh length prefixes and a trailing array whose length depends on the sum of an earlier array. This has no representation in the Anchor/Borsh/IDL type grammar (no vec/array type can express 'shared count governs several sibling arrays' or 'length = sum of another field'), so it is intentionally left out of `args` rather than mislabeled as `bytes` (which would imply a Borsh Vec<u8> length prefix that isn't actually present and would make a generic decoder misparse it). Anchor/Solscan-style tooling will only decode the discriminator, finalize_ix_index, and auction_id for this instruction; the remainder needs bespoke client logic.",
-        "Per-order accounts follow the 3 shared accounts below as a repeated remaining-accounts group: [order_pda (readonly), sell_token_account (writable), destination (writable) x transfer_count], sorted by ascending order_pda address."
+        "IDL LIMITATION: only the fixed-size prefix (finalize_ix_index, auction_id) is represented as typed arguments. After it, the real wire format is `[order_count: u8][bump; order_count][transfer_count; order_count][amount: u64 LE; sum(transfer_count)]`. Please check the rust documentation for more information."
       ],
       "discriminator": [
         0
@@ -252,9 +251,7 @@
     {
       "name": "finalize_settle",
       "docs": [
-        "Validates that a BeginSettle at `begin_ix_index` exists and points back at this instruction. Must not be called via CPI.",
-        "Non-standard discriminator, see the note on `initialize`.",
-        "Per-push accounts follow the 3 shared accounts below as a repeated remaining-accounts group: [source_buffer (writable), destination (writable)] x number of pushes."
+        "Validates that a BeginSettle at `begin_ix_index` exists and points back at this instruction. Must not be called via CPI."
       ],
       "discriminator": [
         1

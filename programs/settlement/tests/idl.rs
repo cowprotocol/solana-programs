@@ -11,7 +11,7 @@
 
 mod common;
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::LazyLock};
 
 use serde_json::{json, Value};
 use settlement_interface::{
@@ -26,12 +26,11 @@ const INTENT_RS: &str = include_str!("../../../interface/src/data/intent.rs");
 const ORDER_RS: &str = include_str!("../../../interface/src/data/order.rs");
 const STATE_RS: &str = include_str!("../../../interface/src/data/state.rs");
 
-fn idl() -> Value {
-    serde_json::from_str(IDL_JSON).expect("IDL must be valid JSON")
-}
+static IDL: LazyLock<Value> =
+    LazyLock::new(|| serde_json::from_str(IDL_JSON).expect("IDL must be valid JSON"));
 
-fn find_item_in_idl<'a>(idl: &'a Value, type_name: &str, name: &str) -> Option<&'a Value> {
-    idl[type_name]
+fn find_item_in_idl<'a>(type_name: &str, name: &str) -> Option<&'a Value> {
+    IDL[type_name]
         .as_array()?
         .iter()
         .find(|ix| ix["name"] == name)
@@ -69,12 +68,12 @@ fn normalize_doc(lines: &[String]) -> String {
 
 #[test]
 fn idl_is_valid_json() {
-    let _: Value = idl();
+    let _ = &*IDL;
 }
 
 #[test]
 fn idl_is_pretty_formatted() {
-    let mut formatted = serde_json::to_string_pretty(&idl()).expect("IDL JSON should re-serialize");
+    let mut formatted = serde_json::to_string_pretty(&*IDL).expect("IDL JSON should re-serialize");
     formatted.push('\n');
     assert_eq!(
         formatted, IDL_JSON,
@@ -85,9 +84,8 @@ fn idl_is_pretty_formatted() {
 
 #[test]
 fn idl_address_matches_declared_program_id() {
-    let idl = idl();
     assert_eq!(
-        idl["address"].as_str().expect("address must be a string"),
+        IDL["address"].as_str().expect("address must be a string"),
         settlement_interface::ID.to_string(),
         "IDL `address` must match the program id declared via declare_id! in interface/src/lib.rs"
     );
@@ -97,11 +95,7 @@ fn idl_address_matches_declared_program_id() {
 fn idl_conforms_to_official_schema() {
     let schema: Value = serde_json::from_str(IDL_SCHEMA_JSON).expect("schema should be valid JSON");
     let validator = jsonschema::validator_for(&schema).expect("schema should compile");
-    let instance = idl();
-    let errors: Vec<String> = validator
-        .iter_errors(&instance)
-        .map(|e| e.to_string())
-        .collect();
+    let errors: Vec<String> = validator.iter_errors(&IDL).map(|e| e.to_string()).collect();
     assert!(
         errors.is_empty(),
         "IDL fails schema validation:\n{}",
@@ -124,8 +118,8 @@ fn pascal_to_snake(s: &str) -> String {
     out
 }
 
-fn confirm_idl_match(idl: &Value, byte: u8, element_type: &str, idl_name: &str) {
-    let idl_element = find_item_in_idl(idl, element_type, idl_name)
+fn confirm_idl_match(byte: u8, element_type: &str, idl_name: &str) {
+    let idl_element = find_item_in_idl(element_type, idl_name)
         .unwrap_or_else(|| panic!("IDL does not contain defined settlement element {idl_name}"));
 
     // confirm the discriminator matches
@@ -144,35 +138,113 @@ fn confirm_idl_match(idl: &Value, byte: u8, element_type: &str, idl_name: &str) 
         "instruction discriminator byte for {idl_name} doesn't match up with the code"
     );
 
-    // confirm the docs match
-    /*let docs = ix["docs"]
-    .as_array()
-    .expect("docs for {idl_name} should be an array");*/
+    // confirm the docs match: everything the Rust enum variant documents must
+    // show up, in order, in the IDL element's docs. The IDL is allowed to say
+    // more than the Rust source does; it carries notes about what its own
+    // grammar can't express (`begin_settle`'s dynamically-shaped tail, for
+    // one), which have no business being in the program's own docs.
+    let idl_docs: Vec<String> = idl_element
+        .get("docs")
+        .map(|docs| {
+            docs.as_array()
+                .unwrap_or_else(|| panic!("docs for {idl_name} should be an array"))
+                .iter()
+                .map(|doc| {
+                    let doc = doc
+                        .as_str()
+                        .unwrap_or_else(|| panic!("doc entry for {idl_name} should be a string"))
+                        .to_string();
+                    normalize_doc(&[doc])
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
-    // TODO
+    let rust_docs = discriminator_variant_docs(element_type, byte);
+
+    let mut unmatched_idl_docs = idl_docs.iter();
+    for rust_doc in &rust_docs {
+        assert!(
+            unmatched_idl_docs.any(|idl_doc| idl_doc == rust_doc),
+            "IDL docs for {idl_name} don't document what the Rust source does; missing (or \
+             out of order) paragraph:\n{rust_doc}\nIDL docs are:\n{idl_docs:#?}"
+        );
+    }
+}
+
+/// Doc paragraphs of the `element_type` discriminator enum variant with
+/// discriminant `byte`, one string per paragraph (blank doc lines separate
+/// paragraphs), normalized the way IDL doc strings are so they can be compared.
+fn discriminator_variant_docs(element_type: &str, byte: u8) -> Vec<String> {
+    let enum_name = match element_type {
+        "instructions" => "SettlementInstruction",
+        "accounts" => "SettlementAccount",
+        other => panic!("no discriminator enum backs IDL {other}[]"),
+    };
+
+    let rust_file = syn::parse_file(INTERFACE_LIB_RS).expect("interface/src/lib.rs must parse");
+    let rust_enum = rust_file
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Enum(e) if e.ident == enum_name => Some(e),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{enum_name} enum must exist in interface/src/lib.rs"));
+
+    let variant = rust_enum
+        .variants
+        .iter()
+        .find(|variant| match &variant.discriminant {
+            Some((
+                _,
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Int(i),
+                    ..
+                }),
+            )) => i.base10_parse::<u8>().ok() == Some(byte),
+            _ => panic!("every {enum_name} variant must have a u8 literal discriminant"),
+        })
+        .unwrap_or_else(|| panic!("{enum_name} must have a variant with discriminant {byte}"));
+
+    doc_paragraphs(&variant.attrs)
+}
+
+/// Splits an item's doc comment into paragraphs on blank doc lines, each
+/// normalized into the single line the IDL carries it as.
+fn doc_paragraphs(attrs: &[syn::Attribute]) -> Vec<String> {
+    let mut paragraphs = Vec::new();
+    let mut paragraph: Vec<String> = Vec::new();
+    for line in attrs.iter().filter_map(doc_attr_text) {
+        if line.is_empty() {
+            if !paragraph.is_empty() {
+                paragraphs.push(normalize_doc(&paragraph));
+                paragraph.clear();
+            }
+        } else {
+            paragraph.push(line);
+        }
+    }
+    if !paragraph.is_empty() {
+        paragraphs.push(normalize_doc(&paragraph));
+    }
+    paragraphs
 }
 
 #[test]
 fn idl_matches_instruction_discriminators() {
-    let idl = idl();
     for byte in 0u8..=255 {
         if let Ok(ix) = SettlementInstruction::try_from(byte) {
-            confirm_idl_match(
-                &idl,
-                byte,
-                "instructions",
-                &pascal_to_snake(&format!("{ix:?}")),
-            );
+            confirm_idl_match(byte, "instructions", &pascal_to_snake(&format!("{ix:?}")));
         }
     }
 }
 
 #[test]
 fn idl_matches_account_discriminators() {
-    let idl = idl();
     for byte in 0u8..=255 {
         if let Ok(account) = SettlementAccount::try_from(byte) {
-            confirm_idl_match(&idl, byte, "accounts", &format!("{account:?}"));
+            confirm_idl_match(byte, "accounts", &format!("{account:?}"));
         }
     }
 }
@@ -217,9 +289,9 @@ fn rust_type_to_idl(ty: &syn::Type, context: &str) -> Value {
 /// `idl_name` is passed separately because the two don't always agree:
 /// `StateAccount` is called `SettlementState` in the IDL, matching the
 /// `SettlementAccount` discriminator variant that names the account.
-fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, rust_type_name: &str, idl_type_name: &str) {
+fn confirm_idl_types_entry(rust_file_name: &str, rust_type_name: &str, idl_type_name: &str) {
     // load in the idl and rust type definitions
-    let type_in_idl = idl["types"]
+    let type_in_idl = IDL["types"]
         .as_array()
         .expect("types must be an array")
         .iter()
@@ -289,11 +361,9 @@ fn confirm_idl_types_entry(idl: &Value, rust_file_name: &str, rust_type_name: &s
 
 #[test]
 fn idl_matches_rust_types() {
-    let idl = idl();
-
-    confirm_idl_types_entry(&idl, INTENT_RS, "OrderIntent", "OrderIntent");
-    confirm_idl_types_entry(&idl, ORDER_RS, "OrderAccount", "OrderAccount");
-    confirm_idl_types_entry(&idl, STATE_RS, "StateAccount", "SettlementState");
+    confirm_idl_types_entry(INTENT_RS, "OrderIntent", "OrderIntent");
+    confirm_idl_types_entry(ORDER_RS, "OrderAccount", "OrderAccount");
+    confirm_idl_types_entry(STATE_RS, "StateAccount", "SettlementState");
 }
 
 #[test]
@@ -308,10 +378,9 @@ fn idl_matches_rust_errors() {
         })
         .expect("SettlementError enum must exist in interface/src/lib.rs");
 
-    let idl = idl();
     for rust_err in &rust_errors_type.variants {
         let idl_err =
-            find_item_in_idl(&idl, "errors", &rust_err.ident.to_string()).unwrap_or_else(|| {
+            find_item_in_idl("errors", &rust_err.ident.to_string()).unwrap_or_else(|| {
                 panic!(
                     "Settlement program error {} is not defined in IDL errors[]",
                     rust_err.ident
@@ -384,9 +453,8 @@ fn idl_pda_seed_literals_match_pda_module() {
         }
     }
 
-    let idl = idl();
     let mut found = Vec::new();
-    collect_const_seeds(&idl["instructions"], &mut found);
+    collect_const_seeds(&IDL["instructions"], &mut found);
 
     // Every const seed the IDL does declare must be a real seed constant. Not
     // every seed constant needs to show up: `order_pda`'s canonical seed
