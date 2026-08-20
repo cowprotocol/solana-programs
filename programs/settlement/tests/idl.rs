@@ -51,7 +51,10 @@ fn doc_attr_text(attr: &syn::Attribute) -> Option<String> {
     else {
         return None;
     };
-    Some(s.value().trim().to_string())
+    // Doc comments start with spaces. We want to remove that,
+    // but we want to keep extra alignment spacing if present.
+    let doc = s.value();
+    Some(doc.strip_prefix(' ').unwrap_or(&doc).to_string())
 }
 
 fn normalize_doc(lines: &[String]) -> String {
