@@ -136,11 +136,11 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::{reclaim_buffer_data, NUM_SHARED_ACCOUNTS};
     use super::*;
+    use crate::fixtures::pubkey_from_seed;
     use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
     use crate::instruction::tests::{
         assert_readonly_nonsigner, assert_readonly_signer, assert_writable_nonsigner,
     };
-    use crate::tests::pubkey_from_seed;
 
     #[test]
     fn reclaim_buffer_input_parses_valid_input() {

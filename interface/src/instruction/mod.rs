@@ -14,6 +14,7 @@ pub mod initialize;
 pub mod reclaim_buffer;
 pub mod reclaim_order;
 pub mod settle;
+pub mod transfer_authority;
 
 /// Shared components for parsing an instruction's input (data fields and
 /// accounts).

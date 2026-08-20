@@ -23,6 +23,7 @@ pub enum BenchLabel {
     ReclaimBuffer,
     ReclaimOrder,
     Settle,
+    TransferAuthority,
 }
 
 impl fmt::Display for BenchLabel {
@@ -36,6 +37,7 @@ impl fmt::Display for BenchLabel {
             Self::ReclaimBuffer => "reclaim_buffer",
             Self::ReclaimOrder => "reclaim_order",
             Self::Settle => "settle",
+            Self::TransferAuthority => "transfer_authority",
         })
     }
 }
