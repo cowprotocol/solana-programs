@@ -12,7 +12,7 @@ mod parse_rust;
 
 use std::collections::BTreeSet;
 
-use parse_json::IDL;
+use parse_json::{Section, IDL};
 use serde_json::Value;
 use settlement_interface::{
     pda::{buffer::BUFFER_SEED, order::ORDER_SEED, SETTLEMENT_SEED},
@@ -34,8 +34,8 @@ fn pascal_to_snake(s: &str) -> String {
     out
 }
 
-fn confirm_idl_match(byte: u8, element_type: &str, idl_name: &str) {
-    let idl_element = parse_json::find_item(element_type, idl_name)
+fn confirm_idl_match(byte: u8, section: Section, idl_name: &str) {
+    let idl_element = parse_json::find_item(section, idl_name)
         .unwrap_or_else(|| panic!("IDL does not contain defined settlement element {idl_name}"));
 
     // confirm the discriminator matches
@@ -51,7 +51,7 @@ fn confirm_idl_match(byte: u8, element_type: &str, idl_name: &str) {
     // grammar can't express (`begin_settle`'s dynamically-shaped tail, for
     // one), which have no business being in the program's own docs.
     let idl_docs = parse_json::docs(idl_element, idl_name);
-    let rust_docs = parse_rust::discriminator_variant_docs(element_type, byte);
+    let rust_docs = parse_rust::discriminator_variant_docs(section, byte);
 
     let mut unmatched_idl_docs = idl_docs.iter();
     for rust_doc in &rust_docs {
@@ -110,7 +110,11 @@ fn idl_conforms_to_official_schema() {
 fn idl_matches_instruction_discriminators() {
     for byte in 0u8..=255 {
         if let Ok(ix) = SettlementInstruction::try_from(byte) {
-            confirm_idl_match(byte, "instructions", &pascal_to_snake(&format!("{ix:?}")));
+            confirm_idl_match(
+                byte,
+                Section::Instructions,
+                &pascal_to_snake(&format!("{ix:?}")),
+            );
         }
     }
 }
@@ -119,7 +123,7 @@ fn idl_matches_instruction_discriminators() {
 fn idl_matches_account_discriminators() {
     for byte in 0u8..=255 {
         if let Ok(account) = SettlementAccount::try_from(byte) {
-            confirm_idl_match(byte, "accounts", &format!("{account:?}"));
+            confirm_idl_match(byte, Section::Accounts, &format!("{account:?}"));
         }
     }
 }
@@ -135,7 +139,7 @@ fn confirm_idl_types_entry(
     idl_type_name: &str,
 ) {
     // load in the idl and rust type definitions
-    let type_in_idl = parse_json::find_item("types", idl_type_name)
+    let type_in_idl = parse_json::find_item(Section::Types, idl_type_name)
         .unwrap_or_else(|| panic!("IDL types[] must contain {idl_type_name}"));
     let rust_struct = rust_source.find_struct(rust_type_name);
 
@@ -168,8 +172,8 @@ fn idl_matches_rust_errors() {
     let rust_errors_type = parse_rust::INTERFACE_LIB_RS.find_enum("SettlementError");
 
     for rust_err in &rust_errors_type.variants {
-        let idl_err =
-            parse_json::find_item("errors", &rust_err.ident.to_string()).unwrap_or_else(|| {
+        let idl_err = parse_json::find_item(Section::Errors, &rust_err.ident.to_string())
+            .unwrap_or_else(|| {
                 panic!(
                     "Settlement program error {} is not defined in IDL errors[]",
                     rust_err.ident
@@ -206,7 +210,7 @@ fn idl_pda_seed_literals_match_pda_module() {
         .into_iter()
         .collect();
 
-    let found = parse_json::const_seeds(&IDL["instructions"]);
+    let found = parse_json::const_seeds(parse_json::section(Section::Instructions));
 
     // Every const seed the IDL does declare must be a real seed constant. Not
     // every seed constant needs to show up: `order_pda`'s canonical seed

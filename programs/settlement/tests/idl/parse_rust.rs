@@ -5,6 +5,8 @@
 
 use serde_json::{json, Value};
 
+use crate::parse_json::Section;
+
 /// A Rust source file, compiled in so the tests parse the same text the
 /// program does.
 pub struct Source {
@@ -207,11 +209,11 @@ pub fn docs(attrs: &[syn::Attribute]) -> Vec<String> {
 }
 
 /// [`docs`] of the variant with discriminant `byte` in whichever discriminator
-/// enum backs the IDL's `element_type[]` section.
-pub fn discriminator_variant_docs(element_type: &str, byte: u8) -> Vec<String> {
-    let enum_name = match element_type {
-        "instructions" => "SettlementInstruction",
-        "accounts" => "SettlementAccount",
+/// enum backs the given IDL `section`.
+pub fn discriminator_variant_docs(section: Section, byte: u8) -> Vec<String> {
+    let enum_name = match section {
+        Section::Instructions => "SettlementInstruction",
+        Section::Accounts => "SettlementAccount",
         other => panic!("no discriminator enum backs IDL {other}[]"),
     };
 

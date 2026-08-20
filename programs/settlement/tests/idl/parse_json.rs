@@ -4,7 +4,7 @@
 //! shape, so a malformed IDL fails where it's read rather than where it's
 //! compared.
 
-use std::sync::LazyLock;
+use std::{fmt, sync::LazyLock};
 
 use serde_json::Value;
 
@@ -16,15 +16,45 @@ pub const SCHEMA_JSON: &str = include_str!("../../idl/schema/idl-spec-v0.1.0.jso
 pub static IDL: LazyLock<Value> =
     LazyLock::new(|| serde_json::from_str(IDL_JSON).expect("IDL must be valid JSON"));
 
-/// The top-level `name[]` array, e.g. `instructions` or `types`.
-pub fn section(name: &str) -> &'static [Value] {
-    IDL[name]
-        .as_array()
-        .unwrap_or_else(|| panic!("IDL {name}[] must be an array"))
+/// A top-level array of the IDL. Naming the sections the tests read as a type
+/// keeps a mistyped section from reading as a missing entry.
+#[derive(Clone, Copy)]
+pub enum Section {
+    Instructions,
+    Accounts,
+    Types,
+    Errors,
 }
 
-/// The `section[]` entry named `name`, if the IDL declares one.
-pub fn find_item(section_name: &str, name: &str) -> Option<&'static Value> {
+impl Section {
+    /// The IDL key this section lives under.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Instructions => "instructions",
+            Self::Accounts => "accounts",
+            Self::Types => "types",
+            Self::Errors => "errors",
+        }
+    }
+}
+
+impl fmt::Display for Section {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The top-level `section[]` array.
+pub fn section(section: Section) -> &'static [Value] {
+    IDL[section.as_str()]
+        .as_array()
+        .unwrap_or_else(|| panic!("IDL {section}[] must be an array"))
+}
+
+/// Under the array for `section_name`, find the object where the `name` matches the given value.
+/// Since each IDL section follows the same pattern where each section is an array of objects which contain a field `name`, this function
+/// is useful for finding just about any item we need in the IDL file.
+pub fn find_item(section_name: Section, name: &str) -> Option<&'static Value> {
     section(section_name)
         .iter()
         .find(|item| item["name"] == name)
@@ -84,8 +114,8 @@ pub fn struct_fields(item: &Value, context: &str) -> Vec<(String, Value)> {
         .collect()
 }
 
-/// Every `{"kind": "const"}` seed byte string anywhere below `value`.
-pub fn const_seeds(value: &Value) -> Vec<Vec<u8>> {
+/// Every `{"kind": "const"}` seed byte string anywhere below `values`.
+pub fn const_seeds(values: &[Value]) -> Vec<Vec<u8>> {
     fn collect(value: &Value, out: &mut Vec<Vec<u8>>) {
         match value {
             Value::Object(map) => {
@@ -108,6 +138,8 @@ pub fn const_seeds(value: &Value) -> Vec<Vec<u8>> {
     }
 
     let mut found = Vec::new();
-    collect(value, &mut found);
+    for value in values {
+        collect(value, &mut found);
+    }
     found
 }
