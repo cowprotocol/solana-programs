@@ -210,7 +210,7 @@ pub struct FinalizeSettleInput<'a, A> {
 impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::FinalizeSettle;
 
-    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (begin_ix_index, body) = recover_counterpart(instruction_data)?;
 
         let [instructions_sysvar_account, state_pda_account, token_program_account, push_accounts @ ..] =
@@ -372,7 +372,7 @@ mod tests {
         // The state-PDA and token-program slots are reserved but not surfaced.
         let state = Address::new_from_array([0x43u8; 32]);
         let token_program = Address::new_from_array([0x44u8; 32]);
-        let mut accounts = [
+        let accounts = [
             fake_account(sysvar),
             fake_account(state),
             fake_account(token_program),
@@ -387,7 +387,7 @@ mod tests {
             state_pda_account,
             token_program_account,
             pushes,
-        } = FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
+        } = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(begin_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(state_pda_account.address(), &state);
@@ -405,7 +405,7 @@ mod tests {
         let source = Address::new_from_array([3u8; 32]);
         let dest0 = Address::new_from_array([4u8; 32]);
         let dest1 = Address::new_from_array([5u8; 32]);
-        let mut accounts = [
+        let accounts = [
             fake_account(sysvar),
             fake_account(state),
             fake_account(token_program),
@@ -423,7 +423,7 @@ mod tests {
         ];
 
         let FinalizeSettleInput { pushes, .. } =
-            FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
+            FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
 
         let parsed: Vec<(&Address, &Address, u8, u64)> = pushes
             .iter()
@@ -491,8 +491,7 @@ mod tests {
             amount_bytes,
         ];
 
-        let parsed =
-            FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
+        let parsed = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         let pushes: Vec<_> = parsed.pushes.iter().collect();
 
         assert_eq!(pushes.len(), PUSH_COUNT);
@@ -510,9 +509,9 @@ mod tests {
             [SettlementInstruction::BeginSettle.discriminator()],
             [0, 0], // begin index
         ];
-        let mut accounts: [AccountView; 0] = [];
+        let accounts: [AccountView; 0] = [];
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut accounts).err(),
+            FinalizeSettleInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -523,9 +522,9 @@ mod tests {
             [SettlementInstruction::FinalizeSettle.discriminator()],
             [0, 0], // begin index
         ];
-        let mut accounts: [AccountView; 0] = [];
+        let accounts: [AccountView; 0] = [];
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut accounts).err(),
+            FinalizeSettleInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -542,16 +541,16 @@ mod tests {
         ];
 
         // Too few: only one push account follows the fixed accounts.
-        let mut too_few = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 1 }>();
+        let too_few = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 1 }>();
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut too_few).err(),
+            FinalizeSettleInput::parse(&data, &too_few).err(),
             Some(SettlementError::AccountCountNotMatchingPushCount.into()),
         );
 
         // Too many: three push accounts follow the fixed accounts.
-        let mut too_many = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 3 }>();
+        let too_many = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 3 }>();
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut too_many).err(),
+            FinalizeSettleInput::parse(&data, &too_many).err(),
             Some(SettlementError::AccountCountNotMatchingPushCount.into()),
         );
     }
@@ -560,7 +559,7 @@ mod tests {
     fn finalize_settle_input_rejects_partial_push() {
         // Four trailing bytes: not a whole number of 9-byte pushes (a bump plus a
         // `u64` amount), so the body can't be parsed into the push layout.
-        let mut accounts = fake_sequential_accounts::<FINALIZE_FIXED_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<FINALIZE_FIXED_ACCOUNTS>();
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
             [37, 13],                 // begin index
@@ -568,7 +567,7 @@ mod tests {
             [0x11, 0x22, 0x33, 0x44], // a partial push (4 bytes)
         ];
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut accounts).err(),
+            FinalizeSettleInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -667,9 +666,9 @@ mod tests {
                 finalize_push_amounts(&ix.data).expect("well-formed finalize data").collect();
 
             // Read by the full parser from the same data plus its accounts.
-            let mut accounts: Vec<AccountView> =
+            let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|meta| fake_account(meta.pubkey)).collect();
-            let parsed = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
             let parsed_amounts: Vec<u64> =
                 parsed.pushes.iter().map(|push| push.amount).collect();

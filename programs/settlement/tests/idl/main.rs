@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 
 use parse_json::{Section, IDL};
 use serde_json::Value;
-use settlement_interface::{
+use cow_settlement_interface::{
     pda::{buffer::BUFFER_SEED, order::ORDER_SEED, SETTLEMENT_SEED},
     SettlementAccount, SettlementInstruction,
 };
@@ -88,7 +88,7 @@ fn idl_is_pretty_formatted() {
 fn idl_address_matches_declared_program_id() {
     assert_eq!(
         IDL["address"].as_str().expect("address must be a string"),
-        settlement_interface::ID.to_string(),
+        cow_settlement_interface::ID.to_string(),
         "IDL `address` must match the program id declared via declare_id! in interface/src/lib.rs"
     );
 }

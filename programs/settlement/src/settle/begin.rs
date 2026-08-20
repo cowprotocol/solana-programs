@@ -2,18 +2,7 @@
 
 use std::ops::Deref;
 
-use pinocchio::{
-    cpi::Signer,
-    error::ProgramError,
-    sysvars::{
-        clock::Clock,
-        instructions::{Instructions, IntrospectedInstruction},
-        Sysvar,
-    },
-    AccountView, Address, ProgramResult,
-};
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::{
         intent::{OrderIntent, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},
@@ -27,10 +16,21 @@ use settlement_interface::{
     },
     recover_discriminator, SettlementError, SettlementInstruction,
 };
+use pinocchio::{
+    cpi::Signer,
+    error::ProgramError,
+    sysvars::{
+        clock::Clock,
+        instructions::{Instructions, IntrospectedInstruction},
+        Sysvar,
+    },
+    AccountView, Address, ProgramResult,
+};
+use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 
-use crate::processor::is_cpi_call;
+use crate::processor::{is_cpi_call, with_state_pda_signer};
 
-use super::{validate_counterpart, validate_token_program_account, with_state_pda_signer};
+use super::{validate_counterpart, validate_token_program_account};
 
 pub fn process_begin_settle(
     program_id: &Address,
@@ -41,7 +41,7 @@ pub fn process_begin_settle(
         return Err(SettlementError::CalledViaCpi.into());
     }
 
-    let mut input = BeginSettleInput::parse(instruction_data, accounts)?;
+    let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
     // any address since parsing doesn't validate the input. We rely on the
@@ -76,7 +76,7 @@ pub fn process_begin_settle(
             program_id,
             input.state_pda_account,
             state_pda_signer,
-            &mut input.orders,
+            &input.orders,
             &finalize_ix,
         )
     })
@@ -177,7 +177,7 @@ fn settle_orders(
     program_id: &Address,
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
-    orders: &mut SettledOrders<'_, AccountView>,
+    orders: &SettledOrders<'_, AccountView>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
@@ -191,7 +191,7 @@ fn settle_orders(
     // is caught after.
     let mut pushes = finalize_pushes(finalize_ix)?;
 
-    for order in orders.iter_mut() {
+    for order in orders.iter() {
         let order_pda_address = *order.order_pda.address();
         if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
@@ -235,14 +235,13 @@ fn process_order(
     let SettledOrder {
         order_pda,
         sell_token_account,
-        bump,
         destinations,
         amounts,
     } = order;
 
     // Decode the order body and prove its provenance: `load_from_pda` checks
     // that `order_pda` is the canonical order PDA for the intent it stores.
-    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
+    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
     let intent = &account.intent;
 
     if account.cancelled {
@@ -304,6 +303,8 @@ fn process_order(
         ..account
     })
     .into();
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut order_pda = *order_pda;
     order_pda.try_borrow_mut()?.copy_from_slice(&updated);
 
     Ok(())
@@ -373,13 +374,13 @@ fn validated_final_amounts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use cow_settlement_interface::instruction::fixtures::fake_account;
+    use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
+    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
+    use cow_settlement_interface::instruction::InstructionInputParsing;
+    use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
-    use settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
-    use settlement_interface::instruction::fixtures::fake_account;
-    use settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
-    use settlement_interface::instruction::InstructionInputParsing;
-    use settlement_interface::Pubkey;
     use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).
@@ -989,9 +990,9 @@ mod tests {
                 .map(|(&destination, amount)| (destination, amount))
                 .collect();
 
-            let mut accounts: Vec<AccountView> =
+            let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
-            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
             let parsed: Vec<(Address, u64)> = parsed_raw
                 .pushes

@@ -14,13 +14,17 @@
 //! Since only the state PDA can spend a buffer and that address moves too,
 //! buffers must be drained under the old version before a bump ships, or their
 //! contents are stranded.
+//!
+//! Unlike the order PDA, which stores its own bump (see
+//! [`crate::data::order::OrderAccount`]), a buffer is a fixed-size SPL token
+//! account with no room for one.
 
 use solana_account_view::AccountView;
 use solana_address::Address;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::pda::SETTLEMENT_SEED;
+use crate::pda::{is_pda_with_signer_seeds, SETTLEMENT_SEED};
 use crate::SettlementError;
 
 /// Trailing seed identifying the buffer PDAs.
@@ -55,15 +59,13 @@ pub fn validate_buffer_pda(
     mint: &Address,
     bump: u8,
 ) -> Result<(), ProgramError> {
-    let derived = Address::create_program_address(
-        &buffer_pda_signer_seeds(&mint.to_bytes(), &[bump]),
+    is_pda_with_signer_seeds(
+        buffer,
         program_id,
+        buffer_pda_signer_seeds(&mint.to_bytes(), &[bump]),
     )
-    .map_err(|_| SettlementError::PushSourceNotBuffer)?;
-    if buffer.address() != &derived {
-        return Err(SettlementError::PushSourceNotBuffer.into());
-    }
-    Ok(())
+    .then_some(())
+    .ok_or(SettlementError::PushSourceNotBuffer.into())
 }
 
 #[cfg(test)]

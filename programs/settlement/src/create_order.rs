@@ -1,7 +1,6 @@
 //! `CreateOrder` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::{
         intent::EncodedOrderIntent,
         order::{self, EncodedOrderAccount},
@@ -10,6 +9,7 @@ use settlement_interface::{
     pda::order::order_pda_seeds,
     SettlementError,
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::processor::CanonicalPda;
 
@@ -41,7 +41,7 @@ pub fn process_create_order(
     // create flow, so recreating an order that already exists is a user error:
     // `create_new` then reverts. The rest of the code can assume that if an
     // account has data, then the bump is valid.
-    CanonicalPda {
+    let bump = CanonicalPda {
         program_id,
         payer: created_by,
         pda: order_pda,
@@ -51,22 +51,32 @@ pub fn process_create_order(
     }
     .create_new()?;
 
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut order_pda = *order_pda;
     let mut order_data = order_pda.try_borrow_mut()?;
     let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    order::write_account(order_data, false, 0, 0, created_by.address(), &intent_bytes);
+    order::write_account(
+        order_data,
+        bump,
+        false,
+        0,
+        0,
+        created_by.address(),
+        &intent_bytes,
+    );
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use settlement_interface::data::intent::{OrderIntent, OrderKind};
-    use settlement_interface::instruction::create_order::fixtures::{
+    use cow_settlement_interface::data::intent::{OrderIntent, OrderKind};
+    use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
-    use settlement_interface::instruction::fixtures::{
+    use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_from, fake_sequential_accounts,
     };
 
@@ -77,7 +87,7 @@ mod tests {
     /// Arbitrary placeholder program id for handler-level tests. The
     /// failure paths exercised below return before the program id is used
     /// for any syscall, so any 32-byte value works.
-    const PROGRAM_ID: Address = Address::new_from_array([1; 32]);
+    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_create_order_propagates_parse_error() {

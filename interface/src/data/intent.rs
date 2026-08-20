@@ -466,10 +466,10 @@ mod tests {
     }
 
     #[test]
-    #[rustfmt::skip]
     fn encoding_regression() {
         let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Buy, true));
         let encoding: [u8; EncodedOrderIntent::SIZE] = *encoded;
+        #[rustfmt::skip]
         let expected: [u8; EncodedOrderIntent::SIZE] = [
             // owner ([0x11; 32])
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
