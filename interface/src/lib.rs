@@ -17,11 +17,28 @@ pub mod pda;
     constructor = SettlementInstruction::unknown_discriminator,
 ))]
 pub enum SettlementInstruction {
+    /// Pulls funds for a batch of orders. Must be paired in the same
+    /// transaction with a `FinalizeSettle` at `finalize_ix_index`.
     BeginSettle = 0,
+    /// Validates that a `BeginSettle` at `begin_ix_index` exists and points
+    /// back at this instruction. Must not be called via CPI.
     FinalizeSettle = 1,
+    /// Allocates a per-order PDA and writes the initial `OrderAccount` body.
     CreateOrder = 2,
+    /// Creates the singleton settlement state PDA. Succeeds only once.
     Initialize = 3,
+    /// Creates one or more per-token buffer PDAs (SPL token accounts) in a
+    /// single instruction.
+    ///
+    /// Each buffer_pda_i must be the canonical PDA for seeds
+    /// [SETTLEMENT_SEED, mint_i, "buffer"].
     CreateBuffer = 4,
+    /// Closes an expired order PDA and returns its rent lamports to the
+    /// created_by account recorded in the order body. The instruction may only
+    /// be executed after the order's valid_to timestamp has elapsed.
+    ///
+    /// No signature requirement: anyone may reclaim an expired order on behalf
+    /// of its reclaim_recipient.
     ReclaimOrder = 5,
     ReclaimBuffer = 6,
     TransferAuthority = 7,
