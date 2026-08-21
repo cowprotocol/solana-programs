@@ -94,7 +94,10 @@ Pass the **program's public key (address)** as the first argument. The deployer 
 just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ./deployer-keypair.json
 ```
 
-`just deploy` finishes by running `initialize` to create the program's state PDA. On a plain upgrade that PDA already exists, so the step fails and prints a warning that can be ignored. After a minor or major bump the storage is relocated, so `initialize` creates the new PDA and is expected to succeed.
+`just deploy` finishes by running `initialize` to create the program's state PDA.
+
+If the deployment upgrades an existing program without bumping the major or minor cargo package version, 
+then this latter step fails and prints a warning that can be safely ignored.
 
 ### Publishing the cargo packages
 
