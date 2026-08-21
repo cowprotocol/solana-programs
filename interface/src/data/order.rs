@@ -18,17 +18,14 @@
 //! an [`OrderAccount`] whose `cancelled` byte or `intent` slot was not
 //! validated.
 
-use core::mem::size_of;
-
-use arrayref::{array_refs, mut_array_refs};
-use derive_more::Deref;
+use bytemuck::{Pod, Zeroable};
 use solana_account_view::AccountView;
 use solana_address::Address;
 use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::data::intent::{self, EncodedOrderIntent, OrderIntent};
+use crate::data::intent::{EncodedOrderIntent, OrderIntent};
 use crate::pda::is_pda_with_signer_seeds;
 use crate::pda::order::order_pda_signer_seeds;
 use crate::{SettlementAccount, SettlementError};
@@ -107,23 +104,94 @@ impl OrderAccount {
 ///  └┴┴┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
 /// 0 1 2 3      11      19                              51                ...               201
 /// ```
-#[derive(Clone, Debug, Deref, Eq, PartialEq)]
-pub struct EncodedOrderAccount([u8; Self::SIZE]);
+///
+/// Every field is byte-granular (the embedded [`EncodedOrderIntent`] is itself a
+/// byte-granular `Pod`), so the struct has alignment 1 and no padding: its
+/// in-memory image is exactly the 201-byte canonical encoding. That lets the
+/// program reinterpret the PDA's data slice as this type in place — reading and
+/// updating the fill amounts without decoding or re-encoding the whole account.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]
+pub struct EncodedOrderAccount {
+    discriminator: u8,
+    bump: u8,
+    cancelled: u8,
+    amount_withdrawn: [u8; 8],
+    amount_received: [u8; 8],
+    created_by: [u8; 32],
+    intent: EncodedOrderIntent,
+}
+
+const _: () = assert!(core::mem::size_of::<EncodedOrderAccount>() == EncodedOrderAccount::SIZE);
+const _: () = assert!(core::mem::align_of::<EncodedOrderAccount>() == 1);
+
+impl core::ops::Deref for EncodedOrderAccount {
+    type Target = [u8; EncodedOrderAccount::SIZE];
+
+    fn deref(&self) -> &Self::Target {
+        bytemuck::cast_ref(self)
+    }
+}
 
 impl EncodedOrderAccount {
-    // Per-field widths, derived from the `OrderAccount` field types.
-    const W_DISCRIMINATOR: usize = size_of::<u8>();
-    const W_BUMP: usize = size_of::<u8>();
-    const W_CANCELLED: usize = size_of::<bool>();
-    const W_AMOUNT_WITHDRAWN: usize = size_of::<u64>();
-    const W_AMOUNT_RECEIVED: usize = size_of::<u64>();
-    const W_CREATED_BY: usize = size_of::<Pubkey>();
-    const W_INTENT: usize = EncodedOrderIntent::SIZE;
-
     pub const SIZE: usize = 201;
 
     /// Single-byte account discriminator. See [`SettlementAccount`].
     pub const DISCRIMINATOR: u8 = SettlementAccount::OrderAccount.discriminator();
+
+    /// Reinterpret canonical bytes as an encoded order account in place, no copy.
+    pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> &Self {
+        bytemuck::cast_ref(bytes)
+    }
+
+    /// [`Self::from_bytes`] over a mutable buffer, for in-place writes.
+    pub fn from_bytes_mut(bytes: &mut [u8; Self::SIZE]) -> &mut Self {
+        bytemuck::cast_mut(bytes)
+    }
+
+    /// Whether the account's discriminator marks it as an order account.
+    pub fn has_valid_discriminator(&self) -> bool {
+        self.discriminator == Self::DISCRIMINATOR
+    }
+
+    /// Canonical bump stored in the account body.
+    pub fn bump(&self) -> u8 {
+        self.bump
+    }
+
+    /// `cancelled` flag, rejecting an out-of-range byte.
+    pub fn cancelled(&self) -> Result<bool, ProgramError> {
+        match self.cancelled {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(ProgramError::InvalidAccountData),
+        }
+    }
+
+    /// Cumulative sell-token amount withdrawn across settlements.
+    pub fn amount_withdrawn(&self) -> u64 {
+        u64::from_le_bytes(self.amount_withdrawn)
+    }
+
+    /// Cumulative buy-token amount received across settlements.
+    pub fn amount_received(&self) -> u64 {
+        u64::from_le_bytes(self.amount_received)
+    }
+
+    /// Overwrite the cumulative withdrawn amount in place.
+    pub fn set_amount_withdrawn(&mut self, amount: u64) {
+        self.amount_withdrawn = amount.to_le_bytes();
+    }
+
+    /// Overwrite the cumulative received amount in place.
+    pub fn set_amount_received(&mut self, amount: u64) {
+        self.amount_received = amount.to_le_bytes();
+    }
+
+    /// The embedded encoded order intent.
+    pub fn intent(&self) -> &EncodedOrderIntent {
+        &self.intent
+    }
 
     /// Decode the account body and compute the embedded intent's UID in one
     /// shot, mirroring [`EncodedOrderIntent::decode_and_hash`]. Decoding
@@ -134,12 +202,7 @@ impl EncodedOrderAccount {
         // The order UID is the hash of the intent's canonical bytes. Decoding
         // succeeded, so the intent slot already holds those exact bytes: hash
         // them in place rather than using `intent.uid()` to avoid re-encoding.
-        let (_, raw_intent) = array_refs![
-            bytes,
-            EncodedOrderAccount::SIZE - EncodedOrderAccount::W_INTENT,
-            EncodedOrderAccount::W_INTENT
-        ];
-        let intent_uid = intent::hash_bytes(raw_intent);
+        let intent_uid = Self::from_bytes(bytes).intent.hash();
         Ok((order_account, intent_uid))
     }
 }
@@ -156,52 +219,33 @@ pub fn write_account(
     created_by: &Pubkey,
     encoded_intent: &[u8; EncodedOrderIntent::SIZE],
 ) {
-    let (
-        discriminator_slot,
-        bump_slot,
-        cancelled_slot,
-        amount_withdrawn_slot,
-        amount_received_slot,
-        created_by_slot,
-        intent_slot,
-    ) = mut_array_refs![
-        buffer,
-        EncodedOrderAccount::W_DISCRIMINATOR,
-        EncodedOrderAccount::W_BUMP,
-        EncodedOrderAccount::W_CANCELLED,
-        EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
-        EncodedOrderAccount::W_AMOUNT_RECEIVED,
-        EncodedOrderAccount::W_CREATED_BY,
-        EncodedOrderAccount::W_INTENT
-    ];
-    *discriminator_slot = [EncodedOrderAccount::DISCRIMINATOR];
-    *bump_slot = [bump];
-    *cancelled_slot = [cancelled as u8];
-    *amount_withdrawn_slot = amount_withdrawn.to_le_bytes();
-    *amount_received_slot = amount_received.to_le_bytes();
-    *created_by_slot = created_by.to_bytes();
-    *intent_slot = *encoded_intent;
+    let account = EncodedOrderAccount::from_bytes_mut(buffer);
+    account.discriminator = EncodedOrderAccount::DISCRIMINATOR;
+    account.bump = bump;
+    account.cancelled = cancelled as u8;
+    account.amount_withdrawn = amount_withdrawn.to_le_bytes();
+    account.amount_received = amount_received.to_le_bytes();
+    account.created_by = created_by.to_bytes();
+    account.intent = *EncodedOrderIntent::from_bytes(encoded_intent);
 }
 
 impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
     fn from(encoded: EncodedOrderAccount) -> Self {
-        encoded.0
+        *bytemuck::cast_ref(&encoded)
     }
 }
 
 impl From<OrderAccount> for EncodedOrderAccount {
     fn from(account: OrderAccount) -> Self {
-        let mut out = [0u8; Self::SIZE];
-        write_account(
-            &mut out,
-            account.bump,
-            account.cancelled,
-            account.amount_withdrawn,
-            account.amount_received,
-            &account.created_by,
-            &EncodedOrderIntent::from(&account.intent),
-        );
-        Self(out)
+        EncodedOrderAccount {
+            discriminator: Self::DISCRIMINATOR,
+            bump: account.bump,
+            cancelled: account.cancelled as u8,
+            amount_withdrawn: account.amount_withdrawn.to_le_bytes(),
+            amount_received: account.amount_received.to_le_bytes(),
+            created_by: account.created_by.to_bytes(),
+            intent: EncodedOrderIntent::from(&account.intent),
+        }
     }
 }
 
@@ -209,32 +253,20 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
     type Error = ProgramError;
 
     fn try_from(bytes: [u8; EncodedOrderAccount::SIZE]) -> Result<Self, Self::Error> {
-        let (discriminator, bump, cancelled, amount_withdrawn, amount_received, created_by, intent) = array_refs![
-            &bytes,
-            EncodedOrderAccount::W_DISCRIMINATOR,
-            EncodedOrderAccount::W_BUMP,
-            EncodedOrderAccount::W_CANCELLED,
-            EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
-            EncodedOrderAccount::W_AMOUNT_RECEIVED,
-            EncodedOrderAccount::W_CREATED_BY,
-            EncodedOrderAccount::W_INTENT
-        ];
+        let encoded = EncodedOrderAccount::from_bytes(&bytes);
 
-        if *discriminator != [EncodedOrderAccount::DISCRIMINATOR] {
+        if !encoded.has_valid_discriminator() {
             return Err(ProgramError::InvalidAccountData);
         }
 
         Ok(OrderAccount {
-            bump: bump[0],
-            cancelled: match cancelled {
-                [0] => false,
-                [1] => true,
-                _ => return Err(ProgramError::InvalidAccountData),
-            },
-            amount_withdrawn: u64::from_le_bytes(*amount_withdrawn),
-            amount_received: u64::from_le_bytes(*amount_received),
-            created_by: Pubkey::new_from_array(*created_by),
-            intent: OrderIntent::try_from(intent).map_err(|_| ProgramError::InvalidAccountData)?,
+            bump: encoded.bump,
+            cancelled: encoded.cancelled()?,
+            amount_withdrawn: encoded.amount_withdrawn(),
+            amount_received: encoded.amount_received(),
+            created_by: Pubkey::new_from_array(encoded.created_by),
+            intent: OrderIntent::try_from(&encoded.intent)
+                .map_err(|_| ProgramError::InvalidAccountData)?,
         })
     }
 }
@@ -254,7 +286,7 @@ impl TryFrom<EncodedOrderAccount> for OrderAccount {
     type Error = ProgramError;
 
     fn try_from(encoded: EncodedOrderAccount) -> Result<Self, Self::Error> {
-        OrderAccount::try_from(encoded.0)
+        OrderAccount::try_from(<[u8; EncodedOrderAccount::SIZE]>::from(encoded))
     }
 }
 
@@ -312,52 +344,12 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use core::mem::size_of;
-
     use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
     use crate::data::intent::{
         fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
         OrderKind,
     };
-
-    // Pin each width to the size of the `OrderAccount` field it encodes. The
-    // widths summing to `SIZE` is enforced separately, at compile time, by the
-    // `array_refs!` / `mut_array_refs!` invocations in the codec.
-    #[test]
-    fn widths_match_field_sizes() {
-        use core::mem::size_of_val;
-
-        // Any `OrderAccount` works: `size_of_val` only consults the field
-        // type, never the data.
-        let OrderAccount {
-            bump,
-            cancelled,
-            amount_withdrawn,
-            amount_received,
-            created_by,
-            // `OrderAccount` decodes the intent, but the encoded order uses
-            // `EncodedOrderIntent`, not `OrderIntent`.
-            intent: _intent,
-        } = sample_account(false);
-
-        assert_eq!(EncodedOrderAccount::W_BUMP, size_of_val(&bump));
-        assert_eq!(EncodedOrderAccount::W_CANCELLED, size_of_val(&cancelled));
-        assert_eq!(
-            EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
-            size_of_val(&amount_withdrawn)
-        );
-        assert_eq!(
-            EncodedOrderAccount::W_AMOUNT_RECEIVED,
-            size_of_val(&amount_received)
-        );
-        assert_eq!(EncodedOrderAccount::W_CREATED_BY, size_of_val(&created_by));
-
-        assert_eq!(
-            EncodedOrderAccount::W_INTENT,
-            size_of::<EncodedOrderIntent>()
-        );
-    }
 
     #[test]
     fn roundtrip_both_cancelled_states() {
@@ -580,7 +572,7 @@ mod tests {
             &created_by,
             &<[u8; EncodedOrderIntent::SIZE]>::from(&EncodedOrderIntent::from(&intent)),
         );
-        let direct = EncodedOrderAccount(buffer);
+        let direct = *EncodedOrderAccount::from_bytes(&buffer);
         let via_order_account = EncodedOrderAccount::from(OrderAccount {
             bump,
             cancelled,

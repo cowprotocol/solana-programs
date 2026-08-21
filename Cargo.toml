@@ -21,6 +21,13 @@ keywords = ["solana", "cow-protocol", "defi", "trading", "settlement"]
 anyhow = "1"
 arrayref = "0.3"
 bincode = "1"
+# `borsh` encodes the variable-length instruction data (e.g. the settle pulls);
+# `bytemuck` backs the zero-copy account layouts. Both are already in the lock as
+# transitive deps, so enabling them here adds no new external dependency.
+borsh = { version = "1", features = ["derive"] }
+# `min_const_generics` provides the `Pod`/`Zeroable` impls for byte arrays larger
+# than 32 (the account bodies run to 201 bytes).
+bytemuck = { version = "1", features = ["derive", "min_const_generics"] }
 clap = { version = "4", features = ["derive", "env"] }
 solana-commitment-config = "3"
 solana-program-pack = "3"

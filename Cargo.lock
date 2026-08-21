@@ -897,6 +897,8 @@ name = "cow-settlement-interface"
 version = "0.2.0"
 dependencies = [
  "arrayref",
+ "borsh",
+ "bytemuck",
  "derive_more",
  "hex-literal",
  "num_enum",

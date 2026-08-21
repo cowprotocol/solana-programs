@@ -3,10 +3,7 @@
 //! The state PDA (see [`crate::pda::state`]) stores the protocol's authority
 //! configuration: for every [`Role`] it holds the current holder.
 
-use core::mem::size_of;
-
-use arrayref::{array_refs, mut_array_refs};
-use derive_more::Deref;
+use bytemuck::{Pod, Zeroable};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
@@ -31,66 +28,44 @@ pub struct StateAccount {
 ///  └┴───────────────────────────────┴───────────────────────────────┘
 /// 0 1                               33                              65
 /// ```
-#[derive(Clone, Debug, Deref, Eq, PartialEq)]
-pub struct EncodedStateAccount([u8; Self::SIZE]);
-
-/// A borrowed view over an [`EncodedStateAccount`]'s bytes, split into its
-/// discriminator and per-role slots so each can be named. The slots hold raw
-/// encoded bytes, not decoded [`Pubkey`]s.
-struct StateAccountRef<'a> {
-    discriminator: &'a [u8; EncodedStateAccount::W_DISCRIMINATOR],
-    manager: &'a [u8; EncodedStateAccount::W_MANAGER],
-    reclaim_authority: &'a [u8; EncodedStateAccount::W_RECLAIM_AUTHORITY],
+///
+/// Every field is byte-granular, so the struct has alignment 1 and no padding:
+/// its in-memory image is exactly the 65-byte canonical encoding, which is what
+/// lets the program reinterpret the account's data slice as this type in place
+/// (no copy, no alignment concern) and mutate a single role's slot directly.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]
+pub struct EncodedStateAccount {
+    discriminator: u8,
+    manager: [u8; 32],
+    reclaim_authority: [u8; 32],
 }
 
-/// The mutable counterpart of [`StateAccountRef`], for in-place writes.
-struct StateAccountRefMut<'a> {
-    discriminator: &'a mut [u8; EncodedStateAccount::W_DISCRIMINATOR],
-    manager: &'a mut [u8; EncodedStateAccount::W_MANAGER],
-    reclaim_authority: &'a mut [u8; EncodedStateAccount::W_RECLAIM_AUTHORITY],
+const _: () = assert!(core::mem::size_of::<EncodedStateAccount>() == EncodedStateAccount::SIZE);
+const _: () = assert!(core::mem::align_of::<EncodedStateAccount>() == 1);
+
+impl core::ops::Deref for EncodedStateAccount {
+    type Target = [u8; EncodedStateAccount::SIZE];
+
+    fn deref(&self) -> &Self::Target {
+        bytemuck::cast_ref(self)
+    }
 }
 
 impl EncodedStateAccount {
-    // Per-field widths, derived from the `StateAccount` field types.
-    const W_DISCRIMINATOR: usize = size_of::<u8>();
-    const W_MANAGER: usize = size_of::<Pubkey>();
-    const W_RECLAIM_AUTHORITY: usize = size_of::<Pubkey>();
-
     pub const SIZE: usize = 65;
 
     /// Single-byte account discriminator. See [`SettlementAccount`].
     pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator();
 
-    /// Borrow the encoding split into its discriminator and per-role slots.
-    /// Naming the layout here once keeps every reader and writer below (and the
-    /// codec) in step with it.
-    fn slots(bytes: &[u8; Self::SIZE]) -> StateAccountRef<'_> {
-        let (discriminator, manager, reclaim_authority) = array_refs![
-            bytes,
-            EncodedStateAccount::W_DISCRIMINATOR,
-            EncodedStateAccount::W_MANAGER,
-            EncodedStateAccount::W_RECLAIM_AUTHORITY
-        ];
-        StateAccountRef {
-            discriminator,
-            manager,
-            reclaim_authority,
-        }
+    /// Reinterpret canonical bytes as an encoded state account in place, no copy.
+    pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> &Self {
+        bytemuck::cast_ref(bytes)
     }
 
-    /// [`Self::slots`] over a mutable buffer, for in-place writes.
-    fn slots_mut(bytes: &mut [u8; Self::SIZE]) -> StateAccountRefMut<'_> {
-        let (discriminator, manager, reclaim_authority) = mut_array_refs![
-            bytes,
-            EncodedStateAccount::W_DISCRIMINATOR,
-            EncodedStateAccount::W_MANAGER,
-            EncodedStateAccount::W_RECLAIM_AUTHORITY
-        ];
-        StateAccountRefMut {
-            discriminator,
-            manager,
-            reclaim_authority,
-        }
+    /// [`Self::from_bytes`] over a mutable buffer, for in-place writes.
+    pub fn from_bytes_mut(bytes: &mut [u8; Self::SIZE]) -> &mut Self {
+        bytemuck::cast_mut(bytes)
     }
 
     /// Current holder of `role`, read directly from the encoded bytes.
@@ -99,10 +74,10 @@ impl EncodedStateAccount {
     /// only `Initialize` can create an account at that address, so an account of
     /// the right size there is necessarily one this program wrote.
     pub fn authority(bytes: &[u8; Self::SIZE], role: Role) -> Pubkey {
-        let state = Self::slots(bytes);
+        let state = Self::from_bytes(bytes);
         let slot = match role {
-            Role::Manager => state.manager,
-            Role::ReclaimAuthority => state.reclaim_authority,
+            Role::Manager => &state.manager,
+            Role::ReclaimAuthority => &state.reclaim_authority,
         };
         Pubkey::new_from_array(*slot)
     }
@@ -113,14 +88,11 @@ impl EncodedStateAccount {
     /// The bytes are assumed to be a valid encoding of the canonical state PDA:
     /// only `Initialize` can create an account at that address, so an account of
     /// the right size there is necessarily one this program wrote.
-    pub fn authority_mut(
-        bytes: &mut [u8; Self::SIZE],
-        role: Role,
-    ) -> &mut [u8; size_of::<Pubkey>()] {
-        let state = Self::slots_mut(bytes);
+    pub fn authority_mut(bytes: &mut [u8; Self::SIZE], role: Role) -> &mut [u8; 32] {
+        let state = Self::from_bytes_mut(bytes);
         match role {
-            Role::Manager => state.manager,
-            Role::ReclaimAuthority => state.reclaim_authority,
+            Role::Manager => &mut state.manager,
+            Role::ReclaimAuthority => &mut state.reclaim_authority,
         }
     }
 }
@@ -128,27 +100,25 @@ impl EncodedStateAccount {
 /// Writes the canonical [`EncodedStateAccount`] encoding of `account` into
 /// `buffer`.
 pub fn write_account(buffer: &mut [u8; EncodedStateAccount::SIZE], account: &StateAccount) {
-    let StateAccount {
-        manager,
-        reclaim_authority,
-    } = account;
-    let slots = EncodedStateAccount::slots_mut(buffer);
-    *slots.discriminator = [EncodedStateAccount::DISCRIMINATOR];
-    *slots.manager = manager.to_bytes();
-    *slots.reclaim_authority = reclaim_authority.to_bytes();
+    let state = EncodedStateAccount::from_bytes_mut(buffer);
+    state.discriminator = EncodedStateAccount::DISCRIMINATOR;
+    state.manager = account.manager.to_bytes();
+    state.reclaim_authority = account.reclaim_authority.to_bytes();
 }
 
 impl From<EncodedStateAccount> for [u8; EncodedStateAccount::SIZE] {
     fn from(encoded: EncodedStateAccount) -> Self {
-        encoded.0
+        *bytemuck::cast_ref(&encoded)
     }
 }
 
 impl From<StateAccount> for EncodedStateAccount {
     fn from(account: StateAccount) -> Self {
-        let mut out = [0u8; Self::SIZE];
-        write_account(&mut out, &account);
-        Self(out)
+        EncodedStateAccount {
+            discriminator: Self::DISCRIMINATOR,
+            manager: account.manager.to_bytes(),
+            reclaim_authority: account.reclaim_authority.to_bytes(),
+        }
     }
 }
 
@@ -162,15 +132,15 @@ impl TryFrom<[u8; EncodedStateAccount::SIZE]> for StateAccount {
     type Error = ProgramError;
 
     fn try_from(bytes: [u8; EncodedStateAccount::SIZE]) -> Result<Self, Self::Error> {
-        let slots = EncodedStateAccount::slots(&bytes);
+        let state = EncodedStateAccount::from_bytes(&bytes);
 
-        if *slots.discriminator != [EncodedStateAccount::DISCRIMINATOR] {
+        if state.discriminator != EncodedStateAccount::DISCRIMINATOR {
             return Err(ProgramError::InvalidAccountData);
         }
 
         Ok(StateAccount {
-            manager: Pubkey::new_from_array(*slots.manager),
-            reclaim_authority: Pubkey::new_from_array(*slots.reclaim_authority),
+            manager: Pubkey::new_from_array(state.manager),
+            reclaim_authority: Pubkey::new_from_array(state.reclaim_authority),
         })
     }
 }
@@ -179,7 +149,7 @@ impl TryFrom<EncodedStateAccount> for StateAccount {
     type Error = ProgramError;
 
     fn try_from(encoded: EncodedStateAccount) -> Result<Self, Self::Error> {
-        StateAccount::try_from(encoded.0)
+        StateAccount::try_from(<[u8; EncodedStateAccount::SIZE]>::from(encoded))
     }
 }
 
@@ -244,29 +214,9 @@ mod tests {
         let account = sample_account();
         let mut buffer = [0u8; EncodedStateAccount::SIZE];
         write_account(&mut buffer, &account);
-        let direct = EncodedStateAccount(buffer);
+        let direct = *EncodedStateAccount::from_bytes(&buffer);
         let via_state_account = EncodedStateAccount::from(account);
         assert_eq!(direct, via_state_account);
-    }
-
-    #[test]
-    fn widths_match_field_sizes() {
-        use core::mem::{size_of, size_of_val};
-
-        // Any `StateAccount` works: `size_of_val` only consults the field type,
-        // never the data.
-        let StateAccount {
-            manager,
-            reclaim_authority,
-        } = sample_account();
-
-        assert_eq!(EncodedStateAccount::W_MANAGER, size_of_val(&manager));
-        assert_eq!(
-            EncodedStateAccount::W_RECLAIM_AUTHORITY,
-            size_of_val(&reclaim_authority)
-        );
-
-        assert_eq!(EncodedStateAccount::SIZE, size_of::<EncodedStateAccount>());
     }
 
     mod proptest {
@@ -294,9 +244,9 @@ mod tests {
                 mut bytes in any::<[u8; EncodedStateAccount::SIZE]>(),
             ) {
                 bytes[DISCRIMINATOR_OFFSET] = EncodedStateAccount::DISCRIMINATOR;
-                let encoded = EncodedStateAccount(bytes);
+                let encoded = *EncodedStateAccount::from_bytes(&bytes);
 
-                let decoded = StateAccount::try_from(encoded.clone()).expect("should decode from valid bytes");
+                let decoded = StateAccount::try_from(encoded).expect("should decode from valid bytes");
                 let re_encoded = EncodedStateAccount::from(decoded);
 
                 prop_assert_eq!(re_encoded, encoded);

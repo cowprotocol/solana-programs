@@ -15,10 +15,7 @@
 //! front. There is no path that produces an `OrderIntent` whose `kind` byte or
 //! `partially_fillable` byte was not validated.
 
-use core::mem::size_of;
-
-use arrayref::{array_refs, mut_array_refs};
-use derive_more::Deref;
+use bytemuck::{Pod, Zeroable};
 use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -101,26 +98,47 @@ pub struct OrderIntent {
 /// 0                               32                              64                              96      104    112 116 118                            150
 ///                                                                                                                     117
 /// ```
-#[derive(Clone, Debug, Deref, Eq, PartialEq)]
-pub struct EncodedOrderIntent([u8; Self::SIZE]);
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Pod, Zeroable)]
+pub struct EncodedOrderIntent {
+    owner: [u8; 32],
+    buy_token_account: [u8; 32],
+    sell_token_account: [u8; 32],
+    sell_amount: [u8; 8],
+    buy_amount: [u8; 8],
+    valid_to: [u8; 4],
+    kind: u8,
+    partially_fillable: u8,
+    app_data: [u8; 32],
+}
+
+// Every field is byte-granular (`u8`/`[u8; N]`), so the struct has alignment 1 and
+// no padding: its in-memory image is exactly the 150-byte canonical encoding. That
+// is what lets `bytemuck` reinterpret any account/instruction slice as this type
+// with no copy and no alignment concern, and it keeps the layout byte-identical to
+// Borsh's encoding of the equivalent fields. The asserts pin both invariants.
+const _: () = assert!(core::mem::size_of::<EncodedOrderIntent>() == EncodedOrderIntent::SIZE);
+const _: () = assert!(core::mem::align_of::<EncodedOrderIntent>() == 1);
+
+impl core::ops::Deref for EncodedOrderIntent {
+    type Target = [u8; EncodedOrderIntent::SIZE];
+
+    fn deref(&self) -> &Self::Target {
+        bytemuck::cast_ref(self)
+    }
+}
 
 impl EncodedOrderIntent {
-    // Per-field widths, derived from the `OrderIntent` field types.
-    const WIDTH_OWNER: usize = size_of::<Pubkey>();
-    const WIDTH_BUY_TOKEN: usize = size_of::<Pubkey>();
-    const WIDTH_SELL_TOKEN: usize = size_of::<Pubkey>();
-    const WIDTH_SELL_AMOUNT: usize = size_of::<u64>();
-    const WIDTH_BUY_AMOUNT: usize = size_of::<u64>();
-    const WIDTH_VALID_TO: usize = size_of::<u32>();
-    const WIDTH_KIND: usize = size_of::<OrderKind>();
-    const WIDTH_PARTIALLY_FILLABLE: usize = size_of::<bool>();
-    const WIDTH_APP_DATA: usize = size_of::<[u8; 32]>();
-
     pub const SIZE: usize = 150;
+
+    /// Reinterpret canonical bytes as an encoded intent in place, without copying.
+    pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> &Self {
+        bytemuck::cast_ref(bytes)
+    }
 
     /// Canonical hash of the bytes.
     pub fn hash(&self) -> Hash {
-        hash_bytes(&self.0)
+        hash_bytes(self)
     }
 
     /// Decode raw bytes to an [`OrderIntent`] and compute the UID in one shot.
@@ -145,47 +163,23 @@ pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
 
 impl From<&EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
     fn from(encoded: &EncodedOrderIntent) -> Self {
-        encoded.0
+        *bytemuck::cast_ref(encoded)
     }
 }
 
 impl From<&OrderIntent> for EncodedOrderIntent {
     fn from(intent: &OrderIntent) -> Self {
-        // `mut_array_refs` checks that `SIZE` is consistent with the sum of
-        // the widths.
-        let mut out = [0u8; Self::SIZE];
-        let (
-            owner,
-            buy_token,
-            sell_token,
-            sell_amount,
-            buy_amount,
-            valid_to,
-            kind,
-            partially_fillable,
-            app_data,
-        ) = mut_array_refs![
-            &mut out,
-            EncodedOrderIntent::WIDTH_OWNER,
-            EncodedOrderIntent::WIDTH_BUY_TOKEN,
-            EncodedOrderIntent::WIDTH_SELL_TOKEN,
-            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
-            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
-            EncodedOrderIntent::WIDTH_VALID_TO,
-            EncodedOrderIntent::WIDTH_KIND,
-            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
-            EncodedOrderIntent::WIDTH_APP_DATA
-        ];
-        *owner = intent.owner.to_bytes();
-        *buy_token = intent.buy_token_account.to_bytes();
-        *sell_token = intent.sell_token_account.to_bytes();
-        *sell_amount = intent.sell_amount.to_le_bytes();
-        *buy_amount = intent.buy_amount.to_le_bytes();
-        *valid_to = intent.valid_to.to_le_bytes();
-        *kind = [intent.kind as u8];
-        *partially_fillable = [intent.partially_fillable as u8];
-        *app_data = intent.app_data;
-        Self(out)
+        EncodedOrderIntent {
+            owner: intent.owner.to_bytes(),
+            buy_token_account: intent.buy_token_account.to_bytes(),
+            sell_token_account: intent.sell_token_account.to_bytes(),
+            sell_amount: intent.sell_amount.to_le_bytes(),
+            buy_amount: intent.buy_amount.to_le_bytes(),
+            valid_to: intent.valid_to.to_le_bytes(),
+            kind: intent.kind as u8,
+            partially_fillable: intent.partially_fillable as u8,
+            app_data: intent.app_data,
+        }
     }
 }
 
@@ -199,48 +193,26 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
         // If this were to happen, then the user intent may not be recognized
         // as valid or it might be possible to replay the same order more
         // than once.
-
-        let (
-            owner,
-            buy_token,
-            sell_token,
-            sell_amount,
-            buy_amount,
-            valid_to,
-            kind,
-            partially_fillable,
-            app_data,
-        ) = array_refs![
-            bytes,
-            EncodedOrderIntent::WIDTH_OWNER,
-            EncodedOrderIntent::WIDTH_BUY_TOKEN,
-            EncodedOrderIntent::WIDTH_SELL_TOKEN,
-            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
-            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
-            EncodedOrderIntent::WIDTH_VALID_TO,
-            EncodedOrderIntent::WIDTH_KIND,
-            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
-            EncodedOrderIntent::WIDTH_APP_DATA
-        ];
+        let encoded = EncodedOrderIntent::from_bytes(bytes);
 
         Ok(OrderIntent {
-            owner: Pubkey::new_from_array(*owner),
-            buy_token_account: Pubkey::new_from_array(*buy_token),
-            sell_token_account: Pubkey::new_from_array(*sell_token),
-            sell_amount: u64::from_le_bytes(*sell_amount),
-            buy_amount: u64::from_le_bytes(*buy_amount),
-            valid_to: u32::from_le_bytes(*valid_to),
-            kind: match kind {
-                [0] => OrderKind::Sell,
-                [1] => OrderKind::Buy,
+            owner: Pubkey::new_from_array(encoded.owner),
+            buy_token_account: Pubkey::new_from_array(encoded.buy_token_account),
+            sell_token_account: Pubkey::new_from_array(encoded.sell_token_account),
+            sell_amount: u64::from_le_bytes(encoded.sell_amount),
+            buy_amount: u64::from_le_bytes(encoded.buy_amount),
+            valid_to: u32::from_le_bytes(encoded.valid_to),
+            kind: match encoded.kind {
+                0 => OrderKind::Sell,
+                1 => OrderKind::Buy,
                 _ => return Err(ProgramError::InvalidInstructionData),
             },
-            partially_fillable: match partially_fillable {
-                [0] => false,
-                [1] => true,
+            partially_fillable: match encoded.partially_fillable {
+                0 => false,
+                1 => true,
                 _ => return Err(ProgramError::InvalidInstructionData),
             },
-            app_data: *app_data,
+            app_data: encoded.app_data,
         })
     }
 }
@@ -249,7 +221,10 @@ impl TryFrom<&EncodedOrderIntent> for OrderIntent {
     type Error = ProgramError;
 
     fn try_from(encoded: &EncodedOrderIntent) -> Result<Self, Self::Error> {
-        OrderIntent::try_from(&encoded.0)
+        OrderIntent::try_from(bytemuck::cast_ref::<
+            EncodedOrderIntent,
+            [u8; EncodedOrderIntent::SIZE],
+        >(encoded))
     }
 }
 
@@ -266,14 +241,14 @@ impl OrderIntent {
 pub mod fixtures {
     use proptest::{prelude::*, strategy::Union};
 
-    use super::{EncodedOrderIntent, OrderIntent, OrderKind, Pubkey};
+    use super::{OrderIntent, OrderKind, Pubkey};
 
     /// Every valid [`OrderKind`].
     pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
 
     // Hardcoded but verified in a sanity-check test.
     pub const KIND_OFFSET: usize = 116;
-    pub const PARTIALLY_FILLABLE_OFFSET: usize = KIND_OFFSET + EncodedOrderIntent::WIDTH_KIND;
+    pub const PARTIALLY_FILLABLE_OFFSET: usize = KIND_OFFSET + 1;
 
     pub fn sample_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
         OrderIntent {
@@ -338,51 +313,6 @@ mod tests {
         fixtures::ALL_ORDER_KINDS
             .into_iter()
             .flat_map(|kind| core::iter::repeat(kind).zip([false, true]))
-    }
-
-    // Pin each width to the size of the `OrderIntent` field it encodes. The
-    // widths summing to `SIZE` is enforced separately, at compile time, by the
-    // `array_refs!` / `mut_array_refs!` invocations in the codec.
-    #[test]
-    fn widths_match_field_sizes() {
-        use core::mem::{size_of, size_of_val};
-
-        // Any `OrderIntent` works: `size_of_val` only consults the field
-        // type, never the data.
-        let intent = sample_intent(OrderKind::Sell, false);
-
-        assert_eq!(EncodedOrderIntent::WIDTH_OWNER, size_of_val(&intent.owner));
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_BUY_TOKEN,
-            size_of_val(&intent.buy_token_account)
-        );
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_SELL_TOKEN,
-            size_of_val(&intent.sell_token_account)
-        );
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_SELL_AMOUNT,
-            size_of_val(&intent.sell_amount)
-        );
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_BUY_AMOUNT,
-            size_of_val(&intent.buy_amount)
-        );
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_VALID_TO,
-            size_of_val(&intent.valid_to)
-        );
-        assert_eq!(EncodedOrderIntent::WIDTH_KIND, size_of_val(&intent.kind));
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
-            size_of_val(&intent.partially_fillable)
-        );
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_APP_DATA,
-            size_of_val(&intent.app_data)
-        );
-
-        assert_eq!(EncodedOrderIntent::SIZE, size_of::<EncodedOrderIntent>());
     }
 
     #[test]
