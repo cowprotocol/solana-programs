@@ -5,6 +5,8 @@ use cow_settlement_client::{
 };
 use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 
+use crate::helpers::print_summary;
+
 use super::Context;
 
 #[derive(ClapArgs)]
@@ -40,8 +42,7 @@ pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
         .send_and_confirm_transaction(&tx)
         .context("transaction failed")?;
 
-    println!("signature: {sig}");
-    println!("state PDA: {state_pda}");
+    print_summary(&[("signature", &sig), ("statePda", &state_pda)]);
 
     Ok(())
 }
