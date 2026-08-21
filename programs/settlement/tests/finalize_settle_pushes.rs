@@ -22,8 +22,12 @@ use cow_settlement_client::cow_settlement_interface::{
     SettlementError,
 };
 use cow_settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
+use litesvm::LiteSVM;
 use solana_sdk::{
-    instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signature::Signer,
+    instruction::InstructionError,
+    program_error::ProgramError,
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
     transaction::TransactionError,
 };
 
@@ -47,6 +51,80 @@ fn finalize(program_id: &Pubkey, orders: &[FinalizedIntent]) -> Vec<Instruction>
         orders,
     };
     build_settlement(program_id, orders, finalize)
+}
+
+/// Build a settlement that pays `n` distinct orders, each from its own buffer: a
+/// fresh buy mint (and thus a fresh buffer) per order, funded enough to cover its
+/// push. Generalizes [`pushes_several_orders_from_different_buffers`] over the
+/// order count, so the per-order cost can be benchmarked as `n` grows.
+fn push_orders_from_different_buffers(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    n: u8,
+) -> Vec<Instruction> {
+    let funding = 5_000;
+    let amount = 1_000;
+    let mut intents = Vec::with_capacity(usize::from(n));
+    let mut mints = Vec::with_capacity(usize::from(n));
+    for salt in 0..n {
+        let mint = token::create_mint(svm, payer);
+        let intent = OrderBuilder::new(svm, program_id, payer)
+            .buy_mint(&mint)
+            .salt(salt)
+            .build();
+        buffer::ensure_funded(svm, program_id, payer, &mint, funding);
+        intents.push(intent);
+        mints.push(mint);
+    }
+    let orders: Vec<FinalizedIntent> = intents
+        .iter()
+        .zip(&mints)
+        .map(|(intent, &mint)| FinalizedIntent {
+            intent,
+            mint,
+            amount,
+        })
+        .collect();
+    finalize(program_id, &orders)
+}
+
+/// Benchmarks the different-buffers settlement across order counts, one test
+/// (hence one `bench-report.json` entry) per count. Fourteen orders is the most
+/// that fits: each order locks four accounts (order PDA, sell and buy token
+/// accounts, buffer) on top of the fixed set, and fifteen trips the legacy
+/// transaction's account-lock limit with `TooManyAccountLocks`. The counts are
+/// zero-padded so the bench keys sort in numeric order.
+macro_rules! bench_orders_from_different_buffers {
+    ($($name:ident => $n:literal),+ $(,)?) => {
+        $(
+            #[test]
+            fn $name() {
+                let (mut svm, program_id, payer) = setup();
+                let instructions =
+                    push_orders_from_different_buffers(&mut svm, &program_id, &payer, $n);
+                send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+                    .expect("different-buffers settlement should succeed");
+            }
+        )+
+    };
+}
+
+bench_orders_from_different_buffers! {
+    pushes_01_orders_from_different_buffers => 1,
+    pushes_02_orders_from_different_buffers => 2,
+    pushes_03_orders_from_different_buffers => 3,
+    pushes_04_orders_from_different_buffers => 4,
+    pushes_05_orders_from_different_buffers => 5,
+    pushes_06_orders_from_different_buffers => 6,
+    pushes_07_orders_from_different_buffers => 7,
+    pushes_08_orders_from_different_buffers => 8,
+    pushes_09_orders_from_different_buffers => 9,
+    pushes_10_orders_from_different_buffers => 10,
+    pushes_11_orders_from_different_buffers => 11,
+    pushes_12_orders_from_different_buffers => 12,
+    pushes_13_orders_from_different_buffers => 13,
+    pushes_14_orders_from_different_buffers => 14,
 }
 
 #[test]
