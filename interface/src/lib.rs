@@ -4,7 +4,7 @@ pub use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK");
+solana_pubkey::declare_id!("J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w");
 
 pub mod data;
 pub mod instruction;
@@ -24,6 +24,7 @@ pub enum SettlementInstruction {
     CreateBuffer = 4,
     ReclaimOrder = 5,
     ReclaimBuffer = 6,
+    TransferAuthority = 7,
 }
 
 impl SettlementInstruction {
@@ -32,6 +33,34 @@ impl SettlementInstruction {
     }
 
     fn unknown_discriminator(_: u8) -> ProgramError {
+        ProgramError::InvalidInstructionData
+    }
+}
+
+/// A transferable authority stored in the state PDA.
+///
+/// The discriminant is the wire value carried by the authority-transfer
+/// instruction (see [`transfer_authority`](instruction::transfer_authority)).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
+#[repr(u8)]
+#[num_enum(error_type(name = ProgramError, constructor = Role::unknown_role))]
+pub enum Role {
+    /// The account authorized to add and remove solvers and to transfer roles.
+    /// It is the highest authority: it may transfer any role.
+    Manager = 0,
+    /// The account authorized to close buffer accounts and reclaim their rent,
+    /// choosing where that rent goes.
+    ReclaimAuthority,
+}
+
+impl Role {
+    /// The single wire byte that selects this role in the authority-transfer
+    /// instruction.
+    pub fn discriminator(self) -> u8 {
+        self as u8
+    }
+
+    fn unknown_role(_: u8) -> ProgramError {
         ProgramError::InvalidInstructionData
     }
 }
@@ -187,6 +216,9 @@ pub enum SettlementError {
     /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
     /// derived from its paired `mint`.
     ReclaimBufferNotCanonical = 33,
+    /// `TransferAuthority`'s signer is neither the manager nor the current
+    /// holder of the role being transferred, so it may not transfer it.
+    UnauthorizedAuthorityTransfer = 34,
 }
 
 impl From<SettlementError> for u32 {
@@ -201,17 +233,23 @@ impl From<SettlementError> for solana_program_error::ProgramError {
     }
 }
 
+/// Test fixtures for building settlement values with stable, readable
+/// addresses. Exposed under the `test-fixtures` feature (and unconditionally
+/// for this crate's own `cargo test`) so other crates can reuse them.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures {
+    use crate::Pubkey;
+
+    /// Deterministically generate a [`Pubkey`] by hashing a seed string, for
+    /// building fixtures with stable, readable addresses.
+    pub fn pubkey_from_seed(seed: &str) -> Pubkey {
+        Pubkey::new_from_array(solana_sha256_hasher::hash(seed.as_bytes()).to_bytes())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Deterministically generate a [`Pubkey`](solana_pubkey::Pubkey) by hashing
-    /// a seed string, for building fixtures with stable, readable addresses.
-    pub(crate) fn pubkey_from_seed(seed: &str) -> solana_pubkey::Pubkey {
-        solana_pubkey::Pubkey::new_from_array(
-            solana_sha256_hasher::hash(seed.as_bytes()).to_bytes(),
-        )
-    }
 
     #[test]
     fn rejects_empty_payload() {
@@ -275,5 +313,20 @@ mod tests {
             SettlementAccount::OrderAccount.discriminator(),
             SettlementAccount::SettlementState.discriminator(),
         );
+    }
+
+    #[test]
+    fn role_try_from_partitions_all_bytes() {
+        for i in u8::MIN..=u8::MAX {
+            match Role::try_from(i) {
+                Ok(role) => assert_eq!(role as u8, i),
+                Err(err) => assert_eq!(err, ProgramError::InvalidInstructionData),
+            }
+        }
+    }
+
+    #[test]
+    fn role_try_from_matches_manager() {
+        assert_eq!(Role::try_from(0), Ok(Role::Manager));
     }
 }

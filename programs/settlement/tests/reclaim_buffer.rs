@@ -13,13 +13,21 @@ use solana_sdk::{
 
 use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
-use crate::common::unique_pubkey;
+use crate::common::{unique_pubkey, InitializedParams};
 
 mod common;
 
 #[test]
 fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
-    let (mut svm, program_id, payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
     let recipient = common::unique_keypair().pubkey();
 
     let mint = common::token::create_mint(&mut svm, &payer);
@@ -60,7 +68,15 @@ fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
 
 #[test]
 fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
-    let (mut svm, program_id, payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
 
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
@@ -94,7 +110,15 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
 
 #[test]
 fn funded_buffer_is_skipped() {
-    let (mut svm, program_id, payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
 
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
@@ -124,7 +148,15 @@ fn funded_buffer_is_skipped() {
 /// read-only `state_pda` slot of the very same instruction.
 #[test]
 fn reclaims_to_the_settlements_own_state_pda() {
-    let (mut svm, program_id, payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
 
     let (recipient, _bump) = find_state_pda(&program_id);
 
@@ -169,7 +201,15 @@ fn reclaims_to_the_settlements_own_state_pda() {
 
 #[test]
 fn reclaims_multiple_buffers_skipping_funded() {
-    let (mut svm, program_id, payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
 
     let mint_a = common::token::create_mint(&mut svm, &payer);
     let mint_b = common::token::create_mint(&mut svm, &payer);
@@ -201,7 +241,15 @@ fn reclaims_multiple_buffers_skipping_funded() {
 
 #[test]
 fn rejects_the_same_buffer_twice_in_one_instruction() {
-    let (mut svm, program_id, payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
 
     let mint = common::token::create_mint(&mut svm, &payer);
     ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
@@ -222,7 +270,12 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
 
 #[test]
 fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
-    let (mut svm, program_id, payer, _reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id, payer, ..
+        },
+    ) = common::setup_init();
     let impostor = common::unique_keypair();
     svm.airdrop(&impostor.pubkey(), 1_000_000_000)
         .expect("airdrop should succeed");
@@ -249,7 +302,15 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
 /// always marks it as a signer, so this test strips the flag by hand.
 #[test]
 fn rejects_when_the_reclaim_authority_does_not_sign() {
-    let (mut svm, program_id, payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
     let recipient = common::unique_keypair().pubkey();
 
     let mint = common::token::create_mint(&mut svm, &payer);
@@ -311,7 +372,14 @@ fn max_buffers_reclaim_via_lookup_table(
 /// you're ok with the performance hit, then you can bump it down.
 #[test]
 fn bench_assert_known_max_buffer_count() {
-    let (mut svm, program_id, _payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
     svm.airdrop(&reclaim_authority.pubkey(), 100_000_000)
         .expect("airdrop should succeed");
     let max_buffers =
@@ -329,7 +397,15 @@ fn bench_assert_known_max_buffer_count() {
 /// how much a maxed-out instruction costs.
 #[test]
 fn max_buffers_in_one_instruction() {
-    let (mut svm, program_id, payer, reclaim_authority) = common::setup_init();
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
     svm.airdrop(&reclaim_authority.pubkey(), 100_000_000)
         .expect("airdrop should succeed");
     let max_buffers =

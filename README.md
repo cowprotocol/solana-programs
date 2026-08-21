@@ -91,7 +91,7 @@ just deploy ./program-keypair.json ./deployer-keypair.json
 Pass the **program's public key (address)** as the first argument. The deployer wallet must already be the upgrade authority:
 
 ```sh
-just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ./deployer-keypair.json
+just deploy J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w ./deployer-keypair.json
 ```
 
 `just deploy` finishes by running `initialize` to create the program's state PDA.
@@ -113,10 +113,10 @@ cargo publish
 
 ```sh
 solana config set --url devnet
-just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ~/solana-keys/deployer.json
+just deploy J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w ~/solana-keys/deployer.json
 ```
 
-The deployer for the canonical devnet program (`MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
+The deployer for the canonical devnet program (`J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
 
 ## License
 

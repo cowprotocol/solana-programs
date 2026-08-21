@@ -111,6 +111,20 @@ impl<const N: usize> CanonicalPda<'_, N> {
     }
 }
 
+/// Confirm `state_pda_account` sits at the canonical state PDA for `program_id`,
+/// returning its canonical bump.
+#[must_use = "ignoring the result skips the canonical state-PDA check"]
+pub fn check_state_pda(
+    program_id: &Address,
+    state_pda_account: &AccountView,
+) -> Result<u8, ProgramError> {
+    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
+    if state_pda_account.address() != &state_pda {
+        return Err(SettlementError::StateAccountMismatch.into());
+    }
+    Ok(state_bump)
+}
+
 /// Validate that `state_pda_account` is the canonical state PDA and run `f` with
 /// a signer for it. The state PDA is the authority over the accounts settlement
 /// touches — user token delegations and the buffers — so it must sign every CPI
@@ -124,12 +138,7 @@ pub fn with_state_pda_signer(
     state_pda_account: &AccountView,
     f: impl FnOnce(&Signer) -> ProgramResult,
 ) -> ProgramResult {
-    let (state_pda, state_bump) = Address::find_program_address(&state_pda_seeds(), program_id);
-    if state_pda_account.address() != &state_pda {
-        return Err(SettlementError::StateAccountMismatch.into());
-    }
-
-    let state_bump = [state_bump];
+    let state_bump = [check_state_pda(program_id, state_pda_account)?];
     let signer_seeds = state_pda_signer_seeds(&state_bump).map(Seed::from);
     f(&Signer::from(&signer_seeds))
 }

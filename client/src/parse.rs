@@ -11,6 +11,7 @@ use cow_settlement_interface::{
         reclaim_buffer::ReclaimBufferInput,
         reclaim_order::ReclaimOrderInput,
         settle::{BeginSettleInput, FinalizeSettleInput},
+        transfer_authority::TransferAuthorityInput,
         InstructionInputParsing,
     },
     recover_discriminator, SettlementInstruction,
@@ -26,6 +27,7 @@ pub enum ParsedInstruction<'a, A> {
     FinalizeSettle(FinalizeSettleInput<'a, A>),
     ReclaimOrder(ReclaimOrderInput<'a, A>),
     ReclaimBuffer(ReclaimBufferInput<'a, A>),
+    TransferAuthority(TransferAuthorityInput<'a, A>),
 }
 
 /// Parses any settlement instruction by its discriminator.
@@ -56,6 +58,9 @@ pub fn parse_instruction<'a, A>(
         SettlementInstruction::ReclaimBuffer => ParsedInstruction::ReclaimBuffer(
             ReclaimBufferInput::parse_body(remaining_data, accounts)?,
         ),
+        SettlementInstruction::TransferAuthority => ParsedInstruction::TransferAuthority(
+            TransferAuthorityInput::parse_body(remaining_data, accounts)?,
+        ),
     })
 }
 
@@ -67,18 +72,19 @@ mod tests {
     };
     use cow_settlement_interface::{
         data::intent::{fixtures::sample_intent, OrderKind},
+        fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array, reclaim_buffer::ReclaimBuffer,
-            reclaim_order::ReclaimOrder,
+            reclaim_order::ReclaimOrder, transfer_authority::TransferAuthority,
         },
-        Instruction, Pubkey,
+        Instruction, Role,
     };
 
     /// One buildable instruction per discriminator. The exhaustive match makes
     /// a new instruction a compile error until this test covers it.
     fn build(instruction: SettlementInstruction) -> Instruction {
-        let program_id = Pubkey::new_from_array([9; 32]);
-        let payer = Pubkey::new_from_array([8; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
         let intent = sample_intent(OrderKind::Sell, false);
         match instruction {
             SettlementInstruction::Initialize => Initialize {
@@ -98,7 +104,7 @@ mod tests {
             SettlementInstruction::CreateBuffer => CreateBuffers {
                 program_id,
                 payer,
-                mints: &[Pubkey::new_from_array([7; 32])],
+                mints: &[pubkey_from_seed("mint")],
             }
             .into(),
             SettlementInstruction::BeginSettle => BeginSettle {
@@ -119,19 +125,24 @@ mod tests {
             .into(),
             SettlementInstruction::ReclaimOrder => ReclaimOrder {
                 program_id,
-                order_pda: Pubkey::new_from_array([6; 32]),
+                order_pda: pubkey_from_seed("order pda"),
                 reclaim_recipient: payer,
             }
             .instruction(),
             SettlementInstruction::ReclaimBuffer => ReclaimBuffer {
                 program_id,
-                state_pda: Pubkey::new_from_array([5; 32]),
+                state_pda: pubkey_from_seed("state pda"),
                 reclaim_authority: payer,
                 reclaim_recipient: payer,
-                buffers: &[(
-                    Pubkey::new_from_array([4; 32]),
-                    Pubkey::new_from_array([7; 32]),
-                )],
+                buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"))],
+            }
+            .into(),
+            SettlementInstruction::TransferAuthority => TransferAuthority {
+                program_id,
+                signer: payer,
+                state_pda: pubkey_from_seed("state pda"),
+                role: Role::Manager,
+                new_authority: payer,
             }
             .into(),
         }
@@ -150,6 +161,7 @@ mod tests {
             SettlementInstruction::FinalizeSettle,
             SettlementInstruction::ReclaimOrder,
             SettlementInstruction::ReclaimBuffer,
+            SettlementInstruction::TransferAuthority,
         ] {
             let ix = build(expected);
             let accounts: Vec<_> = ix
@@ -167,6 +179,7 @@ mod tests {
                 ParsedInstruction::FinalizeSettle(_) => SettlementInstruction::FinalizeSettle,
                 ParsedInstruction::ReclaimOrder(_) => SettlementInstruction::ReclaimOrder,
                 ParsedInstruction::ReclaimBuffer(_) => SettlementInstruction::ReclaimBuffer,
+                ParsedInstruction::TransferAuthority(_) => SettlementInstruction::TransferAuthority,
             };
             assert_eq!(actual, expected);
         }
