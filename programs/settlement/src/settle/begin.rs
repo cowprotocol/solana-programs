@@ -279,8 +279,7 @@ fn process_order(
     // into `amount_in` as we go. The state PDA is the SPL delegate, so it signs
     // each transfer via `signer`.
     let mut amount_in: u64 = 0;
-    for (destination, amount) in destinations.iter().zip(amounts) {
-        let amount = u64::from_le_bytes(*amount);
+    for (destination, &amount) in destinations.iter().zip(amounts) {
         amount_in = amount_in
             .checked_add(amount)
             .ok_or(SettlementError::PullAmountOverflow)?;
@@ -297,15 +296,19 @@ fn process_order(
         push_amount,
     )?;
 
-    let updated: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
-        amount_withdrawn,
-        amount_received,
-        ..account
-    })
-    .into();
+    // Update the fill amounts in place: reinterpret the account's data as an
+    // `EncodedOrderAccount` and write only the two amount fields, leaving the
+    // discriminator, bump, cancelled flag, creator, and intent untouched. No
+    // decode/re-encode of the whole body.
     // A copied `AccountView` handle writes through to the same runtime account.
     let mut order_pda = *order_pda;
-    order_pda.try_borrow_mut()?.copy_from_slice(&updated);
+    let mut data = order_pda.try_borrow_mut()?;
+    let bytes: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *data)
+        .try_into()
+        .map_err(|_| ProgramError::InvalidAccountData)?;
+    let encoded = EncodedOrderAccount::from_bytes_mut(bytes);
+    encoded.set_amount_withdrawn(amount_withdrawn);
+    encoded.set_amount_received(amount_received);
 
     Ok(())
 }

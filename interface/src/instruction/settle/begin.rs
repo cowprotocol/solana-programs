@@ -2,6 +2,7 @@
 
 use std::vec;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -9,7 +10,7 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
+use super::{INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
 
 /// A single transfer made when settling an order: `amount` tokens sent from the
 /// order's sell token account to `destination`.
@@ -17,6 +18,23 @@ use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
 pub struct Pull {
     pub destination: Pubkey,
     pub amount: u64,
+}
+
+/// Borsh-encoded body of a `BeginSettle` instruction (everything after the
+/// one-byte discriminator).
+///
+/// `finalize_ix_index` is serialized first so its two little-endian bytes sit at
+/// a fixed offset right after the discriminator, where
+/// [`recover_counterpart`](super::recover_counterpart) reads it out of a peer
+/// instruction via introspection without a full decode.
+#[derive(BorshSerialize, BorshDeserialize)]
+struct BeginSettleData {
+    finalize_ix_index: u16,
+    auction_id: i64,
+    /// Transfer count per order, one entry per settled order.
+    counts: Vec<u8>,
+    /// Transfer amounts, flattened across orders and handed out `count` at a time.
+    amounts: Vec<u64>,
 }
 
 /// Builder for a `BeginSettle` instruction settling the orders described by the
@@ -30,9 +48,10 @@ pub struct Pull {
 /// The slices are assumed to have the same length but this is not enforced in
 /// the builder.
 ///
-/// Wire format (grouped, with `n` orders and `T` total transfers):
-/// `[discriminator=0][finalize_ix_index: u16 LE][auction_id: i64 LE][n: u8]
-/// [transfer_count×n][amount: u64 LE ×T]`.
+/// Wire format (Borsh, with `n` orders and `T` total transfers):
+/// `[discriminator=0][finalize_ix_index: u16 LE][auction_id: i64 LE]
+/// [counts: Vec<u8>][amounts: Vec<u64>]`, where each `Vec` is a `u32` LE length
+/// prefix followed by its elements.
 /// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
 /// (R)]` followed, per order, by `[order_pda (W), sell_token_account (W),
 /// destination (W)...]`.
@@ -73,20 +92,23 @@ impl From<BeginSettle<'_>> for Instruction {
         order.sort_by_key(|&i| order_pdas[i]);
 
         let counts: Vec<u8> = order.iter().map(|&i| pulls[i].len() as u8).collect();
-        let amounts: Vec<u8> = order
+        let amounts: Vec<u64> = order
             .iter()
             .flat_map(|&i| pulls[i].iter())
-            .flat_map(|pull| pull.amount.to_le_bytes())
+            .map(|pull| pull.amount)
             .collect();
-        let data = [
-            &[SettlementInstruction::BeginSettle.discriminator()][..],
-            &finalize_ix_index.to_le_bytes()[..],
-            &auction_id.to_le_bytes()[..],
-            &[order_pdas.len() as u8][..],
-            &counts[..],
-            &amounts[..],
-        ]
-        .concat();
+
+        let mut data = vec![SettlementInstruction::BeginSettle.discriminator()];
+        borsh::to_writer(
+            &mut data,
+            &BeginSettleData {
+                finalize_ix_index,
+                auction_id,
+                counts,
+                amounts,
+            },
+        )
+        .expect("Borsh serialization into a Vec is infallible");
 
         // Read-only accounts for instruction introspection, settlement state, and
         // the SPL token program.
@@ -122,13 +144,16 @@ pub struct SettledOrder<'a, A> {
     pub sell_token_account: &'a A,
     /// Destination accounts for this order's transfers.
     pub destinations: &'a [A],
-    /// Transfer amounts (little-endian `u64`), one per destination.
-    pub amounts: &'a [[u8; 8]],
+    /// Transfer amounts, one per destination.
+    pub amounts: &'a [u64],
 }
 
 /// Struct storing accounts, transfer counts, and amounts from parsing the
 /// input of BeginSettle. The parsing step that created this struct guarantees
 /// that there aren't missing elements or that they are assigned incorrectly.
+///
+/// The counts and amounts are owned (Borsh decodes them into `Vec`s); the
+/// accounts are borrowed from the parsed instruction.
 pub struct SettledOrders<'a, A> {
     /// Order accounts, laid out per order as
     /// [order_accounts_1,  order_accounts_2, ...] where
@@ -137,23 +162,23 @@ pub struct SettledOrders<'a, A> {
     /// - and M is `counts[N]`
     order_accounts: &'a [A],
     /// One transfer count per order.
-    counts: &'a [u8],
-    /// Transfer amounts (little-endian `u64`), shared across orders and
-    /// handed out `count` at a time.
-    amounts: &'a [[u8; 8]],
+    counts: Vec<u8>,
+    /// Transfer amounts, shared across orders and handed out `count` at a time.
+    amounts: Vec<u64>,
 }
 
-impl<'a, A> SettledOrders<'a, A> {
+impl<A> SettledOrders<'_, A> {
     /// Returns an iterator yielding one [`SettledOrder`] per step.
     #[allow(
         clippy::arithmetic_side_effects,
         reason = "offsets are bounded by tx limits"
     )]
-    pub fn iter(&self) -> impl Iterator<Item = SettledOrder<'a, A>> + '_ {
-        let (counts, amounts) = (self.counts, self.amounts);
+    pub fn iter(&self) -> impl Iterator<Item = SettledOrder<'_, A>> + '_ {
+        let counts = self.counts.as_slice();
+        let amounts = self.amounts.as_slice();
         // Cursor over the remaining order accounts; each step splits one order's
         // `[order_pda, sell_token_account, destinations..count]` off the front.
-        let mut rest: &'a [A] = self.order_accounts;
+        let mut rest: &[A] = self.order_accounts;
         let mut i = 0usize;
         let mut amount_offset = 0usize;
         std::iter::from_fn(move || {
@@ -207,7 +232,15 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::BeginSettle;
 
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
-        let (finalize_ix_index, body) = recover_counterpart(instruction_data)?;
+        // Borsh decodes the whole body and rejects trailing or truncated bytes,
+        // so a malformed layout surfaces as `InvalidInstructionData` here.
+        let BeginSettleData {
+            finalize_ix_index,
+            auction_id,
+            counts,
+            amounts,
+        } = BeginSettleData::try_from_slice(instruction_data)
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
 
         let [instructions_sysvar_account, state_pda_account, token_program_account, order_accounts @ ..] =
             accounts
@@ -215,33 +248,10 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
-        // Fixed-width auction id, carried between the counterpart index and the
-        // per-order pull layout so the settlement can be tied to its auction
-        // off-chain.
-        let (auction_id, body) = body
-            .split_first_chunk::<8>()
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        let auction_id = i64::from_le_bytes(*auction_id);
-
-        // The leading byte is the order count `n`; the counts take `n` bytes and
-        // the remaining bytes are the amounts. `T` (total transfers) is the
-        // number of 8-byte amounts. Too few bytes for the order count or the
-        // counts, or a trailing amount that isn't a whole `u64`, means the data
-        // can't be parsed into the pull layout at all.
-        let (&order_count, body) = body
-            .split_first()
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        let order_count = usize::from(order_count);
-        let (counts, amount_bytes) = body
-            .split_at_checked(order_count)
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        let (amounts, []) = amount_bytes.as_chunks::<8>() else {
-            return Err(ProgramError::InvalidInstructionData);
-        };
-        let transfer_count = amounts.len();
-
         // Each order contributes its order PDA, sell token account, and one
         // destination per transfer, so the order accounts count is `2n + T`.
+        let order_count = counts.len();
+        let transfer_count = amounts.len();
         let expected_accounts = order_count
             .checked_mul(2)
             .and_then(|two_n| two_n.checked_add(transfer_count))
@@ -316,9 +326,10 @@ mod tests {
             data,
             ix_data![
                 [SettlementInstruction::BeginSettle.discriminator()],
-                hex!("3713"),             // counterpart index, little endian
+                hex!("3713"),             // finalize ix index, little endian
                 hex!("0807060504030201"), // auction id, little endian
-                [0],                      // order count
+                0u32.to_le_bytes(),       // counts: Borsh Vec length prefix (empty)
+                0u32.to_le_bytes(),       // amounts: Borsh Vec length prefix (empty)
             ],
         );
         // No orders: the three fixed accounts (sysvar, state PDA, token
@@ -356,10 +367,11 @@ mod tests {
             data,
             ix_data![
                 [SettlementInstruction::BeginSettle.discriminator()],
-                hex!("3713"),             // counterpart index, little endian
+                hex!("3713"),             // finalize ix index, little endian
                 AUCTION_ID.to_le_bytes(), // auction id, little endian
-                [2],                      // order count
+                2u32.to_le_bytes(),       // counts: Borsh Vec length prefix
                 [0, 0],                   // transfer counts (both zero)
+                0u32.to_le_bytes(),       // amounts: Borsh Vec length prefix (empty)
             ],
         );
 
@@ -435,14 +447,15 @@ mod tests {
             data,
             ix_data![
                 [SettlementInstruction::BeginSettle.discriminator()],
-                hex!("3713"),             // counterpart index, little endian
+                hex!("3713"),             // finalize ix index, little endian
                 AUCTION_ID.to_le_bytes(), // auction id, little endian
-                [2],                      // order count
+                2u32.to_le_bytes(),       // counts: Borsh Vec length prefix
                 [2, 1],                   // counts
+                3u32.to_le_bytes(),       // amounts: Borsh Vec length prefix
                 // amounts, little endian
-                hex!("0201000000000000"),
-                hex!("0403000000000000"),
-                hex!("0605000000000000"),
+                0x0102u64.to_le_bytes(),
+                0x0304u64.to_le_bytes(),
+                0x0506u64.to_le_bytes(),
             ],
         );
 
@@ -486,9 +499,10 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0x37, 0x13],             // finalize index, little-endian
+            hex!("3713"),             // finalize index, little-endian
             hex!("0807060504030201"), // auction id, little-endian
-            [0x00],                   // order count
+            0u32.to_le_bytes(),       // counts: Borsh Vec length prefix (empty)
+            0u32.to_le_bytes(),       // amounts: Borsh Vec length prefix (empty)
         ];
         let BeginSettleInput {
             finalize_ix_index,
@@ -521,9 +535,14 @@ mod tests {
 
     #[test]
     fn begin_settle_input_rejects_empty_accounts() {
+        // A well-formed body (so Borsh decoding succeeds) with no accounts, so
+        // the fixed-account destructuring is what fails.
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0, 0], // finalize index
+            hex!("3713"),             // finalize index, little-endian
+            AUCTION_ID.to_le_bytes(), // auction id
+            0u32.to_le_bytes(),       // counts (empty)
+            0u32.to_le_bytes(),       // amounts (empty)
         ];
         let accounts: [AccountView; 0] = [];
         assert_eq!(
@@ -535,7 +554,7 @@ mod tests {
     #[test]
     fn begin_settle_input_rejects_missing_auction_id() {
         // The body carries the finalize index but fewer than eight bytes for the
-        // auction id, so parsing can't recover it.
+        // auction id, so Borsh can't decode it.
         let accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
@@ -564,10 +583,11 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0x37, 0x13],             // finalize index, little-endian
+            hex!("3713"),             // finalize index, little-endian
             AUCTION_ID.to_le_bytes(), // auction id, little-endian
-            [0x01],                   // order count
+            1u32.to_le_bytes(),       // counts: one order
             [0x00],                   // that order's transfer count
+            0u32.to_le_bytes(),       // amounts (empty)
         ];
         let BeginSettleInput {
             finalize_ix_index,
@@ -611,10 +631,11 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0x37, 0x13],             // finalize index, little-endian
+            hex!("3713"),             // finalize index, little-endian
             AUCTION_ID.to_le_bytes(), // auction id, little-endian
-            [0x01],                   // order count
-            [0x02],                   // transfer count
+            1u32.to_le_bytes(),       // counts: one order
+            [0x02],                   // that order's transfer count
+            2u32.to_le_bytes(),       // amounts: two transfers
             0x1122u64.to_le_bytes(),
             0x3344u64.to_le_bytes(),
         ];
@@ -630,7 +651,7 @@ mod tests {
             .destinations
             .iter()
             .zip(order.amounts)
-            .map(|(destination, amount)| (destination.address(), u64::from_le_bytes(*amount)))
+            .map(|(destination, amount)| (destination.address(), *amount))
             .collect();
         assert_eq!(transfers, vec![(&dest0, 0x1122), (&dest1, 0x3344)]);
         assert!(orders.next().is_none());
@@ -658,14 +679,14 @@ mod tests {
             accounts.push(fake_account(order_pda));
             accounts.push(fake_account(sell_token));
         }
-        // Grouped data: discriminator, finalize index, auction id, order count,
-        // then all transfer counts (every order has zero transfers).
+        // Every order has zero transfers.
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
-            [0x37, 0x13],             // finalize index, little-endian
-            AUCTION_ID.to_le_bytes(), // auction id, little-endian
-            [ORDER_COUNT as u8],      // order count
-            [0u8; ORDER_COUNT],
+            hex!("3713"),                       // finalize index, little-endian
+            AUCTION_ID.to_le_bytes(),           // auction id, little-endian
+            (ORDER_COUNT as u32).to_le_bytes(), // counts length
+            [0u8; ORDER_COUNT],                 // per-order transfer counts
+            0u32.to_le_bytes(),                 // amounts (empty)
         ];
 
         let parsed = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
@@ -695,8 +716,9 @@ mod tests {
             [SettlementInstruction::BeginSettle.discriminator()],
             [0, 0],                   // finalize index
             AUCTION_ID.to_le_bytes(), // auction id
-            [0x01],                   // order count
+            1u32.to_le_bytes(),       // counts: one order
             [0x00],                   // the order's transfer count
+            0u32.to_le_bytes(),       // amounts (empty)
         ];
         assert_eq!(
             BeginSettleInput::parse(&data, &accounts).err(),
@@ -714,67 +736,15 @@ mod tests {
             [SettlementInstruction::BeginSettle.discriminator()],
             [0, 0],                   // finalize index
             AUCTION_ID.to_le_bytes(), // auction id
-            [0x01],                   // order count
-            [0x01],                   // count says one, but two amounts/destinations exist
+            1u32.to_le_bytes(),       // counts: one order
+            [0x01],                   // count says one, but two amounts exist
+            2u32.to_le_bytes(),       // amounts: two transfers
             0u64.to_le_bytes(),
             0u64.to_le_bytes(),
         ];
         assert_eq!(
             BeginSettleInput::parse(&data, &accounts).err(),
             Some(SettlementError::TransferCountMismatch.into()),
-        );
-    }
-
-    #[test]
-    fn begin_settle_input_rejects_missing_order_count() {
-        // The body carries the finalize index and auction id but no order-count
-        // byte, so the pull layout can't even begin to be parsed.
-        let accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
-        let data = ix_data![
-            [SettlementInstruction::BeginSettle.discriminator()],
-            [0, 0],                   // finalize index
-            AUCTION_ID.to_le_bytes(), // auction id
-        ];
-        assert_eq!(
-            BeginSettleInput::parse(&data, &accounts).err(),
-            Some(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
-    fn begin_settle_input_rejects_body_too_short_for_counts() {
-        // The order count claims two orders, but only one transfer-count byte
-        // follows, so the counts can't be split off.
-        let accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
-        let data = ix_data![
-            [SettlementInstruction::BeginSettle.discriminator()],
-            [0, 0],                   // finalize index
-            AUCTION_ID.to_le_bytes(), // auction id
-            [0x02],                   // order count: two orders...
-            [0x00],                   // ...but only one transfer-count byte
-        ];
-        assert_eq!(
-            BeginSettleInput::parse(&data, &accounts).err(),
-            Some(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    #[test]
-    fn begin_settle_input_rejects_partial_amount() {
-        // One order with no transfers, but four trailing bytes that don't form a
-        // whole `u64` amount.
-        let accounts = fake_sequential_accounts::<FIXED_ACCOUNTS>();
-        let data = ix_data![
-            [SettlementInstruction::BeginSettle.discriminator()],
-            [0, 0],                   // finalize index
-            AUCTION_ID.to_le_bytes(), // auction id
-            [0x01],                   // order count
-            [0x00],                   // transfer count
-            [0x11, 0x22, 0x33, 0x44], // a partial (4-byte) amount
-        ];
-        assert_eq!(
-            BeginSettleInput::parse(&data, &accounts).err(),
-            Some(ProgramError::InvalidInstructionData),
         );
     }
 }

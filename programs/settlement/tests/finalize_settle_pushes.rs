@@ -362,19 +362,36 @@ fn rejects_push_account_count_mismatch() {
         amount: 100,
     }];
 
-    // A well-formed single-push finalize (five accounts, a nine-byte push body)...
+    // A well-formed single-push finalize (five accounts, a one-push Borsh body)...
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         orders: &orders,
     });
-    // ...with another push's worth of data bytes appended but no matching
-    // accounts. `BeginSettle` derives the push count from the (unchanged) account
-    // metas (one push, matching its one order and paying the right destination)
-    // so it passes. Only the finalize reads the data, where it now parses two
-    // pushes against two push accounts and rejects the mismatch. This is the
-    // account/data disagreement `BeginSettle` structurally can't see.
-    finalize.data.extend_from_slice(&[0u8; 9]);
+    // ...with its data rewritten to declare a second (zero) push while its
+    // accounts stay unchanged (one push). `BeginSettle` derives the push count
+    // from the account metas (one push, matching its one order and paying the
+    // right destination) and reads only the first amount, so it passes. Only the
+    // finalize reads the data, where it now parses two pushes against one push's
+    // accounts and rejects the mismatch. This is the account/data disagreement
+    // `BeginSettle` structurally can't see.
+    //
+    // Borsh body: `[begin_ix: u16 LE][bumps: Vec<u8>][amounts: Vec<u64>]`. Keep
+    // the real first push and append a zero second push, bumping both `Vec`
+    // length prefixes to two.
+    let discriminator = finalize.data[0];
+    let begin_ix = &finalize.data[1..3];
+    let first_bump = finalize.data[7];
+    let first_amount = finalize.data[12..20].to_vec();
+    let mut data = vec![discriminator];
+    data.extend_from_slice(begin_ix);
+    data.extend_from_slice(&2u32.to_le_bytes()); // bumps: two entries
+    data.push(first_bump);
+    data.push(0);
+    data.extend_from_slice(&2u32.to_le_bytes()); // amounts: two entries
+    data.extend_from_slice(&first_amount);
+    data.extend_from_slice(&0u64.to_le_bytes());
+    finalize.data = data;
 
     let instructions = build_settlement(&program_id, &orders, finalize);
     assert_finalize_error(

@@ -2,6 +2,7 @@
 
 use std::vec;
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -9,38 +10,27 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{recover_discriminator, SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
+use super::{INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
 
 /// The number of fixed accounts every `FinalizeSettle` carries before its push
 /// accounts: the instructions sysvar, the settlement state PDA, and the token
 /// program.
 pub const FINALIZE_FIXED_ACCOUNTS: usize = 3;
 
-/// Split the instruction bytes from `FinalizeSettle` that remain after all
-/// constant-size data has been extracted into the per-push bump bytes and the
-/// raw little-endian amount chunks.
-fn split_push_bytes(body: &[u8]) -> Result<(&[u8], &[[u8; 8]]), ProgramError> {
-    // The body is `9 * n` bytes: `n` bump bytes followed by `n` little-endian
-    // `u64` amounts. A body that isn't a whole number of these 9-byte pushes
-    // can't be parsed into the push layout (and would otherwise leave `bumps`
-    // and `amounts` with mismatched lengths).
-    if !body.len().is_multiple_of(9) {
-        return Err(ProgramError::InvalidInstructionData);
-    }
-    let push_count = body.len() / 9;
-    let (bumps, amount_bytes) = body.split_at(push_count);
-    let (amounts, []) = amount_bytes.as_chunks::<8>() else {
-        return Err(ProgramError::InvalidInstructionData);
-    };
-    Ok((bumps, amounts))
-}
-
-/// Like [`split_push_bytes`], but yields the amounts already decoded as `u64`s
-/// so callers streaming the amounts don't each re-decode the little-endian
-/// bytes. The decoding is lazy, so nothing is allocated.
-fn split_pushes(body: &[u8]) -> Result<(&[u8], impl Iterator<Item = u64> + '_), ProgramError> {
-    let (bumps, amounts) = split_push_bytes(body)?;
-    Ok((bumps, amounts.iter().copied().map(u64::from_le_bytes)))
+/// Borsh-encoded body of a `FinalizeSettle` instruction (everything after the
+/// one-byte discriminator).
+///
+/// `begin_ix_index` is serialized first so its two little-endian bytes sit at a
+/// fixed offset right after the discriminator, where
+/// [`recover_counterpart`](super::recover_counterpart) reads it out of a peer
+/// instruction via introspection without a full decode.
+#[derive(BorshSerialize, BorshDeserialize)]
+struct FinalizeSettleData {
+    begin_ix_index: u16,
+    /// Canonical buffer bump per push.
+    bumps: Vec<u8>,
+    /// Amount pushed per push, parallel to `bumps`.
+    amounts: Vec<u64>,
 }
 
 /// The push amounts, in push order, carried by a `FinalizeSettle` instruction,
@@ -48,15 +38,13 @@ fn split_pushes(body: &[u8]) -> Result<(&[u8], impl Iterator<Item = u64> + '_), 
 /// returned by instruction introspection).
 ///
 /// This function doesn't otherwise check that the instruction is consistent
-/// with a `FinalizeSettle` instruction. For example, the discriminator field is
-/// ignored.
-pub fn finalize_push_amounts(
-    instruction_data: &[u8],
-) -> Result<impl Iterator<Item = u64> + '_, ProgramError> {
-    let (_discriminator, rest) = recover_discriminator(instruction_data)?;
-    let (_begin_ix_index, body) = recover_counterpart(rest)?;
-    let (_bumps, amounts) = split_pushes(body)?;
-    Ok(amounts)
+/// with a `FinalizeSettle` instruction. For example, it doesn't check that the
+/// bump count matches the amount count.
+pub fn finalize_push_amounts(instruction_data: &[u8]) -> Result<Vec<u64>, ProgramError> {
+    let (_discriminator, body) = recover_discriminator(instruction_data)?;
+    let data = FinalizeSettleData::try_from_slice(body)
+        .map_err(|_| ProgramError::InvalidInstructionData)?;
+    Ok(data.amounts)
 }
 
 /// Builder for a `FinalizeSettle` instruction pushing the funds described by the
@@ -76,8 +64,9 @@ pub fn finalize_push_amounts(
 /// The slices are assumed to have the same length but this is not enforced by
 /// the builder.
 ///
-/// Wire format (with `n` total pushes):
-/// `[discriminator=1][begin_ix_index: u16 LE][bump: u8 ×n][amount: u64 LE ×n]`.
+/// Wire format (Borsh, with `n` total pushes):
+/// `[discriminator=1][begin_ix_index: u16 LE][bumps: Vec<u8>][amounts: Vec<u64>]`,
+/// where each `Vec` is a `u32` LE length prefix followed by its elements.
 /// Required accounts:
 /// `[instructions_sysvar (R), state_pda (R), token_program (R)]` followed, per
 /// push, by `[source_buffer (W), destination (W)]`.
@@ -110,11 +99,16 @@ impl From<FinalizeSettle<'_>> for Instruction {
             amounts,
         } = builder;
 
-        let data: Vec<u8> = core::iter::once(SettlementInstruction::FinalizeSettle.discriminator())
-            .chain(begin_ix_index.to_le_bytes())
-            .chain(bumps.iter().copied())
-            .chain(amounts.iter().flat_map(|amount| amount.to_le_bytes()))
-            .collect();
+        let mut data = vec![SettlementInstruction::FinalizeSettle.discriminator()];
+        borsh::to_writer(
+            &mut data,
+            &FinalizeSettleData {
+                begin_ix_index,
+                bumps: bumps.to_vec(),
+                amounts: amounts.to_vec(),
+            },
+        )
+        .expect("Borsh serialization into a Vec is infallible");
 
         let mut accounts = vec![
             AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
@@ -149,34 +143,40 @@ pub struct Push<'a, A> {
 /// account pairs parallel to `bumps` and `amounts`. The parsing step that created
 /// this struct guarantees `push_accounts.len() == 2 * amounts.len()` and
 /// `bumps.len() == amounts.len()`, so the offsets below never run short.
+///
+/// The bumps and amounts are owned (Borsh decodes them into `Vec`s); the
+/// accounts are borrowed from the parsed instruction.
 pub struct Pushes<'a, A> {
     /// `[source_buffer, destination]` per push, flattened.
     push_accounts: &'a [A],
-    bumps: &'a [u8],
-    /// One push amount (little-endian `u64`) per push, parallel to `bumps`.
-    amounts: &'a [[u8; 8]],
+    bumps: Vec<u8>,
+    /// One push amount per push, parallel to `bumps`.
+    amounts: Vec<u64>,
 }
 
-impl<'a, A> Pushes<'a, A> {
+impl<A> Pushes<'_, A> {
     /// Returns an iterator yielding one [`Push`] per step.
     #[allow(
         clippy::arithmetic_side_effects,
         reason = "offsets are bounded by tx limits"
     )]
-    pub fn iter(&self) -> impl Iterator<Item = Push<'a, A>> + '_ {
-        let push_count = self.bumps.len();
+    pub fn iter(&self) -> impl Iterator<Item = Push<'_, A>> + '_ {
+        let bumps = self.bumps.as_slice();
+        let amounts = self.amounts.as_slice();
+        let push_accounts = self.push_accounts;
+        let push_count = bumps.len();
         let mut i = 0usize;
         let mut account_offset = 0usize;
         std::iter::from_fn(move || {
             if i >= push_count {
                 return None;
             }
-            let bump = self.bumps[i];
-            let amount = u64::from_le_bytes(self.amounts[i]);
+            let bump = bumps[i];
+            let amount = amounts[i];
             i += 1;
 
-            let source_buffer = &self.push_accounts[account_offset];
-            let destination = &self.push_accounts[account_offset + 1];
+            let source_buffer = &push_accounts[account_offset];
+            let destination = &push_accounts[account_offset + 1];
             account_offset += 2;
 
             Some(Push {
@@ -195,7 +195,7 @@ impl<'a, A> Pushes<'a, A> {
 /// Strictly the raw extracted form. Fields are read from `instruction_data` and
 /// `accounts` but **not validated** against runtime context except confirming
 /// that the discriminator matches the desired input and that the number of
-/// accounts and amounts is consistent.
+/// accounts, bumps, and amounts is consistent.
 pub struct FinalizeSettleInput<'a, A> {
     pub begin_ix_index: u16,
     pub instructions_sysvar_account: &'a A,
@@ -211,7 +211,19 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::FinalizeSettle;
 
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
-        let (begin_ix_index, body) = recover_counterpart(instruction_data)?;
+        // Borsh decodes the whole body and rejects trailing or truncated bytes,
+        // so a malformed layout surfaces as `InvalidInstructionData` here.
+        let FinalizeSettleData {
+            begin_ix_index,
+            bumps,
+            amounts,
+        } = FinalizeSettleData::try_from_slice(instruction_data)
+            .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+        // Each push has both a bump and an amount, so their counts must match.
+        if bumps.len() != amounts.len() {
+            return Err(ProgramError::InvalidInstructionData);
+        }
 
         let [instructions_sysvar_account, state_pda_account, token_program_account, push_accounts @ ..] =
             accounts
@@ -219,11 +231,9 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
-        let (bumps, amounts) = split_push_bytes(body)?;
-        let push_count = bumps.len();
-
         // Each push contributes a source buffer and a destination account, so
         // the push-account count is `2 * n`.
+        let push_count = amounts.len();
         let expected_accounts = push_count
             .checked_mul(2)
             .ok_or(ProgramError::InvalidInstructionData)?;
@@ -297,7 +307,9 @@ mod tests {
             data,
             ix_data![
                 [SettlementInstruction::FinalizeSettle.discriminator()],
-                hex!("3713"), // counterpart index (little-endian)
+                hex!("3713"),       // begin ix index (little-endian)
+                0u32.to_le_bytes(), // bumps: Borsh Vec length prefix (empty)
+                0u32.to_le_bytes(), // amounts: Borsh Vec length prefix (empty)
             ],
         );
         // No orders: the three fixed accounts (sysvar, state PDA, token
@@ -333,8 +345,10 @@ mod tests {
             ix.data,
             ix_data![
                 [SettlementInstruction::FinalizeSettle.discriminator()],
-                hex!("3713"), // counterpart index (little-endian)
-                [0xa1, 0xb1], // bumps
+                hex!("3713"),       // begin ix index (little-endian)
+                2u32.to_le_bytes(), // bumps: Borsh Vec length prefix
+                [0xa1, 0xb1],       // bumps
+                2u32.to_le_bytes(), // amounts: Borsh Vec length prefix
                 // amounts (little-endian)
                 hex!("0403020100000000"),
                 hex!("0807060500000000"),
@@ -379,7 +393,9 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0x37, 0x13], // begin index, little-endian
+            hex!("3713"),       // begin index, little-endian
+            0u32.to_le_bytes(), // bumps (empty)
+            0u32.to_le_bytes(), // amounts (empty)
         ];
         let FinalizeSettleInput {
             begin_ix_index,
@@ -416,8 +432,10 @@ mod tests {
         ];
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0x13, 0x37], // begin index
-            [0xfe, 0xfd], // bumps
+            hex!("1337"),       // begin index (0x3713), little-endian
+            2u32.to_le_bytes(), // bumps length
+            [0xfe, 0xfd],       // bumps
+            2u32.to_le_bytes(), // amounts length
             0x1122u64.to_le_bytes(),
             0x3344u64.to_le_bytes(),
         ];
@@ -476,18 +494,20 @@ mod tests {
             fake_account_from_array([0xfe; 32]),
             fake_account_from_array([0xfd; 32]),
         ];
-        let mut bump_bytes = Vec::new();
+        let mut bumps = Vec::new();
         let mut amount_bytes = Vec::new();
         for push in &expected {
             accounts.push(fake_account(push.source));
             accounts.push(fake_account(push.dest));
-            bump_bytes.push(push.bump);
+            bumps.push(push.bump);
             amount_bytes.extend_from_slice(&push.amount.to_le_bytes());
         }
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0x13, 0x37], // begin index
-            bump_bytes,
+            hex!("1337"),                      // begin index (0x3713), little-endian
+            (PUSH_COUNT as u32).to_le_bytes(), // bumps length
+            bumps,
+            (PUSH_COUNT as u32).to_le_bytes(), // amounts length
             amount_bytes,
         ];
 
@@ -518,9 +538,13 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_rejects_empty_accounts() {
+        // A well-formed body (so Borsh decoding succeeds) with no accounts, so
+        // the fixed-account destructuring is what fails.
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [0, 0], // begin index
+            [0, 0],             // begin index
+            0u32.to_le_bytes(), // bumps (empty)
+            0u32.to_le_bytes(), // amounts (empty)
         ];
         let accounts: [AccountView; 0] = [];
         assert_eq!(
@@ -531,12 +555,14 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_rejects_account_count_mismatch() {
-        // One push (a bump byte then a `u64` amount) needs exactly two push
-        // accounts: its source buffer and destination.
-        let data: Vec<u8> = ix_data![
+        // One push (a bump and an amount) needs exactly two push accounts: its
+        // source buffer and destination.
+        let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [13, 37], // begin index
-            [0xff],   // the push's bump
+            [13, 37],           // begin index
+            1u32.to_le_bytes(), // bumps length
+            [0xff],             // the push's bump
+            1u32.to_le_bytes(), // amounts length
             31337u64.to_le_bytes(),
         ];
 
@@ -556,15 +582,17 @@ mod tests {
     }
 
     #[test]
-    fn finalize_settle_input_rejects_partial_push() {
-        // Four trailing bytes: not a whole number of 9-byte pushes (a bump plus a
-        // `u64` amount), so the body can't be parsed into the push layout.
-        let accounts = fake_sequential_accounts::<FINALIZE_FIXED_ACCOUNTS>();
+    fn finalize_settle_input_rejects_mismatched_bumps_and_amounts() {
+        // Two bumps but one amount: the pairing is inconsistent and can't be
+        // parsed into the push layout.
+        let accounts = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 4 }>();
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
-            [37, 13],                 // begin index
-            [0xff],                   // the push's bump
-            [0x11, 0x22, 0x33, 0x44], // a partial push (4 bytes)
+            [13, 37],           // begin index
+            2u32.to_le_bytes(), // bumps length: two bumps...
+            [0xff, 0xee],       // bumps
+            1u32.to_le_bytes(), // ...but only one amount
+            31337u64.to_le_bytes(),
         ];
         assert_eq!(
             FinalizeSettleInput::parse(&data, &accounts).err(),
@@ -586,8 +614,7 @@ mod tests {
         });
 
         let recovered = finalize_push_amounts(&ix.data).expect("valid finalize data");
-        let decoded: Vec<u64> = recovered.collect();
-        assert_eq!(decoded, amounts);
+        assert_eq!(recovered, amounts);
     }
 
     #[test]
@@ -601,8 +628,8 @@ mod tests {
             bumps: &[],
             amounts: &[],
         });
-        let mut amounts = finalize_push_amounts(&ix.data).expect("valid empty finalize data");
-        assert!(amounts.next().is_none());
+        let amounts = finalize_push_amounts(&ix.data).expect("valid empty finalize data");
+        assert!(amounts.is_empty());
     }
 
     #[test]
@@ -663,7 +690,7 @@ mod tests {
         fn finalize_push_amounts_matches_parser(ix in arb_finalize_instruction(0..=16usize)) {
             // Recovered from the instruction data alone.
             let recovered: Vec<u64> =
-                finalize_push_amounts(&ix.data).expect("well-formed finalize data").collect();
+                finalize_push_amounts(&ix.data).expect("well-formed finalize data");
 
             // Read by the full parser from the same data plus its accounts.
             let accounts: Vec<AccountView> =

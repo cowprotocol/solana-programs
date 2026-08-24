@@ -432,11 +432,12 @@ fn rejects_orders_in_wrong_address_order() {
     // Lay out the two distinct orders strictly decreasing by PDA address, which
     // the program rejects. The interface builders would sort them, so build both
     // instructions by hand in the current wire format. Begin data is
-    // `[discriminator, finalize_ix_index (LE), order_count, transfer_count×n]`
-    // (no transfers here) and begin accounts are `[instructions_sysvar, state_pda,
-    // token_program, (order_pda, sell_token_account)...]`. The finalize's push
-    // destinations are laid out in the same decreasing order, so the first order's
-    // destination check passes and the second order trips the ordering check.
+    // `[discriminator, finalize_ix_index (LE), auction_id (LE), counts: Vec<u8>,
+    // amounts: Vec<u64>]` (Borsh, no transfers here) and begin accounts are
+    // `[instructions_sysvar, state_pda, token_program, (order_pda,
+    // sell_token_account)...]`. The finalize's push destinations are laid out in
+    // the same decreasing order, so the first order's destination check passes and
+    // the second order trips the ordering check.
     let mut orders = [
         (first_pda, first.sell_token_account, first.buy_token_account),
         (
@@ -450,9 +451,13 @@ fn rejects_orders_in_wrong_address_order() {
     let mut data = vec![SettlementInstruction::BeginSettle.discriminator()];
     data.extend_from_slice(&u16::from(FINALIZE_INDEX).to_le_bytes());
     data.extend_from_slice(&0i64.to_le_bytes()); // auction id
-    data.push(orders.len() as u8);
-    // No transfers: one zero transfer-count byte per order.
+
+    // counts: Borsh `Vec<u8>` — a u32 LE length prefix, then one zero
+    // transfer-count byte per order (no transfers).
+    data.extend_from_slice(&(orders.len() as u32).to_le_bytes());
     data.extend(orders.iter().map(|_| 0u8));
+    // amounts: Borsh `Vec<u64>` — empty.
+    data.extend_from_slice(&0u32.to_le_bytes());
 
     let mut accounts = vec![
         AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),

@@ -154,11 +154,6 @@ impl EncodedOrderAccount {
         self.discriminator == Self::DISCRIMINATOR
     }
 
-    /// Canonical bump stored in the account body.
-    pub fn bump(&self) -> u8 {
-        self.bump
-    }
-
     /// `cancelled` flag, rejecting an out-of-range byte.
     pub fn cancelled(&self) -> Result<bool, ProgramError> {
         match self.cancelled {
@@ -186,11 +181,6 @@ impl EncodedOrderAccount {
     /// Overwrite the cumulative received amount in place.
     pub fn set_amount_received(&mut self, amount: u64) {
         self.amount_received = amount.to_le_bytes();
-    }
-
-    /// The embedded encoded order intent.
-    pub fn intent(&self) -> &EncodedOrderIntent {
-        &self.intent
     }
 
     /// Decode the account body and compute the embedded intent's UID in one
