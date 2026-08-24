@@ -17,7 +17,7 @@ use cow_settlement_interface::{
     SettlementAccount, SettlementInstruction,
 };
 use parse_json::{Section, IDL};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 fn pascal_to_snake(s: &str) -> String {
     let mut out = String::new();
@@ -109,6 +109,19 @@ fn idl_version_matches_cargo_package_version() {
 fn idl_conforms_to_official_schema() {
     let schema: Value =
         serde_json::from_str(parse_json::SCHEMA_JSON).expect("schema should be valid JSON");
+
+    // The bundled schema has to be the one `metadata.spec` claims to follow;
+    // validating against some other spec's schema would prove nothing about
+    // the version the IDL advertises.
+    let spec = IDL["metadata"]["spec"]
+        .as_str()
+        .expect("metadata.spec must be a string");
+    let schema_id = schema["$id"].as_str().expect("schema $id must be a string");
+    assert!(
+        schema_id.ends_with(&format!("v{spec}.json")),
+        "IDL `metadata.spec` is {spec} but the schema it's validated against is {schema_id}"
+    );
+
     let validator = jsonschema::validator_for(&schema).expect("schema should compile");
     let errors: Vec<String> = validator.iter_errors(&IDL).map(|e| e.to_string()).collect();
     assert!(
@@ -118,8 +131,22 @@ fn idl_conforms_to_official_schema() {
     );
 }
 
+/// Asserts `section[]` holds nothing beyond the `matched` entries a test just
+/// cross-checked against the Rust source. Every check reads the Rust source and
+/// looks for what it found in the IDL, never the other way around, so without
+/// this an entry the IDL invented, or one a rename left behind, is never looked
+/// at by anything.
+fn confirm_no_extra_idl_entries(idl_section: Section, matched: usize) {
+    assert_eq!(
+        parse_json::section(idl_section).len(),
+        matched,
+        "IDL {idl_section}[] carries entries with no counterpart in the Rust source"
+    );
+}
+
 #[test]
 fn idl_matches_instruction_discriminators() {
+    let mut matched = 0;
     for byte in 0u8..=255 {
         if let Ok(ix) = SettlementInstruction::try_from(byte) {
             confirm_idl_match(
@@ -127,17 +154,22 @@ fn idl_matches_instruction_discriminators() {
                 &pascal_to_snake(&format!("{ix:?}")),
                 byte,
             );
+            matched += 1;
         }
     }
+    confirm_no_extra_idl_entries(Section::Instructions, matched);
 }
 
 #[test]
 fn idl_matches_account_discriminators() {
+    let mut matched = 0;
     for byte in 0u8..=255 {
         if let Ok(account) = SettlementAccount::try_from(byte) {
             confirm_idl_match(Section::Accounts, &format!("{account:?}"), byte);
+            matched += 1;
         }
     }
+    confirm_no_extra_idl_entries(Section::Accounts, matched);
 }
 
 /// Cross-checks one IDL `types[]` entry against the Rust struct it describes.
@@ -172,11 +204,68 @@ fn confirm_idl_types_entry(
     );
 }
 
+/// Cross-checks one IDL `types[]` entry against the Rust enum it describes.
+///
+/// The spec's enum variants carry a name and nothing else: no discriminant,
+/// since a variant's index is its wire byte, and nowhere to put docs. So the
+/// variant names in order, plus the type's own docs, are the whole comparison.
+fn confirm_idl_types_enum(rust_source: &parse_rust::Source, name: &str) {
+    let type_in_idl = parse_json::find_item(Section::Types, name)
+        .unwrap_or_else(|| panic!("IDL types[] must contain {name}"));
+    let rust_enum = rust_source.find_enum(name);
+
+    // docs are joined and compared as one block, as they are for structs
+    assert_eq!(
+        parse_json::docs(type_in_idl, name).join(" "),
+        parse_rust::docs(&rust_enum.attrs).join(" "),
+        "documentation between rust and IDL types should be the same for {name}"
+    );
+
+    assert_eq!(
+        parse_json::enum_variants(type_in_idl, name),
+        parse_rust::enum_variants(&rust_enum),
+        "{name}'s IDL variants must match the Rust enum {name} in name and order"
+    );
+
+    // Position is all the IDL can say about a variant's wire value, so a Rust
+    // variant that pins its own discriminant has to agree with its index.
+    for (index, variant) in rust_enum.variants.iter().enumerate() {
+        let index = u64::try_from(index).expect("variant index should fit in a u64");
+        if let Some(declared) = parse_rust::declared_discriminant(variant) {
+            assert_eq!(
+                declared, index,
+                "{name}::{} declares discriminant {declared} but sits at index {index}; the IDL \
+                 can only express a variant's wire value as its position",
+                variant.ident
+            );
+        }
+    }
+}
+
 #[test]
 fn idl_matches_rust_types() {
-    confirm_idl_types_entry(&parse_rust::INTENT_RS, "OrderIntent", "OrderIntent");
-    confirm_idl_types_entry(&parse_rust::ORDER_RS, "OrderAccount", "OrderAccount");
-    confirm_idl_types_entry(&parse_rust::STATE_RS, "StateAccount", "SettlementState");
+    // `(source, Rust name, IDL name)` of the struct types, and
+    // `(source, name)` of the enum types. Everything the IDL defines has to be
+    // listed here; the count is what catches a `types[]` entry the program has
+    // no definition for.
+    let structs = [
+        (&parse_rust::INTENT_RS, "OrderIntent", "OrderIntent"),
+        (&parse_rust::ORDER_RS, "OrderAccount", "OrderAccount"),
+        (&parse_rust::STATE_RS, "StateAccount", "SettlementState"),
+    ];
+    let enums = [
+        (&parse_rust::INTENT_RS, "OrderKind"),
+        (&parse_rust::INTERFACE_LIB_RS, "Role"),
+    ];
+
+    for (rust_source, rust_type_name, idl_type_name) in structs {
+        confirm_idl_types_entry(rust_source, rust_type_name, idl_type_name);
+    }
+    for (rust_source, name) in enums {
+        confirm_idl_types_enum(rust_source, name);
+    }
+
+    confirm_no_extra_idl_entries(Section::Types, structs.len() + enums.len());
 }
 
 #[test]
@@ -212,6 +301,98 @@ fn idl_matches_rust_errors() {
             idl_msg, rust_msg,
             "IDL errors[] name={} should match informational msg",
             rust_err.ident
+        );
+    }
+
+    confirm_no_extra_idl_entries(Section::Errors, rust_errors_type.variants.len());
+}
+
+/// Cross-checks one IDL instruction's `args[]` against the builder struct whose
+/// fields become the instruction data.
+///
+/// A builder carries the program id and the instruction's accounts too, so the
+/// args are matched by name against a subset of its fields: each arg has to name
+/// a real field, the two have to agree on type, and the args have to be ordered
+/// the way the builder declares the fields, which is the order its
+/// `From<Builder> for Instruction` writes them to the wire.
+fn confirm_idl_args_match(
+    rust_source: &parse_rust::Source,
+    builder_name: &str,
+    idl_instruction: &str,
+) {
+    let idl_element = parse_json::find_item(Section::Instructions, idl_instruction)
+        .unwrap_or_else(|| panic!("IDL instructions[] must contain {idl_instruction}"));
+    let builder = rust_source.find_struct(builder_name);
+    let field_names = parse_rust::field_names(&builder, builder_name);
+
+    let mut previous_arg: Option<(String, usize)> = None;
+    for (arg_name, idl_type) in parse_json::args(idl_element, idl_instruction) {
+        // panics naming the field if the builder has no such field at all
+        assert_eq!(
+            idl_type,
+            parse_rust::field_type(&builder, &arg_name, builder_name),
+            "{idl_instruction}'s arg {arg_name} must have the type {builder_name}.{arg_name} \
+             declares"
+        );
+
+        let position = field_names
+            .iter()
+            .position(|field| *field == arg_name)
+            .expect("field_type panics before this on a field the builder doesn't declare");
+        if let Some((previous_name, previous_position)) = &previous_arg {
+            assert!(
+                *previous_position < position,
+                "{idl_instruction} lists arg {arg_name} after {previous_name}, but {builder_name} \
+                 declares them the other way around; args[] is in wire order"
+            );
+        }
+        previous_arg = Some((arg_name, position));
+    }
+}
+
+#[test]
+fn idl_matches_instruction_args() {
+    confirm_idl_args_match(&parse_rust::INITIALIZE_RS, "Initialize", "initialize");
+    confirm_idl_args_match(&parse_rust::BEGIN_SETTLE_RS, "BeginSettle", "begin_settle");
+    confirm_idl_args_match(
+        &parse_rust::FINALIZE_SETTLE_RS,
+        "FinalizeSettle",
+        "finalize_settle",
+    );
+    confirm_idl_args_match(
+        &parse_rust::TRANSFER_AUTHORITY_RS,
+        "TransferAuthority",
+        "transfer_authority",
+    );
+
+    // `create_order` is the one instruction whose builder doesn't mirror its
+    // arg: `CreateOrder` takes the intent already encoded, as
+    // `intent_bytes: [u8; EncodedOrderIntent::SIZE]`, where the IDL names the
+    // decoded type. That the two describe the same bytes is what
+    // `idl_matches_rust_types` checks of `OrderIntent` itself.
+    let create_order = parse_json::find_item(Section::Instructions, "create_order")
+        .expect("IDL instructions[] must contain create_order");
+    assert_eq!(
+        parse_json::args(create_order, "create_order"),
+        vec![(
+            "intent".to_string(),
+            json!({ "defined": { "name": "OrderIntent" } })
+        )],
+        "create_order takes exactly one arg, the encoded OrderIntent"
+    );
+    let builder = parse_rust::CREATE_ORDER_RS.find_struct("CreateOrder");
+    assert!(
+        parse_rust::field_names(&builder, "CreateOrder").contains(&"intent_bytes".to_string()),
+        "CreateOrder must still carry the encoded intent that create_order's `intent` arg describes"
+    );
+
+    // Instructions whose data is nothing but the discriminator byte.
+    for idl_instruction in ["create_buffer", "reclaim_order", "reclaim_buffer"] {
+        let idl_element = parse_json::find_item(Section::Instructions, idl_instruction)
+            .unwrap_or_else(|| panic!("IDL instructions[] must contain {idl_instruction}"));
+        assert!(
+            parse_json::args(idl_element, idl_instruction).is_empty(),
+            "{idl_instruction} carries no instruction data beyond its discriminator"
         );
     }
 }

@@ -647,6 +647,9 @@
     },
     {
       "name": "OrderKind",
+      "docs": [
+        "Direction of the trade."
+      ],
       "type": {
         "kind": "enum",
         "variants": [
@@ -662,7 +665,9 @@
     {
       "name": "Role",
       "docs": [
-        "A transferable authority stored in the state PDA. The variant index is the single wire byte that selects the role in transfer_authority."
+        "A transferable authority stored in the state PDA.",
+        "The discriminant is the wire value carried by the authority-transfer",
+        "instruction (see transfer_authority)."
       ],
       "type": {
         "kind": "enum",

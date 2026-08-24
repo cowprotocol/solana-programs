@@ -96,20 +96,61 @@ pub fn discriminator(item: &Value, context: &str) -> Vec<u8> {
         .collect()
 }
 
+/// The `(name, type)` pairs of an array of `{"name", "type"}` objects, in
+/// declaration order. `types[]` fields and `instructions[]` args share this
+/// shape.
+fn name_type_pairs(entries: &[Value], context: &str) -> Vec<(String, Value)> {
+    entries
+        .iter()
+        .map(|entry| {
+            (
+                entry["name"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("entry name in {context} must be a string"))
+                    .to_string(),
+                entry["type"].clone(),
+            )
+        })
+        .collect()
+}
+
 /// The `(name, type)` pairs of a struct `types[]` entry, in declaration order.
 pub fn struct_fields(item: &Value, context: &str) -> Vec<(String, Value)> {
-    item["type"]["fields"]
+    name_type_pairs(
+        item["type"]["fields"]
+            .as_array()
+            .unwrap_or_else(|| panic!("struct type {context} should have a fields array")),
+        context,
+    )
+}
+
+/// The `(name, type)` pairs of an `instructions[]` entry's `args`, in wire
+/// order. An absent `args` reads as no arguments at all, which is how the IDL
+/// spells an instruction whose data is just the discriminator.
+pub fn args(item: &Value, context: &str) -> Vec<(String, Value)> {
+    let Some(args) = item.get("args") else {
+        return Vec::new();
+    };
+    name_type_pairs(
+        args.as_array()
+            .unwrap_or_else(|| panic!("args for {context} should be an array")),
+        context,
+    )
+}
+
+/// The variant names of an enum `types[]` entry, in declaration order, which is
+/// the order the wire discriminant counts in. The spec's `IdlEnumVariant` has
+/// nowhere to put per-variant docs, so there's nothing else here to compare.
+pub fn enum_variants(item: &Value, context: &str) -> Vec<String> {
+    item["type"]["variants"]
         .as_array()
-        .unwrap_or_else(|| panic!("struct type {context} should have a fields array"))
+        .unwrap_or_else(|| panic!("enum type {context} should have a variants array"))
         .iter()
-        .map(|field| {
-            (
-                field["name"]
-                    .as_str()
-                    .unwrap_or_else(|| panic!("field name in {context} must be a string"))
-                    .to_string(),
-                field["type"].clone(),
-            )
+        .map(|variant| {
+            variant["name"]
+                .as_str()
+                .unwrap_or_else(|| panic!("variant name in {context} must be a string"))
+                .to_string()
         })
         .collect()
 }

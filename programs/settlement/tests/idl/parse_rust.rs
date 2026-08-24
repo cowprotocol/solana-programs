@@ -35,6 +35,31 @@ pub const STATE_RS: Source = Source {
     text: include_str!("../../../../interface/src/data/state.rs"),
 };
 
+pub const INITIALIZE_RS: Source = Source {
+    display: "interface/src/instruction/initialize.rs",
+    text: include_str!("../../../../interface/src/instruction/initialize.rs"),
+};
+
+pub const CREATE_ORDER_RS: Source = Source {
+    display: "interface/src/instruction/create_order.rs",
+    text: include_str!("../../../../interface/src/instruction/create_order.rs"),
+};
+
+pub const BEGIN_SETTLE_RS: Source = Source {
+    display: "interface/src/instruction/settle/begin.rs",
+    text: include_str!("../../../../interface/src/instruction/settle/begin.rs"),
+};
+
+pub const FINALIZE_SETTLE_RS: Source = Source {
+    display: "interface/src/instruction/settle/finalize.rs",
+    text: include_str!("../../../../interface/src/instruction/settle/finalize.rs"),
+};
+
+pub const TRANSFER_AUTHORITY_RS: Source = Source {
+    display: "interface/src/instruction/transfer_authority.rs",
+    text: include_str!("../../../../interface/src/instruction/transfer_authority.rs"),
+};
+
 impl Source {
     fn parse(&self) -> syn::File {
         syn::parse_file(self.text)
@@ -115,9 +140,9 @@ pub fn type_to_idl(ty: &syn::Type, context: &str) -> Value {
     }
 }
 
-/// The `= N` discriminant an enum variant declares. Every enum the IDL mirrors
-/// pins its wire values explicitly, so a missing or computed one is a bug.
-pub fn discriminant(variant: &syn::Variant) -> u64 {
+/// The `= N` discriminant an enum variant declares, or `None` where it leans on
+/// the implicit "one past the previous variant" value.
+pub fn declared_discriminant(variant: &syn::Variant) -> Option<u64> {
     match &variant.discriminant {
         Some((
             _,
@@ -125,15 +150,22 @@ pub fn discriminant(variant: &syn::Variant) -> u64 {
                 lit: syn::Lit::Int(i),
                 ..
             }),
-        )) => i.base10_parse().unwrap_or_else(|err| {
+        )) => Some(i.base10_parse().unwrap_or_else(|err| {
             panic!(
                 "discriminant on {} must be an unsigned integer literal: {err}",
                 variant.ident
             )
-        }),
+        })),
         Some(_) => panic!("unexpected non-literal discriminant on {}", variant.ident),
-        None => panic!("discriminant should be defined on {}", variant.ident),
+        None => None,
     }
+}
+
+/// The `= N` discriminant an enum variant declares. The discriminator enums the
+/// IDL mirrors pin their wire values explicitly, so a missing one is a bug.
+pub fn discriminant(variant: &syn::Variant) -> u64 {
+    declared_discriminant(variant)
+        .unwrap_or_else(|| panic!("discriminant should be defined on {}", variant.ident))
 }
 
 /// The `(name, type)` pairs of a struct's fields, in declaration order, with
@@ -154,17 +186,88 @@ pub fn struct_fields(rust_struct: &syn::ItemStruct, context: &str) -> Vec<(Strin
         .collect()
 }
 
-/// Collapses doc lines into the single line the IDL carries them as, dropping
-/// the backtick markup the IDL only carries in some places. Both this module
-/// and [`crate::parse_json`] hand their doc text through here, so the two sides
-/// are always compared in the same form.
-pub fn normalize_doc<S: AsRef<str>>(lines: &[S]) -> String {
-    lines
+/// The names of a struct's fields, in declaration order. Unlike
+/// [`struct_fields`] this translates no types, so it reads structs carrying
+/// fields the IDL's type grammar has no equivalent for.
+pub fn field_names(rust_struct: &syn::ItemStruct, context: &str) -> Vec<String> {
+    rust_struct
+        .fields
         .iter()
-        .map(AsRef::as_ref)
-        .collect::<Vec<_>>()
-        .join(" ")
-        .replace('`', "")
+        .map(|field| {
+            field
+                .ident
+                .as_ref()
+                .unwrap_or_else(|| panic!("{context} should have named fields"))
+                .to_string()
+        })
+        .collect()
+}
+
+/// One named field's type, translated into the IDL's type grammar.
+pub fn field_type(rust_struct: &syn::ItemStruct, name: &str, context: &str) -> Value {
+    let field = rust_struct
+        .fields
+        .iter()
+        .find(|field| field.ident.as_ref().is_some_and(|ident| ident == name))
+        .unwrap_or_else(|| panic!("{context} should have a field named {name}"));
+    type_to_idl(&field.ty, &format!("{context}.{name}"))
+}
+
+/// The variant names of an enum, in declaration order.
+pub fn enum_variants(rust_enum: &syn::ItemEnum) -> Vec<String> {
+    rust_enum
+        .variants
+        .iter()
+        .map(|variant| variant.ident.to_string())
+        .collect()
+}
+
+/// Unwraps rustdoc intra-doc links to the text they display: `[`Role`](Role)`
+/// reads as `Role`. The IDL has no notion of a link target, so carrying one
+/// there would only be Rust markup leaking into the published interface.
+fn strip_doc_links(text: &str) -> String {
+    /// The display text and the remainder past `[display](target)`, when `text`
+    /// starts with a link whose two halves nest no brackets of their own.
+    /// Anything else isn't a link and is left exactly as written.
+    fn split_link(text: &str) -> Option<(&str, &str)> {
+        let (display, after_display) = text.strip_prefix('[')?.split_once("](")?;
+        let (target, after_link) = after_display.split_once(')')?;
+        (!display.contains('[') && !target.contains('(')).then_some((display, after_link))
+    }
+
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        out.push_str(&rest[..open]);
+        rest = &rest[open..];
+        match split_link(rest) {
+            Some((display, after_link)) => {
+                out.push_str(display);
+                rest = after_link;
+            }
+            None => {
+                out.push('[');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Collapses doc lines into the single line the IDL carries them as, dropping
+/// the backtick and link markup the IDL only carries in some places. Both this
+/// module and [`crate::parse_json`] hand their doc text through here, so the two
+/// sides are always compared in the same form.
+pub fn normalize_doc<S: AsRef<str>>(lines: &[S]) -> String {
+    strip_doc_links(
+        &lines
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .join(" ")
+            .replace('`', ""),
+    )
 }
 
 /// Extract the doc text from a single attribute line in Rust
