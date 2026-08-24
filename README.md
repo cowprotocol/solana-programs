@@ -94,7 +94,10 @@ Pass the **program's public key (address)** as the first argument. The deployer 
 just deploy J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w ./deployer-keypair.json
 ```
 
-If the package minor or major has been changed, it is also necessary to run initialize again.
+`just deploy` finishes by running `initialize` to create the program's state PDA.
+
+If the deployment upgrades an existing program without bumping the major or minor cargo package version, 
+then this latter step fails and prints a warning that can be safely ignored.
 
 ### Publishing the cargo packages
 

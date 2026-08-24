@@ -67,7 +67,22 @@ build-verified:
     cargo install solana-verify --version $(cat .solana-verify-version.txt) --root .cargo-root/
     ./.cargo-root/bin/solana-verify build --library-name cow_settlement
 
+# Deploy the settlement program, then create its state PDA.
 deploy programid keypair: build-verified
+    #!/usr/bin/env bash
+    set -euo pipefail
     solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
+
+    # `programid` is a keypair file on a first deploy and an address on an upgrade,
+    # but the CLI only takes the address.
+    program_id=$(solana address --keypair "{{programid}}" 2>/dev/null || echo "{{programid}}")
+    # A failure here is expected when upgrading a program whose state PDA already
+    # exists, so don't fail the deploy over it.
+    cargo run -p cow-test-cli -- \
+        --rpc-url "$(solana config get json_rpc_url | awk '{print $NF}')" \
+        --program-id "$program_id" \
+        --keypair "{{keypair}}" \
+        initialize \
+        || echo "warning: \`initialize\` failed, the state PDA may already exist" >&2
 
 all: build bench lint fmt-check doc-dev
