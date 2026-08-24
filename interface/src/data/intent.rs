@@ -363,7 +363,7 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use hex_literal::hex;
+    use std::str::FromStr;
 
     use super::fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET};
     use super::*;
@@ -502,15 +502,16 @@ mod tests {
     #[test]
     fn uid_digest_regression() {
         let intent = sample_intent(OrderKind::Buy, true);
-        let expected = hex!("fca03c84324c39325cf5b1f7b08f88b92a02d693cba27d683e534486189e909e");
-        assert_eq!(intent.uid(), Hash::from(expected));
+        let expected = Hash::from_str("9k7ZssB4PSgne6zVU2nGN6fsKA4k3aWBpbY3y3jEhZCA")
+            .expect("Provided hash data should be correct");
+        assert_eq!(intent.uid(), expected);
     }
 
     #[test]
-    #[rustfmt::skip]
     fn encoding_regression() {
         let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Buy, true));
         let encoding: [u8; EncodedOrderIntent::SIZE] = *encoded;
+        #[rustfmt::skip]
         let expected: [u8; EncodedOrderIntent::SIZE] = [
             // owner ([0x11; 32])
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,

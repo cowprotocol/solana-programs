@@ -1,17 +1,17 @@
 use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser};
-use settlement_client::{
-    instructions::CreateOrder,
-    settlement_interface::{
+use cow_settlement_client::{
+    cow_settlement_interface::{
         data::intent::{OrderIntent, OrderKind},
         pda::order::find_order_pda,
     },
+    instructions::CreateOrder,
 };
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
-use crate::token::ResolvedToken;
+use crate::{helpers::print_summary, token::ResolvedToken};
 
 #[derive(ClapArgs)]
 struct CommonArgs {
@@ -198,9 +198,12 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         .context("transaction failed")?;
 
     let uid_hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
-    println!("signature: {sig}");
-    println!("order PDA: {order_pda}");
-    println!("order UID: {uid_hex}");
+
+    print_summary(&[
+        ("signature", &sig),
+        ("orderPda", &order_pda),
+        ("orderUid", &uid_hex),
+    ]);
 
     Ok(())
 }

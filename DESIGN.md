@@ -29,9 +29,16 @@ A bump is not a migration. There are some other consequences that should be cons
 
 The state PDA is created once, after deployment, by the `Initialize` instruction.
 
-### Reclaim Authority
+## Authorities
 
-The _reclaim authority_ is the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
+The program grant privileged roles to specific accounts (_authorities_). They are:
+
+- Manager: the account that can add and remove solvers. It can also update the address of all other roles.
+- Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
+
+### Updating authorities
+
+Any authority that holds a role can transfer it to another account with the `TransferAuthority` instruction, which sets the role's holder to the new account in a single step. The manager can transfer any role.
 
 ## Buffer accounts
 
@@ -40,6 +47,8 @@ Buffer accounts are token accounts that hold funds on behalf of the settlement p
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
+
+A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
 
 Differences with Ethereum:
 
@@ -58,8 +67,6 @@ There are two roles for authentication:
 The settlement program state PDA stores the state used for authentication.
 
 On settlement program deployment, the program state is initialized with a fixed initial manager, controlled by CoW Core as mandated by CoW DAO, and an empty list of solvers.
-
-Transferring the role of manager is done in a two-step process: first the current manager proposes a new manager; then the new manager accepts the role, finalizing the role transfer.
 
 Differences with Ethereum:
 

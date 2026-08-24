@@ -43,14 +43,14 @@ impl ReclaimOrder {
 
 /// Parsed inputs of a `ReclaimOrder` instruction.
 pub struct ReclaimOrderInput<'a, A> {
-    pub order_pda: &'a mut A,
-    pub reclaim_recipient: &'a mut A,
+    pub order_pda: &'a A,
+    pub reclaim_recipient: &'a A,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for ReclaimOrderInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::ReclaimOrder;
 
-    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         // The body is empty once the discriminator has been stripped.
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
@@ -112,12 +112,12 @@ mod tests {
         }
         .instruction()
         .data;
-        let mut accounts = [fake_account(order_pda), fake_account(reclaim_recipient)];
+        let accounts = [fake_account(order_pda), fake_account(reclaim_recipient)];
 
         let ReclaimOrderInput {
             order_pda: derived_order_pda,
             reclaim_recipient: derived_reclaim_recipient,
-        } = ReclaimOrderInput::parse(&data, &mut accounts).expect("parse should succeed");
+        } = ReclaimOrderInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(*derived_order_pda.address(), order_pda);
         assert_eq!(*derived_reclaim_recipient.address(), reclaim_recipient);
@@ -127,9 +127,9 @@ mod tests {
     fn reclaim_order_input_rejects_extra_data() {
         let mut data = default_reclaim_data();
         data.push(0);
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            ReclaimOrderInput::parse(&data, &mut accounts).err(),
+            ReclaimOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -140,7 +140,7 @@ mod tests {
         let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
         accounts.pop();
         assert_eq!(
-            ReclaimOrderInput::parse(&data, &mut accounts).err(),
+            ReclaimOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }

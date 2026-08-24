@@ -29,8 +29,9 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::data::intent::{self, EncodedOrderIntent, OrderIntent};
+use crate::pda::is_pda_with_signer_seeds;
 use crate::pda::order::order_pda_signer_seeds;
-use crate::SettlementError;
+use crate::{SettlementAccount, SettlementError};
 
 /// Idiomatic representation of an order PDA's body.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
@@ -75,12 +76,11 @@ impl OrderAccount {
             EncodedOrderAccount::decode_and_hash(bytes)?
         };
 
-        let expected = Address::create_program_address(
-            &order_pda_signer_seeds(&uid, &[account.bump]),
+        if !is_pda_with_signer_seeds(
+            order_pda.address(),
             program_id,
-        )
-        .map_err(|_| SettlementError::AccountNotDerivable)?;
-        if &expected != order_pda.address() {
+            order_pda_signer_seeds(&uid, &[account.bump]),
+        ) {
             return Err(SettlementError::AccountNotDerivable.into());
         }
 
@@ -122,8 +122,8 @@ impl EncodedOrderAccount {
 
     pub const SIZE: usize = 265;
 
-    /// Single-byte account discriminator. See [`crate::SettlementAccount`].
-    pub const DISCRIMINATOR: u8 = crate::SettlementAccount::OrderAccount.discriminator();
+    /// Single-byte account discriminator. See [`SettlementAccount`].
+    pub const DISCRIMINATOR: u8 = SettlementAccount::OrderAccount.discriminator();
 
     /// Decode the account body and compute the embedded intent's UID in one
     /// shot, mirroring [`EncodedOrderIntent::decode_and_hash`]. Decoding
@@ -495,7 +495,7 @@ mod tests {
         use crate::instruction::fixtures::fake_account_with_data;
         use crate::pda::order::find_order_pda;
 
-        const PROGRAM_ID: Address = Address::new_from_array([9; 32]);
+        const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
         /// [`sample_account`] carrying its own canonical bump, plus the address
         /// of the PDA it belongs at.

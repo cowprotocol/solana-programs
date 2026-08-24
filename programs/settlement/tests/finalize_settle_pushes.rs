@@ -17,13 +17,13 @@ use crate::common::{
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
 };
-use litesvm_token::spl_token::error::TokenError;
-use settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     instruction::settle::{FinalizeSettle as FinalizeSettleRaw, SPL_TOKEN_PROGRAM_ID},
     pda::{buffer::find_buffer_pda, state::find_state_pda},
     Instruction, SettlementError,
 };
+use cow_settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
+use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
     instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey,
     transaction::TransactionError,
