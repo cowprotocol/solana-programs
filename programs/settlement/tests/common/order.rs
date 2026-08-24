@@ -10,11 +10,8 @@ use solana_sdk::{
 
 use super::{signed_tx, token};
 
-/// A default valid sell order owned by `owner`. Both sides carry placeholder
-/// addresses: `CreateOrder` reads each token account and rejects an order whose
-/// account isn't the mint the intent names, so a caller going on to
-/// [`create_order_pda`] must override all four with real on-chain accounts (see
-/// [`OrderBuilder`], which does exactly that).
+/// A default valid sell order owned by `owner`, using placeholders for all
+/// token accounts and mints.
 /// `salt` is folded into `app_data` so callers can mint several orders that hash
 /// to different UIDs (and therefore different order PDAs).
 pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {

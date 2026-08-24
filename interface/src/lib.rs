@@ -215,8 +215,8 @@ pub enum SettlementError {
     /// `TransferAuthority`'s signer is neither the manager nor the current
     /// holder of the role being transferred, so it may not transfer it.
     UnauthorizedAuthorityTransfer = 34,
-    /// `CreateOrder` or `BeginSettle`: the sell token account holds a different
-    /// mint than the `sell_mint` the intent declares.
+    /// `BeginSettle`: the OrderIntent `sell_token_account` holds a different
+    /// mint than the declared `sell_mint`.
     SellMintMismatch = 35,
 }
 
