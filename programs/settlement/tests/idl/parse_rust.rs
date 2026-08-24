@@ -1,11 +1,11 @@
 //! Readers for the Rust sources the IDL describes.
 //!
-//! Everything here goes through `syn`, panicking with the source path when the
-//! item the IDL claims to describe isn't there to compare against.
+//! Everything here goes through `syn` and reports what it finds in the IDL
+//! spec's own JSON grammar, so [`crate::generate`] can assemble it straight
+//! into an IDL document. Lookups panic with the source path when the item the
+//! IDL claims to describe isn't there to read.
 
 use serde_json::{json, Value};
-
-use crate::parse_json::Section;
 
 /// A Rust source file, compiled in so the tests parse the same text the
 /// program does.
@@ -40,6 +40,11 @@ pub const INITIALIZE_RS: Source = Source {
     text: include_str!("../../../../interface/src/instruction/initialize.rs"),
 };
 
+pub const CREATE_BUFFER_RS: Source = Source {
+    display: "interface/src/instruction/create_buffer.rs",
+    text: include_str!("../../../../interface/src/instruction/create_buffer.rs"),
+};
+
 pub const CREATE_ORDER_RS: Source = Source {
     display: "interface/src/instruction/create_order.rs",
     text: include_str!("../../../../interface/src/instruction/create_order.rs"),
@@ -53,6 +58,16 @@ pub const BEGIN_SETTLE_RS: Source = Source {
 pub const FINALIZE_SETTLE_RS: Source = Source {
     display: "interface/src/instruction/settle/finalize.rs",
     text: include_str!("../../../../interface/src/instruction/settle/finalize.rs"),
+};
+
+pub const RECLAIM_ORDER_RS: Source = Source {
+    display: "interface/src/instruction/reclaim_order.rs",
+    text: include_str!("../../../../interface/src/instruction/reclaim_order.rs"),
+};
+
+pub const RECLAIM_BUFFER_RS: Source = Source {
+    display: "interface/src/instruction/reclaim_buffer.rs",
+    text: include_str!("../../../../interface/src/instruction/reclaim_buffer.rs"),
 };
 
 pub const TRANSFER_AUTHORITY_RS: Source = Source {
@@ -91,39 +106,22 @@ impl Source {
     }
 }
 
-/// The variant of `rust_enum` whose discriminant is `byte`.
-pub fn variant_by_discriminant(rust_enum: &syn::ItemEnum, byte: u8) -> &syn::Variant {
-    rust_enum
-        .variants
-        .iter()
-        .find(|variant| discriminant(variant) == u64::from(byte))
-        .unwrap_or_else(|| {
-            panic!(
-                "{} must have a variant with discriminant {byte}",
-                rust_enum.ident
-            )
-        })
-}
-
-/// Translates a Rust field type into the IDL spec's type grammar, so field
-/// types can be compared as JSON. Panics on anything the program's data types
-/// don't currently use.
-pub fn type_to_idl(ty: &syn::Type, context: &str) -> Value {
+/// Translates a Rust type into the IDL spec's type grammar, or `None` for the
+/// types that grammar can't name: borrowed accounts (`&'a A`), the repeated
+/// groups the instructions carry as trailing accounts, and arrays whose length
+/// is a named constant rather than a literal.
+pub fn try_type_to_idl(ty: &syn::Type) -> Option<Value> {
     match ty {
         syn::Type::Path(path) => {
-            let ident = path
-                .path
-                .get_ident()
-                .unwrap_or_else(|| panic!("{context}: expected a plain type name"))
-                .to_string();
-            match ident.as_str() {
+            let ident = path.path.get_ident()?.to_string();
+            Some(match ident.as_str() {
                 "Pubkey" => json!("pubkey"),
                 "bool" | "u8" | "u16" | "u32" | "u64" | "u128" | "i8" | "i16" | "i32" | "i64"
                 | "i128" => json!(ident),
                 // Anything else is one of this crate's own types, which the IDL
                 // carries as its own `types[]` entry and references by name.
                 _ => json!({ "defined": { "name": ident } }),
-            }
+            })
         }
         syn::Type::Array(array) => {
             let syn::Expr::Lit(syn::ExprLit {
@@ -131,13 +129,22 @@ pub fn type_to_idl(ty: &syn::Type, context: &str) -> Value {
                 ..
             }) = &array.len
             else {
-                panic!("{context}: array length must be an integer literal");
+                return None;
             };
-            let len: u64 = len.base10_parse().expect("array length must be a u64");
-            json!({ "array": [type_to_idl(&array.elem, context), len] })
+            let len: u64 = len.base10_parse().ok()?;
+            Some(json!({ "array": [try_type_to_idl(&array.elem)?, len] }))
         }
-        _ => panic!("{context}: unsupported field type"),
+        _ => None,
     }
+}
+
+/// Translates a Rust type into the IDL spec's type grammar, panicking on
+/// anything the grammar can't name. Used where the IDL is expected to describe
+/// the type in full, so a translation that can't be made is a broken IDL rather
+/// than a limit to work around.
+pub fn type_to_idl(ty: &syn::Type, context: &str) -> Value {
+    try_type_to_idl(ty)
+        .unwrap_or_else(|| panic!("{context}: the IDL's type grammar can't name this type"))
 }
 
 /// The `= N` discriminant an enum variant declares, or `None` where it leans on
@@ -168,58 +175,43 @@ pub fn discriminant(variant: &syn::Variant) -> u64 {
         .unwrap_or_else(|| panic!("discriminant should be defined on {}", variant.ident))
 }
 
-/// The `(name, type)` pairs of a struct's fields, in declaration order, with
-/// each type already translated into the IDL's type grammar.
-pub fn struct_fields(rust_struct: &syn::ItemStruct, context: &str) -> Vec<(String, Value)> {
-    rust_struct
+/// A struct as an IDL `types[]` entry's `type`: `{"kind": "struct", "fields":
+/// [...]}`, with the fields in declaration order, which is the order they're
+/// laid out on the wire.
+pub fn struct_type(rust_struct: &syn::ItemStruct, context: &str) -> Value {
+    let fields: Vec<Value> = rust_struct
         .fields
         .iter()
         .map(|field| {
-            let name = field
-                .ident
-                .as_ref()
-                .unwrap_or_else(|| panic!("{context} should have named fields"))
-                .to_string();
-            let idl_type = type_to_idl(&field.ty, &format!("{context}.{name}"));
-            (name, idl_type)
+            let name = field_name(field, context);
+            let ty = type_to_idl(&field.ty, &format!("{context}.{name}"));
+            json!({ "name": name, "type": ty })
         })
-        .collect()
+        .collect();
+    json!({ "kind": "struct", "fields": fields })
 }
 
-/// The names of a struct's fields, in declaration order. Unlike
-/// [`struct_fields`] this translates no types, so it reads structs carrying
-/// fields the IDL's type grammar has no equivalent for.
-pub fn field_names(rust_struct: &syn::ItemStruct, context: &str) -> Vec<String> {
-    rust_struct
-        .fields
-        .iter()
-        .map(|field| {
-            field
-                .ident
-                .as_ref()
-                .unwrap_or_else(|| panic!("{context} should have named fields"))
-                .to_string()
-        })
-        .collect()
-}
-
-/// One named field's type, translated into the IDL's type grammar.
-pub fn field_type(rust_struct: &syn::ItemStruct, name: &str, context: &str) -> Value {
-    let field = rust_struct
-        .fields
-        .iter()
-        .find(|field| field.ident.as_ref().is_some_and(|ident| ident == name))
-        .unwrap_or_else(|| panic!("{context} should have a field named {name}"));
-    type_to_idl(&field.ty, &format!("{context}.{name}"))
-}
-
-/// The variant names of an enum, in declaration order.
-pub fn enum_variants(rust_enum: &syn::ItemEnum) -> Vec<String> {
-    rust_enum
+/// An enum as an IDL `types[]` entry's `type`: `{"kind": "enum", "variants":
+/// [...]}`, with the variants in declaration order, which is the order the wire
+/// discriminant counts in. The spec's `IdlEnumVariant` carries a name and
+/// nothing else — no discriminant, since a variant's index is its wire byte,
+/// and nowhere to put docs.
+pub fn enum_type(rust_enum: &syn::ItemEnum) -> Value {
+    let variants: Vec<Value> = rust_enum
         .variants
         .iter()
-        .map(|variant| variant.ident.to_string())
-        .collect()
+        .map(|variant| json!({ "name": variant.ident.to_string() }))
+        .collect();
+    json!({ "kind": "enum", "variants": variants })
+}
+
+/// One field's name.
+pub fn field_name(field: &syn::Field, context: &str) -> String {
+    field
+        .ident
+        .as_ref()
+        .unwrap_or_else(|| panic!("{context} should have named fields"))
+        .to_string()
 }
 
 /// Unwraps rustdoc intra-doc links to the text they display: `[`Role`](Role)`
@@ -255,10 +247,8 @@ fn strip_doc_links(text: &str) -> String {
     out
 }
 
-/// Collapses doc lines into the single line the IDL carries them as, dropping
-/// the backtick and link markup the IDL only carries in some places. Both this
-/// module and [`crate::parse_json`] hand their doc text through here, so the two
-/// sides are always compared in the same form.
+/// Collapses doc lines into a single line, dropping the backtick and link
+/// markup the IDL only carries in some places.
 pub fn normalize_doc<S: AsRef<str>>(lines: &[S]) -> String {
     strip_doc_links(
         &lines
@@ -309,18 +299,4 @@ pub fn docs(attrs: &[syn::Attribute]) -> Vec<String> {
         paragraphs.push(normalize_doc(&paragraph));
     }
     paragraphs
-}
-
-/// [`docs`] of the variant with discriminant `byte` in whichever discriminator
-/// enum backs the given IDL `section`.
-pub fn discriminator_variant_docs(section: Section, byte: u8) -> Vec<String> {
-    let enum_name = match section {
-        Section::Instructions => "SettlementInstruction",
-        Section::Accounts => "SettlementAccount",
-        other => panic!("no discriminator enum backs IDL {other}[]"),
-    };
-
-    let rust_enum = INTERFACE_LIB_RS.find_enum(enum_name);
-
-    docs(&variant_by_discriminant(&rust_enum, byte).attrs)
 }

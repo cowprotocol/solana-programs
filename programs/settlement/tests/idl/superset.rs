@@ -1,0 +1,215 @@
+//! The comparison between the partial IDL the Rust source implies and the IDL
+//! that's actually checked in.
+//!
+//! [`assert_superset`] holds the checked-in file to everything
+//! [`crate::generate`] could derive, and to nothing more: an IDL key the
+//! generated document doesn't mention is a fact the Rust source can't state, so
+//! it's left for the schema and the human reviewer. That asymmetry is the whole
+//! design — the generated side never has to be a complete IDL, only a true one.
+
+use serde_json::Value;
+
+use crate::parse_rust::normalize_doc;
+
+/// Asserts `actual` states everything `generated` does. Every mismatch is
+/// collected before failing, so one run reports the full drift rather than
+/// whichever entry happened to be compared first.
+pub fn assert_superset(generated: &Value, actual: &Value) {
+    let mut problems = Vec::new();
+    compare("", generated, actual, &mut problems);
+    assert!(
+        problems.is_empty(),
+        "the checked-in IDL doesn't agree with the Rust source it describes:\n\n{}\n",
+        problems.join("\n\n"),
+    );
+}
+
+/// How the two sides of an array are lined up.
+enum ArrayRule {
+    /// Index `i` describes the same thing on both sides, and the arrays have to
+    /// be the same length. This is the rule for everything laid out on the
+    /// wire, where order and completeness are the point.
+    Positional,
+    /// Entries are matched by their `name`, in whatever order each side happens
+    /// to list them. `exhaustive` additionally rejects an entry in `actual`
+    /// that the generated side never matched.
+    ByName { exhaustive: bool },
+}
+
+/// The rule for the array at `path`.
+fn array_rule(path: &str) -> ArrayRule {
+    match path {
+        // Top-level sections. The Rust source defines every entry, so one the
+        // IDL has left over from a rename, or invented outright, is an error —
+        // but the two are free to order them differently, and they do: the IDL
+        // reads top to bottom in call order where the discriminator enum counts
+        // from zero.
+        "instructions" | "accounts" | "types" | "errors" => ArrayRule::ByName { exhaustive: true },
+        // An instruction's accounts. Only the ones whose PDA seeds the interface
+        // pins are generated, so the IDL legitimately names more, in an order
+        // nothing in the Rust source fixes.
+        _ if path.ends_with("].accounts") => ArrayRule::ByName { exhaustive: false },
+        // Struct fields, instruction args, enum variants, discriminator bytes,
+        // PDA seeds and their const bytes: all wire order, all complete.
+        _ => ArrayRule::Positional,
+    }
+}
+
+fn compare(path: &str, generated: &Value, actual: &Value, problems: &mut Vec<String>) {
+    match generated {
+        Value::Object(generated) => {
+            let Some(actual) = actual.as_object() else {
+                problems.push(format!(
+                    "{}: the IDL has {actual} where an object belongs",
+                    at(path)
+                ));
+                return;
+            };
+            for (key, generated) in generated {
+                let path = format!("{path}.{key}");
+                let path = path.trim_start_matches('.');
+                match actual.get(key) {
+                    // `docs` is prose, and prose is the one thing the two sides
+                    // are allowed to disagree on the shape of.
+                    Some(actual) if key == "docs" => {
+                        compare_docs(path, generated, actual, problems)
+                    }
+                    Some(actual) => compare(path, generated, actual, problems),
+                    None => problems.push(format!(
+                        "{}: missing from the IDL; the Rust source says it is\n  {generated}",
+                        at(path)
+                    )),
+                }
+            }
+        }
+        Value::Array(generated) => {
+            let Some(actual) = actual.as_array() else {
+                problems.push(format!(
+                    "{}: the IDL has {actual} where an array belongs",
+                    at(path)
+                ));
+                return;
+            };
+            match array_rule(path) {
+                ArrayRule::Positional => compare_positional(path, generated, actual, problems),
+                ArrayRule::ByName { exhaustive } => {
+                    compare_by_name(path, generated, actual, exhaustive, problems);
+                }
+            }
+        }
+        scalar => {
+            if scalar != actual {
+                problems.push(format!(
+                    "{}: the IDL says {actual}, the Rust source says {scalar}",
+                    at(path)
+                ));
+            }
+        }
+    }
+}
+
+fn compare_positional(
+    path: &str,
+    generated: &[Value],
+    actual: &[Value],
+    problems: &mut Vec<String>,
+) {
+    if generated.len() != actual.len() {
+        problems.push(format!(
+            "{}: the IDL lists {} entries, the Rust source has {}",
+            at(path),
+            actual.len(),
+            generated.len()
+        ));
+    }
+    for (index, generated) in generated.iter().enumerate() {
+        let path = format!("{path}[{index}]");
+        match actual.get(index) {
+            Some(actual) => compare(&path, generated, actual, problems),
+            None => problems.push(format!(
+                "{}: missing from the IDL; the Rust source says it is\n  {generated}",
+                at(&path)
+            )),
+        }
+    }
+}
+
+fn compare_by_name(
+    path: &str,
+    generated: &[Value],
+    actual: &[Value],
+    exhaustive: bool,
+    problems: &mut Vec<String>,
+) {
+    for generated in generated {
+        let name = generated["name"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{path} entries are matched by name, so each needs one"));
+        let path = format!("{path}[{name}]");
+        match actual.iter().find(|entry| entry["name"] == *name) {
+            Some(actual) => compare(&path, generated, actual, problems),
+            None => problems.push(format!("{}: missing from the IDL", at(&path))),
+        }
+    }
+
+    if exhaustive && actual.len() != generated.len() {
+        let unmatched: Vec<&str> = actual
+            .iter()
+            .filter_map(|entry| entry["name"].as_str())
+            .filter(|name| !generated.iter().any(|entry| entry["name"] == **name))
+            .collect();
+        problems.push(format!(
+            "{}: the IDL carries entries with no counterpart in the Rust source: {unmatched:?}",
+            at(path)
+        ));
+    }
+}
+
+/// Checks the IDL documents everything the Rust source does, in the same order.
+/// The IDL may contain more docs.
+fn compare_docs(path: &str, generated: &Value, actual: &Value, problems: &mut Vec<String>) {
+    let (Some(generated), Some(actual)) = (generated.as_array(), actual.as_array()) else {
+        problems.push(format!(
+            "{}: the IDL has {actual} where docs belong",
+            at(path)
+        ));
+        return;
+    };
+
+    let lines: Vec<&str> = actual.iter().filter_map(Value::as_str).collect();
+    if lines.len() != actual.len() {
+        problems.push(format!(
+            "{}: every IDL doc entry must be a string",
+            at(path)
+        ));
+        return;
+    }
+    // The IDL side goes through the same normalization the Rust side already
+    // did, so the backticks one carries and the other doesn't never show up as
+    // a difference in what they say.
+    let idl_prose = normalize_doc(&lines);
+
+    // Each paragraph consumes the prose up to and including itself, so the next
+    // one can only match further along: that's what makes this an order check
+    // and not just a set of independent lookups.
+    let mut unread = idl_prose.as_str();
+    for paragraph in generated.iter().filter_map(Value::as_str) {
+        match unread.split_once(paragraph) {
+            Some((_, after)) => unread = after,
+            None => problems.push(format!(
+                "{}: the IDL doesn't document this, or documents it out of order:\n  \
+                 {paragraph}\nthe IDL's prose is:\n  {idl_prose}",
+                at(path)
+            )),
+        }
+    }
+}
+
+/// Names the position in the IDL a problem was found at.
+fn at(path: &str) -> String {
+    if path.is_empty() {
+        "the IDL's root".to_string()
+    } else {
+        path.to_string()
+    }
+}
