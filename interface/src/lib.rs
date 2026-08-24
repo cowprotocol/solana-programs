@@ -181,9 +181,6 @@ pub enum SettlementError {
     /// `BeginSettle`: a paired `FinalizeSettle` push doesn't draw funds from the
     /// canonical buffer for the order's `buy_mint`.
     PushSourceNotBuffer = 22,
-    /// `CreateOrder`: the intent's `buy_token_account` isn't a valid SPL token
-    /// account.
-    InvalidBuyTokenAccount = 23,
     /// `BeginSettle`: a settled order's executed price (`amount_out/amount_in`)
     /// is worse than the order's limit price (`buy_amount/sell_amount`).
     LimitPriceViolated = 24,
@@ -221,13 +218,6 @@ pub enum SettlementError {
     /// `CreateOrder` or `BeginSettle`: the sell token account holds a different
     /// mint than the `sell_mint` the intent declares.
     SellMintMismatch = 35,
-    /// `CreateOrder`: the account passed in the buy-token slot isn't the
-    /// `buy_token_account` recorded in the intent
-    BuyTokenAccountMismatch = 36,
-    /// `CreateOrder`: the buy token account holds a different mint than the
-    /// `buy_mint` the intent declares. At settlement the same mismatch surfaces
-    /// as [`Self::PushSourceNotBuffer`].
-    BuyMintMismatch = 37,
 }
 
 impl From<SettlementError> for u32 {

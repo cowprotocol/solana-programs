@@ -255,11 +255,6 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
         .build();
     buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, 1_000);
 
-    // The buy token account comes back at the same address holding a different
-    // mint. The push still has to draw from the buffer for the order's stated
-    // `buy_mint` (that's what `BeginSettle` checks), and a buffer only ever holds
-    // its own mint, so the SPL transfer into the recreated account is what fails:
-    // the user can't be paid in a token the order never asked for.
     let another_mint = token::create_mint(&mut svm, &payer);
     token::overwrite_token_account(&mut svm, &payer, &intent.buy_token_account, &another_mint);
 
