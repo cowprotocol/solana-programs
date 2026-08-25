@@ -95,7 +95,7 @@ fn push_accounts<'a>(
 ) -> impl Iterator<Item = (&'a Address, &'a Address)> {
     // Each push occupies a `[source_buffer, destination]` meta pair after the
     // fixed accounts.
-    let account_at = move |index: usize| {
+    let account_at = |index: usize| {
         // The index stays below `num_account_metas`, so the lookup, whose only
         // error is an out-of-bounds index, always succeeds.
         &instruction
