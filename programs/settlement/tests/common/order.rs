@@ -32,8 +32,8 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
 
 /// [`sample_intent`] with all four token-account fields filled in with freshly
 /// created applicable data. This fulfills the minimum requirements for an order
-/// to be created.
-pub fn creatable_intent(
+/// to be settlable.
+pub fn settlable_intent(
     svm: &mut LiteSVM,
     payer: &Keypair,
     owner: Pubkey,
