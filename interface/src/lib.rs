@@ -181,6 +181,9 @@ pub enum SettlementError {
     /// `BeginSettle`: a paired `FinalizeSettle` push doesn't draw funds from the
     /// canonical buffer for the order's `buy_mint`.
     PushSourceNotBuffer = 22,
+    /// `BeginSettle`: the OrderIntent `sell_token_account` holds a different
+    /// mint than the declared `sell_mint`.
+    SellMintMismatch = 23,
     /// `BeginSettle`: a settled order's executed price (`amount_out/amount_in`)
     /// is worse than the order's limit price (`buy_amount/sell_amount`).
     LimitPriceViolated = 24,
@@ -215,9 +218,6 @@ pub enum SettlementError {
     /// `TransferAuthority`'s signer is neither the manager nor the current
     /// holder of the role being transferred, so it may not transfer it.
     UnauthorizedAuthorityTransfer = 34,
-    /// `BeginSettle`: the OrderIntent `sell_token_account` holds a different
-    /// mint than the declared `sell_mint`.
-    SellMintMismatch = 35,
 }
 
 impl From<SettlementError> for u32 {
