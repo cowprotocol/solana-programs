@@ -490,16 +490,15 @@ fn rejects_orders_in_wrong_address_order() {
     // aligned with begin's decreasing order. `BeginSettle` only reaches the
     // ordering check on the second order, so the first order's push has to be
     // well-formed: canonical buffer for that order's buy mint included.
-    let buffers: Vec<(Pubkey, u8)> = orders
+    let ((source_buffers, bumps), destinations): ((Vec<Pubkey>, Vec<u8>), Vec<Pubkey>) = orders
         .iter()
-        .map(|(_, intent)| find_buffer_pda(&program_id, &intent.buy_mint))
-        .collect();
-    let source_buffers: Vec<Pubkey> = buffers.iter().map(|&(buffer, _)| buffer).collect();
-    let destinations: Vec<Pubkey> = orders
-        .iter()
-        .map(|(_, intent)| intent.buy_token_account)
-        .collect();
-    let bumps: Vec<u8> = buffers.iter().map(|&(_, bump)| bump).collect();
+        .map(|(_, intent)| {
+            (
+                find_buffer_pda(&program_id, &intent.buy_mint),
+                intent.buy_token_account,
+            )
+        })
+        .unzip();
     let amounts = vec![0u64; orders.len()];
     let finalize = FinalizeSettleRaw {
         program_id,
