@@ -52,7 +52,7 @@ pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
 
 /// Confirm `buffer` matches the derived buffer PDA for `mint` and `bump`.
 #[must_use = "ignoring the output means ignoring the validation result"]
-pub fn validate_buffer_address(
+pub fn validate_buffer_pda(
     program_id: &Address,
     buffer: &Address,
     mint: &Address,
@@ -97,7 +97,7 @@ mod tests {
         let (pda, bump) = find_buffer_pda(&program_id, &mint);
 
         let buffer = crate::instruction::fixtures::fake_account(pda);
-        validate_buffer_address(&program_id, buffer.address(), &mint, bump)
+        validate_buffer_pda(&program_id, buffer.address(), &mint, bump)
             .expect("the canonical buffer PDA must be accepted");
     }
 
@@ -109,7 +109,7 @@ mod tests {
 
         // An account sitting at some other address is not the buffer.
         let buffer = crate::instruction::fixtures::fake_account(Pubkey::new_unique());
-        let err = validate_buffer_address(&program_id, buffer.address(), &mint, bump)
+        let err = validate_buffer_pda(&program_id, buffer.address(), &mint, bump)
             .expect_err("a non-canonical address must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
@@ -122,7 +122,7 @@ mod tests {
 
         // The address is canonical but the carried bump doesn't derive it.
         let buffer = crate::instruction::fixtures::fake_account(pda);
-        let err = validate_buffer_address(&program_id, buffer.address(), &mint, bump ^ 1)
+        let err = validate_buffer_pda(&program_id, buffer.address(), &mint, bump ^ 1)
             .expect_err("a wrong bump must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
