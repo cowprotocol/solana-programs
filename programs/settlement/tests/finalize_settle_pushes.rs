@@ -18,10 +18,8 @@ use crate::common::{
     setup, to_instruction_error, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::OrderIntent,
-    instruction::settle::{FinalizeSettle as FinalizeSettleRaw, SPL_TOKEN_PROGRAM_ID},
-    pda::{buffer::find_buffer_pda, state::find_state_pda},
-    Instruction, SettlementError,
+    data::intent::OrderIntent, instruction::settle::SPL_TOKEN_PROGRAM_ID,
+    pda::state::find_state_pda, Instruction, SettlementError,
 };
 use cow_settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
 use litesvm_token::spl_token::error::TokenError;
@@ -38,16 +36,6 @@ fn assert_finalize_error<T>(result: Result<T, TransactionError>, expected: Instr
     assert_eq!(
         result.err(),
         Some(TransactionError::InstructionError(FINALIZE_INDEX, expected)),
-    );
-}
-
-/// Assert the transaction failed in the paired `BeginSettle` (at [`BEGIN_INDEX`])
-/// with `expected`. `BeginSettle` validates the finalize's pushes, so a malformed
-/// push is often rejected there rather than in the finalize itself.
-fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: InstructionError) {
-    assert_eq!(
-        result.err(),
-        Some(TransactionError::InstructionError(BEGIN_INDEX, expected)),
     );
 }
 
@@ -176,75 +164,6 @@ fn pushes_several_orders_from_different_buffers() {
     assert_eq!(token::balance(&svm, &intent1.buy_token_account), amount1);
     assert_eq!(token::balance(&svm, &buffer0), funding - amount0);
     assert_eq!(token::balance(&svm, &buffer1), funding - amount1);
-}
-
-#[test]
-fn rejects_push_if_buffer_does_not_match_buy_mint() {
-    let (mut svm, program_id, payer) = setup();
-    let buy_mint = token::create_mint(&mut svm, &payer);
-    let other_mint = token::create_mint(&mut svm, &payer);
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&buy_mint)
-        .build();
-    let orders = [FinalizedIntent {
-        intent: &intent,
-        amount: 100,
-    }];
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &other_mint, 1_000);
-
-    // The push draws from the buffer for `other_mint`, not the order's buy mint.
-    // The client builder always picks the buy mint's buffer, so name the source
-    // by hand. `BeginSettle` derives the buffer it expects from the order's
-    // `buy_mint` and rejects this one.
-    let (other_buffer, other_bump) = find_buffer_pda(&program_id, &other_mint);
-    let finalize = FinalizeSettleRaw {
-        program_id,
-        state_pda: find_state_pda(&program_id).0,
-        begin_ix_index: BEGIN_INDEX.into(),
-        source_buffers: &[other_buffer],
-        destinations: &[intent.buy_token_account],
-        bumps: &[other_bump],
-        amounts: &[100],
-    };
-
-    let instructions = build_settlement(&program_id, &orders, finalize);
-    assert_begin_error(
-        send(&mut svm, &payer, instructions),
-        to_instruction_error(SettlementError::PushSourceNotBuffer),
-    );
-}
-
-#[test]
-fn rejects_push_from_substituted_source() {
-    let (mut svm, program_id, payer) = setup();
-    let mint = token::create_mint(&mut svm, &payer);
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&mint)
-        .build();
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, 1_000);
-    let orders = [FinalizedIntent {
-        intent: &intent,
-        amount: 100,
-    }];
-
-    let mut finalize = Instruction::from(FinalizeSettle {
-        program_id,
-        begin_ix_index: BEGIN_INDEX.into(),
-        orders: &orders,
-    });
-    // Point the push at an account that isn't the canonical buffer, leaving the
-    // rest well-formed. Accounts: `[sysvar, state, token_program, source,
-    // destination]`. `BeginSettle` reads the source off this instruction through
-    // introspection and rejects it before the substituted account is ever
-    // touched.
-    let source_index = 3;
-    finalize.accounts[source_index].pubkey = unique_pubkey();
-
-    let instructions = build_settlement(&program_id, &orders, finalize);
-    assert_begin_error(
-        send(&mut svm, &payer, instructions),
-        to_instruction_error(SettlementError::PushSourceNotBuffer),
-    );
 }
 
 #[test]

@@ -1055,6 +1055,38 @@ fn rejects_push_to_wrong_destination() {
 }
 
 #[test]
+fn rejects_push_if_buffer_does_not_match_buy_mint() {
+    let (mut svm, program_id, payer) = setup();
+    let buy_mint = token::create_mint(&mut svm, &payer);
+    let other_mint = token::create_mint(&mut svm, &payer);
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_mint(&buy_mint)
+        .build();
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        amount: 100,
+    }];
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &other_mint, 1_000);
+
+    let (other_buffer, other_bump) = find_buffer_pda(&program_id, &other_mint);
+    let finalize = FinalizeSettleRaw {
+        program_id,
+        state_pda: find_state_pda(&program_id).0,
+        begin_ix_index: BEGIN_INDEX.into(),
+        source_buffers: &[other_buffer],
+        destinations: &[intent.buy_token_account],
+        bumps: &[other_bump],
+        amounts: &[100],
+    };
+
+    let instructions = build_settlement(&program_id, &orders, finalize);
+    assert_begin_error(
+        send(&mut svm, &payer, instructions),
+        SettlementError::PushSourceNotBuffer,
+    );
+}
+
+#[test]
 fn rejects_fewer_pushes_than_orders() {
     let (mut svm, program_id, payer) = setup();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
