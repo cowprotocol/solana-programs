@@ -118,6 +118,32 @@ just deploy J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w ~/solana-keys/deployer.
 
 The deployer for the canonical devnet program (`J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
 
+## Alpha releases
+
+There are two possible release flows while the project is in alpha:
+- Program breaking change: the logic of the program changes meaningfully or there's some change on the layout of _any_ PDA.
+- Patch update: it's mostly a hotfix for the program that doesn't meaningfully change the program state. The old client/interface should still work with the new program code. 
+
+You can use the settle CLI for a smoke test of the programs after a release. See `cargo run -p cow-test-cli -- sell --help` and `cargo run -p cow-test-cli -- settle --help`.
+
+### Breaking change
+
+- Bump the version in all `./**/Cargo.toml` files *by at least a minor version*. For example, `VERSION=0.42.1337`.
+- Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
+- Store the newly generated account [in 1password](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ie6sd53uo6rawl43sd4373zq5i&h=cowserviceslda.1password.com).
+- Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
+- Commit the changes.
+- [Deploy the programs](#how-to-deploy). The deployer keypair is [in 1password](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ch65n5b6akn4peqbrvsmelorlq&h=cowserviceslda.1password.com). The program keypair file is the key that was generated before.
+- Initialize the new deployment. See `cargo run -p cow-test-cli -- initialize --help`.
+- [Publish the cargo packages](#publishing-the-cargo-packages).
+
+### Patch update
+
+- Bump the version in all `./**/Cargo.toml` files by a patch version.
+- Commit the changes.
+- [Update the programs](#how-to-deploy). The [deployer keypair](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ch65n5b6akn4peqbrvsmelorlq&h=cowserviceslda.1password.com) and the [program keypair](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ie6sd53uo6rawl43sd4373zq5i&h=cowserviceslda.1password.com) are in 1password.
+- [Publish the cargo packages](#publishing-the-cargo-packages).
+
 ## License
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./COPYING.MIT) [![License: Apache v2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](./COPYING.APACHE) [![License: LGPL v3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](./COPYING.LESSER)
