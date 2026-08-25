@@ -4,7 +4,7 @@
 //! The transfer must come from the manager or the role's current holder.
 
 use cow_settlement_interface::{
-    data::state::EncodedStateAccount,
+    data::state::StateAccount,
     instruction::{transfer_authority::TransferAuthorityInput, InstructionInputParsing},
     Role, SettlementError,
 };
@@ -31,22 +31,16 @@ pub fn process_transfer_authority(
     }
 
     // A copied `AccountView` writes through to the same runtime account, so the
-    // mutable borrow to update the role goes through this local copy.
+    // mutable view goes through this local copy.
     let mut state_pda = *state_pda;
-    let mut data = state_pda.try_borrow_mut()?;
-    let bytes: &mut [u8; EncodedStateAccount::SIZE] = data
-        .as_mut()
-        .try_into()
-        .map_err(|_| ProgramError::InvalidAccountData)?;
+    let mut state = StateAccount::new(state_pda.try_borrow_mut()?)?;
 
     let signer_key = signer.address();
-    if signer_key != &EncodedStateAccount::authority(bytes, Role::Manager)
-        && signer_key != &EncodedStateAccount::authority(bytes, role)
-    {
+    if signer_key != &state.authority(Role::Manager) && signer_key != &state.authority(role) {
         return Err(SettlementError::UnauthorizedAuthorityTransfer.into());
     }
 
-    *EncodedStateAccount::authority_mut(bytes, role) = new_authority.to_bytes();
+    state.set_authority(role, &new_authority);
 
     Ok(())
 }

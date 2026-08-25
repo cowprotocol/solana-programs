@@ -54,6 +54,9 @@ pub enum Role {
 }
 
 impl Role {
+    /// Every [`Role`] variant, in discriminant order.
+    pub const ALL: [Self; 2] = [Role::Manager, Role::ReclaimAuthority];
+
     /// The single wire byte that selects this role in the authority-transfer
     /// instruction.
     pub fn discriminator(self) -> u8 {
@@ -249,6 +252,8 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
 
     #[test]
@@ -328,5 +333,26 @@ mod tests {
     #[test]
     fn role_try_from_matches_manager() {
         assert_eq!(Role::try_from(0), Ok(Role::Manager));
+    }
+
+    #[test]
+    fn all_roles_lists_every_role() {
+        // The roles `try_from` accepts, discovered independently of `Role::ALL`.
+        // Adding a `Role` variant makes this set diverge from `Role::ALL`,
+        // failing here until `Role::ALL` is updated.
+        let every_role: Vec<Role> = (u8::MIN..=u8::MAX)
+            .filter_map(|byte| Role::try_from(byte).ok())
+            .collect();
+
+        assert_eq!(Role::ALL.len(), every_role.len());
+        for role in every_role {
+            assert!(Role::ALL.contains(&role));
+        }
+    }
+
+    #[test]
+    fn all_roles_has_no_duplicates() {
+        let unique: HashSet<u8> = Role::ALL.iter().map(|role| role.discriminator()).collect();
+        assert_eq!(unique.len(), Role::ALL.len(), "`Role::ALL` has duplicates");
     }
 }

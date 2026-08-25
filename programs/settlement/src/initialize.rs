@@ -1,11 +1,11 @@
 //! `Initialize` instruction handler.
 
 use cow_settlement_interface::{
-    data::state::{write_account, EncodedStateAccount, StateAccount},
+    data::state::{Header, StateAccount, WIDTH_HEADER},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
 };
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
 
 use crate::processor::CanonicalPda;
 
@@ -30,7 +30,7 @@ pub fn process_initialize(
         program_id,
         payer,
         pda: state_pda,
-        size: EncodedStateAccount::SIZE as u64,
+        size: WIDTH_HEADER as u64,
         owner: program_id,
         seeds: state_pda_seeds(),
     }
@@ -38,17 +38,13 @@ pub fn process_initialize(
 
     // A copied `AccountView` handle writes through to the same runtime account.
     let mut state_pda = *state_pda;
-    let mut buffer = state_pda.try_borrow_mut()?;
-    let buffer: &mut [u8; EncodedStateAccount::SIZE] = (&mut *buffer)
-        .try_into()
-        .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    write_account(
-        buffer,
-        &StateAccount {
+    StateAccount::initialize(
+        state_pda.try_borrow_mut()?,
+        &Header {
             manager,
             reclaim_authority,
         },
-    );
+    )?;
 
     Ok(())
 }

@@ -1,8 +1,8 @@
 //! Integration tests for the authority transfer instruction.
 
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::EncodedStateAccount, instruction::transfer_authority::fixtures::ROLE_OFFSET,
-    Instruction, Role, SettlementError,
+    data::state::StateAccount, instruction::transfer_authority::fixtures::ROLE_OFFSET, Instruction,
+    Role, SettlementError,
 };
 use cow_settlement_client::instructions::TransferAuthority;
 use litesvm::LiteSVM;
@@ -24,11 +24,9 @@ fn read_authority(svm: &LiteSVM, state_pda: &Pubkey, role: Role) -> Pubkey {
     let account = svm
         .get_account(state_pda)
         .expect("state PDA should exist after initialize");
-    let bytes: [u8; EncodedStateAccount::SIZE] = account
-        .data
-        .try_into()
-        .expect("state PDA data should be exactly the encoded size");
-    EncodedStateAccount::authority(&bytes, role)
+    StateAccount::new(&account.data[..])
+        .expect("state PDA should be a valid state account")
+        .authority(role)
 }
 
 /// Runs a `TransferAuthority` that should succeed: `signer` transfers `role` to
@@ -80,13 +78,29 @@ fn assert_transfer_rejected(
     assert_instruction_error(res, to_instruction_error(expected));
 }
 
-/// Generates one integration test, `<signer> transfers <role>`. Two forms:
+/// Asserts that `signer` may transfer *only* `allowed`: every other role (see
+/// [`Role::ALL`]) is rejected with `expected`. Adding a `Role` extends the
+/// coverage automatically.
+fn assert_transfers_only(
+    svm: &mut LiteSVM,
+    params: &InitializedParams,
+    signer: &Keypair,
+    allowed: Role,
+    expected: SettlementError,
+) {
+    for role in Role::ALL.into_iter().filter(|&role| role != allowed) {
+        assert_transfer_rejected(svm, params, role, signer, expected);
+    }
+}
+
+/// Generates one integration test. Two forms:
 ///
-/// - "Entry transfers Role", for successes
-/// - "Entry transfers Role, error Error", for reverts
+/// - "Entry transfers Role" — asserts that transfer succeeds.
+/// - "Entry transfers only Role, error Error" — asserts every *other* role is
+///   rejected with Error.
 ///
-/// "Entry" names a keypair field of [`InitializedParams`].
-/// "Error" is the expected [`SettlementError`].
+/// "Entry" names a keypair field of [`InitializedParams`]; "Error" is the
+/// expected [`SettlementError`].
 macro_rules! transfer_authority_test {
     ($name:ident: $signer:ident transfers $role:expr) => {
         #[test]
@@ -96,11 +110,11 @@ macro_rules! transfer_authority_test {
         }
     };
 
-    ($name:ident: $signer:ident transfers $role:expr, error $err:expr) => {
+    ($name:ident: $signer:ident transfers only $allowed:expr, error $err:expr) => {
         #[test]
         fn $name() {
             let (mut svm, params) = setup_init();
-            assert_transfer_rejected(&mut svm, &params, $role, &params.$signer, $err);
+            assert_transfers_only(&mut svm, &params, &params.$signer, $allowed, $err);
         }
     };
 }
@@ -111,8 +125,9 @@ transfer_authority_test!(manager_can_transfer_manager: manager transfers Role::M
 transfer_authority_test!(manager_can_transfer_reclaim_authority: manager transfers Role::ReclaimAuthority);
 transfer_authority_test!(reclaim_authority_can_transfer_itself: reclaim transfers Role::ReclaimAuthority);
 
-// A non-manager authority may not touch the manager role.
-transfer_authority_test!(reclaim_authority_cannot_transfer_the_manager: reclaim transfers Role::Manager, error SettlementError::UnauthorizedAuthorityTransfer);
+// A non-manager authority may transfer only its own role; every other role is
+// rejected.
+transfer_authority_test!(reclaim_authority_cannot_transfer_other_roles: reclaim transfers only Role::ReclaimAuthority, error SettlementError::UnauthorizedAuthorityTransfer);
 
 /// Index of the signer account in a `TransferAuthority` instruction.
 const SIGNER_INDEX: usize = 0;

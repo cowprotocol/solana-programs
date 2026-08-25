@@ -1,9 +1,9 @@
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::{EncodedStateAccount, StateAccount},
-    instruction::initialize::Initialize as InitializeRaw,
+    data::state::WIDTH_HEADER, instruction::initialize::Initialize as InitializeRaw,
     pda::state::find_state_pda,
 };
 use cow_settlement_client::instructions::Initialize;
+use cow_settlement_client::pda::state::DecodedStateAccount;
 use solana_sdk::signature::Signer;
 
 use crate::common::{
@@ -39,17 +39,23 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         account.owner, program_id,
         "state PDA must be owned by the settlement program"
     );
-    let expected_body: [u8; EncodedStateAccount::SIZE] = StateAccount {
-        reclaim_authority,
-        manager,
-    }
-    .into();
+    let decoded = DecodedStateAccount::try_from(&account.data[..])
+        .expect("state PDA must decode as a settlement state account");
     assert_eq!(
-        account.data, expected_body,
-        "state PDA body must match the expected layout (discriminator + authorities)"
+        decoded,
+        DecodedStateAccount {
+            manager,
+            reclaim_authority,
+        },
+        "state PDA body must record the manager and reclaim authority"
+    );
+    assert_eq!(
+        account.data.len(),
+        WIDTH_HEADER,
+        "a freshly initialized state PDA is exactly a header long"
     );
 
-    let rent = svm.minimum_balance_for_rent_exemption(EncodedStateAccount::SIZE);
+    let rent = svm.minimum_balance_for_rent_exemption(WIDTH_HEADER);
     assert_eq!(
         account.lamports, rent,
         "state PDA must hold exactly the rent minimum: {} != {}",
@@ -94,7 +100,7 @@ fn funding_payer_can_differ_from_fee_payer() {
 
     // The rent came out of the funder, not the fee payer: the funder paid no
     // transaction fee, so its balance dropped by exactly the PDA rent.
-    let rent = svm.minimum_balance_for_rent_exemption(EncodedStateAccount::SIZE);
+    let rent = svm.minimum_balance_for_rent_exemption(WIDTH_HEADER);
     assert_eq!(
         common::lamports(&svm, &funder.pubkey()),
         funder_airdrop - rent,
