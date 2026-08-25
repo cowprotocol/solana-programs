@@ -363,8 +363,6 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET};
     use super::*;
 
@@ -501,10 +499,16 @@ mod tests {
 
     #[test]
     fn uid_digest_regression() {
+        // Compared as hex: `Hash`'s `Display` and `Debug` are both base58,
+        // which is not how we represent order UIDs elsewhere.
+        fn hex(bytes: &[u8]) -> String {
+            bytes.iter().map(|b| format!("{b:02x}")).collect()
+        }
         let intent = sample_intent(OrderKind::Buy, true);
-        let expected = Hash::from_str("9k7ZssB4PSgne6zVU2nGN6fsKA4k3aWBpbY3y3jEhZCA")
-            .expect("Provided hash data should be correct");
-        assert_eq!(intent.uid(), expected);
+        assert_eq!(
+            hex(intent.uid().as_ref()),
+            "81e8e5360a749ccea88bfb38ad701de8276421a9bb53bfa7dfda773b8fa813d7",
+        );
     }
 
     #[test]
