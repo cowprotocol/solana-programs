@@ -21,7 +21,7 @@ use crate::common::{
     assert_instruction_error,
     benchmark::{send_metered, BenchLabel},
     buffer, create_account,
-    order::{create_order_pda, sample_intent, OrderBuilder},
+    order::{create_order_pda, sample_intent, settlable_intent, OrderBuilder},
     replace_first_matching_account, send, set_unix_timestamp,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
@@ -369,8 +369,13 @@ fn rejects_sell_token_owner_mismatch() {
 fn rejects_non_token_sell_account() {
     let (mut svm, program_id, payer) = setup();
 
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    common::create_account_at(&mut svm, intent.sell_token_account, &program_id, &[]);
+    let non_token = unique_pubkey();
+
+    let intent = OrderIntent {
+        sell_token_account: non_token,
+        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 1)
+    };
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
 
     let instructions = settle_and_pay(
         &mut svm,
