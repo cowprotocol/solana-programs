@@ -11,13 +11,14 @@
 
 use crate::common::{
     benchmark::{send_metered, BenchLabel},
-    buffer,
-    order::OrderBuilder,
+    buffer, create_account,
+    order::{create_order_pda, settlable_intent, OrderBuilder},
     replace_first_matching_account, send,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
+    data::intent::OrderIntent,
     instruction::settle::{FinalizeSettle as FinalizeSettleRaw, SPL_TOKEN_PROGRAM_ID},
     pda::{buffer::find_buffer_pda, state::find_state_pda},
     Instruction, SettlementError,
@@ -25,7 +26,7 @@ use cow_settlement_client::cow_settlement_interface::{
 use cow_settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
 use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
-    instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey,
+    instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signer::Signer,
     transaction::TransactionError,
 };
 
@@ -374,6 +375,60 @@ fn rejects_too_few_accounts() {
     assert_eq!(
         ProgramError::try_from(ix_err),
         Ok(ProgramError::NotEnoughAccountKeys),
+    );
+}
+
+#[test]
+fn rejects_invalid_buy_token_account() {
+    let (mut svm, program_id, payer) = setup();
+
+    let intent = OrderIntent {
+        buy_token_account: unique_pubkey(),
+        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
+    };
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        amount: 0,
+    }];
+
+    let instructions = finalize(&program_id, &orders);
+    assert_finalize_error(
+        send(&mut svm, &payer, instructions),
+        InstructionError::InvalidAccountData,
+    );
+}
+
+#[test]
+fn rejects_buy_token_account_owned_by_wrong_program() {
+    let (mut svm, program_id, payer) = setup();
+    let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
+
+    let token_shaped = svm
+        .get_account(&settlable.buy_token_account)
+        .expect("the settlable order's buy token account exists")
+        .data;
+    let impostor = create_account(&mut svm, &unique_pubkey(), &token_shaped);
+
+    // As above, the impostor passes both instructions' checks (the push pays
+    // `intent.buy_token_account` from `intent.buy_mint`'s buffer) and is left
+    // for the SPL token program, which rejects a destination it doesn't own.
+    let intent = OrderIntent {
+        buy_token_account: impostor,
+        ..settlable
+    };
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
+    let orders = [FinalizedIntent {
+        intent: &intent,
+        amount: 0,
+    }];
+
+    let instructions = finalize(&program_id, &orders);
+    assert_finalize_error(
+        send(&mut svm, &payer, instructions),
+        InstructionError::IncorrectProgramId,
     );
 }
 
