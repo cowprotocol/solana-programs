@@ -369,9 +369,6 @@ fn rejects_sell_token_owner_mismatch() {
 fn rejects_non_token_sell_account() {
     let (mut svm, program_id, payer) = setup();
 
-    // `CreateOrder` only accepts an order whose sell token account is a real SPL
-    // token account, so the order is created against one and the account is
-    // replaced afterwards by something that isn't a token account at all.
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     common::create_account_at(&mut svm, intent.sell_token_account, &program_id, &[]);
 

@@ -134,6 +134,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
 /// A single fund push parsed from `FinalizeSettle`: move `amount` from
 /// `source_buffer` to `destination`. `bump` is `source_buffer`'s claimed
 /// canonical buffer bump, which the program re-derives against.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Push<'a, A> {
     pub source_buffer: &'a A,
     pub destination: &'a A,

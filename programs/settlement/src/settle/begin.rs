@@ -1018,38 +1018,37 @@ mod tests {
             });
 
             let introspected_instruction = introspected_instruction(&ix);
-            let introspected: Vec<(Address, Address, u8, u64)> =
+            let introspected: Vec<Push<'_, Address>> =
                 finalize_pushes(&introspected_instruction)
                     .expect("well-formed finalize data")
-                    .map(|push| (*push.source_buffer, *push.destination, push.bump, push.amount))
                     .collect();
 
             let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
             let parsed_raw = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
-            let parsed: Vec<(Address, Address, u8, u64)> = parsed_raw
+            let parsed: Vec<Push<'_, Address>> = parsed_raw
                 .pushes
                 .iter()
-                .map(|push| (
-                    *push.source_buffer.address(),
-                    *push.destination.address(),
-                    push.bump,
-                    push.amount,
-                ))
+                .map(|p| Push {
+                    source_buffer: p.source_buffer.address(),
+                    destination: p.destination.address(),
+                    bump: p.bump,
+                    amount: p.amount
+                })
                 .collect();
 
             // The builder's inputs, the ground truth both views should recover.
-            let expected: Vec<(Address, Address, u8, u64)> = source_buffers
+            let expected: Vec<Push<'_, Address>> = source_buffers
                 .iter()
                 .zip(&destinations)
                 .zip(bumps.iter().copied().zip(amounts.iter().copied()))
-                .map(|((source_buffer, destination), (bump, amount))| (
-                    Address::new_from_array(source_buffer.to_bytes()),
-                    Address::new_from_array(destination.to_bytes()),
+                .map(|((source_buffer, destination), (bump, amount))| Push {
+                    source_buffer,
+                    destination,
                     bump,
                     amount,
-                ))
+                })
                 .collect();
 
             prop_assert_eq!(&introspected, &expected);
