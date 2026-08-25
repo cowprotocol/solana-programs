@@ -135,12 +135,14 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Commit the changes.
 - [Deploy the programs](#how-to-deploy). The deployer keypair is [in 1password](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ch65n5b6akn4peqbrvsmelorlq&h=cowserviceslda.1password.com). The program keypair file is the key that was generated before.
 - Initialize the new deployment. See `cargo run -p cow-test-cli -- initialize --help`.
+- Create a PR with the changes and wait for approval.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
 ### Patch update
 
 - Bump the version in all `./**/Cargo.toml` files by a patch version.
 - Commit the changes.
+- Create a PR with the changes and wait for approval.
 - [Update the programs](#how-to-deploy). The [deployer keypair](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ch65n5b6akn4peqbrvsmelorlq&h=cowserviceslda.1password.com) and the [program keypair](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ie6sd53uo6rawl43sd4373zq5i&h=cowserviceslda.1password.com) are in 1password.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
