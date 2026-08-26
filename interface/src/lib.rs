@@ -25,6 +25,7 @@ pub enum SettlementInstruction {
     ReclaimOrder = 5,
     ReclaimBuffer = 6,
     TransferAuthority = 7,
+    AddSolver = 8,
 }
 
 impl SettlementInstruction {
@@ -222,6 +223,11 @@ pub enum SettlementError {
     /// `TransferAuthority`'s signer is neither the manager nor the current
     /// holder of the role being transferred, so it may not transfer it.
     UnauthorizedAuthorityTransfer = 34,
+    /// `AddSolver`'s manager account isn't a signer, or doesn't match the
+    /// `manager` recorded in the settlement state PDA.
+    UnauthorizedSolverManagement = 35,
+    /// `AddSolver`'s solver is already in the state PDA's solver list.
+    SolverAlreadyExists = 36,
 }
 
 impl From<SettlementError> for u32 {

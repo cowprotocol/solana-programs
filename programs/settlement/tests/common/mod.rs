@@ -166,17 +166,6 @@ pub fn assert_instruction_error_at<T>(
     );
 }
 
-/// Convenience wrapper around [`assert_instruction_error_at`] for the common
-/// case of asserting a specific [`SettlementError`].
-#[track_caller]
-pub fn assert_settlement_error<T>(
-    ix_idx: u8,
-    result: Result<T, TransactionError>,
-    expected: SettlementError,
-) {
-    assert_instruction_error_at(ix_idx, result, to_instruction_error(expected));
-}
-
 pub fn create_account_at(svm: &mut LiteSVM, address: Pubkey, owner: &Pubkey, data: &[u8]) {
     let lamports = svm.minimum_balance_for_rent_exemption(data.len());
     svm.set_account(

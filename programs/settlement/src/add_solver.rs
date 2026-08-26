@@ -1,0 +1,119 @@
+//! `AddSolver` instruction handler.
+//!
+//! Inserts a solver into the sorted solver list that follows the state PDA
+//! header, keeping it sorted so the list stays binary-searchable. Only the
+//! manager may authorize it. The account grows by one solver, so the `payer`
+//! funds the extra rent through a `Transfer` before the account is resized.
+
+use cow_settlement_interface::{
+    data::state::{StateAccount, WIDTH_HEADER, WIDTH_PUBKEY},
+    instruction::{add_solver::AddSolverInput, InstructionInputParsing},
+    Role, SettlementError,
+};
+use pinocchio::{
+    sysvars::{rent::Rent, Sysvar},
+    AccountView, Address, ProgramResult, Resize,
+};
+use pinocchio_system::instructions::Transfer;
+
+use crate::processor::check_state_pda;
+
+pub fn process_add_solver(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    instruction_data: &[u8],
+) -> ProgramResult {
+    let AddSolverInput {
+        manager,
+        payer,
+        state_pda,
+        solver,
+    } = AddSolverInput::parse(instruction_data, accounts)?;
+
+    check_state_pda(program_id, state_pda)?;
+
+    // Only the manager may change the solver list. Reading also validates the
+    // account, and the search finds where the new solver sorts in.
+    let index = {
+        let state = StateAccount::new(state_pda.try_borrow()?)?;
+        if !manager.is_signer() || manager.address() != &state.authority(Role::Manager) {
+            return Err(SettlementError::UnauthorizedSolverManagement.into());
+        }
+        match state.solver_search(&solver) {
+            Ok(_) => return Err(SettlementError::SolverAlreadyExists.into()),
+            Err(index) => index,
+        }
+    };
+
+    // Every length and offset below is bounded by the account's data length,
+    // which the runtime caps at 10 MiB, so this arithmetic always fits in `usize`
+    // and these checks can never trip.
+    let old_len = state_pda.data_len();
+    let new_len = old_len
+        .checked_add(WIDTH_PUBKEY)
+        .expect("grown account length fits in usize");
+
+    // Growing the account must keep it rent-exempt: the payer funds the extra
+    // rent. This CPI runs before any data borrow so the account is free to grow.
+    let shortfall = Rent::get()?
+        .try_minimum_balance(new_len)?
+        .saturating_sub(state_pda.lamports());
+    if shortfall > 0 {
+        Transfer {
+            from: payer,
+            to: state_pda,
+            lamports: shortfall,
+        }
+        .invoke()?;
+    }
+
+    // Grow the account, shift the solvers at or after the insertion point right
+    // by one slot, and write the new solver into the gap.
+    let offset = WIDTH_HEADER
+        .checked_add(index.checked_mul(WIDTH_PUBKEY).expect("bound by new_len"))
+        .expect("bound by new_len");
+    let gap_end = offset.checked_add(WIDTH_PUBKEY).expect("bound by new_len");
+
+    let mut state_pda = *state_pda;
+    state_pda.resize(new_len)?;
+    let mut data = state_pda.try_borrow_mut()?;
+    data.copy_within(offset..old_len, gap_end);
+    data[offset..gap_end].copy_from_slice(&solver.to_bytes());
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cow_settlement_interface::instruction::add_solver::fixtures::{
+        add_solver_data, NUM_ACCOUNTS,
+    };
+    use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use pinocchio::error::ProgramError;
+
+    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
+
+    #[test]
+    fn process_add_solver_propagates_parse_error() {
+        let mut data = add_solver_data();
+        data.push(0); // trailing byte triggers a parse error
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        assert_eq!(
+            process_add_solver(&PROGRAM_ID, &mut accounts, &data),
+            Err(ProgramError::InvalidInstructionData),
+        );
+    }
+
+    #[test]
+    fn process_add_solver_rejects_non_canonical_state_pda() {
+        // `fake_sequential_accounts` puts the state PDA at `[3; 32]`, which is
+        // not the canonical state PDA for this program.
+        let data = add_solver_data();
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        assert_eq!(
+            process_add_solver(&PROGRAM_ID, &mut accounts, &data),
+            Err(SettlementError::StateAccountMismatch.into()),
+        );
+    }
+}

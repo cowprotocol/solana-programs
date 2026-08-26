@@ -1,23 +1,24 @@
 //! Settlement state account: its byte layout and the zero-copy accessor over it.
 //!
 //! The state PDA (see [`crate::pda::state`]) stores the protocol's authority
-//! configuration in a fixed header: a discriminator byte followed by the holder
-//! of each [`Role`].
+//! configuration in a fixed header (a discriminator byte followed by the holder
+//! of each [`Role`]), then the list of approved solvers, packed and sorted
+//! ascending by address.
 //!
 //! ```text
 //!  ┌──── discriminator
-//!  ┌┬───────────────────────────────┬───────────────────────────────┐
-//!  ││            manager            │       reclaim_authority       │
-//!  └┴───────────────────────────────┴───────────────────────────────┘
-//! 0 1                               33                              65
-//!  └───────────────────────────── header ──────────────────────────┘
+//!  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───── ... ─────┬───────────────────────────────┐
+//!  ││            manager            │       reclaim_authority       │           solver[0]           │ other solvers │          solver[N-1]          │
+//!  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───── ... ─────┴───────────────────────────────┘
+//! 0 1                               33                              65                              97
+//!  └───────────────────────────── header ──────────────────────────┘└─────────────────────────────── N sorted solvers ─────────────────────────────┘
 //! ```
 //!
 //! [`StateAccount`] is a zero-copy accessor over an account's bytes, generic
 //! over the borrow (`&[u8]`, `&mut [u8]`): the reads are available for any
 //! borrow, the in-place role write only for a mutable one. It reads and updates
-//! the header directly in the account, so the program never copies the account
-//! into an owned struct just to inspect a field or flip a role.
+//! the account data directly, so the program never copies the account into an
+//! owned struct.
 
 use core::mem::size_of;
 use core::ops::{Deref, DerefMut};
@@ -35,7 +36,7 @@ pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator()
 const WIDTH_DISCRIMINATOR: usize = size_of::<u8>();
 
 /// Byte width of an account address (a [`Pubkey`]): each role holder in the
-/// header is one.
+/// header and each solver in the list is one.
 pub const WIDTH_PUBKEY: usize = size_of::<Pubkey>();
 
 /// Length of the fixed header: the discriminator byte followed by one holder
@@ -126,6 +127,31 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
         };
         Pubkey::new_from_array(*holder)
     }
+
+    /// The sorted solver list that follows the header, as fixed-width entries.
+    /// A trailing partial entry (only possible on a corrupt account) is ignored
+    /// and an uninitialized/too-small account returns an empty slice.
+    fn solver_region(&self) -> &[[u8; WIDTH_PUBKEY]] {
+        let region = self.0.get(WIDTH_HEADER..).unwrap_or_default();
+        let (solvers, _partial) = region.as_chunks::<WIDTH_PUBKEY>();
+        solvers
+    }
+
+    /// Locate `solver` in the sorted solver list, mirroring
+    /// [`slice::binary_search`]: `Ok(index)` if present, `Err(index)` with the
+    /// slot it would occupy otherwise. The list is sorted by address bytes.
+    pub fn solver_search(&self, solver: &Pubkey) -> Result<usize, usize> {
+        let seek = solver.to_bytes();
+        self.solver_region()
+            .binary_search_by(|probe| probe.cmp(&seek))
+    }
+
+    /// The stored solvers, in order (sorted ascending by address).
+    pub fn solvers(&self) -> impl Iterator<Item = Pubkey> + '_ {
+        self.solver_region()
+            .iter()
+            .map(|raw| Pubkey::new_from_array(*raw))
+    }
 }
 
 impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
@@ -185,6 +211,18 @@ mod tests {
     fn header_bytes() -> [u8; WIDTH_HEADER] {
         let mut bytes = [0u8; WIDTH_HEADER];
         StateAccount::initialize(&mut bytes[..], &SAMPLE_HEADER).expect("header fits");
+        bytes
+    }
+
+    /// [`header_bytes`] followed by `solvers`, stored sorted ascending by address
+    /// as the on-chain list always is, so callers can pass them in any order.
+    fn state_bytes(solvers: &[Pubkey]) -> Vec<u8> {
+        let mut solvers = solvers.to_vec();
+        solvers.sort();
+        let mut bytes = header_bytes().to_vec();
+        for solver in &solvers {
+            bytes.extend_from_slice(&solver.to_bytes());
+        }
         bytes
     }
 
@@ -296,6 +334,63 @@ mod tests {
             state.authority(Role::ReclaimAuthority),
             SAMPLE_HEADER.reclaim_authority
         );
+    }
+
+    /// Three solvers in arbitrary order; `state_bytes` stores them sorted, as the
+    /// on-chain list always is. Returns both the stored bytes and the sorted
+    /// order the reads should reflect.
+    fn sample_solvers() -> (Vec<u8>, [Pubkey; 3]) {
+        let solvers = [
+            pubkey_from_seed("sample_solver's solver a"),
+            pubkey_from_seed("sample_solver's solver b"),
+            pubkey_from_seed("sample_solver's solver c"),
+        ];
+        let bytes = state_bytes(&solvers);
+        let mut sorted = solvers;
+        sorted.sort();
+        (bytes, sorted)
+    }
+
+    #[test]
+    fn solvers_is_empty_without_any_stored() {
+        let bytes = state_bytes(&[]);
+        let state = StateAccount::new(&bytes[..]).expect("valid header");
+        assert_eq!(state.solvers().count(), 0);
+    }
+
+    #[test]
+    fn solvers_lists_stored_solvers_sorted() {
+        let (bytes, sorted) = sample_solvers();
+        let state = StateAccount::new(&bytes[..]).expect("valid header");
+        assert_eq!(state.solvers().collect::<Vec<_>>(), sorted);
+    }
+
+    #[test]
+    fn solver_search_on_empty_list() {
+        let bytes = state_bytes(&[]);
+        let state = StateAccount::new(&bytes[..]).expect("valid header");
+        let absent = pubkey_from_seed("absent solver");
+        assert_eq!(state.solver_search(&absent), Err(0));
+    }
+
+    #[test]
+    fn solver_search_finds_present() {
+        let (bytes, sorted) = sample_solvers();
+        let state = StateAccount::new(&bytes[..]).expect("valid header");
+        for (index, solver) in sorted.iter().enumerate() {
+            assert_eq!(state.solver_search(solver), Ok(index));
+        }
+    }
+
+    #[test]
+    fn solver_search_locates_absent() {
+        let (bytes, sorted) = sample_solvers();
+        let state = StateAccount::new(&bytes[..]).expect("valid header");
+        // An absent solver isn't found; its reported slot is where inserting it
+        // would keep the list sorted.
+        let absent = pubkey_from_seed("absent solver");
+        let slot = state.solver_search(&absent).expect_err("absent solver");
+        assert_eq!(slot, sorted.partition_point(|s| s < &absent));
     }
 
     #[test]
