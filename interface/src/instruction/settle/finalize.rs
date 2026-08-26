@@ -1,20 +1,38 @@
 //! Off-chain builder and input parsing for the `FinalizeSettle` instruction.
 
-use std::vec;
-
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::instruction::InstructionInputParsing;
-use crate::{recover_discriminator, SettlementError, SettlementInstruction};
+use crate::{SettlementError, SettlementInstruction};
 
 use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
 
 /// The number of fixed accounts every `FinalizeSettle` carries before its push
 /// accounts: the instructions sysvar, the settlement state PDA, and the token
 /// program.
-pub const FINALIZE_FIXED_ACCOUNTS: usize = 3;
+///
+/// Crate-private on purpose: the layout it describes is consumed only by the
+/// builder and the parser below. Anything that needs to read a `FinalizeSettle`
+/// — the settlement program's `BeginSettle` included — goes through
+/// [`FinalizeSettleInput`] rather than re-deriving offsets from this count.
+const FINALIZE_FIXED_ACCOUNTS: usize = 3;
+
+/// The fixed accounts every `FinalizeSettle` carries, in wire order, ahead of
+/// its `[source_buffer, destination]` push pairs.
+///
+/// The return type ties the list to [`FINALIZE_FIXED_ACCOUNTS`]: adding or
+/// removing a fixed account here without updating that count is a compile
+/// error, and the `parser_recovers_builder_pushes` property test pins the
+/// parser's leading slice pattern to the same count.
+fn fixed_accounts(state_pda: Pubkey) -> [AccountMeta; FINALIZE_FIXED_ACCOUNTS] {
+    [
+        AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
+        AccountMeta::new_readonly(state_pda, false),
+        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
+    ]
+}
 
 /// Split the instruction bytes from `FinalizeSettle` that remain after all
 /// constant-size data has been extracted into the per-push bump bytes and the
@@ -33,30 +51,6 @@ fn split_push_bytes(body: &[u8]) -> Result<(&[u8], &[[u8; 8]]), ProgramError> {
         return Err(ProgramError::InvalidInstructionData);
     };
     Ok((bumps, amounts))
-}
-
-/// Like [`split_push_bytes`], but yields the amounts already decoded as `u64`s
-/// so callers streaming the amounts don't each re-decode the little-endian
-/// bytes. The decoding is lazy, so nothing is allocated.
-fn split_pushes(body: &[u8]) -> Result<(&[u8], impl Iterator<Item = u64> + '_), ProgramError> {
-    let (bumps, amounts) = split_push_bytes(body)?;
-    Ok((bumps, amounts.iter().copied().map(u64::from_le_bytes)))
-}
-
-/// The push amounts, in push order, carried by a `FinalizeSettle` instruction,
-/// recovered from its full instruction data alone (discriminator included, as
-/// returned by instruction introspection).
-///
-/// This function doesn't otherwise check that the instruction is consistent
-/// with a `FinalizeSettle` instruction. For example, the discriminator field is
-/// ignored.
-pub fn finalize_push_amounts(
-    instruction_data: &[u8],
-) -> Result<impl Iterator<Item = u64> + '_, ProgramError> {
-    let (_discriminator, rest) = recover_discriminator(instruction_data)?;
-    let (_begin_ix_index, body) = recover_counterpart(rest)?;
-    let (_bumps, amounts) = split_pushes(body)?;
-    Ok(amounts)
 }
 
 /// Builder for a `FinalizeSettle` instruction pushing the funds described by the
@@ -116,11 +110,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             .chain(amounts.iter().flat_map(|amount| amount.to_le_bytes()))
             .collect();
 
-        let mut accounts = vec![
-            AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
-            AccountMeta::new_readonly(state_pda, false),
-            AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
-        ];
+        let mut accounts = Vec::from(fixed_accounts(state_pda));
         for (source, destination) in source_buffers.iter().zip(destinations) {
             accounts.push(AccountMeta::new(*source, false));
             accounts.push(AccountMeta::new(*destination, false));
@@ -573,25 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn finalize_push_amounts_extracts_amounts() {
-        let amounts = [0x0102, 0x0304];
-        let ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
-            begin_ix_index: 0x1337,
-            source_buffers: &[Pubkey::new_unique(), Pubkey::new_unique()],
-            destinations: &[Pubkey::new_unique(), Pubkey::new_unique()],
-            bumps: &[0xa1, 0xb1],
-            amounts: &amounts,
-        });
-
-        let recovered = finalize_push_amounts(&ix.data).expect("valid finalize data");
-        let decoded: Vec<u64> = recovered.collect();
-        assert_eq!(decoded, amounts);
-    }
-
-    #[test]
-    fn finalize_push_amounts_handles_no_pushes() {
+    fn finalize_settle_input_handles_no_pushes() {
         let ix = Instruction::from(FinalizeSettle {
             program_id: Pubkey::new_unique(),
             state_pda: Pubkey::new_unique(),
@@ -601,79 +573,71 @@ mod tests {
             bumps: &[],
             amounts: &[],
         });
-        let mut amounts = finalize_push_amounts(&ix.data).expect("valid empty finalize data");
-        assert!(amounts.next().is_none());
-    }
-
-    #[test]
-    fn finalize_push_amounts_rejects_incorrect_bytes() {
-        let mut ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
-            begin_ix_index: 0,
-            source_buffers: &[Pubkey::new_unique()],
-            destinations: &[Pubkey::new_unique()],
-            bumps: &[0xff],
-            amounts: &[31337],
-        });
-        ix.data.pop();
-        assert_eq!(
-            finalize_push_amounts(&ix.data).err(),
-            Some(ProgramError::InvalidInstructionData),
-        );
-    }
-
-    /// An arbitrary well-formed `FinalizeSettle` instruction with `push_count`
-    /// pushes.
-    fn arb_finalize_instruction(
-        push_count: impl Into<prop::collection::SizeRange>,
-    ) -> impl Strategy<Value = Instruction> {
-        (
-            any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
-            any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
-            any::<u16>(),
-            crate::instruction::settle::fixtures::arb_pushes(push_count),
-        )
-            .prop_map(
-                |(
-                    program_id,
-                    state_pda,
-                    begin_ix_index,
-                    (source_buffers, destinations, bumps, amounts),
-                )| {
-                    Instruction::from(FinalizeSettle {
-                        program_id,
-                        state_pda,
-                        begin_ix_index,
-                        source_buffers: &source_buffers,
-                        destinations: &destinations,
-                        bumps: &bumps,
-                        amounts: &amounts,
-                    })
-                },
-            )
+        let accounts = fake_sequential_accounts::<FINALIZE_FIXED_ACCOUNTS>();
+        let parsed = FinalizeSettleInput::parse(&ix.data, &accounts)
+            .expect("an empty finalize still parses");
+        assert!(parsed.pushes.iter().next().is_none());
     }
 
     proptest! {
-        /// For any well-formed `FinalizeSettle`, the amounts `finalize_push_amounts`
-        /// recovers from the instruction data alone (the way `BeginSettle` sees it
-        /// through introspection) must equal the amounts the full
-        /// `FinalizeSettleInput` parser reads from the same data plus its accounts.
+        /// The builder and the parser must agree on the wire format: for any
+        /// well-formed `FinalizeSettle`, parsing it back recovers every push
+        /// the builder was handed, in order.
+        ///
+        /// This is what pins the two halves of the layout together, so it covers
+        /// all four push fields rather than just the amounts: the builder writes
+        /// the source buffer and destination as account metas but the bump and
+        /// amount into the instruction data, and a drift in either path has to
+        /// fail here.
         #[test]
-        fn finalize_push_amounts_matches_parser(ix in arb_finalize_instruction(0..=16usize)) {
-            // Recovered from the instruction data alone.
-            let recovered: Vec<u64> =
-                finalize_push_amounts(&ix.data).expect("well-formed finalize data").collect();
+        fn parser_recovers_builder_pushes(
+            program_id in any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
+            state_pda in any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
+            begin_ix_index in any::<u16>(),
+            (source_buffers, destinations, bumps, amounts)
+                in crate::instruction::settle::fixtures::arb_pushes(0..=16usize),
+        ) {
+            let ix = Instruction::from(FinalizeSettle {
+                program_id,
+                state_pda,
+                begin_ix_index,
+                source_buffers: &source_buffers,
+                destinations: &destinations,
+                bumps: &bumps,
+                amounts: &amounts,
+            });
 
-            // Read by the full parser from the same data plus its accounts.
             let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|meta| fake_account(meta.pubkey)).collect();
             let parsed = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
-            let parsed_amounts: Vec<u64> =
-                parsed.pushes.iter().map(|push| push.amount).collect();
 
-            prop_assert_eq!(recovered, parsed_amounts);
+            let recovered: Vec<(Address, Address, u8, u64)> = parsed
+                .pushes
+                .iter()
+                .map(|push| (
+                    *push.source_buffer.address(),
+                    *push.destination.address(),
+                    push.bump,
+                    push.amount,
+                ))
+                .collect();
+
+            // The builder's own inputs, the ground truth the parse must reproduce.
+            let expected: Vec<(Address, Address, u8, u64)> = source_buffers
+                .iter()
+                .zip(&destinations)
+                .zip(&bumps)
+                .zip(&amounts)
+                .map(|(((source, destination), bump), amount)| (
+                    Address::new_from_array(source.to_bytes()),
+                    Address::new_from_array(destination.to_bytes()),
+                    *bump,
+                    *amount,
+                ))
+                .collect();
+
+            prop_assert_eq!(&recovered, &expected);
         }
     }
 }

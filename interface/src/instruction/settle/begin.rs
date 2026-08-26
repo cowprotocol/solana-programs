@@ -1,7 +1,5 @@
 //! Off-chain builder and input parsing for the `BeginSettle` instruction.
 
-use std::vec;
-
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
@@ -10,6 +8,25 @@ use crate::instruction::InstructionInputParsing;
 use crate::{SettlementError, SettlementInstruction};
 
 use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
+
+/// The number of fixed accounts every `BeginSettle` carries before its per-order
+/// accounts: the instructions sysvar, the settlement state PDA, and the token
+/// program.
+const BEGIN_FIXED_ACCOUNTS: usize = 3;
+
+/// The fixed accounts every `BeginSettle` carries, in wire order, ahead of its
+/// per-order `[order_pda, sell_token_account, destinations..]` groups.
+///
+/// The return type ties the list to [`BEGIN_FIXED_ACCOUNTS`]: adding or removing
+/// a fixed account here without updating that count is a compile error, and
+/// `parse_body`'s leading slice pattern must destructure exactly this many names.
+fn fixed_accounts(state_pda: Pubkey) -> [AccountMeta; BEGIN_FIXED_ACCOUNTS] {
+    [
+        AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
+        AccountMeta::new_readonly(state_pda, false),
+        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
+    ]
+}
 
 /// A single transfer made when settling an order: `amount` tokens sent from the
 /// order's sell token account to `destination`.
@@ -90,11 +107,7 @@ impl From<BeginSettle<'_>> for Instruction {
 
         // Read-only accounts for instruction introspection, settlement state, and
         // the SPL token program.
-        let mut accounts = vec![
-            AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
-            AccountMeta::new_readonly(state_pda, false),
-            AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
-        ];
+        let mut accounts = Vec::from(fixed_accounts(state_pda));
         for &i in &order {
             // Writable account for the order: `BeginSettle` updates its filled
             // amounts (`amount_withdrawn`/`amount_received`).
@@ -287,7 +300,7 @@ mod tests {
 
     /// The fixed accounts every `BeginSettle` carries before its order accounts:
     /// the instructions sysvar, the settlement state PDA, and the token program.
-    const FIXED_ACCOUNTS: usize = 3;
+    use super::BEGIN_FIXED_ACCOUNTS as FIXED_ACCOUNTS;
 
     /// A placeholder auction id for the tests where its specific value is
     /// incidental. The wire-layout tests spell out the literal bytes instead.

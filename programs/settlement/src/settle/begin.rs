@@ -8,10 +8,7 @@ use cow_settlement_interface::{
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::{
-        settle::{
-            finalize_push_amounts, BeginSettleInput, SettledOrder, SettledOrders,
-            FINALIZE_FIXED_ACCOUNTS,
-        },
+        settle::{BeginSettleInput, FinalizeSettleInput, SettledOrder, SettledOrders},
         InstructionInputParsing,
     },
     recover_discriminator, SettlementError, SettlementInstruction,
@@ -69,6 +66,15 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
+    // Read the paired `FinalizeSettle` through the same parser that instruction
+    // runs on itself, so its account layout is spelled out in exactly one place.
+    // `parse` re-checks the discriminator and rejects a push count that
+    // disagrees with the accounts, which `validate_counterpart` above doesn't
+    // look at.
+    let finalize_accounts = introspected_accounts(&finalize_ix)?;
+    let finalize =
+        FinalizeSettleInput::parse(finalize_ix.get_instruction_data(), &finalize_accounts)?;
+
     validate_token_program_account(input.token_program_account)?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
@@ -77,45 +83,28 @@ pub fn process_begin_settle(
             input.state_pda_account,
             state_pda_signer,
             &input.orders,
-            &finalize_ix,
+            &finalize,
         )
     })
 }
 
-/// The destination address of each push carried by the paired `FinalizeSettle`,
-/// seen through instruction introspection, in order.
+/// The addresses of an introspected instruction's accounts, in order.
 ///
-/// The push structure isn't validated here: the paired `FinalizeSettle` re-parses
-/// the same instruction from its own data and rejects a dangling source buffer or
-/// a push count that disagrees with its accounts. The caller pairs these
-/// destinations with the settled orders one-to-one, which is what catches a count
-/// mismatch.
-fn push_destinations<'a>(
-    instruction: &'a IntrospectedInstruction<'a>,
-) -> impl Iterator<Item = &'a Address> {
-    // Each push occupies a `[source_buffer, destination]` meta pair after the
-    // fixed accounts, so the destinations are every second meta beginning at the
-    // first push's destination.
-    (FINALIZE_FIXED_ACCOUNTS + 1..instruction.num_account_metas())
-        .step_by(2)
-        .map(|destination_index| {
-            // The index stays below `num_account_metas`, so the lookup, whose only
-            // error is an out-of-bounds index, always succeeds.
-            &instruction
-                .get_instruction_account_at(destination_index)
-                .expect("index within num_account_metas")
-                .key
+/// Instruction introspection hands out account metas one index at a time, while
+/// the shared instruction parsers borrow a slice. Collecting the addresses
+/// bridges the two so `BeginSettle` can read its counterpart with the parser
+/// that counterpart uses on itself, instead of walking the metas at hardcoded
+/// offsets and duplicating the account layout.
+fn introspected_accounts(
+    instruction: &IntrospectedInstruction<'_>,
+) -> Result<Vec<Address>, ProgramError> {
+    (0..instruction.num_account_metas())
+        .map(|index| {
+            instruction
+                .get_instruction_account_at(index)
+                .map(|meta| meta.key)
         })
-}
-
-/// The paired pushes `BeginSettle` settles against: each push's destination
-/// (read from the finalize's account metas) with the amount it pays in (read
-/// from the finalize's instruction data), in push order.
-fn finalize_pushes<'a>(
-    finalize_ix: &'a IntrospectedInstruction<'a>,
-) -> Result<impl Iterator<Item = (&'a Address, u64)>, ProgramError> {
-    let amounts = finalize_push_amounts(finalize_ix.get_instruction_data())?;
-    Ok(push_destinations(finalize_ix).zip(amounts))
+        .collect()
 }
 
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
@@ -178,7 +167,7 @@ fn settle_orders(
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
     orders: &SettledOrders<'_, AccountView>,
-    finalize_ix: &IntrospectedInstruction,
+    finalize: &FinalizeSettleInput<'_, Address>,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
@@ -189,7 +178,10 @@ fn settle_orders(
     // Pull one push (destination and amount) per order; running out mid-loop
     // means fewer pushes than orders. A leftover push (more pushes than orders)
     // is caught after.
-    let mut pushes = finalize_pushes(finalize_ix)?;
+    let mut pushes = finalize
+        .pushes
+        .iter()
+        .map(|push| (push.destination, push.amount));
 
     for order in orders.iter() {
         let order_pda_address = *order.order_pda.address();
@@ -962,13 +954,15 @@ mod tests {
     }
 
     proptest! {
-        /// `BeginSettle` settles against a paired `FinalizeSettle`'s pushes via
-        /// `finalize_pushes`: each destination (from the account metas) paired
-        /// with its amount (from the instruction data). For any well-formed
-        /// finalize those pairs must match both the builder's inputs and what
-        /// `FinalizeSettleInput` parses from the same instruction.
+        /// `BeginSettle` reads its paired `FinalizeSettle` through instruction
+        /// introspection, feeding the introspected account addresses to the same
+        /// `FinalizeSettleInput` parser the finalize runs on its own
+        /// `AccountView`s. Both routes into that parser must recover the
+        /// builder's pushes identically: the introspected metas and the runtime
+        /// accounts are different account types reaching the same layout, and
+        /// nothing else pins the two together.
         #[test]
-        fn finalize_pushes_matches_parser(
+        fn introspected_parse_matches_account_parse(
             program_id in any::<[u8; 32]>(),
             state_pda in any::<[u8; 32]>(),
             begin_ix_index in any::<u16>(),
@@ -985,9 +979,18 @@ mod tests {
             });
 
             let introspected_instruction = introspected_instruction(&ix);
-            let introspected: Vec<(Address, u64)> = finalize_pushes(&introspected_instruction)
+            // The production route: introspected metas collected into a slice,
+            // then handed to the shared parser.
+            let introspected_accounts = introspected_accounts(&introspected_instruction)
+                .expect("indices stay within the meta count");
+            let introspected: Vec<(Address, u64)> = FinalizeSettleInput::parse(
+                introspected_instruction.get_instruction_data(),
+                &introspected_accounts,
+            )
                 .expect("well-formed finalize data")
-                .map(|(&destination, amount)| (destination, amount))
+                .pushes
+                .iter()
+                .map(|push| (*push.destination, push.amount))
                 .collect();
 
             let accounts: Vec<AccountView> =

@@ -38,6 +38,19 @@ fn assert_finalize_error<T>(result: Result<T, TransactionError>, expected: Instr
     );
 }
 
+/// Assert the transaction failed in `BeginSettle` (at [`BEGIN_INDEX`]) with
+/// `expected`.
+///
+/// `BeginSettle` reads its paired finalize through the same parser the finalize
+/// applies to itself, so a finalize whose accounts and data disagree is rejected
+/// here first — before any funds are pulled — rather than at the finalize.
+fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: InstructionError) {
+    assert_eq!(
+        result.err(),
+        Some(TransactionError::InstructionError(BEGIN_INDEX, expected)),
+    );
+}
+
 /// Build the minimal `[BeginSettle, FinalizeSettle]` instructions that settle
 /// `orders` (begin) and push their proceeds (finalize).
 fn finalize(program_id: &Pubkey, orders: &[FinalizedIntent]) -> Vec<Instruction> {
@@ -291,15 +304,14 @@ fn rejects_push_account_count_mismatch() {
         orders: &orders,
     });
     // ...with another push's worth of data bytes appended but no matching
-    // accounts. `BeginSettle` derives the push count from the (unchanged) account
-    // metas (one push, matching its one order and paying the right destination)
-    // so it passes. Only the finalize reads the data, where it now parses two
-    // pushes against two push accounts and rejects the mismatch. This is the
-    // account/data disagreement `BeginSettle` structurally can't see.
+    // accounts. Both instructions parse the finalize the same way, so the
+    // account/data disagreement is caught by whichever runs first: `BeginSettle`
+    // reads two pushes out of the data, finds only one push's accounts, and
+    // rejects before pulling anything.
     finalize.data.extend_from_slice(&[0u8; 9]);
 
     let instructions = build_settlement(&program_id, &orders, finalize);
-    assert_finalize_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
     );
@@ -315,17 +327,16 @@ fn rejects_too_few_accounts() {
         begin_ix_index: BEGIN_INDEX.into(),
         orders: &[],
     });
-    // ...with one of its three fixed accounts popped. `BeginSettle` runs first
-    // but only reads push destinations off the accounts (finding none, matching
-    // its zero orders) so it passes. The finalize then can't even destructure
-    // its fixed accounts and raises `NotEnoughAccountKeys`.
+    // ...with one of its three fixed accounts popped, so the finalize can't even
+    // destructure its fixed accounts. `BeginSettle` runs the same parser over the
+    // introspected metas, so it raises `NotEnoughAccountKeys` first.
     finalize.accounts.pop();
 
     let instructions = build_settlement(&program_id, &[], finalize);
     let err = send(&mut svm, &payer, instructions)
         .expect_err("a finalize missing a fixed account must be rejected");
-    let TransactionError::InstructionError(FINALIZE_INDEX, ix_err) = err else {
-        panic!("expected the finalize (index {FINALIZE_INDEX}) to fail, got {err:?}");
+    let TransactionError::InstructionError(BEGIN_INDEX, ix_err) = err else {
+        panic!("expected the begin (index {BEGIN_INDEX}) to fail, got {err:?}");
     };
     // Compare against the non-deprecated `ProgramError` variant the program
     // returns; naming the `InstructionError` variant directly would touch a
@@ -362,10 +373,10 @@ fn rejects_two_too_few_accounts() {
     finalize.accounts.pop();
 
     // The paired `Begin` settles no orders, so it never checks the push
-    // destinations: the inconsistency is left for the finalize's own
-    // account-count check to reject.
+    // destinations — but it still parses the finalize in full, so it catches the
+    // declared push having no accounts behind it.
     let instructions = build_settlement(&program_id, &[], finalize);
-    assert_finalize_error(
+    assert_begin_error(
         send(&mut svm, &payer, instructions),
         to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
     );
