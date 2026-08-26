@@ -57,6 +57,8 @@ pub fn process_add_solver(
     // rent. This CPI runs before any data borrow so the account is free to grow.
     let shortfall = Rent::get()?
         .try_minimum_balance(new_len)?
+        // why saturating: if there's more balance available than rent needed,
+        // then there's no shortfall, that is, `shortfall == 0``.
         .saturating_sub(state_pda.lamports());
     if shortfall > 0 {
         Transfer {
