@@ -31,6 +31,8 @@ mod common;
 #[track_caller]
 fn assert_solver_invariant(solvers: &[Pubkey]) {
     assert!(
+        // We use `is_sorted_by` here instead of `is_sorted` because that
+        // doesn't catch duplicates.
         solvers.is_sorted_by(|a, b| a < b),
         "invariant violated: solver list must be strictly ascending by address: {solvers:?}",
     );
