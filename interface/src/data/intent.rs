@@ -5,8 +5,7 @@
 //! - [`OrderIntent`] is the idiomatic Rust representation.
 //! - [`EncodedOrderIntent`] is its canonical byte representation: the only
 //!   thing sent on the wire and also the data encoding used to generate the
-//!   order UID. There, `kind` and `partially_fillable` share a single flags
-//!   byte.
+//!   order UID.
 //!
 //! Conversion is asymmetric: [`EncodedOrderIntent`]`::from(OrderIntent)` is
 //! infallible, but decoding raw bytes via [`OrderIntent`]`::try_from` returns
