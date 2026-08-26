@@ -318,22 +318,16 @@ pub mod fixtures {
         })
     }
 
-    /// Any flags byte the decoder accepts. Lets a test pin the flags slot of
-    /// otherwise arbitrary bytes.
+    /// Any flags byte the decoder accepts.
     pub fn arb_flags_byte() -> impl Strategy<Value = u8> {
-        arb_flags().prop_map(|flags| <[u8; 1]>::from(flags)[0])
+        any::<u8>().prop_map(|byte| byte & Flags::DEFINED)
     }
 
-    /// Any flags byte the decoder rejects: one carrying at least one bit
-    /// outside those the encoding defines.
+    /// Any flags byte the decoder rejects.
     pub fn arb_invalid_flags_byte() -> impl Strategy<Value = u8> {
-        (
-            any::<u8>().prop_filter("at least one reserved bit must be set", |reserved| {
-                reserved & !Flags::DEFINED != 0
-            }),
-            arb_flags_byte(),
-        )
-            .prop_map(|(reserved, defined)| (reserved & !Flags::DEFINED) | defined)
+        any::<u8>().prop_filter("must have at least one bit that is undefined", |byte| {
+            byte & !Flags::DEFINED > 0
+        })
     }
 
     /// Any valid [`OrderIntent`].
