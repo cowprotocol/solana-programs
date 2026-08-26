@@ -158,7 +158,9 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     let intent = OrderIntent {
         owner: ctx.payer.pubkey(),
         sell_token_account: sell.ta,
+        sell_mint: sell.mint,
         buy_token_account: buy.ta,
+        buy_mint: buy.mint,
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,

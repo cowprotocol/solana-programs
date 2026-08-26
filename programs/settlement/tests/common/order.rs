@@ -12,14 +12,17 @@ use solana_sdk::{
 
 use super::{signed_tx, token};
 
-/// A default valid sell order owned by `owner`, selling from `sell_token_account`.
+/// A default valid sell order owned by `owner`, using placeholders for all
+/// token accounts and mints.
 /// `salt` is folded into `app_data` so callers can mint several orders that hash
 /// to different UIDs (and therefore different order PDAs).
-pub fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> OrderIntent {
+pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
     OrderIntent {
         owner,
         buy_token_account: Pubkey::new_from_array([0x22; 32]),
-        sell_token_account,
+        buy_mint: Pubkey::new_from_array([0x33; 32]),
+        sell_token_account: Pubkey::new_from_array([0x44; 32]),
+        sell_mint: Pubkey::new_from_array([0x55; 32]),
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,
@@ -28,6 +31,26 @@ pub fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> Ord
             partially_fillable: true,
         },
         app_data: [salt; 32],
+    }
+}
+
+/// [`sample_intent`] with all four token-account fields filled in with freshly
+/// created applicable data. This fulfills the minimum requirements for an order
+/// to be settlable.
+pub fn settlable_intent(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    owner: Pubkey,
+    salt: u8,
+) -> OrderIntent {
+    let sell_mint = token::create_mint(svm, payer);
+    let buy_mint = token::create_mint(svm, payer);
+    OrderIntent {
+        sell_token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
+        sell_mint,
+        buy_token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
+        buy_mint,
+        ..sample_intent(owner, salt)
     }
 }
 
@@ -69,7 +92,7 @@ impl<'a> OrderBuilder<'a> {
     pub fn new(svm: &'a mut LiteSVM, program_id: &'a Pubkey, payer: &'a Keypair) -> Self {
         // The sell and buy token accounts are created at `build` time;
         // `sample_intent`'s placeholder addresses stand in until then.
-        let intent = sample_intent(payer.pubkey(), Pubkey::default(), 0);
+        let intent = sample_intent(payer.pubkey(), 0);
         Self {
             svm,
             program_id,
@@ -138,9 +161,11 @@ impl<'a> OrderBuilder<'a> {
             buy_mint,
         } = self;
         let sell_mint = sell_mint.unwrap_or_else(|| token::create_mint(svm, payer));
+        intent.sell_mint = sell_mint;
         intent.sell_token_account =
             token::create_token_account(svm, payer, &sell_mint, &payer.pubkey());
         let buy_mint = buy_mint.unwrap_or_else(|| token::create_mint(svm, payer));
+        intent.buy_mint = buy_mint;
         intent.buy_token_account =
             token::create_token_account(svm, payer, &buy_mint, &payer.pubkey());
         create_order_pda(svm, program_id, payer, &intent);

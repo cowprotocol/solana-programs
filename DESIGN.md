@@ -115,10 +115,12 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
-	// Origin and destination of funds in this order.
-	// They implicitly encode both the receiver account and the traded tokens.
+	// Origin and destination of funds in this order, each with the mint it
+	// should correspond to.
 	buy_token_account: Pubkey
+	buy_mint: Pubkey
 	sell_token_account: Pubkey
+	sell_mint: Pubkey
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64

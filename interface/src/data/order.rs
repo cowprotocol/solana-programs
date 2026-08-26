@@ -77,7 +77,7 @@ impl OrderAccount {
         };
 
         if !is_pda_with_signer_seeds(
-            order_pda,
+            order_pda.address(),
             program_id,
             order_pda_signer_seeds(&uid, &[account.bump]),
         ) {
@@ -88,7 +88,7 @@ impl OrderAccount {
     }
 }
 
-/// Canonical 200-byte representation of an [`OrderAccount`]. The bytes
+/// Canonical 264-byte representation of an [`OrderAccount`]. The bytes
 /// written to/read from the order PDA's data area.
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
@@ -105,7 +105,7 @@ impl OrderAccount {
 ///  ││││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
 ///  ││││drawn  │ceived │                               │                                     │
 ///  └┴┴┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
-/// 0 1 2 3      11      19                              51                ...               200
+/// 0 1 2 3      11      19                              51                ...               264
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
@@ -120,7 +120,7 @@ impl EncodedOrderAccount {
     const W_CREATED_BY: usize = size_of::<Pubkey>();
     const W_INTENT: usize = EncodedOrderIntent::SIZE;
 
-    pub const SIZE: usize = 200;
+    pub const SIZE: usize = 264;
 
     /// Single-byte account discriminator. See [`SettlementAccount`].
     pub const DISCRIMINATOR: u8 = SettlementAccount::OrderAccount.discriminator();
