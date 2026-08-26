@@ -251,8 +251,6 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use super::*;
 
     #[test]
@@ -335,23 +333,14 @@ mod tests {
     }
 
     #[test]
-    fn all_roles_lists_every_role() {
+    fn all_roles_lists_every_role_in_discriminator_order() {
         // The roles `try_from` accepts, discovered independently of `Role::ALL`.
-        // Adding a `Role` variant makes this set diverge from `Role::ALL`,
-        // failing here until `Role::ALL` is updated.
+        // The scan runs over ascending bytes, so this is every role that exists,
+        // in discriminant order.
         let every_role: Vec<Role> = (u8::MIN..=u8::MAX)
             .filter_map(|byte| Role::try_from(byte).ok())
             .collect();
 
-        assert_eq!(Role::ALL.len(), every_role.len());
-        for role in every_role {
-            assert!(Role::ALL.contains(&role));
-        }
-    }
-
-    #[test]
-    fn all_roles_has_no_duplicates() {
-        let unique: HashSet<u8> = Role::ALL.iter().map(|role| role.discriminator()).collect();
-        assert_eq!(unique.len(), Role::ALL.len(), "`Role::ALL` has duplicates");
+        assert_eq!(Role::ALL.as_slice(), every_role.as_slice());
     }
 }
