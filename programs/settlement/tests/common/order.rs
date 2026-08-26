@@ -1,6 +1,8 @@
 //! On-chain order construction shared by the settlement integration tests.
 
-use cow_settlement_client::cow_settlement_interface::data::intent::{OrderIntent, OrderKind};
+use cow_settlement_client::cow_settlement_interface::data::intent::{
+    Flags, OrderIntent, OrderKind,
+};
 use cow_settlement_client::instructions::CreateOrder;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -21,8 +23,10 @@ pub fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> Ord
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,
-        kind: OrderKind::Sell,
-        partially_fillable: true,
+        flags: Flags {
+            kind: OrderKind::Sell,
+            partially_fillable: true,
+        },
         app_data: [salt; 32],
     }
 }
@@ -102,13 +106,13 @@ impl<'a> OrderBuilder<'a> {
 
     /// Set the order's kind (`Sell` or `Buy`). Defaults to `Sell`.
     pub fn kind(mut self, kind: OrderKind) -> Self {
-        self.intent.kind = kind;
+        self.intent.flags.kind = kind;
         self
     }
 
     /// Set whether the order may be filled partially. Defaults to `true`.
     pub fn partially_fillable(mut self, partially_fillable: bool) -> Self {
-        self.intent.partially_fillable = partially_fillable;
+        self.intent.flags.partially_fillable = partially_fillable;
         self
     }
 

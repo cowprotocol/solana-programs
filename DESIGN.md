@@ -124,17 +124,20 @@ struct OrderIntent {
 	buy_amount: u64
 	// Unix timestamp
 	valid_to: u32
-	// Either Buy or Sell
-	kind: OrderKind
-	partially_fillable: bool
+	flags: Flags
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
+
+struct Flags {
+	// Either Buy or Sell
+	kind: OrderKind
+	partially_fillable: bool
+}
 ```
 
-The intent's `kind` and `partially_fillable` share a single flags byte in the
-encoded form, one bit each, with the remaining bits reserved and required to be
-zero.
+The fields grouped in `Flags` share a single byte in the encoded form, one bit
+each, with the remaining bits reserved and required when decoding to be zero.
 
 Differences with Ethereum:
 

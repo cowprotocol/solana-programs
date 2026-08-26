@@ -358,11 +358,11 @@ fn validated_final_amounts(
         .checked_add(amount_out)
         .ok_or(SettlementError::AmountReceivedOverflow)?;
 
-    let (filled, order_amount) = match intent.kind {
+    let (filled, order_amount) = match intent.flags.kind {
         OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
         OrderKind::Buy => (amount_received, intent.buy_amount),
     };
-    if filled != order_amount && !intent.partially_fillable {
+    if filled != order_amount && !intent.flags.partially_fillable {
         return Err(SettlementError::OrderNotExactlyFilled);
     } else if filled > order_amount {
         return Err(SettlementError::FillExceedsOrderAmount);
