@@ -143,8 +143,7 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
     /// slot it would occupy otherwise. The list is sorted by address bytes.
     pub fn solver_search(&self, solver: &Pubkey) -> Result<usize, usize> {
         let seek = solver.to_bytes();
-        self.solver_region()
-            .binary_search_by(|probe| probe.cmp(&seek))
+        self.solver_region().binary_search(&seek)
     }
 
     /// The stored solvers, in order (sorted ascending by address).
