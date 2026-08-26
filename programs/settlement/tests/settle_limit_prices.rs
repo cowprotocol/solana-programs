@@ -80,10 +80,10 @@ fn settle_all(
             &intent.sell_token_account,
             amount_in,
         );
-        let sell_mint = token::mint_of(svm, &intent.sell_token_account);
         let mut pull_list: Vec<Pull> = vec![];
         for &amount in pulls {
-            let destination = token::create_token_account(svm, payer, &sell_mint, &unique_pubkey());
+            let destination =
+                token::create_token_account(svm, payer, &intent.sell_mint, &unique_pubkey());
             pull_list.push(Pull {
                 destination,
                 amount,
@@ -95,12 +95,10 @@ fn settle_all(
         initialized.push(InitializedIntent { intent, pulls });
 
         // Buy side: fund the buffer so the push can draw `amount_out`.
-        let buy_mint = token::mint_of(svm, &intent.buy_token_account);
-        buffer::ensure_funded(svm, program_id, payer, &buy_mint, amount_out);
+        buffer::ensure_funded(svm, program_id, payer, &intent.buy_mint, amount_out);
 
         finalized.push(FinalizedIntent {
             intent,
-            mint: buy_mint,
             amount: amount_out,
         });
     }

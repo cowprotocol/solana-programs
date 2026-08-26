@@ -72,7 +72,7 @@ pub fn process_create_order(
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::intent::{OrderIntent, OrderKind};
+    use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
@@ -107,11 +107,17 @@ mod tests {
     fn process_create_order_rejects_invalid_encoded_intent() {
         let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
         let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntent {
-            kind: OrderKind::Buy,
+            flags: Flags {
+                kind: OrderKind::Buy,
+                ..intent.flags
+            },
             ..intent
         });
         let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntent {
-            kind: OrderKind::Sell,
+            flags: Flags {
+                kind: OrderKind::Sell,
+                ..intent.flags
+            },
             ..intent
         });
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
