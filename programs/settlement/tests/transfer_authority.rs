@@ -24,7 +24,7 @@ fn read_authority(svm: &LiteSVM, state_pda: &Pubkey, role: Role) -> Pubkey {
     let account = svm
         .get_account(state_pda)
         .expect("state PDA should exist after initialize");
-    StateAccount::new(&account.data[..])
+    StateAccount::attach(&account.data[..])
         .expect("state PDA should be a valid state account")
         .authority(role)
 }

@@ -102,7 +102,7 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
     /// Wrap an account's bytes, checking they begin with the settlement-state
     /// discriminator and are at least a full header long. Every accessor relies
     /// on that guarantee not to panic.
-    pub fn new(bytes: T) -> Result<Self, ProgramError> {
+    pub fn attach(bytes: T) -> Result<Self, ProgramError> {
         let header = bytes
             .first_chunk::<WIDTH_HEADER>()
             .ok_or(ProgramError::InvalidAccountData)?;
@@ -131,7 +131,7 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
 
 impl<'a> StateAccount<Ref<'a, [u8]>> {
     pub fn from_account(account: &'a AccountView) -> Result<Self, ProgramError> {
-        Self::new(account.try_borrow()?)
+        Self::attach(account.try_borrow()?)
     }
 }
 
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn reads_role_holders_from_the_header() {
         let bytes = header_bytes();
-        let state = StateAccount::new(&bytes[..]).expect("valid header");
+        let state = StateAccount::attach(&bytes[..]).expect("valid header");
         assert_eq!(state.authority(Role::Manager), SAMPLE_HEADER.manager);
         assert_eq!(
             state.authority(Role::ReclaimAuthority),
@@ -229,7 +229,7 @@ mod tests {
         let mut bytes = [0u8; WIDTH_HEADER];
         StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
 
-        let state = StateAccount::new(&bytes[..]).expect("valid header");
+        let state = StateAccount::attach(&bytes[..]).expect("valid header");
         let read_back = Header {
             manager: state.authority(Role::Manager),
             reclaim_authority: state.authority(Role::ReclaimAuthority),
@@ -242,7 +242,7 @@ mod tests {
         let mut bytes = header_bytes();
         bytes[DISCRIMINATOR_OFFSET] = 0xff;
         assert_eq!(
-            StateAccount::new(&bytes[..]).err(),
+            StateAccount::attach(&bytes[..]).err(),
             Some(ProgramError::InvalidAccountData),
         );
     }
@@ -251,7 +251,7 @@ mod tests {
     fn new_rejects_too_short_buffer() {
         let bytes = header_bytes();
         assert_eq!(
-            StateAccount::new(&bytes[..WIDTH_HEADER - 1]).err(),
+            StateAccount::attach(&bytes[..WIDTH_HEADER - 1]).err(),
             Some(ProgramError::InvalidAccountData),
         );
     }
@@ -263,16 +263,16 @@ mod tests {
 
         let mut bytes = header_bytes();
         let before = Role::ALL.map(|role| {
-            StateAccount::new(&bytes[..])
+            StateAccount::attach(&bytes[..])
                 .expect("valid header")
                 .authority(role)
         });
 
-        StateAccount::new(&mut bytes[..])
+        StateAccount::attach(&mut bytes[..])
             .expect("valid header")
             .set_authority(target, &new_holder);
 
-        let state = StateAccount::new(&bytes[..]).expect("valid header");
+        let state = StateAccount::attach(&bytes[..]).expect("valid header");
         for (role, prior) in Role::ALL.into_iter().zip(before) {
             let expected = if role == target { new_holder } else { prior };
             assert_eq!(state.authority(role), expected);
@@ -297,7 +297,7 @@ mod tests {
         let mut bytes = header_bytes().to_vec();
         bytes.push(0x42);
 
-        let state = StateAccount::new(&bytes[..]).expect("header with trailing bytes is valid");
+        let state = StateAccount::attach(&bytes[..]).expect("header with trailing bytes is valid");
         assert_eq!(state.authority(Role::Manager), SAMPLE_HEADER.manager);
         assert_eq!(
             state.authority(Role::ReclaimAuthority),
@@ -335,7 +335,7 @@ mod tests {
                 let mut bytes = [0u8; WIDTH_HEADER];
                 StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
 
-                let state = StateAccount::new(&bytes[..]).expect("valid header");
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
                 prop_assert_eq!(state.authority(Role::Manager), header.manager);
                 prop_assert_eq!(state.authority(Role::ReclaimAuthority), header.reclaim_authority);
             }
