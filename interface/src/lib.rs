@@ -178,13 +178,12 @@ pub enum SettlementError {
     /// to the order's buy token account; its destination differs from the
     /// `buy_token_account` in the order's intent.
     PushDestinationMismatch = 21,
-    /// `FinalizeSettle`: a push doesn't draw funds from the canonical buffer
-    /// for its destination's mint.
+    /// `BeginSettle`: a paired `FinalizeSettle` push doesn't draw funds from the
+    /// canonical buffer for the order's `buy_mint`.
     PushSourceNotBuffer = 22,
-    /// `FinalizeSettle`: a push's destination isn't a valid SPL token account
-    /// (wrong data length or not owned by the token program), so its mint can't
-    /// be read to derive the buffer.
-    InvalidBuyTokenAccount = 23,
+    /// `BeginSettle`: the OrderIntent `sell_token_account` holds a different
+    /// mint than the declared `sell_mint`.
+    SellMintMismatch = 23,
     /// `BeginSettle`: a settled order's executed price (`amount_out/amount_in`)
     /// is worse than the order's limit price (`buy_amount/sell_amount`).
     LimitPriceViolated = 24,
