@@ -153,6 +153,21 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
             .iter()
             .map(|raw| Pubkey::new_from_array(*raw))
     }
+
+    /// The account's data length after growing it by one solver slot: the size
+    /// it must be resized to before [`insert_solver_at`](Self::insert_solver_at)
+    /// can fill that new slot.
+    ///
+    /// Returns [`ProgramError::ArithmeticOverflow`] if that length overflows
+    /// `usize`, which a caller handling data from a real account can treat as
+    /// unreachable: the runtime caps account data at
+    /// [`MAX_PERMITTED_DATA_LENGTH`](solana_system_interface::MAX_PERMITTED_DATA_LENGTH).
+    pub fn grown_len(&self) -> Result<usize, ProgramError> {
+        self.0
+            .len()
+            .checked_add(WIDTH_PUBKEY)
+            .ok_or(ProgramError::ArithmeticOverflow)
+    }
 }
 
 impl<'a> StateAccount<Ref<'a, [u8]>> {
@@ -196,6 +211,34 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
             Role::ReclaimAuthority => slots.reclaim_authority,
         };
         *holder = new.to_bytes();
+    }
+
+    /// Insert `solver` into the sorted solver list at `index`.
+    ///
+    /// This function assumes that the underlying storage (e.g., the account)
+    /// has already been enlarged to the correct size ([`Self::grown_len`]) and
+    /// that the index has been computed correctly (is in rage, preserves
+    /// ordering, and isn't writing a duplicate).
+    pub fn insert_solver_at(&mut self, index: usize, solver: &Pubkey) {
+        let data: &mut [u8] = &mut self.0;
+
+        let old_len = data
+            .len()
+            .checked_sub(WIDTH_PUBKEY)
+            .expect("account grown by one solver slot before insertion");
+        let offset = WIDTH_HEADER
+            .checked_add(
+                index
+                    .checked_mul(WIDTH_PUBKEY)
+                    .expect("insertion index bound by account length"),
+            )
+            .expect("insertion offset bound by account length");
+        let gap_end = offset
+            .checked_add(WIDTH_PUBKEY)
+            .expect("insertion slot bound by account length");
+
+        data.copy_within(offset..old_len, gap_end);
+        data[offset..gap_end].copy_from_slice(&solver.to_bytes());
     }
 }
 
@@ -452,6 +495,45 @@ mod tests {
                 let Header { manager, reclaim_authority } = header;
                 prop_assert_eq!(state.authority(Role::Manager), manager);
                 prop_assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
+            }
+
+            #[test]
+            fn insert_solver_at_shifts_the_tail_and_writes_the_solver(
+                header in fixtures::arb_header(),
+                // Unique and already sorted, being a `BTreeSet`.
+                raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 0..50),
+                raw_new in any::<[u8; 32]>(),
+            ) {
+                prop_assume!(!raw_solvers.contains(&raw_new));
+                let stored: Vec<Pubkey> =
+                    raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
+                let new = Pubkey::new_from_array(raw_new);
+
+                // The slot the new solver sorts into, before any growth.
+                let mut bytes = fixtures::state_account_bytes(&header, &stored);
+                let index = StateAccount::attach(&bytes[..])
+                    .expect("valid header")
+                    .solver_search(&new)
+                    .expect_err("solver is absent");
+
+                // Grow to the length `grown_len` reports, exactly as the handler
+                // resizes the account, then let `insert_solver_at` fill the new
+                // slot.
+                let grown_len = StateAccount::attach(&bytes[..])
+                    .expect("valid header")
+                    .grown_len()
+                    .expect("grown length fits");
+                prop_assert_eq!(grown_len, bytes.len().strict_add(WIDTH_PUBKEY));
+                bytes.resize(grown_len, 0);
+                StateAccount::attach(&mut bytes[..])
+                    .expect("valid header")
+                    .insert_solver_at(index, &new);
+
+                let mut expected = stored;
+                expected.insert(index, new);
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
+                prop_assert_eq!(state.solvers().collect::<Vec<_>>(), expected);
+                prop_assert_eq!(state.solver_search(&new), Ok(index));
             }
         }
     }

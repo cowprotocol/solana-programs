@@ -6,7 +6,7 @@
 //! funds the extra rent through a `Transfer` before the account is resized.
 
 use cow_settlement_interface::{
-    data::state::{StateAccount, WIDTH_HEADER, WIDTH_PUBKEY},
+    data::state::StateAccount,
     instruction::{add_solver::AddSolverInput, InstructionInputParsing},
     Role, SettlementError,
 };
@@ -33,28 +33,20 @@ pub fn process_add_solver(
     check_state_pda(program_id, state_pda)?;
 
     // Only the manager may change the solver list. Reading also validates the
-    // account, and the search finds where the new solver sorts in.
-    let index = {
+    // account, the search finds where the new solver sorts in, and the state
+    // knows the length it must grow to.
+    let (index, new_len) = {
         let state = StateAccount::attach(state_pda.try_borrow()?)?;
         if !manager.is_signer() || manager.address() != &state.authority(Role::Manager) {
             return Err(SettlementError::UnauthorizedSolverManagement.into());
         }
-        match state.solver_search(&solver) {
+        let index = match state.solver_search(&solver) {
             Ok(_) => return Err(SettlementError::SolverAlreadyExists.into()),
             Err(index) => index,
-        }
+        };
+        (index, state.grown_len().expect("grown account length fits in usize"))
     };
 
-    // Every length and offset below is bounded by the account's data length,
-    // which the runtime caps at 10 MiB, so this arithmetic always fits in `usize`
-    // and these checks can never trip.
-    let old_len = state_pda.data_len();
-    let new_len = old_len
-        .checked_add(WIDTH_PUBKEY)
-        .expect("grown account length fits in usize");
-
-    // Growing the account must keep it rent-exempt: the payer funds the extra
-    // rent. This CPI runs before any data borrow so the account is free to grow.
     let shortfall = Rent::get()?
         .try_minimum_balance(new_len)?
         // why saturating: if there's more balance available than rent needed,
@@ -69,18 +61,10 @@ pub fn process_add_solver(
         .invoke()?;
     }
 
-    // Grow the account, shift the solvers at or after the insertion point right
-    // by one slot, and write the new solver into the gap.
-    let offset = WIDTH_HEADER
-        .checked_add(index.checked_mul(WIDTH_PUBKEY).expect("bound by new_len"))
-        .expect("bound by new_len");
-    let gap_end = offset.checked_add(WIDTH_PUBKEY).expect("bound by new_len");
-
     let mut state_pda = *state_pda;
     state_pda.resize(new_len)?;
-    let mut data = state_pda.try_borrow_mut()?;
-    data.copy_within(offset..old_len, gap_end);
-    data[offset..gap_end].copy_from_slice(&solver.to_bytes());
+    let mut state = StateAccount::attach(state_pda.try_borrow_mut()?)?;
+    state.insert_solver_at(index, &solver);
 
     Ok(())
 }
