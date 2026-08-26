@@ -46,8 +46,7 @@ pub struct Flags {
 }
 
 impl Flags {
-    // The bit each field occupies, from the most significant defined bit
-    // down: one per boolean field, plus `kind`.
+    // The bit each field occupies
     const PARTIALLY_FILLABLE: u8 = 1 << 1;
     const KIND: u8 = 1 << 0;
 
