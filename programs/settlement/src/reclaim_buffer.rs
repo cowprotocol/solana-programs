@@ -38,7 +38,7 @@ pub fn process_reclaim_buffer(
 
     with_state_pda_signer(program_id, state_pda, |state_signer| {
         let reclaim_authority_pubkey: Pubkey =
-            StateAccount::new(state_pda.try_borrow()?)?.authority(Role::ReclaimAuthority);
+            StateAccount::from_account(state_pda)?.authority(Role::ReclaimAuthority);
         if !reclaim_authority.is_signer()
             || reclaim_authority.address() != &reclaim_authority_pubkey
         {

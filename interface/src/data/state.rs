@@ -23,6 +23,7 @@ use core::mem::size_of;
 use core::ops::{Deref, DerefMut};
 
 use arrayref::{array_refs, mut_array_refs};
+use solana_account_view::{AccountView, Ref};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
@@ -125,6 +126,12 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
             Role::ReclaimAuthority => slots.reclaim_authority,
         };
         Pubkey::new_from_array(*holder)
+    }
+}
+
+impl<'a> StateAccount<Ref<'a, [u8]>> {
+    pub fn from_account(account: &'a AccountView) -> Result<Self, ProgramError> {
+        Self::new(account.try_borrow()?)
     }
 }
 
