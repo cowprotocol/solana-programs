@@ -1,6 +1,6 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::{
-        intent::{fixtures, EncodedOrderIntent, OrderIntent, OrderKind},
+        intent::{fixtures, EncodedOrderIntent, OrderIntent},
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::create_order::CreateOrder,
@@ -24,7 +24,7 @@ mod common;
 fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
-        ..fixtures::sample_intent(OrderKind::Sell, true)
+        ..fixtures::sample_intent(Default::default())
     }
 }
 

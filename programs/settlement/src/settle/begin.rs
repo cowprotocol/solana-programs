@@ -375,6 +375,7 @@ fn validated_final_amounts(
 mod tests {
     use super::*;
     use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use cow_settlement_interface::data::intent::Flags;
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
     use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
@@ -402,7 +403,10 @@ mod tests {
             OrderIntent {
                 sell_amount: self.sell,
                 buy_amount: self.buy,
-                ..sample_intent(self.kind, self.partially_fillable)
+                ..sample_intent(Flags {
+                    kind: self.kind,
+                    partially_fillable: self.partially_fillable,
+                })
             }
         }
     }

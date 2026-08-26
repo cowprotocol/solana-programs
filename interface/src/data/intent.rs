@@ -292,7 +292,7 @@ pub mod fixtures {
     // Hardcoded but verified in a sanity-check test.
     pub const FLAGS_OFFSET: usize = 116;
 
-    pub fn sample_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
+    pub fn sample_intent(flags: Flags) -> OrderIntent {
         OrderIntent {
             owner: Pubkey::new_from_array([0x11; 32]),
             buy_token_account: Pubkey::new_from_array([0x22; 32]),
@@ -300,10 +300,7 @@ pub mod fixtures {
             sell_amount: 0x0123_4567_89ab_cdef,
             buy_amount: 0xfedc_ba98_7654_3210,
             valid_to: 0xdead_beef,
-            flags: Flags {
-                kind,
-                partially_fillable,
-            },
+            flags,
             app_data: [0x44; 32],
         }
     }
@@ -377,11 +374,14 @@ mod tests {
 
     // Every shape an `OrderIntent` can take on its validated axes: the `kind`
     // enum and the `partially_fillable` flag bit.
-    fn all_intent_shapes() -> impl Iterator<Item = OrderIntent> {
+    fn all_flag_shapes() -> impl Iterator<Item = OrderIntent> {
         fixtures::ALL_ORDER_KINDS.into_iter().flat_map(|kind| {
-            [false, true]
-                .into_iter()
-                .map(move |partially_fillable| sample_intent(kind, partially_fillable))
+            [false, true].into_iter().map(move |partially_fillable| {
+                sample_intent(Flags {
+                    kind,
+                    partially_fillable,
+                })
+            })
         })
     }
 
@@ -394,7 +394,7 @@ mod tests {
 
         // Any `OrderIntent` works: `size_of_val` only consults the field
         // type, never the data.
-        let intent = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(Default::default());
 
         assert_eq!(EncodedOrderIntent::WIDTH_OWNER, size_of_val(&intent.owner));
         assert_eq!(
@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn roundtrip_all_kind_and_flag_combinations() {
-        for intent in all_intent_shapes() {
+        for intent in all_flag_shapes() {
             let encoded = EncodedOrderIntent::from(&intent);
             let (decoded, _uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
@@ -480,7 +480,7 @@ mod tests {
     // encode/decode, this test fails.
     #[test]
     fn decode_and_hash_uid_matches_encoded_hash() {
-        for intent in all_intent_shapes() {
+        for intent in all_flag_shapes() {
             let encoded = EncodedOrderIntent::from(&intent);
             let (_intent, uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
@@ -493,9 +493,21 @@ mod tests {
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
             lhs.iter().zip(rhs).position(|(l, r)| l != r)
         }
-        let sell_false: EncodedOrderIntent = (&sample_intent(OrderKind::Sell, false)).into();
-        let sell_true: EncodedOrderIntent = (&sample_intent(OrderKind::Sell, true)).into();
-        let buy_true: EncodedOrderIntent = (&sample_intent(OrderKind::Buy, true)).into();
+        let sell_false: EncodedOrderIntent = (&sample_intent(Flags {
+            kind: OrderKind::Sell,
+            partially_fillable: false,
+        }))
+            .into();
+        let sell_true: EncodedOrderIntent = (&sample_intent(Flags {
+            kind: OrderKind::Sell,
+            partially_fillable: true,
+        }))
+            .into();
+        let buy_true: EncodedOrderIntent = (&sample_intent(Flags {
+            kind: OrderKind::Buy,
+            partially_fillable: true,
+        }))
+            .into();
 
         assert_eq!(
             first_differing_byte(sell_false.as_slice(), sell_true.as_slice())
@@ -511,7 +523,7 @@ mod tests {
 
     #[test]
     fn decode_accepts_defined_flag_bits_only() {
-        let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Sell, false));
+        let encoded = EncodedOrderIntent::from(&sample_intent(Default::default()));
         let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
         for flags in u8::MIN..=u8::MAX {
             bytes[FLAGS_OFFSET] = flags;
@@ -542,14 +554,20 @@ mod tests {
 
     #[test]
     fn uid_digest_regression() {
-        let intent = sample_intent(OrderKind::Buy, true);
+        let intent = sample_intent(Flags {
+            kind: OrderKind::Buy,
+            partially_fillable: true,
+        });
         let expected = hex!("d2a82e919ec3d5e8b21c512cf14251e98bf79cdf01f0a2bdd0ecbed3007a9761");
         assert_eq!(intent.uid(), Hash::from(expected));
     }
 
     #[test]
     fn encoding_regression() {
-        let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Buy, true));
+        let encoded = EncodedOrderIntent::from(&sample_intent(Flags {
+            kind: OrderKind::Buy,
+            partially_fillable: true,
+        }));
         let encoding: [u8; EncodedOrderIntent::SIZE] = *encoded;
         #[rustfmt::skip]
         let expected: [u8; EncodedOrderIntent::SIZE] = [

@@ -263,10 +263,7 @@ pub mod fixtures {
     use proptest::prelude::*;
 
     use super::{OrderAccount, Pubkey};
-    use crate::data::intent::{
-        fixtures::{arb_order_intent, sample_intent},
-        OrderKind,
-    };
+    use crate::data::intent::fixtures::{arb_order_intent, sample_intent};
 
     // Hardcoded but verified in a sanity-check test.
     pub const DISCRIMINATOR_OFFSET: usize = 0;
@@ -281,7 +278,7 @@ pub mod fixtures {
             amount_withdrawn: 0x0112_2334_4556_6778,
             amount_received: 0x899a_abbc_cdde_eff0,
             created_by: Pubkey::new_from_array([0x43; 32]),
-            intent: sample_intent(OrderKind::Sell, false),
+            intent: sample_intent(Default::default()),
         }
     }
 
@@ -316,10 +313,7 @@ mod tests {
 
     use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
-    use crate::data::intent::{
-        fixtures::{sample_intent, FLAGS_OFFSET},
-        OrderKind,
-    };
+    use crate::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
 
     // Pin each width to the size of the `OrderAccount` field it encodes. The
     // widths summing to `SIZE` is enforced separately, at compile time, by the
@@ -566,7 +560,7 @@ mod tests {
         let cancelled = true;
         let amount_withdrawn = 1337;
         let amount_received = 31337;
-        let intent = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(Default::default());
         let created_by = Pubkey::new_from_array([0x42u8; 32]);
 
         let mut buffer = [0u8; EncodedOrderAccount::SIZE];

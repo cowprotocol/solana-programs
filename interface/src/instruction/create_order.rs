@@ -115,9 +115,7 @@ pub mod fixtures {
     use solana_address::Address;
 
     use super::{CreateOrder, Instruction};
-    use crate::data::intent::{
-        fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
-    };
+    use crate::data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent};
 
     /// Owner baked into [`valid_intent_bytes`]' sample intent.
     pub const DEFAULT_OWNER: Address = Address::new_from_array([0x11; 32]);
@@ -131,7 +129,7 @@ pub mod fixtures {
     pub fn valid_intent_bytes() -> [u8; EncodedOrderIntent::SIZE] {
         (&EncodedOrderIntent::from(&OrderIntent {
             owner: DEFAULT_OWNER,
-            ..sample_intent(OrderKind::Sell, true)
+            ..sample_intent(Default::default())
         }))
             .into()
     }
