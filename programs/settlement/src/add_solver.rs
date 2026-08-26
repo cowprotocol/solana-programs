@@ -35,7 +35,7 @@ pub fn process_add_solver(
     // Only the manager may change the solver list. Reading also validates the
     // account, and the search finds where the new solver sorts in.
     let index = {
-        let state = StateAccount::new(state_pda.try_borrow()?)?;
+        let state = StateAccount::attach(state_pda.try_borrow()?)?;
         if !manager.is_signer() || manager.address() != &state.authority(Role::Manager) {
             return Err(SettlementError::UnauthorizedSolverManagement.into());
         }

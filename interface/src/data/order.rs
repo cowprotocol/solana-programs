@@ -77,7 +77,7 @@ impl OrderAccount {
         };
 
         if !is_pda_with_signer_seeds(
-            order_pda,
+            order_pda.address(),
             program_id,
             order_pda_signer_seeds(&uid, &[account.bump]),
         ) {
@@ -88,7 +88,7 @@ impl OrderAccount {
     }
 }
 
-/// Canonical 201-byte representation of an [`OrderAccount`]. The bytes
+/// Canonical 264-byte representation of an [`OrderAccount`]. The bytes
 /// written to/read from the order PDA's data area.
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
@@ -105,7 +105,7 @@ impl OrderAccount {
 ///  ││││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
 ///  ││││drawn  │ceived │                               │                                     │
 ///  └┴┴┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
-/// 0 1 2 3      11      19                              51                ...               201
+/// 0 1 2 3      11      19                              51                ...               264
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
@@ -120,7 +120,7 @@ impl EncodedOrderAccount {
     const W_CREATED_BY: usize = size_of::<Pubkey>();
     const W_INTENT: usize = EncodedOrderIntent::SIZE;
 
-    pub const SIZE: usize = 201;
+    pub const SIZE: usize = 264;
 
     /// Single-byte account discriminator. See [`SettlementAccount`].
     pub const DISCRIMINATOR: u8 = SettlementAccount::OrderAccount.discriminator();
@@ -263,10 +263,7 @@ pub mod fixtures {
     use proptest::prelude::*;
 
     use super::{OrderAccount, Pubkey};
-    use crate::data::intent::{
-        fixtures::{arb_order_intent, sample_intent},
-        OrderKind,
-    };
+    use crate::data::intent::fixtures::{arb_order_intent, sample_intent};
 
     // Hardcoded but verified in a sanity-check test.
     pub const DISCRIMINATOR_OFFSET: usize = 0;
@@ -281,7 +278,7 @@ pub mod fixtures {
             amount_withdrawn: 0x0112_2334_4556_6778,
             amount_received: 0x899a_abbc_cdde_eff0,
             created_by: Pubkey::new_from_array([0x43; 32]),
-            intent: sample_intent(OrderKind::Sell, false),
+            intent: sample_intent(Default::default()),
         }
     }
 
@@ -316,10 +313,7 @@ mod tests {
 
     use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
-    use crate::data::intent::{
-        fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
-        OrderKind,
-    };
+    use crate::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
 
     // Pin each width to the size of the `OrderAccount` field it encodes. The
     // widths summing to `SIZE` is enforced separately, at compile time, by the
@@ -390,9 +384,9 @@ mod tests {
             (&EncodedOrderIntent::from(&sample_account_base.intent)).into();
         // Hack: xoring each byte makes sure all bytes are different.
         // In general, it isn't guaranteed that the result encodes to a
-        // valid intent, but in this case we know it because the only bytes
-        // that may fail decoding are `kind` and `partially_fillable`, both
-        // of which stay valid if flipped with `^0x01`.
+        // valid intent, but in this case we know it because the only byte
+        // that may fail decoding is the flags byte, and `^0x01` only flips
+        // its `kind` bit, never a reserved one.
         let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
             encoded_intent.map(|b| b ^ 0x01);
         sample_account_base.intent =
@@ -430,13 +424,12 @@ mod tests {
     fn decode_propagates_invalid_intent() {
         let mut bytes: [u8; EncodedOrderAccount::SIZE] =
             EncodedOrderAccount::from(sample_account(false)).into();
-        // Corrupt the `kind` byte inside the intent slot: the intent
-        // decoder rejects it and the order-account decode surfaces that
-        // failure as `InvalidAccountData`.
-        let kind_offset = INTENT_OFFSET + KIND_OFFSET;
-        bytes[kind_offset] = 0x02;
+        // Set a reserved bit of the flags byte inside the intent slot: the
+        // intent decoder rejects it and the order-account decode surfaces
+        // that failure as `InvalidAccountData`.
+        bytes[INTENT_OFFSET + FLAGS_OFFSET] = 0xff;
         let err = OrderAccount::try_from(bytes)
-            .expect_err("an invalid intent kind byte must propagate as a decode failure");
+            .expect_err("an invalid intent flags byte must propagate as a decode failure");
         assert_eq!(err, ProgramError::InvalidAccountData);
     }
 
@@ -567,7 +560,7 @@ mod tests {
         let cancelled = true;
         let amount_withdrawn = 1337;
         let amount_received = 31337;
-        let intent = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(Default::default());
         let created_by = Pubkey::new_from_array([0x42u8; 32]);
 
         let mut buffer = [0u8; EncodedOrderAccount::SIZE];
@@ -598,7 +591,7 @@ mod tests {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
 
         use super::*;
-        use crate::data::{intent::fixtures::arb_order_kind, order::fixtures::arb_order_account};
+        use crate::data::{intent::fixtures::arb_flags_byte, order::fixtures::arb_order_account};
 
         proptest! {
             // For any `OrderAccount`, encode then decode returns the same
@@ -618,13 +611,11 @@ mod tests {
             fn bytes_roundtrip(
                 mut bytes in any::<[u8; EncodedOrderAccount::SIZE]>(),
                 cancelled in any::<bool>(),
-                kind in arb_order_kind(),
-                partially_fillable in any::<bool>(),
+                flags in arb_flags_byte(),
             ) {
                 bytes[DISCRIMINATOR_OFFSET] = EncodedOrderAccount::DISCRIMINATOR;
                 bytes[CANCELLED_OFFSET] = cancelled as u8;
-                bytes[INTENT_OFFSET + KIND_OFFSET] = kind as u8;
-                bytes[INTENT_OFFSET + PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
+                bytes[INTENT_OFFSET + FLAGS_OFFSET] = flags;
                 let account = OrderAccount::try_from(bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(*EncodedOrderAccount::from(account), bytes);

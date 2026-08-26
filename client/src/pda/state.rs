@@ -15,7 +15,7 @@ impl TryFrom<&[u8]> for DecodedStateAccount {
     type Error = ProgramError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let state = StateAccount::new(bytes)?;
+        let state = StateAccount::attach(bytes)?;
         Ok(Self {
             manager: state.authority(Role::Manager),
             reclaim_authority: state.authority(Role::ReclaimAuthority),

@@ -46,7 +46,7 @@ fn solvers(svm: &LiteSVM, state_pda: &Pubkey) -> Vec<Pubkey> {
         .get_account(state_pda)
         .expect("state PDA should exist")
         .data;
-    let solvers: Vec<Pubkey> = StateAccount::new(&data[..])
+    let solvers: Vec<Pubkey> = StateAccount::attach(&data[..])
         .expect("state PDA should be a valid state account")
         .solvers()
         .collect();

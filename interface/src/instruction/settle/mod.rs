@@ -11,8 +11,7 @@ mod finalize;
 
 pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder, SettledOrders};
 pub use finalize::{
-    finalize_push_amounts, FinalizeSettle, FinalizeSettleInput, Push, Pushes,
-    FINALIZE_FIXED_ACCOUNTS,
+    finalize_push_data, FinalizeSettle, FinalizeSettleInput, Push, Pushes, FINALIZE_FIXED_ACCOUNTS,
 };
 
 /// Reads the first two bytes of a byte slice (instruction data) and

@@ -33,7 +33,7 @@ pub fn process_transfer_authority(
     // A copied `AccountView` writes through to the same runtime account, so the
     // mutable view goes through this local copy.
     let mut state_pda = *state_pda;
-    let mut state = StateAccount::new(state_pda.try_borrow_mut()?)?;
+    let mut state = StateAccount::attach(state_pda.try_borrow_mut()?)?;
 
     let signer_key = signer.address();
     if signer_key != &state.authority(Role::Manager) && signer_key != &state.authority(role) {
