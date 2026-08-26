@@ -57,12 +57,14 @@ impl Flags {
 impl From<Flags> for [u8; 1] {
     /// The canonical flags byte. Reserved bits are left clear.
     fn from(flags: Flags) -> Self {
-        // `wrapping_neg` transforms a true `bool` (effectively 1) into 0xff
-        let mask = |value: u8| value.wrapping_neg();
-        [
-            Flags::PARTIALLY_FILLABLE & mask(flags.partially_fillable as u8)
-                | Flags::KIND & mask(flags.kind as u8),
-        ]
+        let mut byte = 0;
+        if flags.partially_fillable {
+            byte |= Flags::PARTIALLY_FILLABLE;
+        }
+        if flags.kind == OrderKind::Buy {
+            byte |= Flags::KIND;
+        }
+        [byte]
     }
 }
 
