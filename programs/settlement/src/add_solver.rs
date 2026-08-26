@@ -118,4 +118,66 @@ mod tests {
             Err(SettlementError::StateAccountMismatch.into()),
         );
     }
+
+    mod proptest {
+        use ::proptest::prelude::*;
+
+        use super::*;
+        use cow_settlement_interface::data::state::fixtures::{arb_header, state_account_bytes};
+        use cow_settlement_interface::fixtures::pubkey_from_seed;
+        use cow_settlement_interface::instruction::add_solver::AddSolver;
+        use cow_settlement_interface::instruction::fixtures::{
+            fake_account, fake_account_owned_by, fake_signer,
+        };
+        use cow_settlement_interface::pda::state::find_state_pda;
+        use cow_settlement_interface::{Instruction, Pubkey};
+
+        proptest! {
+            #[test]
+            fn process_add_solver_rejects_an_existing_solver(
+                header in arb_header(),
+                // BTreeSet: `.iter()` returns the elements already sorted, and,
+                // since it's a set, they are also unique. At least one so there's
+                // an existing solver to re-add.
+                raw_solvers in ::proptest::collection::btree_set(any::<[u8; 32]>(), 1..50),
+                pick in any::<::proptest::sample::Index>(),
+            ) {
+                let manager = header.manager;
+                let stored: Vec<Pubkey> =
+                    raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
+                // Re-add one of the solvers that's already stored.
+                let existing = stored[pick.index(stored.len())];
+
+                // Mock the four accounts the handler parses. Only the manager signer
+                // and the state PDA carry meaning here; the payer and system program
+                // are never touched, since the reject happens before the
+                // rent-funding transfer.
+                let (state_pda_address, _bump) = find_state_pda(&PROGRAM_ID);
+                let mut accounts = [
+                    fake_signer(manager),
+                    fake_account(pubkey_from_seed("payer")),
+                    fake_account_owned_by(
+                        state_pda_address,
+                        PROGRAM_ID,
+                        &state_account_bytes(&header, &stored),
+                    ),
+                    fake_account(pubkey_from_seed("system program")),
+                ];
+
+                let data = Instruction::from(AddSolver {
+                    program_id: PROGRAM_ID,
+                    manager,
+                    payer: pubkey_from_seed("payer"),
+                    state_pda: state_pda_address,
+                    solver: existing,
+                })
+                .data;
+
+                prop_assert_eq!(
+                    process_add_solver(&PROGRAM_ID, &mut accounts, &data),
+                    Err(SettlementError::SolverAlreadyExists.into()),
+                );
+            }
+        }
+    }
 }

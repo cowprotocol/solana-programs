@@ -199,6 +199,38 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
     }
 }
 
+/// Test scaffolding for building state-account bytes, shared by this crate's
+/// tests and the settlement program's via the `test-fixtures` feature.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures {
+    use proptest::prelude::*;
+    use solana_pubkey::Pubkey;
+
+    use super::{Header, StateAccount, WIDTH_HEADER};
+
+    /// The bytes of a state account: the `header` followed by `solvers`, stored
+    /// sorted ascending by address as the on-chain list always is (so callers can
+    /// pass them in any order).
+    pub fn state_account_bytes(header: &Header, solvers: &[Pubkey]) -> Vec<u8> {
+        let mut sorted = solvers.to_vec();
+        sorted.sort();
+        let mut bytes = vec![0u8; WIDTH_HEADER];
+        StateAccount::initialize(&mut bytes[..], header).expect("header fits");
+        for solver in &sorted {
+            bytes.extend_from_slice(&solver.to_bytes());
+        }
+        bytes
+    }
+
+    /// Any valid [`Header`].
+    pub fn arb_header() -> impl Strategy<Value = Header> {
+        (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(|(manager, reclaim_authority)| Header {
+            manager: Pubkey::new_from_array(manager),
+            reclaim_authority: Pubkey::new_from_array(reclaim_authority),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -221,16 +253,10 @@ mod tests {
         bytes
     }
 
-    /// [`header_bytes`] followed by `solvers`, stored sorted ascending by address
+    /// [`SAMPLE_HEADER`] followed by `solvers`, stored sorted ascending by address
     /// as the on-chain list always is, so callers can pass them in any order.
     fn state_bytes(solvers: &[Pubkey]) -> Vec<u8> {
-        let mut solvers = solvers.to_vec();
-        solvers.sort();
-        let mut bytes = header_bytes().to_vec();
-        for solver in &solvers {
-            bytes.extend_from_slice(&solver.to_bytes());
-        }
-        bytes
+        super::fixtures::state_account_bytes(&SAMPLE_HEADER, solvers)
     }
 
     #[test]
@@ -418,21 +444,14 @@ mod tests {
             /// The encode roundtrip: any two role holders written with
             /// `initialize` read back unchanged.
             #[test]
-            fn account_encode_roundtrip(
-                manager in any::<[u8; 32]>(),
-                reclaim_authority in any::<[u8; 32]>(),
-            ) {
-                let header = Header {
-                    manager: Pubkey::new_from_array(manager),
-                    reclaim_authority: Pubkey::new_from_array(reclaim_authority),
-                };
-
+            fn account_encode_roundtrip(header in fixtures::arb_header()) {
                 let mut bytes = [0u8; WIDTH_HEADER];
                 StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
 
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
-                prop_assert_eq!(state.authority(Role::Manager), header.manager);
-                prop_assert_eq!(state.authority(Role::ReclaimAuthority), header.reclaim_authority);
+                let Header { manager, reclaim_authority } = header;
+                prop_assert_eq!(state.authority(Role::Manager), manager);
+                prop_assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
             }
         }
     }
