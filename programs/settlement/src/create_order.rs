@@ -34,6 +34,11 @@ pub fn process_create_order(
     if owner.address() != &intent.owner {
         return Err(SettlementError::OwnerMismatch.into());
     }
+    // The intent commits to how it's authenticated, and this is the on-chain
+    // creation flow.
+    if !intent.created_on_chain {
+        return Err(SettlementError::OrderCreatedOnChainMismatch.into());
+    }
 
     // We want a single order per uid; `CanonicalPda::create_new` derives the
     // canonical bump and, by signing the creation with the order seeds, rejects
@@ -171,6 +176,31 @@ mod tests {
         assert_eq!(
             process_create_order(&PROGRAM_ID, &mut accounts, &data),
             Err(SettlementError::OwnerMismatch.into()),
+        );
+    }
+
+    #[test]
+    fn process_create_order_rejects_intent_not_created_on_chain() {
+        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
+            (&EncodedOrderIntent::from(&OrderIntent {
+                created_on_chain: false,
+                ..intent
+            }))
+                .into();
+        let data = default_order_data(&intent_bytes);
+        let owner_runtime_account = RuntimeAccount {
+            address: DEFAULT_OWNER,
+            is_signer: 1,
+            ..Default::default()
+        };
+
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        accounts[0] = fake_account_from(owner_runtime_account);
+
+        assert_eq!(
+            process_create_order(&PROGRAM_ID, &mut accounts, &data),
+            Err(SettlementError::OrderCreatedOnChainMismatch.into()),
         );
     }
 }

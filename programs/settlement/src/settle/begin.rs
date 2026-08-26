@@ -4,8 +4,8 @@ use std::ops::Deref;
 
 use cow_settlement_interface::{
     data::{
-        intent::{OrderIntent, OrderKind},
-        order::{EncodedOrderAccount, OrderAccount},
+        intent::OrderIntent,
+        order::{fill_progress, EncodedOrderAccount, OrderAccount},
     },
     instruction::{
         settle::{
@@ -358,10 +358,7 @@ fn validated_final_amounts(
         .checked_add(amount_out)
         .ok_or(SettlementError::AmountReceivedOverflow)?;
 
-    let (filled, order_amount) = match intent.kind {
-        OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
-        OrderKind::Buy => (amount_received, intent.buy_amount),
-    };
+    let (filled, order_amount) = fill_progress(intent, amount_withdrawn, amount_received);
     if filled != order_amount && !intent.partially_fillable {
         return Err(SettlementError::OrderNotExactlyFilled);
     } else if filled > order_amount {
@@ -375,6 +372,7 @@ fn validated_final_amounts(
 mod tests {
     use super::*;
     use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use cow_settlement_interface::data::intent::OrderKind;
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
     use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};

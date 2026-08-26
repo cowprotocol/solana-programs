@@ -127,14 +127,16 @@ struct OrderIntent {
 	// Either Buy or Sell
 	kind: OrderKind
 	partially_fillable: bool
+	// Which of the two authentication schemes applies to this order:
+	// on-chain creation by the owner, or an off-chain signature.
+	created_on_chain: bool
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
 ```
 
-The intent's `kind` and `partially_fillable` share a single flags byte in the
-encoded form, one bit each, with the remaining bits reserved and required to be
-zero.
+The intent's `kind` and booleans share a single flags byte in the encoded form,
+one bit each, with the remaining bits reserved and required to be zero.
 
 Differences with Ethereum:
 
@@ -203,6 +205,8 @@ Allocating an order PDA requires paying rent.
 
 If the order is expired, anyone can close the order account through the `ReclaimOrder` instruction. On account closure, the rent is sent to the order's `created_by` account, i.e., the original creator of the order.
 
+If an order created on-chain (`created_on_chain`), it can safely be closed earlier. In this case, `ReclaimOrder` will additionally allow reclaiming of orders that are cancelled or completely filled.
+
 This is useful for solvers who need to allocate the order for executing it, but the allocation itself would be orders of magnitude more expensive than the compute cost for executing an instruction. This is particularly relevant to make small orders economically viable.
 
 ## Authenticating an order
@@ -239,9 +243,9 @@ Differences with Ethereum:
 
 Orders can be created by the owner by executing an instruction on-chain.
 
-The order owner executes the `CreateOrder` instruction. The settlement program checks that the order comes from the owner and [creates the order PDA](#orders-are-accounts).
+The order owner executes the `CreateOrder` instruction. The settlement program checks that the order comes from the owner, that the intent declares this authentication scheme (`created_on_chain`), and [creates the order PDA](#orders-are-accounts). Intents that don't declare it are rejected, so the flag always states which flow actually created the order.
 
-In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered by the user once the order has expired by [clearing the order](#order-clearing).
+In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered by the user once the order has expired, or once it's cancelled or completely filled, by [clearing the order](#order-clearing).
 
 This flow supports both standard ("on-curve") accounts and PDA signatures.
 

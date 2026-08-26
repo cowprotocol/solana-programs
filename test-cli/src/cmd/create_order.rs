@@ -164,6 +164,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         valid_to: common.valid_to,
         kind,
         partially_fillable: common.partially_fillable,
+        created_on_chain: true,
         app_data: [0u8; 32],
     };
 

@@ -23,6 +23,7 @@ pub fn sample_intent(owner: Pubkey, sell_token_account: Pubkey, salt: u8) -> Ord
         valid_to: 0xdead_beef,
         kind: OrderKind::Sell,
         partially_fillable: true,
+        created_on_chain: true,
         app_data: [salt; 32],
     }
 }
