@@ -44,7 +44,12 @@ pub fn process_add_solver(
             Ok(_) => return Err(SettlementError::SolverAlreadyExists.into()),
             Err(index) => index,
         };
-        (index, state.grown_len().expect("grown account length fits in usize"))
+        (
+            index,
+            state
+                .grown_len()
+                .expect("grown account length fits in usize"),
+        )
     };
 
     let shortfall = Rent::get()?
