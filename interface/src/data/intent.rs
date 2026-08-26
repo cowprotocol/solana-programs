@@ -2,18 +2,16 @@
 //!
 //! Two types live here:
 //!
-//! - [`OrderIntent`] is the idiomatic Rust representation. Every value is valid
-//!   by construction: `kind` is an [`OrderKind`] enum, `partially_fillable` is
-//!   a `bool`. Callers pattern-match on it directly.
+//! - [`OrderIntent`] is the idiomatic Rust representation.
 //! - [`EncodedOrderIntent`] is its canonical byte representation: the only
 //!   thing sent on the wire and also the data encoding used to generate the
-//!   order UID.
+//!   order UID. There, `kind` and `partially_fillable` share a single flags
+//!   byte.
 //!
 //! Conversion is asymmetric: [`EncodedOrderIntent`]`::from(OrderIntent)` is
-//! infallible; decoding raw bytes via [`OrderIntent`]`::try_from` returns
-//! `Result` and rejects out-of-range `kind` or `partially_fillable` bytes up
-//! front. There is no path that produces an `OrderIntent` whose `kind` byte or
-//! `partially_fillable` byte was not validated.
+//! infallible, but decoding raw bytes via [`OrderIntent`]`::try_from` returns
+//! `Result` and rejects a flags byte carrying a bit the encoding doesn't
+//! define.
 
 use core::mem::size_of;
 
@@ -23,7 +21,8 @@ use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-/// Direction of the trade.
+/// Direction of the trade. The discriminants are the values the `kind` bit of
+/// the encoded flags byte takes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 #[repr(u8)]
 pub enum OrderKind {
@@ -83,7 +82,7 @@ pub struct OrderIntent {
     pub app_data: [u8; 32],
 }
 
-/// Canonical 150-byte representation of an [`OrderIntent`]. The wire format and
+/// Canonical 149-byte representation of an [`OrderIntent`]. The wire format and
 /// the order UID preimage.
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
@@ -91,16 +90,20 @@ pub struct OrderIntent {
 /// annotated below. Amounts and `valid_to` are little-endian encoded.
 ///
 /// ```text
-///                                                                                              partially_fillable ─────┐
-///                                                                                                            kind ────┐│
-/// ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────┬───────┬───┬┬┬───────────────────────────────┐
-/// │                               │                               │                               │sell_  │buy_   │val│││                               │
-/// │             owner             │       buy_token_account       │       sell_token_account      │       │       │id_│││            app_data           │
-/// │                               │                               │                               │amount │amount │to │││                               │
-/// └───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────┴───────┴───┴┴┴───────────────────────────────┘
-/// 0                               32                              64                              96      104    112 116 118                            150
-///                                                                                                                     117
+///                                                                                                            flags ───┐
+/// ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────┬───────┬───┬┬───────────────────────────────┐
+/// │                               │                               │                               │sell_  │buy_   │val││                               │
+/// │             owner             │       buy_token_account       │       sell_token_account      │       │       │id_││            app_data           │
+/// │                               │                               │                               │amount │amount │to ││                               │
+/// └───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────┴───────┴───┴┴───────────────────────────────┘
+/// 0                               32                              64                              96      104     112 116                              149
+///                                                                                                                      117
 /// ```
+///
+/// The flags byte packs `kind` and the intent's booleans, one bit each, from
+/// the most significant defined bit down: `partially_fillable`, then `kind`
+/// ([`OrderKind::Sell`] = 0, [`OrderKind::Buy`] = 1). Every other bit is
+/// reserved and must be zero.
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderIntent([u8; Self::SIZE]);
 
@@ -112,11 +115,17 @@ impl EncodedOrderIntent {
     const WIDTH_SELL_AMOUNT: usize = size_of::<u64>();
     const WIDTH_BUY_AMOUNT: usize = size_of::<u64>();
     const WIDTH_VALID_TO: usize = size_of::<u32>();
-    const WIDTH_KIND: usize = size_of::<OrderKind>();
-    const WIDTH_PARTIALLY_FILLABLE: usize = size_of::<bool>();
+    const WIDTH_FLAGS: usize = size_of::<u8>();
     const WIDTH_APP_DATA: usize = size_of::<[u8; 32]>();
 
-    pub const SIZE: usize = 150;
+    // The bits of the flags byte, from the most significant defined bit down:
+    // one per boolean field of `OrderIntent`, plus `kind`.
+    const FLAG_PARTIALLY_FILLABLE: u8 = 1 << 1;
+    const FLAG_KIND: u8 = 1 << 0;
+
+    const FLAGS_MASK: u8 = Self::FLAG_PARTIALLY_FILLABLE | Self::FLAG_KIND;
+
+    pub const SIZE: usize = 149;
 
     /// Canonical hash of the bytes.
     pub fn hash(&self) -> Hash {
@@ -124,9 +133,8 @@ impl EncodedOrderIntent {
     }
 
     /// Decode raw bytes to an [`OrderIntent`] and compute the UID in one shot.
-    /// Returns [`ProgramError::InvalidInstructionData`] for an out-of-range
-    /// `kind` or `partially_fillable` byte; every other byte combination
-    /// decodes.
+    /// Returns [`ProgramError::InvalidInstructionData`] for a flags byte that
+    /// doesn't encode correctly; every other byte combination decodes.
     pub fn decode_and_hash(bytes: &[u8; Self::SIZE]) -> Result<(OrderIntent, Hash), ProgramError> {
         let intent = OrderIntent::try_from(bytes)?;
         // The UID is the SHA-256 of the input bytes. Hashing the input
@@ -143,6 +151,15 @@ pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
     solana_sha256_hasher::hashv(&[bytes.as_slice()])
 }
 
+/// The intent's `kind` and booleans packed into their canonical flags byte.
+/// Reserved bits are left clear.
+fn flags_byte(intent: &OrderIntent) -> u8 {
+    // `wrapping_neg` transforms a true `bool` (effectively 1) into 0xffffffff
+    let mask = |value: u8| value.wrapping_neg();
+    EncodedOrderIntent::FLAG_PARTIALLY_FILLABLE & mask(intent.partially_fillable as u8)
+        | EncodedOrderIntent::FLAG_KIND & mask(intent.kind as u8)
+}
+
 impl From<&EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
     fn from(encoded: &EncodedOrderIntent) -> Self {
         encoded.0
@@ -154,17 +171,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         // `mut_array_refs` checks that `SIZE` is consistent with the sum of
         // the widths.
         let mut out = [0u8; Self::SIZE];
-        let (
-            owner,
-            buy_token,
-            sell_token,
-            sell_amount,
-            buy_amount,
-            valid_to,
-            kind,
-            partially_fillable,
-            app_data,
-        ) = mut_array_refs![
+        let (owner, buy_token, sell_token, sell_amount, buy_amount, valid_to, flags, app_data) = mut_array_refs![
             &mut out,
             EncodedOrderIntent::WIDTH_OWNER,
             EncodedOrderIntent::WIDTH_BUY_TOKEN,
@@ -172,8 +179,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
             EncodedOrderIntent::WIDTH_BUY_AMOUNT,
             EncodedOrderIntent::WIDTH_VALID_TO,
-            EncodedOrderIntent::WIDTH_KIND,
-            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_FLAGS,
             EncodedOrderIntent::WIDTH_APP_DATA
         ];
         *owner = intent.owner.to_bytes();
@@ -182,8 +188,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *sell_amount = intent.sell_amount.to_le_bytes();
         *buy_amount = intent.buy_amount.to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
-        *kind = [intent.kind as u8];
-        *partially_fillable = [intent.partially_fillable as u8];
+        *flags = [flags_byte(intent)];
         *app_data = intent.app_data;
         Self(out)
     }
@@ -200,17 +205,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
         // as valid or it might be possible to replay the same order more
         // than once.
 
-        let (
-            owner,
-            buy_token,
-            sell_token,
-            sell_amount,
-            buy_amount,
-            valid_to,
-            kind,
-            partially_fillable,
-            app_data,
-        ) = array_refs![
+        let (owner, buy_token, sell_token, sell_amount, buy_amount, valid_to, flags, app_data) = array_refs![
             bytes,
             EncodedOrderIntent::WIDTH_OWNER,
             EncodedOrderIntent::WIDTH_BUY_TOKEN,
@@ -218,10 +213,17 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
             EncodedOrderIntent::WIDTH_BUY_AMOUNT,
             EncodedOrderIntent::WIDTH_VALID_TO,
-            EncodedOrderIntent::WIDTH_KIND,
-            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
+            EncodedOrderIntent::WIDTH_FLAGS,
             EncodedOrderIntent::WIDTH_APP_DATA
         ];
+
+        let [flags] = *flags;
+        // A reserved bit carries no meaning to this version of the program, so
+        // accepting it would give the same intent several encodings, and with
+        // them several UIDs.
+        if flags & !EncodedOrderIntent::FLAGS_MASK != 0 {
+            return Err(ProgramError::InvalidInstructionData);
+        }
 
         Ok(OrderIntent {
             owner: Pubkey::new_from_array(*owner),
@@ -230,16 +232,12 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             sell_amount: u64::from_le_bytes(*sell_amount),
             buy_amount: u64::from_le_bytes(*buy_amount),
             valid_to: u32::from_le_bytes(*valid_to),
-            kind: match kind {
-                [0] => OrderKind::Sell,
-                [1] => OrderKind::Buy,
-                _ => return Err(ProgramError::InvalidInstructionData),
+            kind: if flags & EncodedOrderIntent::FLAG_KIND == 0 {
+                OrderKind::Sell
+            } else {
+                OrderKind::Buy
             },
-            partially_fillable: match partially_fillable {
-                [0] => false,
-                [1] => true,
-                _ => return Err(ProgramError::InvalidInstructionData),
-            },
+            partially_fillable: flags & EncodedOrderIntent::FLAG_PARTIALLY_FILLABLE != 0,
             app_data: *app_data,
         })
     }
@@ -266,14 +264,13 @@ impl OrderIntent {
 pub mod fixtures {
     use proptest::{prelude::*, strategy::Union};
 
-    use super::{EncodedOrderIntent, OrderIntent, OrderKind, Pubkey};
+    use super::{flags_byte, EncodedOrderIntent, OrderIntent, OrderKind, Pubkey};
 
     /// Every valid [`OrderKind`].
     pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
 
     // Hardcoded but verified in a sanity-check test.
-    pub const KIND_OFFSET: usize = 116;
-    pub const PARTIALLY_FILLABLE_OFFSET: usize = KIND_OFFSET + EncodedOrderIntent::WIDTH_KIND;
+    pub const FLAGS_OFFSET: usize = 116;
 
     pub fn sample_intent(kind: OrderKind, partially_fillable: bool) -> OrderIntent {
         OrderIntent {
@@ -292,6 +289,35 @@ pub mod fixtures {
     /// Any valid [`OrderKind`].
     pub fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
         Union::new(ALL_ORDER_KINDS.map(Just))
+    }
+
+    /// The canonical flags byte for the given `kind` and booleans, as the
+    /// encoder writes it. Lets a test pin the flags slot of otherwise arbitrary
+    /// bytes.
+    pub fn intent_flags_byte(partially_fillable: bool, kind: OrderKind) -> u8 {
+        flags_byte(&OrderIntent {
+            partially_fillable,
+            kind,
+            ..Default::default()
+        })
+    }
+
+    /// Any flags byte the decoder accepts.
+    pub fn arb_flags_byte() -> impl Strategy<Value = u8> {
+        (any::<bool>(), arb_order_kind())
+            .prop_map(|(partially_fillable, kind)| intent_flags_byte(partially_fillable, kind))
+    }
+
+    /// Any flags byte the decoder rejects: one carrying at least one bit
+    /// outside those the encoding defines.
+    pub fn arb_invalid_flags_byte() -> impl Strategy<Value = u8> {
+        (
+            any::<u8>().prop_filter("at least one reserved bit must be set", |reserved| {
+                reserved & !EncodedOrderIntent::FLAGS_MASK != 0
+            }),
+            arb_flags_byte(),
+        )
+            .prop_map(|(reserved, defined)| (reserved & !EncodedOrderIntent::FLAGS_MASK) | defined)
     }
 
     /// Any valid [`OrderIntent`].
@@ -329,15 +355,17 @@ pub mod fixtures {
 mod tests {
     use hex_literal::hex;
 
-    use super::fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET};
+    use super::fixtures::{sample_intent, FLAGS_OFFSET};
     use super::*;
 
-    // Full Cartesian product of `OrderKind × bool` for tests that need to
-    // exercise every shape an `OrderIntent` can take on these axes.
-    fn all_kind_and_fillable() -> impl Iterator<Item = (OrderKind, bool)> {
-        fixtures::ALL_ORDER_KINDS
-            .into_iter()
-            .flat_map(|kind| core::iter::repeat(kind).zip([false, true]))
+    // Every shape an `OrderIntent` can take on its validated axes: the `kind`
+    // enum and the `partially_fillable` flag bit.
+    fn all_intent_shapes() -> impl Iterator<Item = OrderIntent> {
+        fixtures::ALL_ORDER_KINDS.into_iter().flat_map(|kind| {
+            [false, true]
+                .into_iter()
+                .map(move |partially_fillable| sample_intent(kind, partially_fillable))
+        })
     }
 
     // Pin each width to the size of the `OrderIntent` field it encodes. The
@@ -372,11 +400,6 @@ mod tests {
             EncodedOrderIntent::WIDTH_VALID_TO,
             size_of_val(&intent.valid_to)
         );
-        assert_eq!(EncodedOrderIntent::WIDTH_KIND, size_of_val(&intent.kind));
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_PARTIALLY_FILLABLE,
-            size_of_val(&intent.partially_fillable)
-        );
         assert_eq!(
             EncodedOrderIntent::WIDTH_APP_DATA,
             size_of_val(&intent.app_data)
@@ -386,9 +409,48 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_all_kind_and_bool_combinations() {
-        for (kind, partially_fillable) in all_kind_and_fillable() {
-            let intent = sample_intent(kind, partially_fillable);
+    fn every_flag_owns_a_distinct_bit() {
+        let flags_of = |intent: &OrderIntent| EncodedOrderIntent::from(intent)[FLAGS_OFFSET];
+        let cleared = OrderIntent {
+            partially_fillable: false,
+            kind: OrderKind::Sell,
+            ..sample_intent(OrderKind::Sell, false)
+        };
+        assert_eq!(flags_of(&cleared), 0);
+
+        let set_one_by_one = [
+            (
+                EncodedOrderIntent::FLAG_PARTIALLY_FILLABLE,
+                OrderIntent {
+                    partially_fillable: true,
+                    ..cleared.clone()
+                },
+            ),
+            (
+                EncodedOrderIntent::FLAG_KIND,
+                OrderIntent {
+                    kind: OrderKind::Buy,
+                    ..cleared.clone()
+                },
+            ),
+        ];
+        let mut seen = 0u8;
+        for (bit, intent) in set_one_by_one {
+            assert_eq!(bit.count_ones(), 1, "a flag must occupy a single bit");
+            assert_eq!(seen & bit, 0, "two flags must not share a bit");
+            assert!(
+                seen == 0 || bit < seen,
+                "each flag must be less significant than the ones before it"
+            );
+            seen |= bit;
+            assert_eq!(flags_of(&intent), bit);
+        }
+        assert_eq!(seen, EncodedOrderIntent::FLAGS_MASK);
+    }
+
+    #[test]
+    fn roundtrip_all_kind_and_flag_combinations() {
+        for intent in all_intent_shapes() {
             let encoded = EncodedOrderIntent::from(&intent);
             let (decoded, _uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
@@ -402,8 +464,8 @@ mod tests {
     // encode/decode, this test fails.
     #[test]
     fn decode_and_hash_uid_matches_encoded_hash() {
-        for (kind, partially_fillable) in all_kind_and_fillable() {
-            let encoded = EncodedOrderIntent::from(&sample_intent(kind, partially_fillable));
+        for intent in all_intent_shapes() {
+            let encoded = EncodedOrderIntent::from(&intent);
             let (_intent, uid) =
                 EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
             assert_eq!(uid, encoded.hash());
@@ -421,44 +483,51 @@ mod tests {
 
         assert_eq!(
             first_differing_byte(sell_false.as_slice(), sell_true.as_slice())
-                .expect("should have different partially fillable byte"),
-            PARTIALLY_FILLABLE_OFFSET
+                .expect("should have different flags byte"),
+            FLAGS_OFFSET
         );
         assert_eq!(
             first_differing_byte(buy_true.as_slice(), sell_true.as_slice())
-                .expect("should have different kind byte"),
-            KIND_OFFSET
+                .expect("should have different flags byte"),
+            FLAGS_OFFSET
         );
     }
 
     #[test]
-    fn decode_rejects_out_of_range_kind() {
+    fn decode_accepts_defined_flag_bits_only() {
         let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Sell, false));
         let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
-        for bad in 0x02u8..=0xff {
-            bytes[KIND_OFFSET] = bad;
-            let err = EncodedOrderIntent::decode_and_hash(&bytes)
-                .expect_err("should reject out of range kind");
-            assert_eq!(err, ProgramError::InvalidInstructionData);
-        }
-    }
-
-    #[test]
-    fn decode_rejects_non_boolean_partially_fillable() {
-        let encoded = EncodedOrderIntent::from(&sample_intent(OrderKind::Sell, false));
-        let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
-        for bad in 0x02u8..=0xff {
-            bytes[PARTIALLY_FILLABLE_OFFSET] = bad;
-            let err = EncodedOrderIntent::decode_and_hash(&bytes)
-                .expect_err("should reject out of range partially fillable");
-            assert_eq!(err, ProgramError::InvalidInstructionData);
+        for flags in u8::MIN..=u8::MAX {
+            bytes[FLAGS_OFFSET] = flags;
+            let decoded = EncodedOrderIntent::decode_and_hash(&bytes);
+            if flags & !EncodedOrderIntent::FLAGS_MASK != 0 {
+                assert_eq!(
+                    decoded.err(),
+                    Some(ProgramError::InvalidInstructionData),
+                    "flags {flags:#04x} sets a reserved bit and must be rejected",
+                );
+            } else {
+                let (intent, _uid) = decoded.expect("defined flag bits must decode");
+                assert_eq!(
+                    intent.partially_fillable,
+                    flags & EncodedOrderIntent::FLAG_PARTIALLY_FILLABLE != 0,
+                );
+                assert_eq!(
+                    intent.kind,
+                    if flags & EncodedOrderIntent::FLAG_KIND == 0 {
+                        OrderKind::Sell
+                    } else {
+                        OrderKind::Buy
+                    },
+                );
+            }
         }
     }
 
     #[test]
     fn uid_digest_regression() {
         let intent = sample_intent(OrderKind::Buy, true);
-        let expected = hex!("7ce7c6a74671090771fa33851387444064aca759ce55b80708723076722f5e00");
+        let expected = hex!("d2a82e919ec3d5e8b21c512cf14251e98bf79cdf01f0a2bdd0ecbed3007a9761");
         assert_eq!(intent.uid(), Hash::from(expected));
     }
 
@@ -489,10 +558,8 @@ mod tests {
             0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
             // valid_to (0xdead_beef, LE u32)
             0xef, 0xbe, 0xad, 0xde,
-            // kind (Buy = 1)
-            0x01,
-            // partially_fillable (true = 1)
-            0x01,
+            // flags (partially_fillable | kind (Buy = 1))
+            0b00000011,
             // app_data ([0x44; 32])
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
@@ -508,18 +575,8 @@ mod tests {
 
         use super::*;
         use crate::data::intent::fixtures::{
-            arb_order_intent, arb_order_kind, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET,
+            arb_flags_byte, arb_invalid_flags_byte, arb_order_intent, FLAGS_OFFSET,
         };
-
-        // Any byte not decoding to a valid order type.
-        fn arb_bad_order_kind_byte() -> impl Strategy<Value = u8> {
-            2u8..=255
-        }
-
-        // Any byte not decoding to a valid bool.
-        fn arb_bad_bool_byte() -> impl Strategy<Value = u8> {
-            2u8..=255
-        }
 
         proptest! {
             // For any `OrderIntent`, encoding an intent into an encoded
@@ -535,50 +592,27 @@ mod tests {
                 prop_assert_eq!(uid, encoded.hash());
             }
 
-            // For any bytes whose `kind` and `partially_fillable` slots
-            // are valid, `decode_and_hash` and then re-encoding produces
-            // back the original bytes.
+            // For any bytes whose flags slot is valid, `decode_and_hash` and
+            // then re-encoding produces back the original bytes.
             #[test]
             fn bytes_roundtrip(
                 mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
-                kind in arb_order_kind(),
-                partially_fillable in any::<bool>(),
+                flags in arb_flags_byte(),
             ) {
-                bytes[KIND_OFFSET] = kind as u8;
-                bytes[PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
+                bytes[FLAGS_OFFSET] = flags;
                 let (intent, _uid) = EncodedOrderIntent::decode_and_hash(&bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(*EncodedOrderIntent::from(&intent), bytes);
             }
 
-            // For any bytes with an invalid `kind` byte (and a valid
-            // `partially_fillable`), `decode_and_hash` returns
-            // `InvalidInstructionData`.
+            // Symmetric: any bytes whose flags byte carries a reserved bit
+            // return `InvalidInstructionData`.
             #[test]
-            fn rejects_invalid_kind_byte(
+            fn rejects_reserved_flag_bits(
                 mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
-                bad_kind in arb_bad_order_kind_byte(),
-                partially_fillable in any::<bool>(),
+                bad_flags in arb_invalid_flags_byte(),
             ) {
-                bytes[KIND_OFFSET] = bad_kind;
-                bytes[PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
-                prop_assert_eq!(
-                    EncodedOrderIntent::decode_and_hash(&bytes),
-                    Err(ProgramError::InvalidInstructionData),
-                );
-            }
-
-            // Symmetric: any bytes with an out-of-range
-            // `partially_fillable` byte (and a valid `kind`) return
-            // `InvalidInstructionData`.
-            #[test]
-            fn rejects_invalid_partially_fillable_byte(
-                mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
-                kind in arb_order_kind(),
-                bad_pf in arb_bad_bool_byte(),
-            ) {
-                bytes[KIND_OFFSET] = kind as u8;
-                bytes[PARTIALLY_FILLABLE_OFFSET] = bad_pf;
+                bytes[FLAGS_OFFSET] = bad_flags;
                 prop_assert_eq!(
                     EncodedOrderIntent::decode_and_hash(&bytes),
                     Err(ProgramError::InvalidInstructionData),

@@ -132,6 +132,10 @@ struct OrderIntent {
 }
 ```
 
+The intent's `kind` and `partially_fillable` share a single flags byte in the
+encoded form, one bit each, with the remaining bits reserved and required to be
+zero.
+
 Differences with Ethereum:
 
 - In Solana, the spender token account (and the owner) is part of the intent, while in Ethereum it is implied in the signature.
