@@ -128,7 +128,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 
 ### Breaking change
 
-- Bump the version in all `./**/Cargo.toml` files *by at least a minor version*. For example, `VERSION=0.42.1337`.
+- [Bump the crate version](#bumping-the-crate-version) *by at least a minor version*.
 - Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
 - Store the newly generated account [in 1password](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ie6sd53uo6rawl43sd4373zq5i&h=cowserviceslda.1password.com).
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
@@ -140,11 +140,25 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 
 ### Patch update
 
-- Bump the version in all `./**/Cargo.toml` files by a patch version.
+- [Bump the crate version](#bumping-the-crate-version) by a patch version.
 - Commit the changes.
 - Create a PR with the changes and wait for approval.
 - [Update the programs](#how-to-deploy). The [deployer keypair](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ch65n5b6akn4peqbrvsmelorlq&h=cowserviceslda.1password.com) and the [program keypair](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ie6sd53uo6rawl43sd4373zq5i&h=cowserviceslda.1password.com) are in 1password.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
+
+### Bumping the crate version
+
+You need to update Cargo's toml and lock file.
+Here is a list of commands to help bumping all relevant strings:
+
+```sh
+export VERSION=0.42.1337
+perl -i -pe '
+  s/^version = ".*"/version = "$ENV{VERSION}"/;
+  s/(path = "[^"]*", version = )"[^"]*"/$1"$ENV{VERSION}"/;
+' ./Cargo.toml
+just build
+```
 
 ## License
 
