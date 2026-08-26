@@ -132,16 +132,16 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
 - Store the newly generated account in 1password (under "Settlement account by version").
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
-- Commit the changes.
+- Commit the code changes resulting from the changes above (not the account).
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
 - Initialize the new deployment. See `cargo run -p cow-test-cli -- initialize --help`.
-- Create a PR with the changes and wait for approval.
+- Create a PR with the changes (branch `release/v*.*.*`) and wait for approval.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
 ### Patch update
 
 - [Bump the crate version](#bumping-the-crate-version) by a patch version.
-- Commit the changes.
+- Commit the code changes resulting from the changes above.
 - Create a PR with the changes and wait for approval.
 - [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
 - [Publish the cargo packages](#publishing-the-cargo-packages).
