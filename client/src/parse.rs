@@ -71,7 +71,7 @@ mod tests {
         BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize, InitializedIntent,
     };
     use cow_settlement_interface::{
-        data::intent::{fixtures::sample_intent, OrderKind},
+        data::intent::fixtures::sample_intent,
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array, reclaim_buffer::ReclaimBuffer,
@@ -85,7 +85,7 @@ mod tests {
     fn build(instruction: SettlementInstruction) -> Instruction {
         let program_id = pubkey_from_seed("program id");
         let payer = pubkey_from_seed("payer");
-        let intent = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(Default::default());
         match instruction {
             SettlementInstruction::Initialize => Initialize {
                 program_id,
