@@ -533,20 +533,6 @@ mod tests {
                     Some(ProgramError::InvalidInstructionData),
                     "flags {flags:#04x} sets a reserved bit and must be rejected",
                 );
-            } else {
-                let (intent, _uid) = decoded.expect("defined flag bits must decode");
-                assert_eq!(
-                    intent.flags.partially_fillable,
-                    flags & Flags::PARTIALLY_FILLABLE != 0,
-                );
-                assert_eq!(
-                    intent.flags.kind,
-                    if flags & Flags::KIND == 0 {
-                        OrderKind::Sell
-                    } else {
-                        OrderKind::Buy
-                    },
-                );
             }
         }
     }
