@@ -169,6 +169,31 @@ fn rejects_adding_an_existing_solver() {
 }
 
 #[test]
+fn rejects_adding_solver_if_manager_is_not_signer() {
+    let (mut svm, params) = setup_init();
+    let solver = unique_keypair().pubkey();
+
+    let mut ix: Instruction = AddSolver {
+        program_id: params.program_id,
+        manager: params.manager.pubkey(),
+        payer: params.payer.pubkey(),
+        solver,
+    }
+    .into();
+    assert!(
+        ix.accounts[MANAGER_INDEX].is_signer && !ix.accounts[MANAGER_INDEX].is_writable,
+        "test sanity check failed: MANAGER_INDEX should point to the manager signer"
+    );
+    ix.accounts[MANAGER_INDEX].is_signer = false;
+
+    let res = common::send(&mut svm, &params.payer, vec![ix]);
+    assert_instruction_error(
+        res,
+        to_instruction_error(SettlementError::UnauthorizedSolverManagement),
+    );
+}
+
+#[test]
 fn rejects_adding_solver_by_non_manager() {
     let (mut svm, params) = setup_init();
     let solver = unique_keypair().pubkey();
@@ -270,31 +295,6 @@ fn rejects_growing_beyond_the_max_account_size() {
 
 /// Index of the manager account in an `AddSolver` instruction.
 const MANAGER_INDEX: usize = 0;
-
-#[test]
-fn rejects_adding_solver_if_manager_is_not_signer() {
-    let (mut svm, params) = setup_init();
-    let solver = unique_keypair().pubkey();
-
-    let mut ix: Instruction = AddSolver {
-        program_id: params.program_id,
-        manager: params.manager.pubkey(),
-        payer: params.payer.pubkey(),
-        solver,
-    }
-    .into();
-    assert!(
-        ix.accounts[MANAGER_INDEX].is_signer && !ix.accounts[MANAGER_INDEX].is_writable,
-        "test sanity check failed: MANAGER_INDEX should point to the manager signer"
-    );
-    ix.accounts[MANAGER_INDEX].is_signer = false;
-
-    let res = common::send(&mut svm, &params.payer, vec![ix]);
-    assert_instruction_error(
-        res,
-        to_instruction_error(SettlementError::UnauthorizedSolverManagement),
-    );
-}
 
 #[test]
 fn rejects_adding_solver_if_state_pda_is_uninitialized() {
