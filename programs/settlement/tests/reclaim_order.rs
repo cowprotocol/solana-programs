@@ -1,5 +1,5 @@
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind},
+    data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent},
     instruction::{create_order::CreateOrder, reclaim_order::ReclaimOrder},
     pda::order::find_order_pda,
     SettlementError,
@@ -23,7 +23,7 @@ fn reclaim_sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
         valid_to: VALID_TO,
-        ..sample_intent(OrderKind::Sell, true)
+        ..sample_intent(Default::default())
     }
 }
 
