@@ -412,6 +412,11 @@ mod tests {
             size_of_val(&intent.valid_to)
         );
         assert_eq!(
+            EncodedOrderIntent::WIDTH_FLAGS,
+            // in truth if there was a problem here it would actually cause a compilation error
+            size_of_val::<[u8; 1]>(&Flags::default().into())
+        );
+        assert_eq!(
             EncodedOrderIntent::WIDTH_APP_DATA,
             size_of_val(&intent.app_data)
         );
