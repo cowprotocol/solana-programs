@@ -130,10 +130,10 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 
 - [Bump the crate version](#bumping-the-crate-version) *by at least a minor version*.
 - Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
-- Store the newly generated account [in 1password](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ie6sd53uo6rawl43sd4373zq5i&h=cowserviceslda.1password.com).
+- Store the newly generated account in 1password (under "Settlement account by version").
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
 - Commit the changes.
-- [Deploy the programs](#how-to-deploy). The deployer keypair is [in 1password](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ch65n5b6akn4peqbrvsmelorlq&h=cowserviceslda.1password.com). The program keypair file is the key that was generated before.
+- [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
 - Initialize the new deployment. See `cargo run -p cow-test-cli -- initialize --help`.
 - Create a PR with the changes and wait for approval.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
@@ -143,7 +143,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - [Bump the crate version](#bumping-the-crate-version) by a patch version.
 - Commit the changes.
 - Create a PR with the changes and wait for approval.
-- [Update the programs](#how-to-deploy). The [deployer keypair](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ch65n5b6akn4peqbrvsmelorlq&h=cowserviceslda.1password.com) and the [program keypair](https://start.1password.com/open/i?a=6DWD777JFFEZZLYS6J4DUURYLE&v=j72yup55epeqinjrndwns5yuse&i=ie6sd53uo6rawl43sd4373zq5i&h=cowserviceslda.1password.com) are in 1password.
+- [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
 ### Bumping the crate version
