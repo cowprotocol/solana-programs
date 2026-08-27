@@ -54,6 +54,9 @@ pub enum Role {
 }
 
 impl Role {
+    /// Every [`Role`] variant, in discriminant order.
+    pub const ALL: [Self; 2] = [Role::Manager, Role::ReclaimAuthority];
+
     /// The single wire byte that selects this role in the authority-transfer
     /// instruction.
     pub fn discriminator(self) -> u8 {
@@ -327,5 +330,17 @@ mod tests {
     #[test]
     fn role_try_from_matches_manager() {
         assert_eq!(Role::try_from(0), Ok(Role::Manager));
+    }
+
+    #[test]
+    fn all_roles_lists_every_role_in_discriminator_order() {
+        // The roles `try_from` accepts, discovered independently of `Role::ALL`.
+        // The scan runs over ascending bytes, so this is every role that exists,
+        // in discriminant order.
+        let every_role: Vec<Role> = (u8::MIN..=u8::MAX)
+            .filter_map(|byte| Role::try_from(byte).ok())
+            .collect();
+
+        assert_eq!(Role::ALL.as_slice(), every_role.as_slice());
     }
 }

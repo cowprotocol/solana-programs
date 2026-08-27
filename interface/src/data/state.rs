@@ -1,272 +1,299 @@
-//! Settlement state PDA body and its canonical byte representation.
+//! Settlement state account: its byte layout and the zero-copy accessor over it.
 //!
 //! The state PDA (see [`crate::pda::state`]) stores the protocol's authority
-//! configuration: for every [`Role`] it holds the current holder.
+//! configuration in a fixed header: a discriminator byte followed by the holder
+//! of each [`Role`].
+//!
+//! ```text
+//!  ┌──── discriminator
+//!  ┌┬───────────────────────────────┬───────────────────────────────┐
+//!  ││            manager            │       reclaim_authority       │
+//!  └┴───────────────────────────────┴───────────────────────────────┘
+//! 0 1                               33                              65
+//!  └───────────────────────────── header ──────────────────────────┘
+//! ```
+//!
+//! [`StateAccount`] is a zero-copy accessor over an account's bytes, generic
+//! over the borrow (`&[u8]`, `&mut [u8]`): the reads are available for any
+//! borrow, the in-place role write only for a mutable one. It reads and updates
+//! the header directly in the account, so the program never copies the account
+//! into an owned struct just to inspect a field or flip a role.
 
 use core::mem::size_of;
+use core::ops::{Deref, DerefMut};
 
 use arrayref::{array_refs, mut_array_refs};
-use derive_more::Deref;
+use solana_account_view::{AccountView, Ref};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::{Role, SettlementAccount};
 
-/// Idiomatic representation of the state PDA's body.
+/// Single-byte account discriminator at the front of the header.
+pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator();
+
+/// Byte width of the discriminator.
+const WIDTH_DISCRIMINATOR: usize = size_of::<u8>();
+
+/// Byte width of an account address (a [`Pubkey`]): each role holder in the
+/// header is one.
+pub const WIDTH_PUBKEY: usize = size_of::<Pubkey>();
+
+/// Length of the fixed header: the discriminator byte followed by one holder
+/// per [`Role`].
+pub const WIDTH_HEADER: usize = WIDTH_DISCRIMINATOR + 2 * WIDTH_PUBKEY;
+
+/// A borrowed view over the bytes of a state acc, split into its
+/// discriminator and per-role slots so each can be named. The slots hold raw
+/// encoded bytes, not decoded [`Pubkey`]s.
+struct HeaderSlots<'a> {
+    discriminator: &'a [u8; WIDTH_DISCRIMINATOR],
+    manager: &'a [u8; WIDTH_PUBKEY],
+    reclaim_authority: &'a [u8; WIDTH_PUBKEY],
+}
+
+/// The mutable counterpart of [`HeaderSlots`], for in-place writes.
+struct HeaderSlotsMut<'a> {
+    discriminator: &'a mut [u8; WIDTH_DISCRIMINATOR],
+    manager: &'a mut [u8; WIDTH_PUBKEY],
+    reclaim_authority: &'a mut [u8; WIDTH_PUBKEY],
+}
+
+/// Split the header into its named slots.
+fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
+    let (discriminator, manager, reclaim_authority) =
+        array_refs![header, WIDTH_DISCRIMINATOR, WIDTH_PUBKEY, WIDTH_PUBKEY];
+    HeaderSlots {
+        discriminator,
+        manager,
+        reclaim_authority,
+    }
+}
+
+/// [`header_slots`] over a mutable header, for in-place writes.
+fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
+    let (discriminator, manager, reclaim_authority) =
+        mut_array_refs![header, WIDTH_DISCRIMINATOR, WIDTH_PUBKEY, WIDTH_PUBKEY];
+    HeaderSlotsMut {
+        discriminator,
+        manager,
+        reclaim_authority,
+    }
+}
+
+/// The parameters used to initialize the state account.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StateAccount {
-    /// Current [`Role::Manager`].
+pub struct StateInitArgs {
+    /// The [`Role::Manager`] holder.
     pub manager: Pubkey,
-    /// Current [`Role::ReclaimAuthority`].
+    /// The [`Role::ReclaimAuthority`] holder.
     pub reclaim_authority: Pubkey,
 }
 
-/// Canonical representation of a [`StateAccount`]: the discriminator byte
-/// followed by the current holder of each role.
+/// A zero-copy accessor over a settlement state account's canonical byte
+/// representation: the discriminator byte followed by the current holder of
+/// each [`Role`].
 ///
-/// ```text
-///  ┌──── discriminator
-///  ┌┬───────────────────────────────┬───────────────────────────────┐
-///  ││            manager            │       reclaim_authority       │
-///  └┴───────────────────────────────┴───────────────────────────────┘
-/// 0 1                               33                              65
-/// ```
-#[derive(Clone, Debug, Deref, Eq, PartialEq)]
-pub struct EncodedStateAccount([u8; Self::SIZE]);
+/// `T` is the borrow backing it, anything that dereferences to the account's
+/// bytes: `&[u8]` grant read access; `&mut [u8]` grants write access.
+pub struct StateAccount<T>(T);
 
-/// A borrowed view over an [`EncodedStateAccount`]'s bytes, split into its
-/// discriminator and per-role slots so each can be named. The slots hold raw
-/// encoded bytes, not decoded [`Pubkey`]s.
-struct StateAccountRef<'a> {
-    discriminator: &'a [u8; EncodedStateAccount::W_DISCRIMINATOR],
-    manager: &'a [u8; EncodedStateAccount::W_MANAGER],
-    reclaim_authority: &'a [u8; EncodedStateAccount::W_RECLAIM_AUTHORITY],
-}
-
-/// The mutable counterpart of [`StateAccountRef`], for in-place writes.
-struct StateAccountRefMut<'a> {
-    discriminator: &'a mut [u8; EncodedStateAccount::W_DISCRIMINATOR],
-    manager: &'a mut [u8; EncodedStateAccount::W_MANAGER],
-    reclaim_authority: &'a mut [u8; EncodedStateAccount::W_RECLAIM_AUTHORITY],
-}
-
-impl EncodedStateAccount {
-    // Per-field widths, derived from the `StateAccount` field types.
-    const W_DISCRIMINATOR: usize = size_of::<u8>();
-    const W_MANAGER: usize = size_of::<Pubkey>();
-    const W_RECLAIM_AUTHORITY: usize = size_of::<Pubkey>();
-
-    pub const SIZE: usize = 65;
-
-    /// Single-byte account discriminator. See [`SettlementAccount`].
-    pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator();
-
-    /// Borrow the encoding split into its discriminator and per-role slots.
-    /// Naming the layout here once keeps every reader and writer below (and the
-    /// codec) in step with it.
-    fn slots(bytes: &[u8; Self::SIZE]) -> StateAccountRef<'_> {
-        let (discriminator, manager, reclaim_authority) = array_refs![
-            bytes,
-            EncodedStateAccount::W_DISCRIMINATOR,
-            EncodedStateAccount::W_MANAGER,
-            EncodedStateAccount::W_RECLAIM_AUTHORITY
-        ];
-        StateAccountRef {
-            discriminator,
-            manager,
-            reclaim_authority,
-        }
-    }
-
-    /// [`Self::slots`] over a mutable buffer, for in-place writes.
-    fn slots_mut(bytes: &mut [u8; Self::SIZE]) -> StateAccountRefMut<'_> {
-        let (discriminator, manager, reclaim_authority) = mut_array_refs![
-            bytes,
-            EncodedStateAccount::W_DISCRIMINATOR,
-            EncodedStateAccount::W_MANAGER,
-            EncodedStateAccount::W_RECLAIM_AUTHORITY
-        ];
-        StateAccountRefMut {
-            discriminator,
-            manager,
-            reclaim_authority,
-        }
-    }
-
-    /// Current holder of `role`, read directly from the encoded bytes.
-    ///
-    /// The bytes are assumed to be a valid encoding of the canonical state PDA:
-    /// only `Initialize` can create an account at that address, so an account of
-    /// the right size there is necessarily one this program wrote.
-    pub fn authority(bytes: &[u8; Self::SIZE], role: Role) -> Pubkey {
-        let state = Self::slots(bytes);
-        let slot = match role {
-            Role::Manager => state.manager,
-            Role::ReclaimAuthority => state.reclaim_authority,
-        };
-        Pubkey::new_from_array(*slot)
-    }
-
-    /// Mutable slot holding `role`'s current holder, for an in-place update that
-    /// leaves the discriminator and the other roles untouched.
-    ///
-    /// The bytes are assumed to be a valid encoding of the canonical state PDA:
-    /// only `Initialize` can create an account at that address, so an account of
-    /// the right size there is necessarily one this program wrote.
-    pub fn authority_mut(
-        bytes: &mut [u8; Self::SIZE],
-        role: Role,
-    ) -> &mut [u8; size_of::<Pubkey>()] {
-        let state = Self::slots_mut(bytes);
-        match role {
-            Role::Manager => state.manager,
-            Role::ReclaimAuthority => state.reclaim_authority,
-        }
-    }
-}
-
-/// Writes the canonical [`EncodedStateAccount`] encoding of `account` into
-/// `buffer`.
-pub fn write_account(buffer: &mut [u8; EncodedStateAccount::SIZE], account: &StateAccount) {
-    let StateAccount {
-        manager,
-        reclaim_authority,
-    } = account;
-    let slots = EncodedStateAccount::slots_mut(buffer);
-    *slots.discriminator = [EncodedStateAccount::DISCRIMINATOR];
-    *slots.manager = manager.to_bytes();
-    *slots.reclaim_authority = reclaim_authority.to_bytes();
-}
-
-impl From<EncodedStateAccount> for [u8; EncodedStateAccount::SIZE] {
-    fn from(encoded: EncodedStateAccount) -> Self {
-        encoded.0
-    }
-}
-
-impl From<StateAccount> for EncodedStateAccount {
-    fn from(account: StateAccount) -> Self {
-        let mut out = [0u8; Self::SIZE];
-        write_account(&mut out, &account);
-        Self(out)
-    }
-}
-
-impl From<StateAccount> for [u8; EncodedStateAccount::SIZE] {
-    fn from(account: StateAccount) -> Self {
-        EncodedStateAccount::from(account).into()
-    }
-}
-
-impl TryFrom<[u8; EncodedStateAccount::SIZE]> for StateAccount {
-    type Error = ProgramError;
-
-    fn try_from(bytes: [u8; EncodedStateAccount::SIZE]) -> Result<Self, Self::Error> {
-        let slots = EncodedStateAccount::slots(&bytes);
-
-        if *slots.discriminator != [EncodedStateAccount::DISCRIMINATOR] {
+impl<T: Deref<Target = [u8]>> StateAccount<T> {
+    /// Wrap an account's bytes, checking they begin with the settlement-state
+    /// discriminator and are at least a full header long. Every accessor relies
+    /// on that guarantee not to panic.
+    pub fn attach(bytes: T) -> Result<Self, ProgramError> {
+        let header = bytes
+            .first_chunk::<WIDTH_HEADER>()
+            .ok_or(ProgramError::InvalidAccountData)?;
+        if header_slots(header).discriminator != &[DISCRIMINATOR] {
             return Err(ProgramError::InvalidAccountData);
         }
+        Ok(Self(bytes))
+    }
 
-        Ok(StateAccount {
-            manager: Pubkey::new_from_array(*slots.manager),
-            reclaim_authority: Pubkey::new_from_array(*slots.reclaim_authority),
-        })
+    fn header(&self) -> &[u8; WIDTH_HEADER] {
+        self.0
+            .first_chunk::<WIDTH_HEADER>()
+            .expect("header length is guaranteed by any constructor of `StateAccount`")
+    }
+
+    /// Current holder of `role`.
+    pub fn authority(&self, role: Role) -> Pubkey {
+        let slots = header_slots(self.header());
+        let holder = match role {
+            Role::Manager => slots.manager,
+            Role::ReclaimAuthority => slots.reclaim_authority,
+        };
+        Pubkey::new_from_array(*holder)
     }
 }
 
-impl TryFrom<EncodedStateAccount> for StateAccount {
-    type Error = ProgramError;
+impl<'a> StateAccount<Ref<'a, [u8]>> {
+    pub fn from_account(account: &'a AccountView) -> Result<Self, ProgramError> {
+        Self::attach(account.try_borrow()?)
+    }
+}
 
-    fn try_from(encoded: EncodedStateAccount) -> Result<Self, Self::Error> {
-        StateAccount::try_from(encoded.0)
+impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
+    /// Stamp a fresh header (discriminator + role holders) into a zeroed account
+    /// and return the accessor over it.
+    ///
+    /// The generated data is a full header long, which is needed for the read
+    /// accessors not to panic.
+    pub fn initialize(mut bytes: T, args: &StateInitArgs) -> Result<Self, ProgramError> {
+        {
+            let slots = header_slots_mut(
+                bytes
+                    .first_chunk_mut::<WIDTH_HEADER>()
+                    .ok_or(ProgramError::AccountDataTooSmall)?,
+            );
+            *slots.discriminator = [DISCRIMINATOR];
+            *slots.manager = args.manager.to_bytes();
+            *slots.reclaim_authority = args.reclaim_authority.to_bytes();
+        }
+        Ok(Self(bytes))
+    }
+
+    fn header_mut(&mut self) -> &mut [u8; WIDTH_HEADER] {
+        let bytes: &mut [u8] = &mut self.0;
+        bytes
+            .first_chunk_mut::<WIDTH_HEADER>()
+            .expect("header length is guaranteed by `new`")
+    }
+
+    /// Set `role`'s holder to `new` in place.
+    pub fn set_authority(&mut self, role: Role, new: &Pubkey) {
+        let slots = header_slots_mut(self.header_mut());
+        let holder = match role {
+            Role::Manager => slots.manager,
+            Role::ReclaimAuthority => slots.reclaim_authority,
+        };
+        *holder = new.to_bytes();
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use super::*;
     use crate::fixtures::pubkey_from_seed;
 
-    /// Byte offset of the account discriminator within the encoding.
+    /// Byte offset of the discriminator within the account.
     const DISCRIMINATOR_OFFSET: usize = 0;
 
-    fn sample_account() -> StateAccount {
-        StateAccount {
-            manager: pubkey_from_seed("sample_account's manager"),
-            reclaim_authority: pubkey_from_seed("sample_account's reclaim authority"),
+    static SAMPLE_HEADER: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
+        manager: pubkey_from_seed("SAMPLE_HEADER's sample manager"),
+        reclaim_authority: pubkey_from_seed("SAMPLE_HEADER's sample reclaim authority"),
+    });
+
+    /// State account bytes stamped with [`SAMPLE_HEADER`].
+    fn header_bytes() -> [u8; WIDTH_HEADER] {
+        let mut bytes = [0u8; WIDTH_HEADER];
+        StateAccount::initialize(&mut bytes[..], &SAMPLE_HEADER).expect("header fits");
+        bytes
+    }
+
+    #[test]
+    fn header_has_the_canonical_wire_layout() {
+        assert_eq!(WIDTH_HEADER, 65);
+
+        let bytes = header_bytes();
+        assert_eq!(bytes[0], SettlementAccount::SettlementState.discriminator());
+        assert_eq!(&bytes[1..33], &SAMPLE_HEADER.manager.to_bytes()[..]);
+        assert_eq!(
+            &bytes[33..65],
+            &SAMPLE_HEADER.reclaim_authority.to_bytes()[..]
+        );
+    }
+
+    #[test]
+    fn reads_role_holders_from_the_header() {
+        let bytes = header_bytes();
+        let state = StateAccount::attach(&bytes[..]).expect("valid header");
+        assert_eq!(state.authority(Role::Manager), SAMPLE_HEADER.manager);
+        assert_eq!(
+            state.authority(Role::ReclaimAuthority),
+            SAMPLE_HEADER.reclaim_authority
+        );
+    }
+
+    #[test]
+    fn new_rejects_wrong_discriminator() {
+        let mut bytes = header_bytes();
+        bytes[DISCRIMINATOR_OFFSET] = 0xff;
+        assert_eq!(
+            StateAccount::attach(&bytes[..]).err(),
+            Some(ProgramError::InvalidAccountData),
+        );
+    }
+
+    #[test]
+    fn new_rejects_too_short_buffer() {
+        let bytes = header_bytes();
+        assert_eq!(
+            StateAccount::attach(&bytes[..WIDTH_HEADER - 1]).err(),
+            Some(ProgramError::InvalidAccountData),
+        );
+    }
+
+    /// Sets `target`'s holder and asserts it changed while every other role's
+    /// holder stayed put.
+    fn assert_set_authority_updates_only(target: Role) {
+        let new_holder = pubkey_from_seed("set_authority's new holder");
+
+        let mut bytes = header_bytes();
+        let before = Role::ALL.map(|role| {
+            StateAccount::attach(&bytes[..])
+                .expect("valid header")
+                .authority(role)
+        });
+
+        StateAccount::attach(&mut bytes[..])
+            .expect("valid header")
+            .set_authority(target, &new_holder);
+
+        let state = StateAccount::attach(&bytes[..]).expect("valid header");
+        for (role, prior) in Role::ALL.into_iter().zip(before) {
+            let expected = if role == target { new_holder } else { prior };
+            assert_eq!(state.authority(role), expected);
         }
     }
 
-    /// Generates one test for a [`Role`], asserting that the encoded read
-    /// accessor returns the role's named field and the mutable accessor updates
-    /// only that field in place.
-    macro_rules! role_accessor_test {
-        ($name:ident: $role:expr => $field:ident) => {
+    /// Generates one test, `set_authority_updates_only_<role>`, for `$role`.
+    macro_rules! set_authority_test {
+        ($name:ident: $role:expr) => {
             #[test]
             fn $name() {
-                let account = sample_account();
-                let mut bytes: [u8; EncodedStateAccount::SIZE] =
-                    EncodedStateAccount::from(account.clone()).into();
-
-                assert_eq!(
-                    EncodedStateAccount::authority(&bytes, $role),
-                    account.$field
-                );
-
-                let new_authority = pubkey_from_seed("role_accessor_test's new authority");
-                *EncodedStateAccount::authority_mut(&mut bytes, $role) = new_authority.to_bytes();
-
-                let mut expected = account;
-                expected.$field = new_authority;
-                assert_eq!(
-                    StateAccount::try_from(bytes).expect("should decode"),
-                    expected
-                );
+                assert_set_authority_updates_only($role);
             }
         };
     }
 
-    role_accessor_test!(manager_accessors_match_named_fields: Role::Manager => manager);
-    role_accessor_test!(reclaim_authority_accessors_match_named_fields: Role::ReclaimAuthority => reclaim_authority);
+    set_authority_test!(set_authority_updates_only_manager: Role::Manager);
+    set_authority_test!(set_authority_updates_only_reclaim_authority: Role::ReclaimAuthority);
 
     #[test]
-    fn decode_rejects_wrong_discriminator() {
-        let mut bytes: [u8; EncodedStateAccount::SIZE] =
-            EncodedStateAccount::from(sample_account()).into();
-        bytes[0] ^= 0xff;
-        let err = StateAccount::try_from(bytes).expect_err("wrong discriminator must be rejected");
-        assert_eq!(err, ProgramError::InvalidAccountData);
-    }
+    fn new_accepts_a_longer_account_and_reads_the_header() {
+        let mut bytes = header_bytes().to_vec();
+        bytes.push(0x42);
 
-    #[test]
-    fn direct_write_account_matches_state_account_encoding() {
-        let account = sample_account();
-        let mut buffer = [0u8; EncodedStateAccount::SIZE];
-        write_account(&mut buffer, &account);
-        let direct = EncodedStateAccount(buffer);
-        let via_state_account = EncodedStateAccount::from(account);
-        assert_eq!(direct, via_state_account);
-    }
-
-    #[test]
-    fn widths_match_field_sizes() {
-        use core::mem::{size_of, size_of_val};
-
-        // Any `StateAccount` works: `size_of_val` only consults the field type,
-        // never the data.
-        let StateAccount {
-            manager,
-            reclaim_authority,
-        } = sample_account();
-
-        assert_eq!(EncodedStateAccount::W_MANAGER, size_of_val(&manager));
+        let state = StateAccount::attach(&bytes[..]).expect("header with trailing bytes is valid");
+        assert_eq!(state.authority(Role::Manager), SAMPLE_HEADER.manager);
         assert_eq!(
-            EncodedStateAccount::W_RECLAIM_AUTHORITY,
-            size_of_val(&reclaim_authority)
+            state.authority(Role::ReclaimAuthority),
+            SAMPLE_HEADER.reclaim_authority
         );
+    }
 
-        assert_eq!(EncodedStateAccount::SIZE, size_of::<EncodedStateAccount>());
+    #[test]
+    fn initialize_rejects_too_small_buffer() {
+        let mut bytes = [0u8; WIDTH_HEADER - 1];
+        assert_eq!(
+            StateAccount::initialize(&mut bytes[..], &SAMPLE_HEADER).err(),
+            Some(ProgramError::AccountDataTooSmall),
+        );
     }
 
     mod proptest {
@@ -275,31 +302,24 @@ mod tests {
         use super::*;
 
         proptest! {
+            /// The encode roundtrip: any two role holders written with
+            /// `initialize` read back unchanged.
             #[test]
-            fn account_encode_roundtrip(
+            fn initializes_accounts_as_expected(
                 manager in any::<[u8; 32]>(),
                 reclaim_authority in any::<[u8; 32]>(),
             ) {
-                let account = StateAccount {
+                let init_args = StateInitArgs {
                     manager: Pubkey::new_from_array(manager),
                     reclaim_authority: Pubkey::new_from_array(reclaim_authority),
                 };
-                let encoded = EncodedStateAccount::from(account.clone());
-                let decoded = StateAccount::try_from(encoded).expect("should decode after encoding");
-                prop_assert_eq!(decoded, account);
-            }
 
-            #[test]
-            fn account_decode_roundtrip(
-                mut bytes in any::<[u8; EncodedStateAccount::SIZE]>(),
-            ) {
-                bytes[DISCRIMINATOR_OFFSET] = EncodedStateAccount::DISCRIMINATOR;
-                let encoded = EncodedStateAccount(bytes);
+                let mut bytes = [0u8; WIDTH_HEADER];
+                StateAccount::initialize(&mut bytes[..], &init_args).expect("header fits");
 
-                let decoded = StateAccount::try_from(encoded.clone()).expect("should decode from valid bytes");
-                let re_encoded = EncodedStateAccount::from(decoded);
-
-                prop_assert_eq!(re_encoded, encoded);
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
+                prop_assert_eq!(state.authority(Role::Manager), init_args.manager);
+                prop_assert_eq!(state.authority(Role::ReclaimAuthority), init_args.reclaim_authority);
             }
         }
     }
