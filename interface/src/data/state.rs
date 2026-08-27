@@ -297,10 +297,10 @@ mod tests {
         bytes
     }
 
-    /// [`SAMPLE_HEADER`] followed by `solvers`, stored sorted ascending by address
+    /// [`SAMPLE_INIT_ARGS`] followed by `solvers`, stored sorted ascending by address
     /// as the on-chain list always is, so callers can pass them in any order.
     fn state_bytes(solvers: &[Pubkey]) -> Vec<u8> {
-        super::fixtures::state_account_bytes(&SAMPLE_HEADER, solvers)
+        super::fixtures::state_account_bytes(&SAMPLE_INIT_ARGS, solvers)
     }
 
     #[test]
