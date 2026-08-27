@@ -109,7 +109,7 @@ mod tests {
         bytes
     }
 
-    /// The [`Header`] planted by [`base_accounts`].
+    /// The [`StateInitArgs`] planted by [`base_accounts`].
     fn base_init_args() -> StateInitArgs {
         StateInitArgs {
             manager: MANAGER,

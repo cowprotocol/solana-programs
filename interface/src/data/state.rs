@@ -183,15 +183,15 @@ mod tests {
     /// Byte offset of the discriminator within the account.
     const DISCRIMINATOR_OFFSET: usize = 0;
 
-    static SAMPLE_HEADER: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
-        manager: pubkey_from_seed("SAMPLE_HEADER's sample manager"),
-        reclaim_authority: pubkey_from_seed("SAMPLE_HEADER's sample reclaim authority"),
+    static SAMPLE_INIT_ARGS: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
+        manager: pubkey_from_seed("SAMPLE_INIT_ARGS's sample manager"),
+        reclaim_authority: pubkey_from_seed("SAMPLE_INIT_ARGS's sample reclaim authority"),
     });
 
-    /// State account bytes stamped with [`SAMPLE_HEADER`].
+    /// State account bytes stamped with [`SAMPLE_INIT_ARGS`].
     fn header_bytes() -> [u8; WIDTH_HEADER] {
         let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(&mut bytes[..], &SAMPLE_HEADER).expect("header fits");
+        StateAccount::initialize(&mut bytes[..], &SAMPLE_INIT_ARGS).expect("header fits");
         bytes
     }
 
@@ -201,10 +201,10 @@ mod tests {
 
         let bytes = header_bytes();
         assert_eq!(bytes[0], SettlementAccount::SettlementState.discriminator());
-        assert_eq!(&bytes[1..33], &SAMPLE_HEADER.manager.to_bytes()[..]);
+        assert_eq!(&bytes[1..33], &SAMPLE_INIT_ARGS.manager.to_bytes()[..]);
         assert_eq!(
             &bytes[33..65],
-            &SAMPLE_HEADER.reclaim_authority.to_bytes()[..]
+            &SAMPLE_INIT_ARGS.reclaim_authority.to_bytes()[..]
         );
     }
 
@@ -212,10 +212,10 @@ mod tests {
     fn reads_role_holders_from_the_header() {
         let bytes = header_bytes();
         let state = StateAccount::attach(&bytes[..]).expect("valid header");
-        assert_eq!(state.authority(Role::Manager), SAMPLE_HEADER.manager);
+        assert_eq!(state.authority(Role::Manager), SAMPLE_INIT_ARGS.manager);
         assert_eq!(
             state.authority(Role::ReclaimAuthority),
-            SAMPLE_HEADER.reclaim_authority
+            SAMPLE_INIT_ARGS.reclaim_authority
         );
     }
 
@@ -280,10 +280,10 @@ mod tests {
         bytes.push(0x42);
 
         let state = StateAccount::attach(&bytes[..]).expect("header with trailing bytes is valid");
-        assert_eq!(state.authority(Role::Manager), SAMPLE_HEADER.manager);
+        assert_eq!(state.authority(Role::Manager), SAMPLE_INIT_ARGS.manager);
         assert_eq!(
             state.authority(Role::ReclaimAuthority),
-            SAMPLE_HEADER.reclaim_authority
+            SAMPLE_INIT_ARGS.reclaim_authority
         );
     }
 
@@ -291,7 +291,7 @@ mod tests {
     fn initialize_rejects_too_small_buffer() {
         let mut bytes = [0u8; WIDTH_HEADER - 1];
         assert_eq!(
-            StateAccount::initialize(&mut bytes[..], &SAMPLE_HEADER).err(),
+            StateAccount::initialize(&mut bytes[..], &SAMPLE_INIT_ARGS).err(),
             Some(ProgramError::AccountDataTooSmall),
         );
     }
