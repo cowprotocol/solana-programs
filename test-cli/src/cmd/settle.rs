@@ -94,14 +94,15 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let mut all_ixs: Vec<Instruction> = vec![];
     let (sell_amount_pulled, buy_amount_pushed) = prepare_setup_ixs(&ctx, &intents, &mut all_ixs)?;
 
+    // figure out the net amount we have to buy (deficits) and the net amount we have to buy it with (surplus)
     let surplus = union_with_positive_remainder(&sell_amount_pulled, &buy_amount_pushed);
     let deficits = union_with_positive_remainder(&buy_amount_pushed, &sell_amount_pulled);
 
-    // Mints the orders can't fully CoW against each other need an Orca swap, funded by
-    // the mints left over from the CoW matching, to make up the difference.
     let mut swap_ixs: Vec<Instruction> = vec![];
     let mut teardown_ixs: Vec<Instruction> = vec![];
     let mut swap_sinks: HashMap<Pubkey, u64> = HashMap::new();
+
+    // If we don't have enough of any token just from the order inputs, we are going to need to swap for it on a DEX
     if !deficits.is_empty() {
         let orca = OrcaClient::new(&ctx.rpc.url(), ctx.rpc.commitment())?;
         let plan = orca::plan_swaps(&orca, &ctx, &surplus, &deficits)?;
@@ -111,6 +112,8 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         swap_sinks = plan.sinks;
     }
 
+    // At this point, we know what DEX swaps we need to do. Figure out the routing
+    // of funds to make that happen.
     let mut sinks = compute_sinks(&ctx, &sell_amount_pulled, &swap_sinks)?;
     let pulls = compute_pulls(&intents, &mut sinks)?;
 
@@ -286,8 +289,7 @@ fn tally_and_register_buffer(
 }
 
 /// Create any missing buffer PDAs before the settle tx, and tally up the
-/// total sell/buy amount per mint across all orders, which
-/// [`union_with_positive_remainder`] then nets against each other.
+/// total sell/buy amount per mint across all orders.
 fn prepare_setup_ixs(
     ctx: &Context,
     intents: &[ResolvedIntent],
@@ -331,6 +333,7 @@ fn prepare_setup_ixs(
 }
 
 /// Computes a new set that subtracts key-matching elements of b_set from a_set
+/// Useful for getting net per-token settlement amounts.
 fn union_with_positive_remainder(
     a_set: &HashMap<Pubkey, u64>,
     b_set: &HashMap<Pubkey, u64>,
@@ -349,10 +352,7 @@ fn union_with_positive_remainder(
         .collect()
 }
 
-/// Compute each sold mint's pull destinations. Whatever `payer_pulls` (built by
-/// [`orca::plan_swaps`]) reserves from a mint goes to the payer's own wallet to
-/// fund the swaps that cover another mint's deficit; the rest goes straight
-/// into the mint's buffer, same as a pure CoW settlement.
+/// Compute each sold mint's pull destinations.
 fn compute_sinks(
     ctx: &Context,
     sell_amount_pulled: &HashMap<Pubkey, u64>,
@@ -432,8 +432,8 @@ fn carve_pulls(amount: u64, mint_sinks: &mut Vec<Pull>) -> anyhow::Result<Vec<Pu
     Ok(pulls)
 }
 
-/// Carve each order's required pull amount out of the shared per-mint sink
-/// pool computed by [`compute_sinks`], depleting `sinks` as we go.
+/// Fulfill the swap input destinations required input tokens (typically computed by [`compute_sinks`])
+/// by constructing [`Pull`]'s necessary to fill them.
 fn compute_pulls(
     intents: &[ResolvedIntent],
     sinks: &mut HashMap<Pubkey, Vec<Pull>>,
