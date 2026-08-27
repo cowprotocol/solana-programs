@@ -22,6 +22,7 @@ anyhow = "1"
 arrayref = "0.3"
 bincode = "1"
 clap = { version = "4", features = ["derive", "env"] }
+solana-client = "3"
 solana-commitment-config = "3"
 solana-program-pack = "3"
 solana-rpc-client = "4"
@@ -30,6 +31,7 @@ hex-literal = "1"
 litesvm = "0.15"
 litesvm-token = "0.15"
 num_enum = "0.7"
+orca_whirlpools = "8"
 pinocchio = "0.11"
 pinocchio-system = "0.6"
 pinocchio-token = "0.6"
@@ -57,6 +59,7 @@ solana-system-interface = "3"
 spl-associated-token-account-interface = "2"
 spl-token = "9"
 spl-token-interface = "3"
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.

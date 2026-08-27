@@ -4,6 +4,8 @@ use cow_settlement_client::cow_settlement_interface::Pubkey;
 mod cmd;
 mod helpers;
 mod instructions;
+mod liquidity;
+mod network;
 mod token;
 
 fn home_dir() -> String {

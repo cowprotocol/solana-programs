@@ -17,14 +17,14 @@ use spl_associated_token_account_interface::instruction::create_associated_token
 use spl_token_interface::native_mint;
 use spl_token_interface::state::{Account as TokenAccount, Mint};
 
+use crate::network::DEVNET_GENESIS_HASH;
+
 /// Inline registry of recognised token symbols.
 /// Avoids an RPC round-trip for well-known mints whose decimals are fixed.
 /// Replace with a proper on-chain registry or quote-API lookup when available.
 struct KnownToken {
     mint: Pubkey,
 }
-
-const DEVNET_GENESIS_HASH: &str = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 
 // Temporary registry mapping solana networks (isolated by "genesis" hash) and token symbols to mint addresess. Intended to be replaced in the
 // future with something more robust.
