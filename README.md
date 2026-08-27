@@ -1,6 +1,6 @@
 # CoW Protocol on Solana
 
-[CoW Protocol](https://cow.fi) is an open-source, permissionless trading protocol that settles user intents in batch auctions. It supports direct matching between users (Coincidence of Wants) as well as on-chain liquidity sources.
+[CoW Protocol](https://cow.fi) is an open-source trading protocol that settles user intents in batch auctions. It supports direct matching between users (Coincidence of Wants) as well as on-chain liquidity sources.
 
 This repository hosts the Solana implementation, currently in early development. The protocol is already live on Ethereum and other EVM chains; the Solidity contracts are at [cowprotocol/contracts](https://github.com/cowprotocol/contracts).
 
@@ -49,6 +49,14 @@ just build
 just test
 ```
 
+### Benchmarks
+
+`just bench` runs the test suite and regenerates `bench-report.json`:
+
+```sh
+just bench
+```
+
 ## How to build a verified (reproducible) build
 
 Requires [Docker](https://docs.docker.com/engine/install/).
@@ -77,20 +85,38 @@ just deploy ./program-keypair.json ./deployer-keypair.json
 
 ### Upgrading an existing program
 
+> [!IMPORTANT]
+> Before upgrading, if the storage format has been changed for any existing PDAs, ensure that the MINOR (aka v0.x.0) version in the Cargo.toml is bumped. This will relocate all program storage, preventing unintended collisions with incompatible data.
+
 Pass the **program's public key (address)** as the first argument. The deployer wallet must already be the upgrade authority:
 
 ```sh
-just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ./deployer-keypair.json
+just deploy J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w ./deployer-keypair.json
+```
+
+`just deploy` finishes by running `initialize` to create the program's state PDA.
+
+If the deployment upgrades an existing program without bumping the major or minor cargo package version, 
+then this latter step fails and prints a warning that can be safely ignored.
+
+### Publishing the cargo packages
+
+Authenticate your cargo cli with `cargo login`. Ensure you have permission to publish `cow-settlement-interface`, `cow-settlement-client`, and `cow-test-cli`.
+
+Then, all packages can published in one go:
+
+```sh
+cargo publish
 ```
 
 ### Devnet example
 
 ```sh
 solana config set --url devnet
-just deploy MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK ~/solana-keys/deployer.json
+just deploy J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w ~/solana-keys/deployer.json
 ```
 
-The deployer for the canonical devnet program (`MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
+The deployer for the canonical devnet program (`J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
 
 ## License
 

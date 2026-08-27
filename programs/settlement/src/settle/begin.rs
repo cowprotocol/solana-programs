@@ -2,6 +2,21 @@
 
 use std::ops::Deref;
 
+use cow_settlement_interface::{
+    data::{
+        intent::{OrderIntent, OrderKind},
+        order::{EncodedOrderAccount, OrderAccount},
+    },
+    instruction::{
+        settle::{
+            finalize_push_data, BeginSettleInput, Push, SettledOrder, SettledOrders,
+            FINALIZE_FIXED_ACCOUNTS,
+        },
+        InstructionInputParsing,
+    },
+    pda::buffer::validate_buffer_pda,
+    recover_discriminator, SettlementError, SettlementInstruction,
+};
 use pinocchio::{
     cpi::Signer,
     error::ProgramError,
@@ -13,24 +28,10 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
-use settlement_interface::{
-    data::{
-        intent::{OrderIntent, OrderKind},
-        order::{EncodedOrderAccount, OrderAccount},
-    },
-    instruction::{
-        settle::{
-            finalize_push_amounts, BeginSettleInput, SettledOrder, SettledOrders,
-            FINALIZE_FIXED_ACCOUNTS,
-        },
-        InstructionInputParsing,
-    },
-    recover_discriminator, Pubkey, SettlementError, SettlementInstruction,
-};
 
-use crate::processor::is_cpi_call;
+use crate::processor::{is_cpi_call, with_state_pda_signer};
 
-use super::{validate_counterpart, validate_token_program_account, with_state_pda_signer};
+use super::{validate_counterpart, validate_token_program_account};
 
 pub fn process_begin_settle(
     program_id: &Address,
@@ -41,7 +42,7 @@ pub fn process_begin_settle(
         return Err(SettlementError::CalledViaCpi.into());
     }
 
-    let mut input = BeginSettleInput::parse(instruction_data, accounts)?;
+    let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
     // any address since parsing doesn't validate the input. We rely on the
@@ -76,46 +77,65 @@ pub fn process_begin_settle(
             program_id,
             input.state_pda_account,
             state_pda_signer,
-            &mut input.orders,
+            &input.orders,
             &finalize_ix,
         )
     })
 }
 
-/// The destination address of each push carried by the paired `FinalizeSettle`,
-/// seen through instruction introspection, in order.
+/// The `[source_buffer, destination]` address pair of each push carried by the
+/// paired `FinalizeSettle`, seen through instruction introspection, in order.
 ///
 /// The push structure isn't validated here: the paired `FinalizeSettle` re-parses
-/// the same instruction from its own data and rejects a dangling source buffer or
-/// a push count that disagrees with its accounts. The caller pairs these
-/// destinations with the settled orders one-to-one, which is what catches a count
-/// mismatch.
-fn push_destinations<'a>(
+/// the same instruction from its own data and rejects a push count that disagrees
+/// with its accounts. The caller pairs these pushes with the settled orders
+/// one-to-one, which is what catches a count mismatch.
+fn push_accounts<'a>(
     instruction: &'a IntrospectedInstruction<'a>,
-) -> impl Iterator<Item = &'a Address> {
+) -> impl Iterator<Item = (&'a Address, &'a Address)> {
     // Each push occupies a `[source_buffer, destination]` meta pair after the
-    // fixed accounts, so the destinations are every second meta beginning at the
-    // first push's destination.
+    // fixed accounts.
+    let account_at = |index: usize| {
+        // The index stays below `num_account_metas`, so the lookup, whose only
+        // error is an out-of-bounds index, always succeeds.
+        &instruction
+            .get_instruction_account_at(index)
+            .expect("index within num_account_metas")
+            .key
+    };
     (FINALIZE_FIXED_ACCOUNTS + 1..instruction.num_account_metas())
         .step_by(2)
-        .map(|destination_index| {
-            // The index stays below `num_account_metas`, so the lookup, whose only
-            // error is an out-of-bounds index, always succeeds.
-            &instruction
-                .get_instruction_account_at(destination_index)
-                .expect("index within num_account_metas")
-                .key
+        .map(move |destination_index| {
+            (
+                account_at(
+                    destination_index
+                        .checked_sub(1)
+                        .expect("a destination index is preceded by its source buffer"),
+                ),
+                account_at(destination_index),
+            )
         })
 }
 
-/// The paired pushes `BeginSettle` settles against: each push's destination
-/// (read from the finalize's account metas) with the amount it pays in (read
+/// The paired pushes `BeginSettle` settles against: each push's accounts (read
+/// from the finalize's account metas) with the bump and amount it carries (read
 /// from the finalize's instruction data), in push order.
+///
+/// These are the same [`Push`]es `FinalizeSettle` itself parses, seen through
+/// introspection rather than held as accounts: hence `Push<Address>` where the
+/// finalize has `Push<AccountView>`.
 fn finalize_pushes<'a>(
     finalize_ix: &'a IntrospectedInstruction<'a>,
-) -> Result<impl Iterator<Item = (&'a Address, u64)>, ProgramError> {
-    let amounts = finalize_push_amounts(finalize_ix.get_instruction_data())?;
-    Ok(push_destinations(finalize_ix).zip(amounts))
+) -> Result<impl Iterator<Item = Push<'a, Address>>, ProgramError> {
+    let data = finalize_push_data(finalize_ix.get_instruction_data())?;
+    Ok(push_accounts(finalize_ix).zip(data).map(
+        |((source_buffer, destination), (bump, amount))| Push {
+            source_buffer,
+            destination,
+            bump,
+            amount,
+        },
+    ))
 }
 
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
@@ -177,7 +197,7 @@ fn settle_orders(
     program_id: &Address,
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
-    orders: &mut SettledOrders<'_, AccountView>,
+    orders: &SettledOrders<'_, AccountView>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
@@ -191,7 +211,7 @@ fn settle_orders(
     // is caught after.
     let mut pushes = finalize_pushes(finalize_ix)?;
 
-    for order in orders.iter_mut() {
+    for order in orders.iter() {
         let order_pda_address = *order.order_pda.address();
         if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
@@ -205,7 +225,7 @@ fn settle_orders(
         process_order(
             program_id,
             order,
-            push,
+            &push,
             now,
             state_pda_account,
             state_pda_signer,
@@ -220,14 +240,15 @@ fn settle_orders(
 }
 
 /// Validate a single order, process its pulls, and confirm its push pays it.
-/// This checks that the order is valid, settleable, and that `push_destination`
-/// matches the buy token account. Once the order passes those checks, its pulls
-/// are executed and its settlement limit price is validated against the intent.
+/// This checks that the order is valid, settleable, and that the push pays the
+/// intent's buy token account in the intent's buy mint out of the intent's sell
+/// mint. Once the order passes those checks, its pulls are executed and its
+/// settlement limit price is validated against the intent.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order(
     program_id: &Address,
     order: SettledOrder<'_, AccountView>,
-    (push_destination, push_amount): (&Address, u64),
+    push: &Push<Address>,
     now: i64,
     state_account: &AccountView,
     state_pda_signer: &Signer,
@@ -235,14 +256,13 @@ fn process_order(
     let SettledOrder {
         order_pda,
         sell_token_account,
-        bump,
         destinations,
         amounts,
     } = order;
 
     // Decode the order body and prove its provenance: `load_from_pda` checks
     // that `order_pda` is the canonical order PDA for the intent it stores.
-    let account = OrderAccount::load_from_pda(order_pda, program_id, bump)?;
+    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
     let intent = &account.intent;
 
     if account.cancelled {
@@ -254,25 +274,37 @@ fn process_order(
     }
 
     // The push paying this order must send to the order's buy token account.
-    if !address_matches_pubkey(push_destination, &intent.buy_token_account) {
+    if push.destination != &intent.buy_token_account {
         return Err(SettlementError::PushDestinationMismatch.into());
     }
 
+    // We also validate the buffer specified in the push is derived from the buy_mint.
+    // This effectively transitively verifies `intent.buy_token_account`
+    // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
+    // mints must match.
+    validate_buffer_pda(program_id, push.source_buffer, &intent.buy_mint, push.bump)?;
+
     // The sell token account must be the one named in the intent, owned by
     // the intent owner: an order can only sell funds its own owner controls.
-    if !address_matches_pubkey(sell_token_account.address(), &intent.sell_token_account) {
+    if sell_token_account.address() != &intent.sell_token_account {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
-    // Assert the order intent owner matches that of the sell token account.
+    // Assert the order intent owner and sell mint match those of the sell token
+    // account.
     {
         // `from_account_view` confirms this is a real SPL token account
         // (right length, owned by the token program) before we read its
-        // owner. The borrow it holds is released at the end of this block,
-        // before the transfers below touch the same account.
+        // owner and mint. The borrow it holds is released at the end of this
+        // block, before the transfers below touch the same account.
         let token_account = TokenAccount::from_account_view(sell_token_account)
             .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
-        if !address_matches_pubkey(token_account.owner(), &intent.owner) {
+        if token_account.owner() != &intent.owner {
             return Err(SettlementError::SellTokenOwnerMismatch.into());
+        }
+        // Like the buy side, the account could have been recreated for another
+        // mint after the order was created.
+        if token_account.mint() != &intent.sell_mint {
+            return Err(SettlementError::SellMintMismatch.into());
         }
     }
 
@@ -289,13 +321,13 @@ fn process_order(
             .invoke_signed(core::slice::from_ref(state_pda_signer))?;
     }
 
-    validate_limit_price(intent, amount_in, push_amount)?;
+    validate_limit_price(intent, amount_in, push.amount)?;
     let (amount_withdrawn, amount_received) = validated_final_amounts(
         intent,
         account.amount_withdrawn,
         account.amount_received,
         amount_in,
-        push_amount,
+        push.amount,
     )?;
 
     let updated: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
@@ -304,6 +336,8 @@ fn process_order(
         ..account
     })
     .into();
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut order_pda = *order_pda;
     order_pda.try_borrow_mut()?.copy_from_slice(&updated);
 
     Ok(())
@@ -357,11 +391,11 @@ fn validated_final_amounts(
         .checked_add(amount_out)
         .ok_or(SettlementError::AmountReceivedOverflow)?;
 
-    let (filled, order_amount) = match intent.kind {
+    let (filled, order_amount) = match intent.flags.kind {
         OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
         OrderKind::Buy => (amount_received, intent.buy_amount),
     };
-    if filled != order_amount && !intent.partially_fillable {
+    if filled != order_amount && !intent.flags.partially_fillable {
         return Err(SettlementError::OrderNotExactlyFilled);
     } else if filled > order_amount {
         return Err(SettlementError::FillExceedsOrderAmount);
@@ -370,19 +404,17 @@ fn validated_final_amounts(
     Ok((amount_withdrawn, amount_received))
 }
 
-fn address_matches_pubkey(address: &Address, pubkey: &Pubkey) -> bool {
-    address.as_array() == &pubkey.to_bytes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use cow_settlement_interface::data::intent::Flags;
+    use cow_settlement_interface::instruction::fixtures::fake_account;
+    use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
+    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
+    use cow_settlement_interface::instruction::InstructionInputParsing;
+    use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
-    use settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
-    use settlement_interface::instruction::fixtures::fake_account;
-    use settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
-    use settlement_interface::instruction::InstructionInputParsing;
     use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).
@@ -404,7 +436,10 @@ mod tests {
             OrderIntent {
                 sell_amount: self.sell,
                 buy_amount: self.buy,
-                ..sample_intent(self.kind, self.partially_fillable)
+                ..sample_intent(Flags {
+                    kind: self.kind,
+                    partially_fillable: self.partially_fillable,
+                })
             }
         }
     }
@@ -945,7 +980,8 @@ mod tests {
         // From the Solana docs for this function: "construct the account data
         // for the instructions sysvar."
         let instructions_sysvar_data =
-            solana_instructions_sysvar::construct_instructions_data(&[borrowed]);
+            solana_instructions_sysvar::construct_instructions_data(&[borrowed])
+                .expect("instruction serialization should succeed for well-formed instructions");
         // SAFETY: from Pinocchio's docs for `new_unchecked`: "this function is
         // unsafe because it does not check if the provided data is from the
         // Sysvar Account."
@@ -964,10 +1000,10 @@ mod tests {
 
     proptest! {
         /// `BeginSettle` settles against a paired `FinalizeSettle`'s pushes via
-        /// `finalize_pushes`: each destination (from the account metas) paired
-        /// with its amount (from the instruction data). For any well-formed
-        /// finalize those pairs must match both the builder's inputs and what
-        /// `FinalizeSettleInput` parses from the same instruction.
+        /// `finalize_pushes`: each push's source buffer and destination (from the
+        /// account metas) paired with its bump and amount (from the instruction
+        /// data). For any well-formed finalize those must match both the builder's
+        /// inputs and what `FinalizeSettleInput` parses from the same instruction.
         #[test]
         fn finalize_pushes_matches_parser(
             program_id in any::<[u8; 32]>(),
@@ -986,26 +1022,37 @@ mod tests {
             });
 
             let introspected_instruction = introspected_instruction(&ix);
-            let introspected: Vec<(Address, u64)> = finalize_pushes(&introspected_instruction)
-                .expect("well-formed finalize data")
-                .map(|(&destination, amount)| (destination, amount))
-                .collect();
+            let introspected: Vec<Push<'_, Address>> =
+                finalize_pushes(&introspected_instruction)
+                    .expect("well-formed finalize data")
+                    .collect();
 
-            let mut accounts: Vec<AccountView> =
+            let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
-            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed_raw = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
-            let parsed: Vec<(Address, u64)> = parsed_raw
+            let parsed: Vec<Push<'_, Address>> = parsed_raw
                 .pushes
                 .iter()
-                .map(|push| (*push.destination.address(), push.amount))
+                .map(|p| Push {
+                    source_buffer: p.source_buffer.address(),
+                    destination: p.destination.address(),
+                    bump: p.bump,
+                    amount: p.amount
+                })
                 .collect();
 
             // The builder's inputs, the ground truth both views should recover.
-            let expected: Vec<(Address, u64)> = destinations
+            let expected: Vec<Push<'_, Address>> = source_buffers
                 .iter()
-                .map(|destination| Address::new_from_array(destination.to_bytes()))
-                .zip(amounts.iter().copied())
+                .zip(&destinations)
+                .zip(bumps.iter().copied().zip(amounts.iter().copied()))
+                .map(|((source_buffer, destination), (bump, amount))| Push {
+                    source_buffer,
+                    destination,
+                    bump,
+                    amount,
+                })
                 .collect();
 
             prop_assert_eq!(&introspected, &expected);

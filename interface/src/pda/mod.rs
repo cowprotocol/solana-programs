@@ -1,18 +1,139 @@
 //! Program-derived addresses under the settlement program.
 //!
-//! Every PDA shares the [`SETTLEMENT_SEED`] prefix; each submodule defines
-//! the additional seeds and the derivation helper for one kind of PDA.
+//! Every PDA shares the [`SETTLEMENT_SEED`] prefix, which carries
+//! the major and minor version of the cargo package; each submodule defines the additional seeds and the
+//! derivation helper for one kind of PDA.
+
+use solana_address::Address;
 
 pub mod buffer;
 pub mod order;
 pub mod state;
 
-/// First seed of every PDA derived under the settlement program.
-pub const SETTLEMENT_SEED: &[u8] = b"settlement";
+/// Version-independent part of [`SETTLEMENT_SEED`].
+const SETTLEMENT_SEED_PREFIX: &[u8] = b"settlement v";
+
+/// Bytes reserved after [`SETTLEMENT_SEED_PREFIX`] for the version string. The
+/// version is written directly after the prefix and right-padded with spaces to
+/// fill this width. One character is a dot, the remaining characters are
+/// reserved for the combined major/minor version.
+const SETTLEMENT_SEED_VERSION_LEN: usize = 7;
+
+/// Fixed width of [`SETTLEMENT_SEED`], in bytes: the prefix followed by the
+/// reserved version field.
+///
+/// The seed has to be the same length for every version. This is done to avoid
+/// prefix attacks on PDA addresses: a variable-width prefix could allow one
+/// version's seeds be a data prefix of another's: `"…v1.10"` followed by some
+/// bytes hashes the same as `"…v1.1"` followed by `'0'` and those same bytes.
+pub const SETTLEMENT_SEED_LEN: usize = SETTLEMENT_SEED_PREFIX.len() + SETTLEMENT_SEED_VERSION_LEN;
+
+/// The seed used as a base for all account storage
+pub const SETTLEMENT_SEED: &[u8] = &build_padded_settlement_seed(concat!(
+    env!("CARGO_PKG_VERSION_MAJOR"),
+    ".",
+    env!("CARGO_PKG_VERSION_MINOR")
+));
+
+/// Lay out [`SETTLEMENT_SEED_PREFIX`] and `version` in a
+/// [`SETTLEMENT_SEED_LEN`]-byte field, right-aligning the version and filling
+/// the gap between the two with spaces.
+///
+/// Panics at compile time if the version no longer fits.
+const fn build_padded_settlement_seed(version: &str) -> [u8; SETTLEMENT_SEED_LEN] {
+    let version = version.as_bytes();
+    assert!(version.len() <= SETTLEMENT_SEED_VERSION_LEN, "{}", "the package version no longer fits the settlement seed; shorten the major/minor version number");
+
+    let mut seed = [b' '; SETTLEMENT_SEED_LEN];
+    write_at(&mut seed, 0, SETTLEMENT_SEED_PREFIX);
+    write_at(&mut seed, SETTLEMENT_SEED_PREFIX.len(), version);
+    seed
+}
+
+const fn write_at(dest: &mut [u8], offset: usize, src: &[u8]) {
+    let mut i = 0;
+    while i < src.len() {
+        let index = offset.checked_add(i).expect("index stays within the seed");
+        dest[index] = src[i];
+        i = i.checked_add(1).expect("index stays within the seed");
+    }
+}
+
+#[must_use]
+pub fn is_pda_with_signer_seeds<const N: usize>(
+    account: &Address,
+    program_id: &Address,
+    signer_seeds: [&[u8]; N],
+) -> bool {
+    Address::create_program_address(&signer_seeds, program_id)
+        .is_ok_and(|derived| account == &derived)
+}
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use solana_pubkey::Pubkey;
+
+    use super::{
+        build_padded_settlement_seed, SETTLEMENT_SEED, SETTLEMENT_SEED_LEN,
+        SETTLEMENT_SEED_VERSION_LEN,
+    };
+
+    pub(crate) const SAMPLE_VERSIONS: &[&str] = &[
+        "0.0", "0.1", "0.2", "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17",
+        "0.18", "0.19", "1.0", "1.1", "10.0",
+    ];
+
+    /// The widest `<major>.<minor>` the version field can still hold. The `v`
+    /// belongs to [`SETTLEMENT_SEED_PREFIX`], so only the dot and the minor
+    /// digit come out of the reserved width here.
+    fn longest_fitting_version() -> String {
+        let major_width = SETTLEMENT_SEED_VERSION_LEN
+            .checked_sub(".9".len())
+            .expect("the version field must hold at least a one-digit major and minor");
+        format!("{}.9", "9".repeat(major_width))
+    }
+
+    #[test]
+    fn build_padded_settlement_seed_accepts_the_widest_fitting_version() {
+        let seed = build_padded_settlement_seed(&longest_fitting_version());
+        assert_eq!(seed.as_slice(), b"settlement v99999.9");
+        // No padding left: the version fills the reserved field exactly.
+        assert!(!seed.ends_with(b" "));
+    }
+
+    /// `build_padded_settlement_seed` is called in a const context, where these panics are
+    /// compile errors rather than test failures. Calling it at runtime is the
+    /// only way to observe them: the assertions are the same either way.
+    #[test]
+    #[should_panic(expected = "no longer fits the settlement seed")]
+    fn build_padded_settlement_seed_rejects_a_version_one_byte_too_wide() {
+        let version = longest_fitting_version();
+        let _ = build_padded_settlement_seed(&format!("{version}0"));
+    }
+
+    #[test]
+    #[should_panic(expected = "no longer fits the settlement seed")]
+    fn build_padded_settlement_seed_rejects_a_version_wider_than_the_whole_seed() {
+        let _ = build_padded_settlement_seed(&"9".repeat(SETTLEMENT_SEED_LEN.saturating_add(1)));
+    }
+
+    #[test]
+    fn current_settlement_seed_is_correct_length() {
+        assert_eq!(SETTLEMENT_SEED.len(), SETTLEMENT_SEED_LEN);
+    }
+
+    #[test]
+    fn current_settlement_seed_is_printable_ascii() {
+        assert!(
+            SETTLEMENT_SEED
+                .iter()
+                .all(|byte| byte.is_ascii_graphic() || *byte == b' '),
+            "the seed must stay readable: {:?}",
+            core::str::from_utf8(SETTLEMENT_SEED),
+        );
+    }
 
     /// Assert that the PDA returned by `find_pda` is derived with the canonical
     /// bump for the seed scheme `signer_seeds` encapsulates.
@@ -51,5 +172,30 @@ mod tests {
         let expected = try_create_address(canonical_bump)
             .expect("canonical bump must produce a valid address");
         assert_eq!(pda, expected);
+    }
+
+    /// Assert that no [`SAMPLE_VERSIONS`] entry re-derives the same PDA as another [`SAMPLE_VERSIONS`]
+    /// `cur_version_pda` should be computed using the `find_*_pda` function. It is used to ensure `trailing_seeds`
+    /// results in the expected PDA on the current version.
+    #[track_caller]
+    pub(crate) fn assert_distinct_versions_yield_distinct_pdas(
+        cur_version_pda: &Pubkey,
+        trailing_seeds: &[&[u8]],
+    ) {
+        let mut cur_version_seeds: Vec<&[u8]> = vec![&SETTLEMENT_SEED];
+        cur_version_seeds.extend_from_slice(trailing_seeds);
+        let (cur_version_derived_pda, _) =
+            Pubkey::find_program_address(&cur_version_seeds, &crate::ID);
+        assert_eq!(cur_version_pda, &cur_version_derived_pda);
+
+        let mut seen_pdas = HashSet::new();
+        for other in SAMPLE_VERSIONS {
+            let other_seed = build_padded_settlement_seed(other);
+            let mut seeds: Vec<&[u8]> = vec![&other_seed];
+            seeds.extend_from_slice(trailing_seeds);
+
+            let (other_pda, _) = Pubkey::find_program_address(&seeds, &crate::ID);
+            assert!(seen_pdas.insert(other_pda));
+        }
     }
 }

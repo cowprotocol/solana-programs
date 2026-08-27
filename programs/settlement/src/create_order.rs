@@ -1,7 +1,6 @@
 //! `CreateOrder` instruction handler.
 
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use settlement_interface::{
+use cow_settlement_interface::{
     data::{
         intent::EncodedOrderIntent,
         order::{self, EncodedOrderAccount},
@@ -10,6 +9,7 @@ use settlement_interface::{
     pda::order::order_pda_seeds,
     SettlementError,
 };
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::processor::CanonicalPda;
 
@@ -35,11 +35,13 @@ pub fn process_create_order(
         return Err(SettlementError::OwnerMismatch.into());
     }
 
-    // We want a single order per uid; `create_canonical_pda` derives the
+    // We want a single order per uid; `CanonicalPda::create_new` derives the
     // canonical bump and, by signing the creation with the order seeds, rejects
-    // any `order_pda` that isn't the canonical address. The rest of the code
-    // can assume that if an account has data, then the bump is valid.
-    CanonicalPda {
+    // any `order_pda` that isn't the canonical address. This is the owner's own
+    // create flow, so recreating an order that already exists is a user error:
+    // `create_new` then reverts. The rest of the code can assume that if an
+    // account has data, then the bump is valid.
+    let bump = CanonicalPda {
         program_id,
         payer: created_by,
         pda: order_pda,
@@ -47,25 +49,34 @@ pub fn process_create_order(
         owner: program_id,
         seeds: order_pda_seeds(&intent_uid),
     }
-    .create()?;
+    .create_new()?;
 
-    // Note: `intent_bytes` were validated before and are known to represent a valid intent.
-    let mut buffer = order_pda.try_borrow_mut()?;
-    let buffer: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *buffer)
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut order_pda = *order_pda;
+    let mut order_data = order_pda.try_borrow_mut()?;
+    let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
         .try_into()
         .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    order::write_account(buffer, false, 0, 0, created_by.address(), &intent_bytes);
+    order::write_account(
+        order_data,
+        bump,
+        false,
+        0,
+        0,
+        created_by.address(),
+        &intent_bytes,
+    );
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use settlement_interface::data::intent::{OrderIntent, OrderKind};
-    use settlement_interface::instruction::create_order::fixtures::{
+    use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
+    use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
-    use settlement_interface::instruction::fixtures::{
+    use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_from, fake_sequential_accounts,
     };
 
@@ -76,7 +87,7 @@ mod tests {
     /// Arbitrary placeholder program id for handler-level tests. The
     /// failure paths exercised below return before the program id is used
     /// for any syscall, so any 32-byte value works.
-    const PROGRAM_ID: Address = Address::new_from_array([1; 32]);
+    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_create_order_propagates_parse_error() {
@@ -96,11 +107,17 @@ mod tests {
     fn process_create_order_rejects_invalid_encoded_intent() {
         let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
         let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntent {
-            kind: OrderKind::Buy,
+            flags: Flags {
+                kind: OrderKind::Buy,
+                ..intent.flags
+            },
             ..intent
         });
         let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntent {
-            kind: OrderKind::Sell,
+            flags: Flags {
+                kind: OrderKind::Sell,
+                ..intent.flags
+            },
             ..intent
         });
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {

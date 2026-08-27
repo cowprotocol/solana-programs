@@ -5,12 +5,12 @@
 //! synchronous.
 
 use anyhow::Context as _;
+use cow_settlement_client::cow_settlement_interface::{pda::buffer::find_buffer_pda, Pubkey};
 use orca_whirlpools::{
     fetch_splash_pool, fetch_whirlpools_by_token_pair, set_native_mint_wrapping_strategy,
     swap_instructions, NativeMintWrappingStrategy, PoolInfo, SwapConfig, SwapQuote, SwapType,
     WhirlpoolDeployment,
 };
-use settlement_client::settlement_interface::{pda::buffer::find_buffer_pda, Pubkey};
 use solana_client::nonblocking::rpc_client::RpcClient as AsyncRpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_instruction::Instruction;

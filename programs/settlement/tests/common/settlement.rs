@@ -1,7 +1,7 @@
 //! Scaffolding for building `[BeginSettle, FinalizeSettle]` settlement pairs.
 
-use settlement_client::instructions::{BeginSettle, FinalizedIntent, InitializedIntent};
-use settlement_interface::Instruction;
+use cow_settlement_client::instructions::{BeginSettle, FinalizedIntent, InitializedIntent};
+use cow_settlement_interface::Instruction;
 use solana_sdk::pubkey::Pubkey;
 
 /// Positions of the two instructions in the `[BeginSettle, FinalizeSettle]` pair

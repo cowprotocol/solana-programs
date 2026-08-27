@@ -29,12 +29,17 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::data::intent::{self, EncodedOrderIntent, OrderIntent};
+use crate::pda::is_pda_with_signer_seeds;
 use crate::pda::order::order_pda_signer_seeds;
-use crate::SettlementError;
+use crate::{SettlementAccount, SettlementError};
 
 /// Idiomatic representation of an order PDA's body.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct OrderAccount {
+    /// Canonical bump of the PDA this account lives at. Written at creation
+    /// time so callers don't need to supply it; see [`Self::load_from_pda`].
+    pub bump: u8,
+
     /// `false` = the order is still active and can be filled; `true` = the
     /// order has been cancelled by the owner and must not be filled.
     pub cancelled: bool,
@@ -56,12 +61,12 @@ pub struct OrderAccount {
 }
 
 impl OrderAccount {
-    /// Load and decode the order at the given PDA, and confirm
-    /// the PDA is derivable from its own data and the provided bump
+    /// Load and decode the order at the given PDA, and confirm the PDA is
+    /// derivable from its own data: both the UID and the bump feeding the
+    /// derivation come from the stored body.
     pub fn load_from_pda(
         order_pda: &AccountView,
         program_id: &Address,
-        bump: u8,
     ) -> Result<Self, ProgramError> {
         let (account, uid) = {
             let data = order_pda.try_borrow()?;
@@ -71,10 +76,11 @@ impl OrderAccount {
             EncodedOrderAccount::decode_and_hash(bytes)?
         };
 
-        let expected =
-            Address::create_program_address(&order_pda_signer_seeds(&uid, &[bump]), program_id)
-                .map_err(|_| SettlementError::AccountNotDerivable)?;
-        if &expected != order_pda.address() {
+        if !is_pda_with_signer_seeds(
+            order_pda.address(),
+            program_id,
+            order_pda_signer_seeds(&uid, &[account.bump]),
+        ) {
             return Err(SettlementError::AccountNotDerivable.into());
         }
 
@@ -82,7 +88,7 @@ impl OrderAccount {
     }
 }
 
-/// Canonical 200-byte representation of an [`OrderAccount`]. The bytes
+/// Canonical 264-byte representation of an [`OrderAccount`]. The bytes
 /// written to/read from the order PDA's data area.
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
@@ -91,14 +97,15 @@ impl OrderAccount {
 /// [`EncodedOrderIntent`]; see that type's docs for its inner layout.
 ///
 /// ```text
-///  ┌──── discriminator
-///  │┌─── cancelled
-///  ┌┬┬───────┬───────┬───────────────────────────────┬─────────────────...─────────────────┐
-///  ││|amount_│amount_│                               │                                     │
-///  │││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
-///  │││drawn  │ceived │                               │                                     │
-///  └┴┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
-/// 0 1 2       10      18                              50                ...               200
+///  ┌───── discriminator
+///  │┌──── bump
+///  ││┌─── cancelled
+///  ┌┬┬┬───────┬───────┬───────────────────────────────┬─────────────────...─────────────────┐
+///  ││││amount_│amount_│                               │                                     │
+///  ││││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
+///  ││││drawn  │ceived │                               │                                     │
+///  └┴┴┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
+/// 0 1 2 3      11      19                              51                ...               264
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
@@ -106,16 +113,17 @@ pub struct EncodedOrderAccount([u8; Self::SIZE]);
 impl EncodedOrderAccount {
     // Per-field widths, derived from the `OrderAccount` field types.
     const W_DISCRIMINATOR: usize = size_of::<u8>();
+    const W_BUMP: usize = size_of::<u8>();
     const W_CANCELLED: usize = size_of::<bool>();
     const W_AMOUNT_WITHDRAWN: usize = size_of::<u64>();
     const W_AMOUNT_RECEIVED: usize = size_of::<u64>();
     const W_CREATED_BY: usize = size_of::<Pubkey>();
     const W_INTENT: usize = EncodedOrderIntent::SIZE;
 
-    pub const SIZE: usize = 200;
+    pub const SIZE: usize = 264;
 
-    /// Single-byte account discriminator. See [`crate::SettlementAccount`].
-    pub const DISCRIMINATOR: u8 = crate::SettlementAccount::OrderAccount.discriminator();
+    /// Single-byte account discriminator. See [`SettlementAccount`].
+    pub const DISCRIMINATOR: u8 = SettlementAccount::OrderAccount.discriminator();
 
     /// Decode the account body and compute the embedded intent's UID in one
     /// shot, mirroring [`EncodedOrderIntent::decode_and_hash`]. Decoding
@@ -141,6 +149,7 @@ impl EncodedOrderAccount {
 /// encoding: validating it is the caller's responsibility.
 pub fn write_account(
     buffer: &mut [u8; EncodedOrderAccount::SIZE],
+    bump: u8,
     cancelled: bool,
     amount_withdrawn: u64,
     amount_received: u64,
@@ -149,6 +158,7 @@ pub fn write_account(
 ) {
     let (
         discriminator_slot,
+        bump_slot,
         cancelled_slot,
         amount_withdrawn_slot,
         amount_received_slot,
@@ -157,6 +167,7 @@ pub fn write_account(
     ) = mut_array_refs![
         buffer,
         EncodedOrderAccount::W_DISCRIMINATOR,
+        EncodedOrderAccount::W_BUMP,
         EncodedOrderAccount::W_CANCELLED,
         EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
         EncodedOrderAccount::W_AMOUNT_RECEIVED,
@@ -164,6 +175,7 @@ pub fn write_account(
         EncodedOrderAccount::W_INTENT
     ];
     *discriminator_slot = [EncodedOrderAccount::DISCRIMINATOR];
+    *bump_slot = [bump];
     *cancelled_slot = [cancelled as u8];
     *amount_withdrawn_slot = amount_withdrawn.to_le_bytes();
     *amount_received_slot = amount_received.to_le_bytes();
@@ -182,6 +194,7 @@ impl From<OrderAccount> for EncodedOrderAccount {
         let mut out = [0u8; Self::SIZE];
         write_account(
             &mut out,
+            account.bump,
             account.cancelled,
             account.amount_withdrawn,
             account.amount_received,
@@ -196,9 +209,10 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
     type Error = ProgramError;
 
     fn try_from(bytes: [u8; EncodedOrderAccount::SIZE]) -> Result<Self, Self::Error> {
-        let (discriminator, cancelled, amount_withdrawn, amount_received, created_by, intent) = array_refs![
+        let (discriminator, bump, cancelled, amount_withdrawn, amount_received, created_by, intent) = array_refs![
             &bytes,
             EncodedOrderAccount::W_DISCRIMINATOR,
+            EncodedOrderAccount::W_BUMP,
             EncodedOrderAccount::W_CANCELLED,
             EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
             EncodedOrderAccount::W_AMOUNT_RECEIVED,
@@ -211,6 +225,7 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
         }
 
         Ok(OrderAccount {
+            bump: bump[0],
             cancelled: match cancelled {
                 [0] => false,
                 [1] => true,
@@ -248,30 +263,29 @@ pub mod fixtures {
     use proptest::prelude::*;
 
     use super::{OrderAccount, Pubkey};
-    use crate::data::intent::{
-        fixtures::{arb_order_intent, sample_intent},
-        OrderKind,
-    };
+    use crate::data::intent::fixtures::{arb_order_intent, sample_intent};
 
     // Hardcoded but verified in a sanity-check test.
     pub const DISCRIMINATOR_OFFSET: usize = 0;
-    pub const CANCELLED_OFFSET: usize = 1;
-    pub const INTENT_OFFSET: usize = 50;
+    pub const CANCELLED_OFFSET: usize = 2;
+    pub const INTENT_OFFSET: usize = 51;
 
     /// Hand-picked example order account wrapping [`sample_intent`].
     pub fn sample_account(cancelled: bool) -> OrderAccount {
         OrderAccount {
+            bump: 0xfd,
             cancelled,
             amount_withdrawn: 0x0112_2334_4556_6778,
             amount_received: 0x899a_abbc_cdde_eff0,
             created_by: Pubkey::new_from_array([0x43; 32]),
-            intent: sample_intent(OrderKind::Sell, false),
+            intent: sample_intent(Default::default()),
         }
     }
 
     /// Any valid [`OrderAccount`].
     pub fn arb_order_account() -> impl Strategy<Value = OrderAccount> {
         (
+            any::<u8>(),
             any::<bool>(),
             any::<u64>(),
             any::<u64>(),
@@ -279,12 +293,15 @@ pub mod fixtures {
             arb_order_intent(),
         )
             .prop_map(
-                |(cancelled, amount_withdrawn, amount_received, created_by, intent)| OrderAccount {
-                    cancelled,
-                    amount_withdrawn,
-                    amount_received,
-                    created_by: Pubkey::new_from_array(created_by),
-                    intent,
+                |(bump, cancelled, amount_withdrawn, amount_received, created_by, intent)| {
+                    OrderAccount {
+                        bump,
+                        cancelled,
+                        amount_withdrawn,
+                        amount_received,
+                        created_by: Pubkey::new_from_array(created_by),
+                        intent,
+                    }
                 },
             )
     }
@@ -296,10 +313,7 @@ mod tests {
 
     use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
-    use crate::data::intent::{
-        fixtures::{sample_intent, KIND_OFFSET, PARTIALLY_FILLABLE_OFFSET},
-        OrderKind,
-    };
+    use crate::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
 
     // Pin each width to the size of the `OrderAccount` field it encodes. The
     // widths summing to `SIZE` is enforced separately, at compile time, by the
@@ -311,6 +325,7 @@ mod tests {
         // Any `OrderAccount` works: `size_of_val` only consults the field
         // type, never the data.
         let OrderAccount {
+            bump,
             cancelled,
             amount_withdrawn,
             amount_received,
@@ -320,6 +335,7 @@ mod tests {
             intent: _intent,
         } = sample_account(false);
 
+        assert_eq!(EncodedOrderAccount::W_BUMP, size_of_val(&bump));
         assert_eq!(EncodedOrderAccount::W_CANCELLED, size_of_val(&cancelled));
         assert_eq!(
             EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
@@ -368,9 +384,9 @@ mod tests {
             (&EncodedOrderIntent::from(&sample_account_base.intent)).into();
         // Hack: xoring each byte makes sure all bytes are different.
         // In general, it isn't guaranteed that the result encodes to a
-        // valid intent, but in this case we know it because the only bytes
-        // that may fail decoding are `kind` and `partially_fillable`, both
-        // of which stay valid if flipped with `^0x01`.
+        // valid intent, but in this case we know it because the only byte
+        // that may fail decoding is the flags byte, and `^0x01` only flips
+        // its `kind` bit, never a reserved one.
         let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
             encoded_intent.map(|b| b ^ 0x01);
         sample_account_base.intent =
@@ -408,13 +424,12 @@ mod tests {
     fn decode_propagates_invalid_intent() {
         let mut bytes: [u8; EncodedOrderAccount::SIZE] =
             EncodedOrderAccount::from(sample_account(false)).into();
-        // Corrupt the `kind` byte inside the intent slot: the intent
-        // decoder rejects it and the order-account decode surfaces that
-        // failure as `InvalidAccountData`.
-        let kind_offset = INTENT_OFFSET + KIND_OFFSET;
-        bytes[kind_offset] = 0x02;
+        // Set a reserved bit of the flags byte inside the intent slot: the
+        // intent decoder rejects it and the order-account decode surfaces
+        // that failure as `InvalidAccountData`.
+        bytes[INTENT_OFFSET + FLAGS_OFFSET] = 0xff;
         let err = OrderAccount::try_from(bytes)
-            .expect_err("an invalid intent kind byte must propagate as a decode failure");
+            .expect_err("an invalid intent flags byte must propagate as a decode failure");
         assert_eq!(err, ProgramError::InvalidAccountData);
     }
 
@@ -473,62 +488,67 @@ mod tests {
         use crate::instruction::fixtures::fake_account_with_data;
         use crate::pda::order::find_order_pda;
 
-        const PROGRAM_ID: Address = Address::new_from_array([9; 32]);
+        const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
+
+        /// [`sample_account`] carrying its own canonical bump, plus the address
+        /// of the PDA it belongs at.
+        fn canonical_account(cancelled: bool) -> (OrderAccount, Address) {
+            let mut account = sample_account(cancelled);
+            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
+            account.bump = bump;
+            (account, pda_address)
+        }
 
         #[test]
         fn accepts_the_canonical_pda() {
-            let account = sample_account(false);
-            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
+            let (account, pda_address) = canonical_account(false);
             let order_pda = fake_account_with_data(
                 pda_address,
                 &EncodedOrderAccount::from(account.clone())[..],
             );
 
-            let loaded = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, bump)
+            let loaded = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID)
                 .expect("canonical PDA must load");
             assert_eq!(loaded, account);
         }
 
         #[test]
         fn rejects_a_non_canonical_address() {
-            let account = sample_account(false);
-            let (_, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
+            let (account, _) = canonical_account(false);
             // An address unrelated to the intent's canonical seeds.
             let wrong_address = Pubkey::new_from_array([0x42; 32]);
             let order_pda =
                 fake_account_with_data(wrong_address, &EncodedOrderAccount::from(account)[..]);
 
-            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, bump)
+            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID)
                 .expect_err("a non-canonical address must be rejected");
             assert_eq!(err, SettlementError::AccountNotDerivable.into());
         }
 
         #[test]
-        fn rejects_a_wrong_bump() {
-            let account = sample_account(false);
-            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
-            let order_pda =
-                fake_account_with_data(pda_address, &EncodedOrderAccount::from(account)[..]);
-
+        fn rejects_a_stored_bump_that_does_not_derive_the_address() {
+            let (mut account, pda_address) = canonical_account(false);
             // Any bump other than the canonical one either derives a
             // different address or fails to derive one at all (falling on
             // curve); either way, the PDA can no longer be proven canonical.
-            let wrong_bump = bump.wrapping_sub(1);
-            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, wrong_bump)
+            account.bump = account.bump.wrapping_sub(1);
+            let order_pda =
+                fake_account_with_data(pda_address, &EncodedOrderAccount::from(account)[..]);
+
+            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID)
                 .expect_err("a non-canonical bump must be rejected");
             assert_eq!(err, SettlementError::AccountNotDerivable.into());
         }
 
         #[test]
         fn propagates_decode_errors() {
-            let account = sample_account(false);
-            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &account.intent.uid());
+            let (account, pda_address) = canonical_account(false);
             let mut bytes: [u8; EncodedOrderAccount::SIZE] =
                 EncodedOrderAccount::from(account).into();
             bytes[CANCELLED_OFFSET] = 0xff;
             let order_pda = fake_account_with_data(pda_address, &bytes);
 
-            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID, bump)
+            let err = OrderAccount::load_from_pda(&order_pda, &PROGRAM_ID)
                 .expect_err("a corrupt account must fail to decode");
             assert_eq!(err, ProgramError::InvalidAccountData);
         }
@@ -536,15 +556,17 @@ mod tests {
 
     #[test]
     fn direct_write_account_matches_order_account_decoding() {
+        let bump = 254;
         let cancelled = true;
         let amount_withdrawn = 1337;
         let amount_received = 31337;
-        let intent = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(Default::default());
         let created_by = Pubkey::new_from_array([0x42u8; 32]);
 
         let mut buffer = [0u8; EncodedOrderAccount::SIZE];
         write_account(
             &mut buffer,
+            bump,
             cancelled,
             amount_withdrawn,
             amount_received,
@@ -553,6 +575,7 @@ mod tests {
         );
         let direct = EncodedOrderAccount(buffer);
         let via_order_account = EncodedOrderAccount::from(OrderAccount {
+            bump,
             cancelled,
             amount_withdrawn,
             amount_received,
@@ -568,7 +591,7 @@ mod tests {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
 
         use super::*;
-        use crate::data::{intent::fixtures::arb_order_kind, order::fixtures::arb_order_account};
+        use crate::data::{intent::fixtures::arb_flags_byte, order::fixtures::arb_order_account};
 
         proptest! {
             // For any `OrderAccount`, encode then decode returns the same
@@ -588,13 +611,11 @@ mod tests {
             fn bytes_roundtrip(
                 mut bytes in any::<[u8; EncodedOrderAccount::SIZE]>(),
                 cancelled in any::<bool>(),
-                kind in arb_order_kind(),
-                partially_fillable in any::<bool>(),
+                flags in arb_flags_byte(),
             ) {
                 bytes[DISCRIMINATOR_OFFSET] = EncodedOrderAccount::DISCRIMINATOR;
                 bytes[CANCELLED_OFFSET] = cancelled as u8;
-                bytes[INTENT_OFFSET + KIND_OFFSET] = kind as u8;
-                bytes[INTENT_OFFSET + PARTIALLY_FILLABLE_OFFSET] = partially_fillable as u8;
+                bytes[INTENT_OFFSET + FLAGS_OFFSET] = flags;
                 let account = OrderAccount::try_from(bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(*EncodedOrderAccount::from(account), bytes);

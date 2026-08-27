@@ -6,20 +6,49 @@ The settlement program stores funds through dedicated token accounts (_buffer ac
 
 It uses a dedicated state account to:
 
+- Store the account that can reclaim buffer rent.
 - Manage solver authentication (including fee access by the protocol).
 - Act as a token delegate to manage user funds.
 
-Its state is stored in a PDA generated using seed `["settlement"]`.
+Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement    v0.1"]`.
 
 Once the testing phase has ended, we will make the code at that account unchangeable.
 
+## State versioning
+
+Every PDA the program derives starts with the same prefix seed: the string `settlement`, then the current cargo package major and minor version prefixed by `v`, space-padded to a fixed width to prevent accidental prefix collisions. While we expect the ultimate settlement program to be immutable so this measure would normally not be needed, during development we want to avoid any possible confusion or losses that could occur as a result of stale data still existing within the settlement program.
+
+Bumping the minor version relocates the program's entire account storage at once — the state account, every buffer, and every order.
+
+A bump is not a migration. There are some other consequences that should be considered before the new program version is deployed:
+
+- **User delegations stop working.** Users delegate their token accounts to the state PDA (see [user delegation](#user-delegation-ie-approvals)). A bump moves that address, so every user has to delegate again before they can trade.
+- **Whatever the buffers still hold is stranded.** A buffer's funds are only spendable by the state PDA that is its SPL authority. After a bump the program can no longer sign for the old state PDA, so it can never move those funds again. Buffers must be drained under the old program version *before* deploying a bump.
+
+## Program initialization
+
+The state PDA is created once, after deployment, by the `Initialize` instruction.
+
+## Authorities
+
+The program grant privileged roles to specific accounts (_authorities_). They are:
+
+- Manager: the account that can add and remove solvers. It can also update the address of all other roles.
+- Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
+
+### Updating authorities
+
+Any authority that holds a role can transfer it to another account with the `TransferAuthority` instruction, which sets the role's holder to the new account in a single step. The manager can transfer any role.
+
 ## Buffer accounts
 
-Buffer accounts are token accounts that hold funds on behalf of the settlement contract.
+Buffer accounts are token accounts that hold funds on behalf of the settlement program throught the state PDA.
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
-Corresponding PDAs are generated using seed `["settlement", token, "buffer"]`.
+Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
+
+A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
 
 Differences with Ethereum:
 
@@ -37,9 +66,7 @@ There are two roles for authentication:
 
 The settlement program state PDA stores the state used for authentication.
 
-On settlement program deployment, the program state is initialized with a fixed initial manager controlled by CoW and an empty list of solvers.
-
-Transferring the role of manager is done in a two-step process: first the current manager proposes a new manager; then the new manager accepts the role, finalizing the role transfer.
+On settlement program deployment, the program state is initialized with a fixed initial manager, controlled by CoW Core as mandated by CoW DAO, and an empty list of solvers.
 
 Differences with Ethereum:
 
@@ -74,7 +101,7 @@ As long as the settlement program is immutable, there's no other way to access u
 
 Differences with Ethereum:
 
-- There can only be a single delegate. This could create situations where the user delegates us, creates an order, and then another dapp delegates a different program and the order can't be settled anymore. This is very different from approvals, where an approval for one dapp doesn't affect approvals for other dapps.
+- There can only be a single delegate. This could create situations where the user delegates the settlement state PDA, creates an order, and then another dapp delegates a different program and the order can't be settled anymore. This is very different from approvals, where an approval for one dapp doesn't affect approvals for other dapps.
 - There's no dedicated vault relayer, the user delegates their tokens to the settlement state PDA (_not_ the settlement program!). This is because "interactions" aren't executed by the settlement program but as dedicated instructions originating from the transaction signer.
 
 ## Orders
@@ -88,22 +115,31 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
-	// Origin and destination of funds in this order.
-	// They implicitly encode both the receiver account and the traded tokens.
+	// Origin and destination of funds in this order, each with the mint it
+	// should correspond to.
 	buy_token_account: Pubkey
+	buy_mint: Pubkey
 	sell_token_account: Pubkey
+	sell_mint: Pubkey
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
 	// Unix timestamp
 	valid_to: u32
-	// Either Buy or Sell
-	kind: OrderKind
-	partially_fillable: bool
+	flags: Flags
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
+
+struct Flags {
+	// Either Buy or Sell
+	kind: OrderKind
+	partially_fillable: bool
+}
 ```
+
+The fields grouped in `Flags` share a single byte in the encoded form, one bit
+each, with the remaining bits reserved and required when decoding to be zero.
 
 Differences with Ethereum:
 
@@ -118,6 +154,8 @@ For processing an order in a settlement, the data of that order needs to be stor
 Useful information can be recovered from the order PDA. Notably:
 
 ```rust
+// The PDA's canonical bump, stored so instructions don't have to carry it
+bump: u8
 cancelled: bool
 amount_withdrawn: u64
 amount_received: u64
@@ -132,7 +170,7 @@ An order PDA can only exist and hold data if the order has been [authenticated](
 
 At the time of order creation, the executor can specify a different address as the `created_by` address. This allows rent to be reclaimed by a different account than the one that signed the instruction.
 
-Corresponding PDAs are generated using seed `["settlement", hash(intent), "order"]`.
+Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, hash(intent), "order"]`.
 
 The serialization of the parameters before hashing and the hashing function will be formally specified at a later point.
 

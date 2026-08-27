@@ -33,10 +33,14 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 ///
 /// The order doesn't need to be executable for it to be created. For
 /// example, the sell token account doesn't need to belong to the user or
-/// be a TOKEN account in the first place. This is checked at execution
+/// be an SPL token account in the first place. This is checked at execution
 /// time.
 ///
-/// Wire format: `[discriminator=2, ..150 intent bytes]`, 151 bytes.
+/// An order can exist only once: if `order_pda` is already initialized, the
+/// instruction reverts with `AccountAlreadyInitialized`. Recreating the same
+/// order is only possible after its PDA has been closed.
+///
+/// Wire format: `[discriminator=2, ..149 intent bytes]`, 150 bytes.
 /// Required accounts:
 /// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
 /// The system program needs to be available but doesn't need to be at that
@@ -73,14 +77,14 @@ pub struct CreateOrderInput<'a, A> {
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
     pub owner: &'a A,
     pub created_by: &'a A,
-    pub order_pda: &'a mut A,
+    pub order_pda: &'a A,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for CreateOrderInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateOrder;
 
-    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
-        // Body (discriminator already stripped): exactly the 150 intent bytes.
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
+        // Body (discriminator already stripped): exactly the 149 intent bytes.
         if instruction_data.len() != EncodedOrderIntent::SIZE {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -111,9 +115,7 @@ pub mod fixtures {
     use solana_address::Address;
 
     use super::{CreateOrder, Instruction};
-    use crate::data::intent::{
-        fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
-    };
+    use crate::data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent};
 
     /// Owner baked into [`valid_intent_bytes`]' sample intent.
     pub const DEFAULT_OWNER: Address = Address::new_from_array([0x11; 32]);
@@ -122,12 +124,12 @@ pub mod fixtures {
     /// and the system program.
     pub const NUM_ACCOUNTS: usize = 4;
 
-    /// Canonical 150-byte intent payload for a valid sell order owned by
+    /// Canonical 149-byte intent payload for a valid sell order owned by
     /// [`DEFAULT_OWNER`].
     pub fn valid_intent_bytes() -> [u8; EncodedOrderIntent::SIZE] {
         (&EncodedOrderIntent::from(&OrderIntent {
             owner: DEFAULT_OWNER,
-            ..sample_intent(OrderKind::Sell, true)
+            ..sample_intent(Default::default())
         }))
             .into()
     }
@@ -154,6 +156,10 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
+    use crate::instruction::tests::{
+        assert_readonly_nonsigner, assert_readonly_signer, assert_writable_nonsigner,
+        assert_writable_signer,
+    };
     use solana_account_view::AccountView;
     use solana_address::Address;
 
@@ -173,7 +179,7 @@ mod tests {
             intent_bytes,
         })
         .data;
-        let mut accounts = [
+        let accounts = [
             fake_account(owner),
             fake_account(created_by),
             fake_account(order_pda),
@@ -185,7 +191,7 @@ mod tests {
             owner: derived_owner,
             created_by: derived_created_by,
             order_pda: derived_order_pda,
-        } = CreateOrderInput::parse(&data, &mut accounts).expect("parse should succeed");
+        } = CreateOrderInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(derived_intent_bytes, intent_bytes);
         assert_eq!(*derived_order_pda.address(), order_pda);
@@ -198,9 +204,9 @@ mod tests {
         let intent_bytes = valid_intent_bytes();
         let mut data = default_order_data(&intent_bytes);
         data.pop();
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            CreateOrderInput::parse(&data, &mut accounts).err(),
+            CreateOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -210,9 +216,9 @@ mod tests {
         let intent_bytes = valid_intent_bytes();
         let mut data = default_order_data(&intent_bytes);
         data.push(0); // trailing byte
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            CreateOrderInput::parse(&data, &mut accounts).err(),
+            CreateOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -224,7 +230,7 @@ mod tests {
         let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
         accounts.pop();
         assert_eq!(
-            CreateOrderInput::parse(&data, &mut accounts).err(),
+            CreateOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -269,23 +275,12 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 4);
-        // owner: read-only, signer (authenticates the order; doesn't pay rent)
-        assert_eq!(accounts[0].pubkey, owner);
-        assert!(!accounts[0].is_writable);
-        assert!(accounts[0].is_signer);
-        // created_by: writable, signer (funds the new PDA's rent)
-        assert_eq!(accounts[1].pubkey, created_by);
-        assert!(accounts[1].is_writable);
-        assert!(accounts[1].is_signer);
-        // order_pda: writable, not signer (the program signs via PDA seeds)
-        assert_eq!(accounts[2].pubkey, order_pda);
-        assert!(accounts[2].is_writable);
-        assert!(!accounts[2].is_signer);
-        // system program: read-only, not signer; the on-chain handler
-        // doesn't dereference it but the runtime requires it in the
-        // transaction's `account_keys` to dispatch the CreateAccount CPI.
-        assert_eq!(accounts[3].pubkey, SYSTEM_PROGRAM_ID);
-        assert!(!accounts[3].is_writable);
-        assert!(!accounts[3].is_signer);
+        // owner authenticates the order without paying rent; created_by funds
+        // the new PDA's rent; order_pda is created. The system program is
+        // only referenced.
+        assert_readonly_signer(&accounts[0], owner);
+        assert_writable_signer(&accounts[1], created_by);
+        assert_writable_nonsigner(&accounts[2], order_pda);
+        assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
     }
 }

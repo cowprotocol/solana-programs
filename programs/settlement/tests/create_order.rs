@@ -1,6 +1,6 @@
-use settlement_client::settlement_interface::{
+use cow_settlement_client::cow_settlement_interface::{
     data::{
-        intent::{fixtures, EncodedOrderIntent, OrderIntent, OrderKind},
+        intent::{fixtures, EncodedOrderIntent, OrderIntent},
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::create_order::CreateOrder,
@@ -8,30 +8,34 @@ use settlement_client::settlement_interface::{
     SettlementError,
 };
 use solana_sdk::{
+    instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::{Transaction, TransactionError},
 };
 
-use crate::common::{signed_tx, to_instruction_error};
+use crate::common::{
+    benchmark::{send_transaction_metered, BenchLabel},
+    signed_tx, to_instruction_error, unique_pubkey,
+};
 
 mod common;
 
 fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
-        ..fixtures::sample_intent(OrderKind::Sell, true)
+        ..fixtures::sample_intent(Default::default())
     }
 }
 
 fn encode_and_derive(
     intent: &OrderIntent,
     program_id: &Pubkey,
-) -> ([u8; EncodedOrderIntent::SIZE], Pubkey) {
+) -> ([u8; EncodedOrderIntent::SIZE], Pubkey, u8) {
     let encoded = EncodedOrderIntent::from(intent);
     let bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-    let (pda, _bump) = find_order_pda(program_id, &encoded.hash());
-    (bytes, pda)
+    let (pda, bump) = find_order_pda(program_id, &encoded.hash());
+    (bytes, pda, bump)
 }
 
 #[test]
@@ -39,7 +43,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = sample_intent(owner.pubkey());
-    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+    let (encoded, pda, bump) = encode_and_derive(&intent, &program_id);
 
     // `owner` doubles as `created_by` here: the same address may fill both
     // slots, which is the common case. It also pays the tx fee.
@@ -51,7 +55,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &owner, &owner, ix);
-    svm.send_transaction(tx)
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateOrder)
         .expect("create_order should succeed");
 
     let account = svm
@@ -68,6 +72,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
     );
 
     let expected_body: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+        bump,
         cancelled: false,
         amount_withdrawn: 0,
         amount_received: 0,
@@ -103,7 +108,7 @@ fn creates_order_with_separate_fee_payers() {
         .expect("airdrop to created_by should succeed");
 
     let intent = sample_intent(owner.pubkey());
-    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+    let (encoded, pda, bump) = encode_and_derive(&intent, &program_id);
 
     let fee_payer_before = common::lamports(&svm, &fee_payer.pubkey());
     let owner_before = common::lamports(&svm, &owner.pubkey());
@@ -147,6 +152,7 @@ fn creates_order_with_separate_fee_payers() {
         .get_account(&pda)
         .expect("order PDA should exist after create_order");
     let expected_body: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+        bump,
         cancelled: false,
         amount_withdrawn: 0,
         amount_received: 0,
@@ -165,11 +171,11 @@ fn rejects_arbitrary_wrong_pda() {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = sample_intent(owner.pubkey());
-    let (encoded, _canonical_pda) = encode_and_derive(&intent, &program_id);
+    let (encoded, _canonical_pda, _bump) = encode_and_derive(&intent, &program_id);
 
     // Hand the client helper a deliberately wrong address; it forwards the
     // PDA we give it rather than deriving the canonical one.
-    let wrong_pda = Pubkey::new_unique();
+    let wrong_pda = unique_pubkey();
     let ix = CreateOrder {
         program_id,
         owner: owner.pubkey(),
@@ -206,16 +212,52 @@ fn rejects_non_canonical_bump_pda() {
 }
 
 #[test]
-fn rejects_creating_same_pda_twice() {
+fn creates_order_when_address_is_prefunded() {
+    let (mut svm, program_id, fee_payer) = common::setup();
+    let intent = sample_intent(fee_payer.pubkey());
+    let (encoded, pda, _) = encode_and_derive(&intent, &program_id);
+
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &pda, |svm| {
+        let ix = CreateOrder {
+            program_id,
+            owner: fee_payer.pubkey(),
+            created_by: fee_payer.pubkey(),
+            order_pda: pda,
+            intent_bytes: encoded,
+        };
+        signed_tx(svm, &fee_payer, &fee_payer, ix)
+    });
+}
+
+#[test]
+fn rejects_recreating_existing_order() {
+    let (mut svm, program_id, fee_payer) = common::setup();
+    let intent = sample_intent(fee_payer.pubkey());
+    let (encoded, pda, _) = encode_and_derive(&intent, &program_id);
+
+    common::pda::assert_recreate_is_rejected(&mut svm, &pda, |svm| {
+        let ix = CreateOrder {
+            program_id,
+            owner: fee_payer.pubkey(),
+            created_by: fee_payer.pubkey(),
+            order_pda: pda,
+            intent_bytes: encoded,
+        };
+        signed_tx(svm, &fee_payer, &fee_payer, ix)
+    });
+}
+
+#[test]
+fn rejects_recreating_order_with_a_different_creator() {
     let (mut svm, program_id, fee_payer) = common::setup();
     let another_fee_payer = Keypair::new_from_array([43; 32]);
     svm.airdrop(&another_fee_payer.pubkey(), 1_000_000_000)
         .expect("airdrop to another_fee_payer should succeed");
 
     let intent = sample_intent(fee_payer.pubkey());
-    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+    let (encoded, pda, _bump) = encode_and_derive(&intent, &program_id);
 
-    // First creation populates the PDA.
+    // First creation populates the PDA, recording `fee_payer` as `created_by`.
     let ix = CreateOrder {
         program_id,
         owner: fee_payer.pubkey(),
@@ -226,11 +268,13 @@ fn rejects_creating_same_pda_twice() {
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
     svm.send_transaction(tx)
         .expect("first create_order should succeed");
+    let before = svm.get_account(&pda).expect("order PDA should exist");
 
     svm.expire_blockhash();
 
-    // For good measure, we change `created_by` to stress that the input
-    // account doesn't matter here.
+    // The second call uses a different `created_by`, but the order already
+    // exists, so it must be rejected and leave the stored order (including its
+    // `created_by`) byte-for-byte unchanged.
     let ix = CreateOrder {
         program_id,
         owner: fee_payer.pubkey(),
@@ -239,7 +283,16 @@ fn rejects_creating_same_pda_twice() {
         intent_bytes: encoded,
     };
     let tx = signed_tx(&svm, &another_fee_payer, &fee_payer, ix);
-    common::pda::assert_rejected_as_existing(&mut svm, tx);
+    let err = svm
+        .send_transaction(tx)
+        .expect_err("recreating an existing order must be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, InstructionError::AccountAlreadyInitialized),
+    );
+
+    let after = svm.get_account(&pda).expect("order PDA should still exist");
+    assert_eq!(before, after, "rejected create must not modify the order");
 }
 
 #[test]
@@ -248,9 +301,9 @@ fn rejects_when_intent_owner_differs_from_signer() {
 
     // `intent.owner` is a fresh pubkey, distinct from `fee_payer.pubkey()`
     // who is the only signer for the `owner` slot.
-    let intent_owner = Pubkey::new_unique();
+    let intent_owner = unique_pubkey();
     let intent = sample_intent(intent_owner);
-    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+    let (encoded, pda, _bump) = encode_and_derive(&intent, &program_id);
 
     let ix = CreateOrder {
         program_id,

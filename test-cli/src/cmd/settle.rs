@@ -1,13 +1,13 @@
 use anyhow::Context as _;
 use clap::Args;
-use settlement_client::{
-    instructions::{
-        BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
-    },
-    settlement_interface::{
+use cow_settlement_client::{
+    cow_settlement_interface::{
         data::{intent::OrderIntent, order::OrderAccount},
         pda::buffer::find_buffer_pda,
         Pubkey,
+    },
+    instructions::{
+        BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
     },
 };
 use solana_hash::Hash;
@@ -145,7 +145,6 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .iter()
         .map(|intent| FinalizedIntent {
             intent: &intent.data,
-            mint: intent.buy.mint,
             amount: intent.data.buy_amount,
         })
         .collect();
@@ -507,8 +506,9 @@ fn parse_order_input(program_id: &Pubkey, s: &str) -> anyhow::Result<Pubkey> {
         .with_context(|| format!("invalid hex in UID '{s}' at byte {i}"))?;
     }
     let uid = Hash::new_from_array(bytes);
-    let (pda, _) =
-        settlement_client::settlement_interface::pda::order::find_order_pda(program_id, &uid);
+    let (pda, _) = cow_settlement_client::cow_settlement_interface::pda::order::find_order_pda(
+        program_id, &uid,
+    );
     Ok(pda)
 }
 
@@ -672,7 +672,10 @@ mod tests {
         let program_id = Pubkey::new_unique();
         let uid = Hash::new_from_array(*Pubkey::new_unique().as_array());
         let (expected, _) =
-            settlement_client::settlement_interface::pda::order::find_order_pda(&program_id, &uid);
+            cow_settlement_client::cow_settlement_interface::pda::order::find_order_pda(
+                &program_id,
+                &uid,
+            );
 
         // `Hash`'s `Display` is base58, so spell the hex out from the raw bytes.
         let hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();

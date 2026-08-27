@@ -5,15 +5,15 @@
 //! provide a simplified interface at the price of more computation done
 //! by the function, making it more suitable for off-chain use.
 
-use settlement_interface::{
+use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
-    Instruction, Pubkey,
+    Instruction, Pubkey, Role,
 };
 
 // Reexport the instruction builders that don't change from the interface.
 // We want the client to provide all instruction builders.
-pub use settlement_interface::instruction::settle::Pull;
+pub use cow_settlement_interface::instruction::settle::Pull;
 
 /// An order ready to be settled, together with the funds to pull from it:
 /// `intent` identifies the order and `pulls` lists the [`Pull`]s to make from
@@ -37,23 +37,20 @@ impl From<BeginSettle<'_>> for Instruction {
     fn from(builder: BeginSettle<'_>) -> Self {
         let mut order_pdas = Vec::with_capacity(builder.orders.len());
         let mut sell_token_accounts = Vec::with_capacity(builder.orders.len());
-        let mut bumps = Vec::with_capacity(builder.orders.len());
         let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(builder.orders.len());
         for order in builder.orders {
-            let (order_pda, bump) = find_order_pda(&builder.program_id, &order.intent.uid());
+            let (order_pda, _bump) = find_order_pda(&builder.program_id, &order.intent.uid());
             order_pdas.push(order_pda);
             sell_token_accounts.push(order.intent.sell_token_account);
-            bumps.push(bump);
             pull_lists.push(order.pulls);
         }
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        settlement_interface::instruction::settle::BeginSettle {
+        cow_settlement_interface::instruction::settle::BeginSettle {
             program_id: builder.program_id,
             state_pda,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
             order_pdas: &order_pdas,
-            order_pda_bumps: &bumps,
             sell_token_accounts: &sell_token_accounts,
             pulls: &pull_lists,
         }
@@ -62,14 +59,10 @@ impl From<BeginSettle<'_>> for Instruction {
 }
 
 /// A settled order whose proceeds are pushed to it: `intent` identifies the
-/// order (its `buy_token_account` is the push destination), `mint` selects the
-/// canonical source buffer, and `amount` is the quantity to push.
-/// Technically the mint is already included in the intent, but for that we need
-/// to read the sell account data on-chain, which makes the builder harder to
-/// use.
+/// order (its `buy_token_account` is the push destination and its `buy_mint`
+/// selects the canonical source buffer) and `amount` is the quantity to push.
 pub struct FinalizedIntent<'a> {
     pub intent: &'a OrderIntent,
-    pub mint: Pubkey,
     pub amount: u64,
 }
 
@@ -77,10 +70,11 @@ pub struct FinalizedIntent<'a> {
 /// its buy token account.
 ///
 /// The destination is the order intent's `buy_token_account` and the source is
-/// the canonical buffer PDA for `mint` (see [`find_buffer_pda`]). The orders are
-/// sorted by their canonical order PDA (the same key [`BeginSettle`] orders its
-/// settled-order list by) so the two instructions present the orders in the
-/// same order and their lists line up.
+/// the canonical buffer PDA for its `buy_mint` (see [`find_buffer_pda`]), the
+/// only buffer `BeginSettle` accepts as the source of that order's push. The
+/// orders are sorted by their canonical order PDA (the same key [`BeginSettle`]
+/// orders its settled-order list by) so the two instructions present the orders
+/// in the same order and their lists line up.
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub begin_ix_index: u16,
@@ -105,14 +99,15 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let mut bumps = Vec::with_capacity(num_orders);
         let mut amounts = Vec::with_capacity(num_orders);
         for &i in &orders {
-            let (buffer_pda, bump) = find_buffer_pda(&builder.program_id, &builder.orders[i].mint);
+            let (buffer_pda, bump) =
+                find_buffer_pda(&builder.program_id, &builder.orders[i].intent.buy_mint);
             source_buffers.push(buffer_pda);
             destinations.push(builder.orders[i].intent.buy_token_account);
             bumps.push(bump);
             amounts.push(builder.orders[i].amount);
         }
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        settlement_interface::instruction::settle::FinalizeSettle {
+        cow_settlement_interface::instruction::settle::FinalizeSettle {
             program_id: builder.program_id,
             state_pda,
             begin_ix_index: builder.begin_ix_index,
@@ -137,7 +132,7 @@ impl From<CreateOrder<'_>> for Instruction {
         let encoded = EncodedOrderIntent::from(builder.intent);
         let (order_pda, _bump) = find_order_pda(&builder.program_id, &encoded.hash());
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-        settlement_interface::instruction::create_order::CreateOrder {
+        cow_settlement_interface::instruction::create_order::CreateOrder {
             program_id: builder.program_id,
             owner: builder.owner,
             created_by: builder.created_by,
@@ -161,7 +156,7 @@ impl From<CreateBuffers<'_>> for Instruction {
             .iter()
             .map(|mint| (find_buffer_pda(&builder.program_id, mint).0, *mint))
             .collect();
-        settlement_interface::instruction::create_buffer::CreateBuffers {
+        cow_settlement_interface::instruction::create_buffer::CreateBuffers {
             program_id: builder.program_id,
             payer: builder.payer,
             buffers: &buffers,
@@ -173,15 +168,78 @@ impl From<CreateBuffers<'_>> for Instruction {
 pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,
+    pub manager: Pubkey,
+    pub reclaim_authority: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
     fn from(builder: Initialize) -> Self {
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        settlement_interface::instruction::initialize::Initialize {
+        cow_settlement_interface::instruction::initialize::Initialize {
             program_id: builder.program_id,
             payer: builder.payer,
             state_pda,
+            manager: builder.manager,
+            reclaim_authority: builder.reclaim_authority,
+        }
+        .into()
+    }
+}
+
+/// Builder for a `ReclaimBuffer` instruction closing the buffer for each of
+/// `mints` and sending their rent lamports to `reclaim_recipient`, which
+/// `reclaim_authority` picks freely and may set to itself.
+///
+/// A buffer that still holds a token balance is silently skipped rather than
+/// closed, so a successful instruction is no guarantee that any buffer went
+/// away. This is done to prevent accidental loss of funds.
+pub struct ReclaimBuffer<'a> {
+    pub program_id: Pubkey,
+    pub reclaim_authority: Pubkey,
+    pub reclaim_recipient: Pubkey,
+    pub mints: &'a [Pubkey],
+}
+
+impl From<ReclaimBuffer<'_>> for Instruction {
+    fn from(builder: ReclaimBuffer<'_>) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
+        let buffers: Vec<(Pubkey, Pubkey)> = builder
+            .mints
+            .iter()
+            .map(|mint| {
+                let (buffer_pda, _bump) = find_buffer_pda(&builder.program_id, mint);
+                (buffer_pda, *mint)
+            })
+            .collect();
+        cow_settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
+            program_id: builder.program_id,
+            state_pda,
+            reclaim_authority: builder.reclaim_authority,
+            reclaim_recipient: builder.reclaim_recipient,
+            buffers: &buffers,
+        }
+        .into()
+    }
+}
+
+/// Transfers `role` to `new_authority` in a single step. Signed by `signer`,
+/// which must be the manager or the current holder of `role`.
+pub struct TransferAuthority {
+    pub program_id: Pubkey,
+    pub signer: Pubkey,
+    pub role: Role,
+    pub new_authority: Pubkey,
+}
+
+impl From<TransferAuthority> for Instruction {
+    fn from(builder: TransferAuthority) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
+        cow_settlement_interface::instruction::transfer_authority::TransferAuthority {
+            program_id: builder.program_id,
+            signer: builder.signer,
+            state_pda,
+            role: builder.role,
+            new_authority: builder.new_authority,
         }
         .into()
     }
@@ -191,7 +249,7 @@ impl From<Initialize> for Instruction {
 mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
-    use settlement_interface::{
+    use cow_settlement_interface::{
         data::intent::fixtures::arb_order_intent,
         instruction::{
             fixtures::fake_account_from_array,
@@ -227,22 +285,22 @@ mod tests {
             });
 
             // Expected orders: each intent's canonical PDA paired with its sell
-            // token account and bump, sorted by PDA address (the builder's order).
-            let mut expected: Vec<(Pubkey, Pubkey, u8)> = intents
+            // token account, sorted by PDA address (the builder's order).
+            let mut expected: Vec<(Pubkey, Pubkey)> = intents
                 .iter()
                 .map(|intent| {
-                    let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
-                    (order_pda, intent.sell_token_account, bump)
+                    let (order_pda, _bump) = find_order_pda(&program_id, &intent.uid());
+                    (order_pda, intent.sell_token_account)
                 })
                 .collect();
-            expected.sort_by_key(|(order_pda, _, _)| *order_pda);
+            expected.sort_by_key(|(order_pda, _)| *order_pda);
 
-            let mut accounts: Vec<_> = ix
+            let accounts: Vec<_> = ix
                 .accounts
                 .iter()
                 .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
                 .collect();
-            let mut parsed = BeginSettleInput::parse(&ix.data, &mut accounts)
+            let parsed = BeginSettleInput::parse(&ix.data, &accounts)
                 .map_err(|e| TestCaseError::fail(format!("parse failed: {e:?}")))?;
 
             prop_assert_eq!(parsed.finalize_ix_index, finalize_ix_index);
@@ -251,38 +309,36 @@ mod tests {
                 &INSTRUCTIONS_SYSVAR_ID,
             );
 
-            let actual: Vec<(Pubkey, Pubkey, u8)> = parsed
+            let actual: Vec<(Pubkey, Pubkey)> = parsed
                 .orders
-                .iter_mut()
+                .iter()
                 .map(|order| {
                     (
                         *order.order_pda.address(),
                         *order.sell_token_account.address(),
-                        order.bump,
                     )
                 })
                 .collect();
             prop_assert_eq!(actual, expected);
         }
 
-        // `FinalizeSettle` derives each order's source buffer from its mint and
-        // destination from the intent, sorting by canonical order PDA like
+        // `FinalizeSettle` derives each order's source buffer from its buy mint
+        // and destination from the intent, sorting by canonical order PDA like
         // `BeginSettle` so the on-chain parser recovers exactly those pushes in
         // that order.
         #[test]
         fn finalize_settle_derives_buffers_from_mints(
             begin_ix_index in any::<u16>(),
             cases in prop::collection::vec(
-                (arb_order_intent(), any::<[u8; 32]>(), any::<u64>()),
+                (arb_order_intent(), any::<u64>()),
                 1..=5,
             ),
         ) {
             let program_id = Pubkey::new_unique();
             let orders: Vec<FinalizedIntent> = cases
                 .iter()
-                .map(|(intent, mint, amount)| FinalizedIntent {
+                .map(|(intent, amount)| FinalizedIntent {
                     intent,
-                    mint: Pubkey::new_from_array(*mint),
                     amount: *amount,
                 })
                 .collect();
@@ -306,7 +362,7 @@ mod tests {
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump) = find_buffer_pda(&program_id, &order.mint);
+                    let (buffer, bump) = find_buffer_pda(&program_id, &order.intent.buy_mint);
                     ExpectedPush {
                         order_pda,
                         buffer,
@@ -318,12 +374,12 @@ mod tests {
                 .collect();
             expected.sort_by_key(|push| push.order_pda);
 
-            let mut accounts: Vec<_> = ix
+            let accounts: Vec<_> = ix
                 .accounts
                 .iter()
                 .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
                 .collect();
-            let parsed = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .map_err(|e| TestCaseError::fail(format!("parse failed: {e:?}")))?;
 
             prop_assert_eq!(parsed.begin_ix_index, begin_ix_index);

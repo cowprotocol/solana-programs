@@ -4,7 +4,7 @@
 //! Entry point: [`resolve`].
 
 use anyhow::Context as _;
-use settlement_client::settlement_interface::Pubkey;
+use cow_settlement_client::cow_settlement_interface::Pubkey;
 use solana_instruction::Instruction;
 use solana_program_pack::Pack;
 use solana_pubkey::pubkey;
