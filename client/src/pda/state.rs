@@ -26,14 +26,14 @@ impl TryFrom<&[u8]> for DecodedStateAccount {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cow_settlement_interface::data::state::{Header, WIDTH_HEADER};
+    use cow_settlement_interface::data::state::{StateInitArgs, WIDTH_HEADER};
     use cow_settlement_interface::fixtures::pubkey_from_seed;
 
     fn state_bytes(manager: &Pubkey, reclaim_authority: &Pubkey) -> [u8; WIDTH_HEADER] {
         let mut bytes = [0u8; WIDTH_HEADER];
         StateAccount::initialize(
             &mut bytes[..],
-            &Header {
+            &StateInitArgs {
                 manager: *manager,
                 reclaim_authority: *reclaim_authority,
             },

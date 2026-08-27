@@ -82,9 +82,9 @@ fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
     }
 }
 
-/// The role holders that make up a state account's header.
+/// The parameters used to initialize the state account.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Header {
+pub struct StateInitArgs {
     /// The [`Role::Manager`] holder.
     pub manager: Pubkey,
     /// The [`Role::ReclaimAuthority`] holder.
@@ -181,7 +181,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
     ///
     /// The generated data is a full header long, which is needed for the read
     /// accessors not to panic.
-    pub fn initialize(mut bytes: T, header: &Header) -> Result<Self, ProgramError> {
+    pub fn initialize(mut bytes: T, args: &StateInitArgs) -> Result<Self, ProgramError> {
         {
             let slots = header_slots_mut(
                 bytes
@@ -189,8 +189,8 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
                     .ok_or(ProgramError::AccountDataTooSmall)?,
             );
             *slots.discriminator = [DISCRIMINATOR];
-            *slots.manager = header.manager.to_bytes();
-            *slots.reclaim_authority = header.reclaim_authority.to_bytes();
+            *slots.manager = args.manager.to_bytes();
+            *slots.reclaim_authority = args.reclaim_authority.to_bytes();
         }
         Ok(Self(bytes))
     }
@@ -248,12 +248,12 @@ pub mod fixtures {
     use proptest::prelude::*;
     use solana_pubkey::Pubkey;
 
-    use super::{Header, StateAccount, WIDTH_HEADER};
+    use super::{StateAccount, StateInitArgs, WIDTH_HEADER};
 
     /// The bytes of a state account: the `header` followed by `solvers`, stored
     /// sorted ascending by address as the on-chain list always is (so callers can
     /// pass them in any order).
-    pub fn state_account_bytes(header: &Header, solvers: &[Pubkey]) -> Vec<u8> {
+    pub fn state_account_bytes(header: &StateInitArgs, solvers: &[Pubkey]) -> Vec<u8> {
         let mut sorted = solvers.to_vec();
         sorted.sort();
         let mut bytes = vec![0u8; WIDTH_HEADER];
@@ -264,11 +264,13 @@ pub mod fixtures {
         bytes
     }
 
-    /// Any valid [`Header`].
-    pub fn arb_header() -> impl Strategy<Value = Header> {
-        (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(|(manager, reclaim_authority)| Header {
-            manager: Pubkey::new_from_array(manager),
-            reclaim_authority: Pubkey::new_from_array(reclaim_authority),
+    /// Any valid [`StateInitArgs`].
+    pub fn arb_init_params() -> impl Strategy<Value = StateInitArgs> {
+        (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(|(manager, reclaim_authority)| {
+            StateInitArgs {
+                manager: Pubkey::new_from_array(manager),
+                reclaim_authority: Pubkey::new_from_array(reclaim_authority),
+            }
         })
     }
 }
@@ -283,7 +285,7 @@ mod tests {
     /// Byte offset of the discriminator within the account.
     const DISCRIMINATOR_OFFSET: usize = 0;
 
-    static SAMPLE_HEADER: LazyLock<Header> = LazyLock::new(|| Header {
+    static SAMPLE_HEADER: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
         manager: pubkey_from_seed("SAMPLE_HEADER's sample manager"),
         reclaim_authority: pubkey_from_seed("SAMPLE_HEADER's sample reclaim authority"),
     });
@@ -323,24 +325,6 @@ mod tests {
             state.authority(Role::ReclaimAuthority),
             SAMPLE_HEADER.reclaim_authority
         );
-    }
-
-    #[test]
-    fn initialize_round_trips_a_header() {
-        let header = Header {
-            manager: pubkey_from_seed("manager"),
-            reclaim_authority: pubkey_from_seed("reclaim authority"),
-        };
-
-        let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
-
-        let state = StateAccount::attach(&bytes[..]).expect("valid header");
-        let read_back = Header {
-            manager: state.authority(Role::Manager),
-            reclaim_authority: state.authority(Role::ReclaimAuthority),
-        };
-        assert_eq!(read_back, header);
     }
 
     #[test]
@@ -486,19 +470,19 @@ mod tests {
             /// The encode roundtrip: any two role holders written with
             /// `initialize` read back unchanged.
             #[test]
-            fn account_encode_roundtrip(header in fixtures::arb_header()) {
+            fn account_encode_roundtrip(header in fixtures::arb_init_params()) {
                 let mut bytes = [0u8; WIDTH_HEADER];
                 StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
 
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
-                let Header { manager, reclaim_authority } = header;
+                let StateInitArgs { manager, reclaim_authority } = header;
                 prop_assert_eq!(state.authority(Role::Manager), manager);
                 prop_assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
             }
 
             #[test]
             fn insert_solver_at_shifts_the_tail_and_writes_the_solver(
-                header in fixtures::arb_header(),
+                header in fixtures::arb_init_params(),
                 // Unique and already sorted, being a `BTreeSet`.
                 raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 0..50),
                 raw_new in any::<[u8; 32]>(),

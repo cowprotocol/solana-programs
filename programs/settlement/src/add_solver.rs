@@ -112,7 +112,9 @@ mod tests {
         use ::proptest::prelude::*;
 
         use super::*;
-        use cow_settlement_interface::data::state::fixtures::{arb_header, state_account_bytes};
+        use cow_settlement_interface::data::state::fixtures::{
+            arb_init_params, state_account_bytes,
+        };
         use cow_settlement_interface::fixtures::pubkey_from_seed;
         use cow_settlement_interface::instruction::add_solver::AddSolver;
         use cow_settlement_interface::instruction::fixtures::{
@@ -124,7 +126,7 @@ mod tests {
         proptest! {
             #[test]
             fn process_add_solver_rejects_an_existing_solver(
-                header in arb_header(),
+                header in arb_init_params(),
                 // BTreeSet: `.iter()` returns the elements already sorted, and,
                 // since it's a set, they are also unique. At least one so there's
                 // an existing solver to re-add.

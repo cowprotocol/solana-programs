@@ -1,7 +1,7 @@
 //! `Initialize` instruction handler.
 
 use cow_settlement_interface::{
-    data::state::{Header, StateAccount, WIDTH_HEADER},
+    data::state::{StateAccount, StateInitArgs, WIDTH_HEADER},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
     pda::state::state_pda_seeds,
 };
@@ -40,7 +40,7 @@ pub fn process_initialize(
     let mut state_pda = *state_pda;
     StateAccount::initialize(
         state_pda.try_borrow_mut()?,
-        &Header {
+        &StateInitArgs {
             manager,
             reclaim_authority,
         },
