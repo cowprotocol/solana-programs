@@ -81,9 +81,9 @@ fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
     }
 }
 
-/// The role holders that make up a state account's header.
+/// The parameters used to initialize the state account.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Header {
+pub struct StateInitArgs {
     /// The [`Role::Manager`] holder.
     pub manager: Pubkey,
     /// The [`Role::ReclaimAuthority`] holder.
@@ -141,7 +141,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
     ///
     /// The generated data is a full header long, which is needed for the read
     /// accessors not to panic.
-    pub fn initialize(mut bytes: T, header: &Header) -> Result<Self, ProgramError> {
+    pub fn initialize(mut bytes: T, args: &StateInitArgs) -> Result<Self, ProgramError> {
         {
             let slots = header_slots_mut(
                 bytes
@@ -149,8 +149,8 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
                     .ok_or(ProgramError::AccountDataTooSmall)?,
             );
             *slots.discriminator = [DISCRIMINATOR];
-            *slots.manager = header.manager.to_bytes();
-            *slots.reclaim_authority = header.reclaim_authority.to_bytes();
+            *slots.manager = args.manager.to_bytes();
+            *slots.reclaim_authority = args.reclaim_authority.to_bytes();
         }
         Ok(Self(bytes))
     }
@@ -183,7 +183,7 @@ mod tests {
     /// Byte offset of the discriminator within the account.
     const DISCRIMINATOR_OFFSET: usize = 0;
 
-    static SAMPLE_HEADER: LazyLock<Header> = LazyLock::new(|| Header {
+    static SAMPLE_HEADER: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
         manager: pubkey_from_seed("SAMPLE_HEADER's sample manager"),
         reclaim_authority: pubkey_from_seed("SAMPLE_HEADER's sample reclaim authority"),
     });
@@ -217,24 +217,6 @@ mod tests {
             state.authority(Role::ReclaimAuthority),
             SAMPLE_HEADER.reclaim_authority
         );
-    }
-
-    #[test]
-    fn initialize_round_trips_a_header() {
-        let header = Header {
-            manager: pubkey_from_seed("manager"),
-            reclaim_authority: pubkey_from_seed("reclaim authority"),
-        };
-
-        let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
-
-        let state = StateAccount::attach(&bytes[..]).expect("valid header");
-        let read_back = Header {
-            manager: state.authority(Role::Manager),
-            reclaim_authority: state.authority(Role::ReclaimAuthority),
-        };
-        assert_eq!(read_back, header);
     }
 
     #[test]
@@ -323,21 +305,21 @@ mod tests {
             /// The encode roundtrip: any two role holders written with
             /// `initialize` read back unchanged.
             #[test]
-            fn account_encode_roundtrip(
+            fn initializes_accounts_as_expected(
                 manager in any::<[u8; 32]>(),
                 reclaim_authority in any::<[u8; 32]>(),
             ) {
-                let header = Header {
+                let init_args = StateInitArgs {
                     manager: Pubkey::new_from_array(manager),
                     reclaim_authority: Pubkey::new_from_array(reclaim_authority),
                 };
 
                 let mut bytes = [0u8; WIDTH_HEADER];
-                StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
+                StateAccount::initialize(&mut bytes[..], &init_args).expect("header fits");
 
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
-                prop_assert_eq!(state.authority(Role::Manager), header.manager);
-                prop_assert_eq!(state.authority(Role::ReclaimAuthority), header.reclaim_authority);
+                prop_assert_eq!(state.authority(Role::Manager), init_args.manager);
+                prop_assert_eq!(state.authority(Role::ReclaimAuthority), init_args.reclaim_authority);
             }
         }
     }

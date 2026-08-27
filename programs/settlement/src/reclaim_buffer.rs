@@ -73,7 +73,7 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::state::{Header, StateAccount, WIDTH_HEADER};
+    use cow_settlement_interface::data::state::{StateAccount, StateInitArgs, WIDTH_HEADER};
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
@@ -103,15 +103,15 @@ mod tests {
     const BUFFER_PDA: usize = 4;
 
     /// State account bytes for planting a well-formed state PDA in tests.
-    fn state_account_bytes(header: &Header) -> [u8; WIDTH_HEADER] {
+    fn state_account_bytes(init_args: &StateInitArgs) -> [u8; WIDTH_HEADER] {
         let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(&mut bytes[..], header).expect("header fits");
+        StateAccount::initialize(&mut bytes[..], init_args).expect("header fits");
         bytes
     }
 
     /// The [`Header`] planted by [`base_accounts`].
-    fn base_header() -> Header {
-        Header {
+    fn base_init_args() -> StateInitArgs {
+        StateInitArgs {
             manager: MANAGER,
             reclaim_authority: AUTHORITY,
         }
@@ -137,7 +137,7 @@ mod tests {
         let state_pda = Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0;
 
         [
-            fake_account_with_data(state_pda, &state_account_bytes(&base_header())), // state PDA
+            fake_account_with_data(state_pda, &state_account_bytes(&base_init_args())), // state PDA
             fake_signer(AUTHORITY),             // reclaim authority
             fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
@@ -188,7 +188,7 @@ mod tests {
     fn process_reclaim_buffer_rejects_wrong_state_pda() {
         let mut accounts = base_accounts();
         accounts[STATE_PDA] =
-            fake_account_with_data(UNRELATED, &state_account_bytes(&base_header()));
+            fake_account_with_data(UNRELATED, &state_account_bytes(&base_init_args()));
         assert_rejects(accounts, SettlementError::StateAccountMismatch.into());
     }
 
