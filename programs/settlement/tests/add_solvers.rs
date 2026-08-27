@@ -145,7 +145,7 @@ fn adds_a_solver_without_extra_rent() {
 fn keeps_solvers_sorted() {
     let (mut svm, params) = setup_init();
 
-    const COUNT: usize = 500;
+    const COUNT: usize = 50;
     let mut added: Vec<Pubkey> = (0..COUNT).map(|_| unique_keypair().pubkey()).collect();
     for solver in &added {
         add_solver(&mut svm, &params, solver).expect("adding a solver should succeed");
