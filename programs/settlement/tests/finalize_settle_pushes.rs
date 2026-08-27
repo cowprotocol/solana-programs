@@ -15,7 +15,7 @@ use crate::common::{
     order::{create_order_pda, settlable_intent, OrderBuilder},
     replace_first_matching_account, send,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
-    setup, to_instruction_error, token, unique_pubkey,
+    setup_settle_ready, to_instruction_error, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::OrderIntent, instruction::settle::SPL_TOKEN_PROGRAM_ID,
@@ -41,27 +41,27 @@ fn assert_finalize_error<T>(result: Result<T, TransactionError>, expected: Instr
 
 /// Build the minimal `[BeginSettle, FinalizeSettle]` instructions that settle
 /// `orders` (begin) and push their proceeds (finalize).
-fn finalize(program_id: &Pubkey, orders: &[FinalizedIntent]) -> Vec<Instruction> {
+fn finalize(program_id: &Pubkey, solver: &Pubkey, orders: &[FinalizedIntent]) -> Vec<Instruction> {
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         orders,
     };
-    build_settlement(program_id, orders, finalize)
+    build_settlement(program_id, solver, orders, finalize)
 }
 
 #[test]
 fn finalizes_with_no_pushes() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, _payer, solver) = setup_settle_ready();
 
-    let instructions = finalize(&program_id, &[]);
-    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+    let instructions = finalize(&program_id, &solver.pubkey(), &[]);
+    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
         .expect("a finalize with no pushes should succeed");
 }
 
 #[test]
 fn pushes_a_single_order() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&mint)
@@ -72,12 +72,13 @@ fn pushes_a_single_order() {
     let amount = 400;
     let instructions = finalize(
         &program_id,
+        &solver.pubkey(),
         &[FinalizedIntent {
             intent: &intent,
             amount,
         }],
     );
-    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
         .expect("a single push should be paid");
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), amount);
@@ -86,7 +87,7 @@ fn pushes_a_single_order() {
 
 #[test]
 fn pushes_several_orders_from_one_buffer() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let mint = token::create_mint(&mut svm, &payer);
     // Distinct orders (each `OrderBuilder` makes fresh sell and buy token
     // accounts) sharing one buy mint, so both pushes draw from one buffer.
@@ -105,6 +106,7 @@ fn pushes_several_orders_from_one_buffer() {
     let amount1 = 2_000;
     let instructions = finalize(
         &program_id,
+        &solver.pubkey(),
         &[
             FinalizedIntent {
                 intent: &intent0,
@@ -116,7 +118,7 @@ fn pushes_several_orders_from_one_buffer() {
             },
         ],
     );
-    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
         .expect("several pushes from one buffer should be paid");
 
     assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
@@ -129,7 +131,7 @@ fn pushes_several_orders_from_one_buffer() {
 
 #[test]
 fn pushes_several_orders_from_different_buffers() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let mint0 = token::create_mint(&mut svm, &payer);
     let mint1 = token::create_mint(&mut svm, &payer);
     let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer)
@@ -146,6 +148,7 @@ fn pushes_several_orders_from_different_buffers() {
     let amount1 = 2_000;
     let instructions = finalize(
         &program_id,
+        &solver.pubkey(),
         &[
             FinalizedIntent {
                 intent: &intent0,
@@ -157,7 +160,7 @@ fn pushes_several_orders_from_different_buffers() {
             },
         ],
     );
-    send_metered(&mut svm, &payer, instructions, BenchLabel::Settle)
+    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
         .expect("pushes from different buffers should be paid");
 
     assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
@@ -168,7 +171,7 @@ fn pushes_several_orders_from_different_buffers() {
 
 #[test]
 fn rejects_buy_token_account_recreated_for_another_mint() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let buy_mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&buy_mint)
@@ -180,27 +183,28 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
 
     let instructions = finalize(
         &program_id,
+        &solver.pubkey(),
         &[FinalizedIntent {
             intent: &intent,
             amount: 100,
         }],
     );
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &solver, instructions),
         InstructionError::Custom(TokenError::MintMismatch as u32),
     );
 }
 
 #[test]
 fn rejects_wrong_token_program() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
     }];
 
-    let mut instructions = finalize(&program_id, &orders);
+    let mut instructions = finalize(&program_id, &solver.pubkey(), &orders);
     replace_first_matching_account(
         &mut instructions[usize::from(FINALIZE_INDEX)],
         &SPL_TOKEN_PROGRAM_ID,
@@ -208,21 +212,21 @@ fn rejects_wrong_token_program() {
     );
 
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &solver, instructions),
         InstructionError::IncorrectProgramId,
     );
 }
 
 #[test]
 fn rejects_wrong_state_pda() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
     }];
 
-    let mut instructions = finalize(&program_id, &orders);
+    let mut instructions = finalize(&program_id, &solver.pubkey(), &orders);
     let (state_pda, _bump) = find_state_pda(&program_id);
     replace_first_matching_account(
         &mut instructions[usize::from(FINALIZE_INDEX)],
@@ -231,14 +235,14 @@ fn rejects_wrong_state_pda() {
     );
 
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &solver, instructions),
         to_instruction_error(SettlementError::StateAccountMismatch),
     );
 }
 
 #[test]
 fn rejects_push_account_count_mismatch() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
@@ -259,16 +263,16 @@ fn rejects_push_account_count_mismatch() {
     // account/data disagreement `BeginSettle` structurally can't see.
     finalize.data.extend_from_slice(&[0u8; 9]);
 
-    let instructions = build_settlement(&program_id, &orders, finalize);
+    let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &solver, instructions),
         to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
     );
 }
 
 #[test]
 fn rejects_too_few_accounts() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, _payer, solver) = setup_settle_ready();
 
     // A well-formed no-push finalize...
     let mut finalize = Instruction::from(FinalizeSettle {
@@ -282,8 +286,8 @@ fn rejects_too_few_accounts() {
     // its fixed accounts and raises `NotEnoughAccountKeys`.
     finalize.accounts.pop();
 
-    let instructions = build_settlement(&program_id, &[], finalize);
-    let err = send(&mut svm, &payer, instructions)
+    let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
+    let err = send(&mut svm, &solver, instructions)
         .expect_err("a finalize missing a fixed account must be rejected");
     let TransactionError::InstructionError(FINALIZE_INDEX, ix_err) = err else {
         panic!("expected the finalize (index {FINALIZE_INDEX}) to fail, got {err:?}");
@@ -299,7 +303,7 @@ fn rejects_too_few_accounts() {
 
 #[test]
 fn rejects_invalid_buy_token_account() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = OrderIntent {
         buy_token_account: unique_pubkey(),
@@ -312,16 +316,16 @@ fn rejects_invalid_buy_token_account() {
         amount: 0,
     }];
 
-    let instructions = finalize(&program_id, &orders);
+    let instructions = finalize(&program_id, &solver.pubkey(), &orders);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &solver, instructions),
         InstructionError::InvalidAccountData,
     );
 }
 
 #[test]
 fn rejects_buy_token_account_owned_by_wrong_program() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
 
     let token_shaped = svm
@@ -344,9 +348,9 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
         amount: 0,
     }];
 
-    let instructions = finalize(&program_id, &orders);
+    let instructions = finalize(&program_id, &solver.pubkey(), &orders);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &solver, instructions),
         InstructionError::IncorrectProgramId,
     );
 }
@@ -357,7 +361,7 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
 // pairing rather than accounting for missing accounts.
 #[test]
 fn rejects_two_too_few_accounts() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,
@@ -378,16 +382,16 @@ fn rejects_two_too_few_accounts() {
     // The paired `Begin` settles no orders, so it never checks the push
     // destinations: the inconsistency is left for the finalize's own
     // account-count check to reject.
-    let instructions = build_settlement(&program_id, &[], finalize);
+    let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
     assert_finalize_error(
-        send(&mut svm, &payer, instructions),
+        send(&mut svm, &solver, instructions),
         to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
     );
 }
 
 #[test]
 fn rejects_partial_push_amount() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, _solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
         intent: &intent,

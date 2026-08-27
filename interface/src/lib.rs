@@ -227,6 +227,9 @@ pub enum SettlementError {
     UnauthorizedSolverManagement = 35,
     /// `AddSolver`'s solver is already in the state PDA's solver list.
     SolverAlreadyExists = 36,
+    /// `BeginSettle`/`FinalizeSettle`'s solver account isn't a signer or isn't
+    /// in the state PDA's solver list, so it may not settle.
+    UnauthorizedSolver = 37,
 }
 
 impl From<SettlementError> for u32 {

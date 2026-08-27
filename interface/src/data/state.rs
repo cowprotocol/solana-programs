@@ -146,6 +146,11 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
         self.solver_region().binary_search(&seek)
     }
 
+    /// Whether `solver` is in the solver list.
+    pub fn is_solver(&self, solver: &Pubkey) -> bool {
+        self.solver_search(solver).is_ok()
+    }
+
     /// The stored solvers, in order (sorted ascending by address).
     pub fn solvers(&self) -> impl Iterator<Item = Pubkey> + '_ {
         self.solver_region()
@@ -483,6 +488,29 @@ mod tests {
         use super::*;
 
         proptest! {
+            /// `is_solver` is true for every stored solver and false for one that
+            /// isn't stored.
+            #[test]
+            fn is_solver_reflects_membership(
+                header in fixtures::arb_header(),
+                // Unique and already sorted, being a `BTreeSet`.
+                raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 0..50),
+                raw_absent in any::<[u8; 32]>(),
+            ) {
+                prop_assume!(!raw_solvers.contains(&raw_absent));
+                let stored: Vec<Pubkey> =
+                    raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
+                let absent = Pubkey::new_from_array(raw_absent);
+
+                let bytes = fixtures::state_account_bytes(&header, &stored);
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
+
+                for solver in &stored {
+                    prop_assert!(state.is_solver(solver));
+                }
+                prop_assert!(!state.is_solver(&absent));
+            }
+
             /// The encode roundtrip: any two role holders written with
             /// `initialize` read back unchanged.
             #[test]

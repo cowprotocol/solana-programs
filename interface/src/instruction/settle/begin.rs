@@ -33,9 +33,11 @@ pub struct Pull {
 /// Wire format (grouped, with `n` orders and `T` total transfers):
 /// `[discriminator=0][finalize_ix_index: u16 LE][auction_id: i64 LE][n: u8]
 /// [transfer_count×n][amount: u64 LE ×T]`.
-/// Required accounts: `[instructions_sysvar (R), state_pda (R), token_program
-/// (R)]` followed, per order, by `[order_pda (W), sell_token_account (W),
-/// destination (W)...]`.
+/// Required accounts: `[solver (S,R), instructions_sysvar (R), state_pda (R),
+/// token_program (R)]` followed, per order, by `[order_pda (W),
+/// sell_token_account (W), destination (W)...]`.
+///
+/// `solver` must sign: only approved solvers may settle.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
 /// This builder establishes that ordering for the caller: it sorts the orders by
@@ -44,6 +46,7 @@ pub struct Pull {
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
+    pub solver: Pubkey,
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes. Carried in the
     /// instruction data so the settlement can be tied back to its auction
@@ -59,6 +62,7 @@ impl From<BeginSettle<'_>> for Instruction {
         let BeginSettle {
             program_id,
             state_pda,
+            solver,
             finalize_ix_index,
             auction_id,
             order_pdas,
@@ -88,9 +92,10 @@ impl From<BeginSettle<'_>> for Instruction {
         ]
         .concat();
 
-        // Read-only accounts for instruction introspection, settlement state, and
-        // the SPL token program.
+        // The signing solver, followed by read-only accounts for instruction
+        // introspection, settlement state, and the SPL token program.
         let mut accounts = vec![
+            AccountMeta::new_readonly(solver, true),
             AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
             AccountMeta::new_readonly(state_pda, false),
             AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
@@ -194,6 +199,7 @@ pub struct BeginSettleInput<'a, A> {
     /// data. Not validated on-chain: it's carried only so the settlement can be
     /// tied back to its auction off-chain.
     pub auction_id: i64,
+    pub solver_account: &'a A,
     pub instructions_sysvar_account: &'a A,
     pub state_pda_account: &'a A,
     pub token_program_account: &'a A,
@@ -209,7 +215,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (finalize_ix_index, body) = recover_counterpart(instruction_data)?;
 
-        let [instructions_sysvar_account, state_pda_account, token_program_account, order_accounts @ ..] =
+        let [solver_account, instructions_sysvar_account, state_pda_account, token_program_account, order_accounts @ ..] =
             accounts
         else {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -264,6 +270,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
             instructions_sysvar_account,
             state_pda_account,
             token_program_account,
+            solver_account,
             orders: SettledOrders {
                 order_accounts,
                 counts,
@@ -276,18 +283,20 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::pubkey_from_seed;
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
-    use crate::instruction::tests::assert_readonly_nonsigner;
+    use crate::instruction::tests::{assert_readonly_nonsigner, assert_readonly_signer};
     use hex_literal::hex;
     use solana_account_view::AccountView;
     use solana_address::Address;
 
     /// The fixed accounts every `BeginSettle` carries before its order accounts:
-    /// the instructions sysvar, the settlement state PDA, and the token program.
-    const FIXED_ACCOUNTS: usize = 3;
+    /// the signing solver, the instructions sysvar, the settlement state PDA, and
+    /// the token program.
+    const FIXED_ACCOUNTS: usize = 4;
 
     /// A placeholder auction id for the tests where its specific value is
     /// incidental. The wire-layout tests spell out the literal bytes instead.
@@ -295,8 +304,9 @@ mod tests {
 
     #[test]
     fn expected_encoding_begin_settle_no_orders() {
-        let program_id = Pubkey::new_unique();
-        let state_pda = Pubkey::new_unique();
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let solver = pubkey_from_seed("solver");
         let Instruction {
             program_id: ix_program_id,
             accounts,
@@ -304,6 +314,7 @@ mod tests {
         } = BeginSettle {
             program_id,
             state_pda,
+            solver,
             finalize_ix_index: 0x1337,
             auction_id: 0x0102_0304_0506_0708,
             order_pdas: &[],
@@ -321,20 +332,21 @@ mod tests {
                 [0],                      // order count
             ],
         );
-        // No orders: the three fixed accounts (sysvar, state PDA, token
-        // program). They are all generic accounts that don't play an active
-        // role in the base instruction (the state PDA CPI signature isn't
-        // relevant here).
-        assert_eq!(accounts.len(), 3);
-        assert_readonly_nonsigner(&accounts[0], INSTRUCTIONS_SYSVAR_ID);
-        assert_readonly_nonsigner(&accounts[1], state_pda);
-        assert_readonly_nonsigner(&accounts[2], SPL_TOKEN_PROGRAM_ID);
+        // No orders: the four fixed accounts (solver, sysvar, state PDA, token
+        // program). Only the solver signs; the rest don't play an active role in
+        // the base instruction (the state PDA CPI signature isn't relevant here).
+        assert_eq!(accounts.len(), 4);
+        assert_readonly_signer(&accounts[0], solver);
+        assert_readonly_nonsigner(&accounts[1], INSTRUCTIONS_SYSVAR_ID);
+        assert_readonly_nonsigner(&accounts[2], state_pda);
+        assert_readonly_nonsigner(&accounts[3], SPL_TOKEN_PROGRAM_ID);
     }
 
     #[test]
     fn begin_settle_sorts_orders_by_pda() {
-        let program_id = Pubkey::new_unique();
-        let state_pda = Pubkey::new_unique();
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let solver = pubkey_from_seed("solver");
         // Two orders supplied in descending PDA order. All the other parameters
         // are chosen to sort in the opposite order.
         let high_order_pda = Pubkey::new_from_array([0xbb; 32]);
@@ -344,6 +356,7 @@ mod tests {
         let Instruction { data, accounts, .. } = BeginSettle {
             program_id,
             state_pda,
+            solver,
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
             order_pdas: &[high_order_pda, low_order_pda],
@@ -364,6 +377,7 @@ mod tests {
         );
 
         let expected: Vec<Pubkey> = vec![
+            solver,
             INSTRUCTIONS_SYSVAR_ID,
             state_pda,
             SPL_TOKEN_PROGRAM_ID,
@@ -389,13 +403,19 @@ mod tests {
                 high_sell_token_account,
             ],
         );
-        assert!(accounts.iter().all(|account| !account.is_signer));
+        let signers: Vec<Pubkey> = accounts
+            .iter()
+            .filter(|account| account.is_signer)
+            .map(|account| account.pubkey)
+            .collect();
+        assert_eq!(signers, vec![solver]);
     }
 
     #[test]
     fn begin_settle_encodes_grouped_transfers() {
-        let program_id = Pubkey::new_unique();
-        let state_pda = Pubkey::new_unique();
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+        let solver = pubkey_from_seed("solver");
         let order_a = Pubkey::new_from_array([0x01; 32]);
         let sell_a = Pubkey::new_from_array([0x02; 32]);
         let order_b = Pubkey::new_from_array([0x03; 32]);
@@ -408,6 +428,7 @@ mod tests {
         let Instruction { data, accounts, .. } = BeginSettle {
             program_id,
             state_pda,
+            solver,
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
             order_pdas: &[order_a, order_b],
@@ -447,6 +468,7 @@ mod tests {
         );
 
         let expected: Vec<Pubkey> = vec![
+            solver,
             INSTRUCTIONS_SYSVAR_ID,
             state_pda,
             SPL_TOKEN_PROGRAM_ID,
@@ -470,16 +492,22 @@ mod tests {
             writable,
             vec![order_a, sell_a, dest_a0, dest_a1, order_b, sell_b, dest_b0],
         );
-        assert!(accounts.iter().all(|account| !account.is_signer));
+        let signers: Vec<Pubkey> = accounts
+            .iter()
+            .filter(|account| account.is_signer)
+            .map(|account| account.pubkey)
+            .collect();
+        assert_eq!(signers, vec![solver]);
     }
 
     #[test]
     fn begin_settle_input_parses_valid_input() {
-        let sysvar = Address::new_from_array([0x42u8; 32]);
-        // The state-PDA and token-program slots are reserved but not surfaced.
-        let state = Address::new_from_array([0x43u8; 32]);
-        let token_program = Address::new_from_array([0x44u8; 32]);
+        let sysvar = pubkey_from_seed("sysvar");
+        let state = pubkey_from_seed("state pda");
+        let token_program = pubkey_from_seed("token program");
+        let solver = pubkey_from_seed("solver");
         let accounts = [
+            fake_account(solver),
             fake_account(sysvar),
             fake_account(state),
             fake_account(token_program),
@@ -493,6 +521,7 @@ mod tests {
         let BeginSettleInput {
             finalize_ix_index,
             auction_id,
+            solver_account,
             instructions_sysvar_account,
             orders,
             token_program_account,
@@ -504,6 +533,7 @@ mod tests {
         assert_eq!(orders.iter().count(), 0);
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
+        assert_eq!(solver_account.address(), &solver);
     }
 
     #[test]
@@ -550,12 +580,14 @@ mod tests {
 
     #[test]
     fn begin_settle_input_pairs_orders_with_their_accounts() {
-        let sysvar = Address::new_from_array([1u8; 32]);
-        let state = Address::new_from_array([0xa1u8; 32]);
-        let token_program = Address::new_from_array([0xa2u8; 32]);
-        let order_pda = Address::new_from_array([2u8; 32]);
-        let sell_token = Address::new_from_array([3u8; 32]);
+        let sysvar = pubkey_from_seed("sysvar");
+        let state = pubkey_from_seed("state pda");
+        let token_program = pubkey_from_seed("token program");
+        let solver = pubkey_from_seed("solver");
+        let order_pda = pubkey_from_seed("order pda");
+        let sell_token = pubkey_from_seed("sell token");
         let accounts = [
+            fake_account(solver),
             fake_account(sysvar),
             fake_account(state),
             fake_account(token_program),
@@ -572,6 +604,7 @@ mod tests {
         let BeginSettleInput {
             finalize_ix_index,
             auction_id,
+            solver_account,
             instructions_sysvar_account,
             orders,
             state_pda_account,
@@ -582,6 +615,7 @@ mod tests {
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(token_program_account.address(), &token_program);
         assert_eq!(state_pda_account.address(), &state);
+        assert_eq!(solver_account.address(), &solver);
 
         let mut orders = orders.iter();
         let order = orders.next().expect("one settled order");
@@ -593,14 +627,16 @@ mod tests {
 
     #[test]
     fn begin_settle_input_parses_transfers() {
-        let sysvar = Address::new_from_array([1u8; 32]);
-        let state = Address::new_from_array([0xa1u8; 32]);
-        let token_program = Address::new_from_array([0xa2u8; 32]);
-        let order_pda = Address::new_from_array([2u8; 32]);
-        let sell_token = Address::new_from_array([3u8; 32]);
-        let dest0 = Address::new_from_array([4u8; 32]);
-        let dest1 = Address::new_from_array([5u8; 32]);
+        let sysvar = pubkey_from_seed("sysvar");
+        let state = pubkey_from_seed("state pda");
+        let token_program = pubkey_from_seed("token program");
+        let solver = pubkey_from_seed("solver");
+        let order_pda = pubkey_from_seed("order pda");
+        let sell_token = pubkey_from_seed("sell token");
+        let dest0 = pubkey_from_seed("destination 0");
+        let dest1 = pubkey_from_seed("destination 1");
         let accounts = [
+            fake_account(solver),
             fake_account(sysvar),
             fake_account(state),
             fake_account(token_program),
@@ -642,17 +678,18 @@ mod tests {
 
         let mut expected: Vec<(Address, Address)> = Vec::new();
         for i in 0..ORDER_COUNT {
-            let order_pda = Address::new_from_array([i as u8; 32]);
-            let sell_token = Address::new_from_array([(i + ORDER_COUNT) as u8; 32]);
+            let order_pda = pubkey_from_seed(&format!("order pda {i}"));
+            let sell_token = pubkey_from_seed(&format!("sell token {i}"));
             expected.push((order_pda, sell_token));
         }
 
-        // The three fixed accounts (`[0xff..]`, `[0xfe..]`, `[0xfd..]`) differ
-        // from every order/token address above.
+        // The four fixed accounts (`[0xff..]`, `[0xfe..]`, `[0xfd..]`, `[0xfc..]`)
+        // differ from every order/token address above.
         let mut accounts = vec![
             fake_account_from_array([0xff; 32]),
             fake_account_from_array([0xfe; 32]),
             fake_account_from_array([0xfd; 32]),
+            fake_account_from_array([0xfc; 32]),
         ];
         for &(order_pda, sell_token) in &expected {
             accounts.push(fake_account(order_pda));
