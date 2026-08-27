@@ -28,7 +28,7 @@ use solana_account_view::{AccountView, Ref};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::{Role, SettlementAccount};
+use crate::{Role, SettlementAccount, SettlementError};
 
 /// Single-byte account discriminator at the front of the header.
 pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator();
@@ -210,6 +210,37 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
             Role::ReclaimAuthority => slots.reclaim_authority,
         };
         *holder = new.to_bytes();
+    }
+
+    /// Insert `solver` into the sorted solver list, keeping it sorted, or fail
+    /// with [`SettlementError::SolverAlreadyExists`] if it is already stored.
+    ///
+    /// This is the mutating counterpart to
+    /// [`solver_search`](Self::solver_search): it finds the slot itself rather
+    /// than taking an index, so a caller can't pair a stale index with the wrong
+    /// list. It bundles the search, the duplicate rejection, and the shift into
+    /// one call, so the handler only decides *whether* to add a solver, not how
+    /// the list is laid out.
+    ///
+    /// It assumes the account was already grown by one solver slot
+    /// ([`grown_len`](Self::grown_len)): the trailing slot is spare capacity for
+    /// the new entry, so the live list checked for a duplicate is every entry
+    /// but that last one. On the duplicate path nothing is written; the caller
+    /// aborts the instruction and the runtime rolls the growth back.
+    pub fn insert_solver(&mut self, solver: &Pubkey) -> Result<(), ProgramError> {
+        // The buffer already holds room for one more solver; the live list is
+        // everything up to that trailing spare slot.
+        let occupied = self
+            .solver_region()
+            .len()
+            .checked_sub(1)
+            .expect("account grown by one solver slot before insertion");
+        let index = match self.solver_region()[..occupied].binary_search(&solver.to_bytes()) {
+            Ok(_) => return Err(SettlementError::SolverAlreadyExists.into()),
+            Err(index) => index,
+        };
+        self.insert_solver_at(index, solver);
+        Ok(())
     }
 
     /// Insert `solver` into the sorted solver list at `index`.
@@ -517,6 +548,68 @@ mod tests {
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
                 prop_assert_eq!(state.solvers().collect::<Vec<_>>(), expected);
                 prop_assert_eq!(state.solver_search(&new), Ok(index));
+            }
+
+            /// `insert_solver` finds the slot itself and, on an absent solver,
+            /// inserts it sorted — the same outcome as [`insert_solver_at`] with
+            /// the searched index, but without the caller computing it.
+            #[test]
+            fn insert_solver_inserts_an_absent_solver(
+                header in fixtures::arb_init_params(),
+                raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 0..50),
+                raw_new in any::<[u8; 32]>(),
+            ) {
+                prop_assume!(!raw_solvers.contains(&raw_new));
+                let stored: Vec<Pubkey> =
+                    raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
+                let new = Pubkey::new_from_array(raw_new);
+
+                // Grow by one slot, exactly as the handler resizes the account
+                // before delegating the insert.
+                let mut bytes = fixtures::state_account_bytes(&header, &stored);
+                bytes.resize(bytes.len().strict_add(WIDTH_PUBKEY), 0);
+                StateAccount::attach(&mut bytes[..])
+                    .expect("valid header")
+                    .insert_solver(&new)
+                    .expect("absent solver inserts");
+
+                let mut expected = stored;
+                expected.push(new);
+                expected.sort();
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
+                prop_assert_eq!(state.solvers().collect::<Vec<_>>(), expected);
+            }
+
+            /// `insert_solver` rejects a solver that is already stored and leaves
+            /// the live list untouched. This is the property the handler used to
+            /// prove against the pure processor, moved here with the search-and-
+            /// reject logic.
+            #[test]
+            fn insert_solver_rejects_an_existing_solver(
+                header in fixtures::arb_init_params(),
+                // Unique and already sorted, being a `BTreeSet`; at least one so
+                // there's an existing solver to re-add.
+                raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 1..50),
+                pick in any::<prop::sample::Index>(),
+            ) {
+                let stored: Vec<Pubkey> =
+                    raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
+                let existing = stored[pick.index(stored.len())];
+
+                // Grow by one slot as the handler does, then try to re-add.
+                let mut bytes = fixtures::state_account_bytes(&header, &stored);
+                bytes.resize(bytes.len().strict_add(WIDTH_PUBKEY), 0);
+                prop_assert_eq!(
+                    StateAccount::attach(&mut bytes[..])
+                        .expect("valid header")
+                        .insert_solver(&existing),
+                    Err(SettlementError::SolverAlreadyExists.into()),
+                );
+
+                // Nothing was written: the stored solvers still read back in
+                // order (the trailing spare slot is left as the zero pubkey).
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
+                prop_assert_eq!(state.solvers().take(stored.len()).collect::<Vec<_>>(), stored);
             }
         }
     }
