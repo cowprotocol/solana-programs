@@ -5,6 +5,7 @@ use cow_settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
+    token_program::TokenProgram,
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -47,10 +48,15 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    validate_token_program(input.token_program_account)?;
+    let token_program = validate_token_program(input.token_program_account)?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
-        push_funds(input.state_pda_account, state_pda_signer, input.pushes)
+        push_funds(
+            input.state_pda_account,
+            state_pda_signer,
+            input.pushes,
+            token_program,
+        )
     })
 }
 
@@ -69,6 +75,7 @@ fn push_funds<'a>(
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
     pushes: Pushes<'a, AccountView>,
+    token_program: TokenProgram,
 ) -> ProgramResult {
     for push in pushes.iter() {
         Transfer::new(
@@ -77,7 +84,10 @@ fn push_funds<'a>(
             state_pda_account,
             push.amount,
         )
-        .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+        .invoke_signed_with_unverified_program(
+            core::slice::from_ref(state_pda_signer),
+            &token_program.address(),
+        )?;
     }
 
     Ok(())

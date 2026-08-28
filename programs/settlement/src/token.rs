@@ -1,7 +1,7 @@
 //! Token-program validation and token-account reads
 
 use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
-use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView};
+use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView, Address};
 use pinocchio_token::instructions::GetAccountDataSize;
 
 /// The length of a SPL token program account. Token2022 extensions may make
@@ -51,6 +51,8 @@ pub fn token_account_len(
 /// [`read_token_account`].
 /// For our purposes, we only need the `amount`.
 pub struct TokenAccount {
+    pub mint: Address,
+    pub owner: Address,
     pub amount: u64,
 }
 
@@ -60,15 +62,24 @@ pub fn read_token_account(
     token_program: TokenProgram,
     account: &AccountView,
 ) -> Result<TokenAccount, ProgramError> {
-    let amount = match token_program {
+    Ok(match token_program {
         TokenProgram::SplToken => {
-            pinocchio_token::state::Account::from_account_view(account)?.amount()
+            let decoded = pinocchio_token::state::Account::from_account_view(account)?;
+            TokenAccount {
+                amount: decoded.amount(),
+                mint: *decoded.mint(),
+                owner: *decoded.owner(),
+            }
         }
         TokenProgram::Token2022 => {
-            pinocchio_token_2022::state::Account::from_account_view(account)?.amount()
+            let decoded = pinocchio_token_2022::state::Account::from_account_view(account)?;
+            TokenAccount {
+                amount: decoded.amount(),
+                mint: *decoded.mint(),
+                owner: *decoded.owner(),
+            }
         }
-    };
-    Ok(TokenAccount { amount })
+    })
 }
 
 #[cfg(test)]
@@ -235,6 +246,8 @@ mod tests {
         );
         let read = read_token_account(TokenProgram::Token2022, &account)
             .expect("an extended Token-2022 account should read");
+        assert_eq!(read.mint, mint);
+        assert_eq!(read.owner, owner);
         assert_eq!(read.amount, 7);
     }
 
