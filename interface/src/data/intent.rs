@@ -54,9 +54,9 @@ pub struct Flags {
 
 impl Flags {
     // The bit each field occupies
-    const PARTIALLY_FILLABLE: u8 = 1 << 2;
-    const KIND: u8 = 1 << 1;
     const CREATED_ON_CHAIN: u8 = 1 << 0;
+    const KIND: u8 = 1 << 1;
+    const PARTIALLY_FILLABLE: u8 = 1 << 2;
 
     /// Every bit the encoding defines; the others are reserved.
     const DEFINED: u8 = Self::PARTIALLY_FILLABLE | Self::KIND | Self::CREATED_ON_CHAIN;
