@@ -424,15 +424,20 @@ fn rejects_when_reclaim_recipient_mismatch() {
 const SETTLED_SELL_AMOUNT: u64 = 1_000_000;
 const SETTLED_BUY_AMOUNT: u64 = 2_000_000;
 
+/// Mint a partially fillable order selling [`SETTLED_SELL_AMOUNT`] for
+/// [`SETTLED_BUY_AMOUNT`], and stage a settlement selling `sell_amount` of it at
+/// exactly the order's limit price (so any fraction of it settles). Passing
+/// [`SETTLED_SELL_AMOUNT`] stages a full fill.
 fn settleable_order(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
+    sell_amount: u64,
 ) -> (StagedOrder, Pubkey) {
     let intent = OrderBuilder::new(svm, program_id, payer)
         .sell_amount(SETTLED_SELL_AMOUNT)
         .buy_amount(SETTLED_BUY_AMOUNT)
-        .partially_fillable(false)
+        .partially_fillable(true)
         .build();
     let (order_pda, _bump) = find_order_pda(program_id, &intent.uid());
     let staged = stage_order(
@@ -440,16 +445,31 @@ fn settleable_order(
         program_id,
         payer,
         &intent,
-        &[SETTLED_SELL_AMOUNT],
-        SETTLED_BUY_AMOUNT,
+        &[sell_amount],
+        sell_amount
+            .checked_mul(SETTLED_BUY_AMOUNT)
+            .expect("order math should work")
+            .checked_div(SETTLED_SELL_AMOUNT)
+            .expect("order math should work"),
     );
     (staged, order_pda)
 }
 
+/// A settlement that fills only part of an order leaves it fillable again, so
+/// the order PDA has to stay until the order expires.
 #[test]
 fn rejects_reclaim_of_a_partially_filled_order() {
-    let (mut svm, program_id, payer, _solver) = common::setup_settle_ready();
-    let (_staged, order_pda) = settleable_order(&mut svm, &program_id, &payer);
+    let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
+    const PARTIAL_FILL: u64 = SETTLED_SELL_AMOUNT / 3;
+    let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, PARTIAL_FILL);
+
+    let instructions = build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![]);
+    send(&mut svm, &solver, instructions).expect("a partial settlement should succeed");
+    assert_eq!(
+        read_order(&svm, &order_pda).amount_withdrawn,
+        PARTIAL_FILL,
+        "the settlement must have recorded a partial fill"
+    );
 
     let ix = ReclaimOrder {
         program_id,
@@ -477,7 +497,7 @@ fn rejects_reclaim_of_a_partially_filled_order() {
 #[test]
 fn reclaim_mid_settlement_succeeds() {
     let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
-    let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer);
+    let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, SETTLED_SELL_AMOUNT);
     let pull_destination = staged.pulls[0].destination;
     let buy_token_account = staged.intent.buy_token_account;
     let buffer_pda = buffer::buffer_pda(&program_id, &staged.intent.buy_mint);
