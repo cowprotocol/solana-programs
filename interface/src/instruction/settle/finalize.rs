@@ -9,12 +9,12 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{recover_discriminator, SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID};
+use super::{recover_counterpart, TokenPrograms, INSTRUCTIONS_SYSVAR_ID};
 
 /// The number of fixed accounts every `FinalizeSettle` carries before its push
-/// accounts: the instructions sysvar, the settlement state PDA, and the token
-/// program.
-pub const FINALIZE_FIXED_ACCOUNTS: usize = 3;
+/// accounts: the instructions sysvar, the settlement state PDA, and one slot
+/// per supported token program.
+pub const FINALIZE_FIXED_ACCOUNTS: usize = 4;
 
 /// Split the instruction bytes from `FinalizeSettle` that remain after all
 /// constant-size data has been extracted into the per-push bump bytes and the
@@ -79,8 +79,12 @@ pub fn finalize_push_amounts(
 /// Wire format (with `n` total pushes):
 /// `[discriminator=1][begin_ix_index: u16 LE][bump: u8 ×n][amount: u64 LE ×n]`.
 /// Required accounts:
-/// `[instructions_sysvar (R), state_pda (R), token_program (R)]` followed, per
-/// push, by `[source_buffer (W), destination (W)]`.
+/// `[instructions_sysvar (R), state_pda (R), spl_token_program (R),
+/// token_2022_program (R)]` followed, per push, by
+/// `[source_buffer (W), destination (W)]`. The two token programs are the slots
+/// [`TokenPrograms`] describes: each push is issued against the program that
+/// owns the accounts it moves between, and a program this settlement doesn't
+/// touch is left out with the system program.
 ///
 /// `FinalizeSettle` validates that each source is the canonical buffer for its
 /// destination's mint and executes the transfers; the order correspondence and
@@ -92,6 +96,9 @@ pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
     pub begin_ix_index: u16,
+    /// The token programs this settlement's pushes are issued against, one
+    /// account each. Every account a push touches must be owned by one of them.
+    pub token_programs: TokenPrograms,
     pub source_buffers: &'a [Pubkey],
     pub destinations: &'a [Pubkey],
     pub bumps: &'a [u8],
@@ -104,6 +111,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             program_id,
             state_pda,
             begin_ix_index,
+            token_programs,
             source_buffers,
             destinations,
             bumps,
@@ -119,8 +127,12 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let mut accounts = vec![
             AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
             AccountMeta::new_readonly(state_pda, false),
-            AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
         ];
+        accounts.extend(
+            token_programs
+                .addresses()
+                .map(|program| AccountMeta::new_readonly(program, false)),
+        );
         for (source, destination) in source_buffers.iter().zip(destinations) {
             accounts.push(AccountMeta::new(*source, false));
             accounts.push(AccountMeta::new(*destination, false));
@@ -200,7 +212,11 @@ pub struct FinalizeSettleInput<'a, A> {
     pub begin_ix_index: u16,
     pub instructions_sysvar_account: &'a A,
     pub state_pda_account: &'a A,
-    pub token_program_account: &'a A,
+    /// The legacy SPL Token program's slot: the program itself, or the system
+    /// program where this settlement moves no legacy token.
+    pub spl_token_program_account: &'a A,
+    /// Token-2022's slot, filled the same way.
+    pub token_2022_program_account: &'a A,
     pub pushes: Pushes<'a, A>,
 }
 
@@ -213,7 +229,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (begin_ix_index, body) = recover_counterpart(instruction_data)?;
 
-        let [instructions_sysvar_account, state_pda_account, token_program_account, push_accounts @ ..] =
+        let [instructions_sysvar_account, state_pda_account, spl_token_program_account, token_2022_program_account, push_accounts @ ..] =
             accounts
         else {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -235,7 +251,8 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
             begin_ix_index,
             instructions_sysvar_account,
             state_pda_account,
-            token_program_account,
+            spl_token_program_account,
+            token_2022_program_account,
             pushes: Pushes {
                 push_accounts,
                 bumps,
@@ -252,6 +269,9 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::settle::{
+        SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
+    };
     use crate::instruction::tests::assert_readonly_nonsigner;
     use hex_literal::hex;
     use proptest::prelude::*;
@@ -266,6 +286,7 @@ mod tests {
             program_id: Pubkey::new_unique(),
             state_pda: Pubkey::new_unique(),
             begin_ix_index: 0,
+            token_programs: TokenPrograms::SPL_TOKEN,
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -286,6 +307,7 @@ mod tests {
             program_id,
             state_pda,
             begin_ix_index: 0x1337,
+            token_programs: TokenPrograms::SPL_TOKEN,
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -300,14 +322,45 @@ mod tests {
                 hex!("3713"), // counterpart index (little-endian)
             ],
         );
-        // No orders: the three fixed accounts (sysvar, state PDA, token
-        // program). They are all generic accounts that don't play an active
-        // role in the base instruction (the state PDA CPI signature isn't
-        // relevant here).
-        assert_eq!(accounts.len(), 3);
+        // No orders: the four fixed accounts (sysvar, state PDA, and a slot per
+        // token program). They are all generic accounts that don't play an
+        // active role in the base instruction (the state PDA CPI signature isn't
+        // relevant here). This settlement carries only the legacy program, so
+        // Token-2022's slot holds the placeholder.
+        assert_eq!(accounts.len(), FINALIZE_FIXED_ACCOUNTS);
         assert_readonly_nonsigner(&accounts[0], INSTRUCTIONS_SYSVAR_ID);
         assert_readonly_nonsigner(&accounts[1], state_pda);
         assert_readonly_nonsigner(&accounts[2], SPL_TOKEN_PROGRAM_ID);
+        assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
+    }
+
+    /// The token-program slots are whatever [`TokenPrograms`] says, in its own
+    /// order, so a settlement can carry both programs — or leave either one out.
+    #[test]
+    fn finalize_settle_carries_the_token_program_slots_it_is_given() {
+        for token_programs in [
+            TokenPrograms::SPL_TOKEN,
+            TokenPrograms::TOKEN_2022,
+            TokenPrograms::BOTH,
+            TokenPrograms::NONE,
+        ] {
+            let ix = Instruction::from(FinalizeSettle {
+                program_id: Pubkey::new_unique(),
+                state_pda: Pubkey::new_unique(),
+                begin_ix_index: 0,
+                token_programs,
+                source_buffers: &[],
+                destinations: &[],
+                bumps: &[],
+                amounts: &[],
+            });
+            let slots: Vec<Pubkey> = ix.accounts[2..].iter().map(|meta| meta.pubkey).collect();
+            assert_eq!(
+                slots,
+                token_programs.addresses(),
+                "{token_programs:?} should be laid out as its own addresses",
+            );
+        }
     }
 
     #[test]
@@ -323,6 +376,7 @@ mod tests {
             program_id,
             state_pda,
             begin_ix_index: 0x1337,
+            token_programs: TokenPrograms::BOTH,
             source_buffers: &[source_a, source_b],
             destinations: &[dest_a, dest_b],
             bumps: &[0xa1, 0xb1],
@@ -348,6 +402,7 @@ mod tests {
                 INSTRUCTIONS_SYSVAR_ID,
                 state_pda,
                 SPL_TOKEN_PROGRAM_ID,
+                TOKEN_2022_PROGRAM_ID,
                 source_a,
                 dest_a,
                 source_b,
@@ -369,13 +424,16 @@ mod tests {
     #[test]
     fn finalize_settle_input_parses_no_pushes() {
         let sysvar = Address::new_from_array([0x42u8; 32]);
-        // The state-PDA and token-program slots are reserved but not surfaced.
+        // Parsing is positional and validates nothing, so the state-PDA and
+        // token-program slots are stand-ins here.
         let state = Address::new_from_array([0x43u8; 32]);
-        let token_program = Address::new_from_array([0x44u8; 32]);
+        let spl_token_program = Address::new_from_array([0x44u8; 32]);
+        let token_2022_program = Address::new_from_array([0x45u8; 32]);
         let accounts = [
             fake_account(sysvar),
             fake_account(state),
-            fake_account(token_program),
+            fake_account(spl_token_program),
+            fake_account(token_2022_program),
         ];
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
@@ -385,13 +443,15 @@ mod tests {
             begin_ix_index,
             instructions_sysvar_account,
             state_pda_account,
-            token_program_account,
+            spl_token_program_account,
+            token_2022_program_account,
             pushes,
         } = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(begin_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(state_pda_account.address(), &state);
-        assert_eq!(token_program_account.address(), &token_program);
+        assert_eq!(spl_token_program_account.address(), &spl_token_program);
+        assert_eq!(token_2022_program_account.address(), &token_2022_program,);
         assert_eq!(pushes.iter().count(), 0);
     }
 
@@ -399,7 +459,8 @@ mod tests {
     fn finalize_settle_input_parses_pushes() {
         let sysvar = Address::new_from_array([1u8; 32]);
         let state = Address::new_from_array([0xa1u8; 32]);
-        let token_program = Address::new_from_array([0xa2u8; 32]);
+        let spl_token_program = Address::new_from_array([0xa2u8; 32]);
+        let token_2022_program = Address::new_from_array([0xa3u8; 32]);
         // The same source buffer funds both pushes: parsing makes no uniqueness
         // assumption about source buffers.
         let source = Address::new_from_array([3u8; 32]);
@@ -408,7 +469,8 @@ mod tests {
         let accounts = [
             fake_account(sysvar),
             fake_account(state),
-            fake_account(token_program),
+            fake_account(spl_token_program),
+            fake_account(token_2022_program),
             fake_account(source),
             fake_account(dest0),
             fake_account(source),
@@ -469,12 +531,13 @@ mod tests {
             });
         }
 
-        // The three fixed accounts (`[0xff..]`, `[0xfe..]`, `[0xfd..]`) differ
-        // from every source/destination address above.
+        // The four fixed accounts (`[0xff..]` down to `[0xfc..]`) differ from
+        // every source/destination address above.
         let mut accounts = vec![
             fake_account_from_array([0xff; 32]),
             fake_account_from_array([0xfe; 32]),
             fake_account_from_array([0xfd; 32]),
+            fake_account_from_array([0xfc; 32]),
         ];
         let mut bump_bytes = Vec::new();
         let mut amount_bytes = Vec::new();
@@ -523,6 +586,22 @@ mod tests {
             [0, 0], // begin index
         ];
         let accounts: [AccountView; 0] = [];
+        assert_eq!(
+            FinalizeSettleInput::parse(&data, &accounts).err(),
+            Some(ProgramError::NotEnoughAccountKeys),
+        );
+    }
+
+    /// One account short of the fixed block: the token-program slots are read
+    /// positionally, so a settlement that omits one has no push accounts to
+    /// parse from either.
+    #[test]
+    fn finalize_settle_input_rejects_a_missing_token_program_slot() {
+        let accounts = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS - 1 }>();
+        let data = ix_data![
+            [SettlementInstruction::FinalizeSettle.discriminator()],
+            [0, 0], // begin index
+        ];
         assert_eq!(
             FinalizeSettleInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
@@ -579,6 +658,7 @@ mod tests {
             program_id: Pubkey::new_unique(),
             state_pda: Pubkey::new_unique(),
             begin_ix_index: 0x1337,
+            token_programs: TokenPrograms::SPL_TOKEN,
             source_buffers: &[Pubkey::new_unique(), Pubkey::new_unique()],
             destinations: &[Pubkey::new_unique(), Pubkey::new_unique()],
             bumps: &[0xa1, 0xb1],
@@ -596,6 +676,7 @@ mod tests {
             program_id: Pubkey::new_unique(),
             state_pda: Pubkey::new_unique(),
             begin_ix_index: 0,
+            token_programs: TokenPrograms::SPL_TOKEN,
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -611,6 +692,7 @@ mod tests {
             program_id: Pubkey::new_unique(),
             state_pda: Pubkey::new_unique(),
             begin_ix_index: 0,
+            token_programs: TokenPrograms::SPL_TOKEN,
             source_buffers: &[Pubkey::new_unique()],
             destinations: &[Pubkey::new_unique()],
             bumps: &[0xff],
@@ -645,6 +727,7 @@ mod tests {
                         program_id,
                         state_pda,
                         begin_ix_index,
+                        token_programs: TokenPrograms::BOTH,
                         source_buffers: &source_buffers,
                         destinations: &destinations,
                         bumps: &bumps,

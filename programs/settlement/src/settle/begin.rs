@@ -26,11 +26,14 @@ use pinocchio::{
     },
     AccountView, Address, ProgramResult,
 };
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
+use pinocchio_token::instructions::Transfer;
 
-use crate::processor::{is_cpi_call, with_state_pda_signer};
+use crate::{
+    processor::{is_cpi_call, with_state_pda_signer},
+    token::{read_token_account, TokenPrograms},
+};
 
-use super::{validate_counterpart, validate_token_program_account};
+use super::validate_counterpart;
 
 pub fn process_begin_settle(
     program_id: &Address,
@@ -69,7 +72,10 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    validate_token_program_account(input.token_program_account)?;
+    let token_programs = TokenPrograms::validate(
+        input.spl_token_program_account,
+        input.token_2022_program_account,
+    )?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
         settle_orders(
@@ -78,6 +84,7 @@ pub fn process_begin_settle(
             state_pda_signer,
             &input.orders,
             &finalize_ix,
+            &token_programs,
         )
     })
 }
@@ -179,6 +186,7 @@ fn settle_orders(
     state_pda_signer: &Signer,
     orders: &SettledOrders<'_, AccountView>,
     finalize_ix: &IntrospectedInstruction,
+    token_programs: &TokenPrograms<'_>,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
@@ -209,6 +217,7 @@ fn settle_orders(
             now,
             state_pda_account,
             state_pda_signer,
+            token_programs,
         )?;
     }
 
@@ -231,6 +240,7 @@ fn process_order(
     now: i64,
     state_account: &AccountView,
     state_pda_signer: &Signer,
+    token_programs: &TokenPrograms<'_>,
 ) -> ProgramResult {
     let SettledOrder {
         order_pda,
@@ -262,17 +272,21 @@ fn process_order(
     if sell_token_account.address() != &intent.sell_token_account {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
+    // The pulls below move this account's tokens, so they are issued against
+    // the token program that owns it — the one this settlement has to be
+    // carrying. An account under neither program isn't a token account at all.
+    let token_program = token_programs
+        .program_for(sell_token_account)?
+        .ok_or(SettlementError::SellTokenAccountInvalid)?;
     // Assert the order intent owner matches that of the sell token account.
-    {
-        // `from_account_view` confirms this is a real SPL token account
-        // (right length, owned by the token program) before we read its
-        // owner. The borrow it holds is released at the end of this block,
-        // before the transfers below touch the same account.
-        let token_account = TokenAccount::from_account_view(sell_token_account)
-            .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
-        if token_account.owner() != &intent.owner {
-            return Err(SettlementError::SellTokenOwnerMismatch.into());
-        }
+    // `read_token_account` confirms this is a real token account of that token
+    // program before we read its owner, and reads by value, so nothing is left
+    // borrowing the account when the transfers below touch it.
+    let sell_token_owner = read_token_account(token_program, sell_token_account)
+        .map_err(|_| SettlementError::SellTokenAccountInvalid)?
+        .owner;
+    if sell_token_owner != intent.owner {
+        return Err(SettlementError::SellTokenOwnerMismatch.into());
     }
 
     // Pull the configured amounts out of the sell token account, summing them
@@ -285,7 +299,10 @@ fn process_order(
             .checked_add(amount)
             .ok_or(SettlementError::PullAmountOverflow)?;
         Transfer::new(sell_token_account, destination, state_account, amount)
-            .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+            .invoke_signed_with_unverified_program(
+                core::slice::from_ref(state_pda_signer),
+                token_program,
+            )?;
     }
 
     validate_limit_price(intent, amount_in, push_amount)?;
@@ -377,7 +394,9 @@ mod tests {
     use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
+    use cow_settlement_interface::instruction::settle::{
+        FinalizeSettle, FinalizeSettleInput, TokenPrograms,
+    };
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
@@ -978,6 +997,7 @@ mod tests {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
                 begin_ix_index,
+                token_programs: TokenPrograms::BOTH,
                 source_buffers: &source_buffers,
                 destinations: &destinations,
                 bumps: &bumps,

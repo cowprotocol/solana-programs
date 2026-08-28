@@ -1,20 +1,27 @@
-//! Token-program validation and token-account reads shared by `CreateBuffer`
-//! and `ReclaimBuffer`.
+//! Token-program validation and token-account reads shared by every
+//! instruction that moves tokens.
 //!
-//! Each takes one `token_program` account, validates it with
-//! [`validate_token_program`], and issues all of its CPIs against the address
-//! that returns. Token-2022 encodes the instructions this program issues
-//! exactly as the legacy program does, so only the CPI target changes; nothing
-//! else about them depends on which program it is.
+//! Token-2022 encodes the instructions this program issues exactly as the
+//! legacy program does, so only the CPI target changes; nothing else about a
+//! transfer depends on which program it is. How an instruction names that
+//! target depends on how many programs it works with at once:
 //!
-//! What does differ is the account data. A Token-2022 account carrying
-//! extensions is longer than the base layout, so the legacy reader (which
-//! insists on an exact length and the legacy owner) rejects it. Read token
-//! accounts through [`read_token_account`], which dispatches on the validated
-//! program.
+//! - `CreateBuffer` and `ReclaimBuffer` take one `token_program` account,
+//!   validate it with [`validate_token_program`], and issue every transfer
+//!   against the address that returns.
+//! - `BeginSettle` and `FinalizeSettle` take one account per supported program,
+//!   validate the pair with [`TokenPrograms::validate`], and ask it for the
+//!   program owning each account they touch, so one settlement can move tokens
+//!   under both.
+//!
+//! What does differ between the programs is the account data. A Token-2022
+//! account carrying extensions is longer than the base layout, so the legacy
+//! reader (which insists on an exact length and the legacy owner) rejects it.
+//! Read token accounts through [`read_token_account`], which dispatches on the
+//! validated program.
 
 use cow_settlement_interface::{
-    token_program::{is_supported, SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID},
+    token_program::{is_supported, SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID},
     SettlementError,
 };
 use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView, Address};
@@ -24,8 +31,9 @@ use pinocchio_token::{instructions::GetAccountDataSize, state::Mint};
 /// every legacy token account and a Token-2022 one carrying no extensions.
 const BASE_TOKEN_ACCOUNT_LEN: u64 = pinocchio_token::state::Account::LEN as u64;
 
-/// Validate that `token_program_account` is a token program this program may
-/// issue CPIs against, returning its address for the instruction to target.
+/// Validate that `token_program_account` is a token program settlement
+/// transfers may be issued against, returning its address for the instruction's
+/// CPIs to target.
 ///
 /// This is the single gate in front of every token CPI: the callers pass the
 /// address it returns to `invoke_*_with_unverified_program`, which skips the
@@ -39,6 +47,85 @@ pub fn validate_token_program(
         return Err(ProgramError::IncorrectProgramId);
     }
     Ok(address)
+}
+
+/// The token programs a `BeginSettle`/`FinalizeSettle` was handed: one slot per
+/// entry of `SUPPORTED_TOKEN_PROGRAMS`, holding either that program or the
+/// system program standing in for "this settlement moves no token under it".
+///
+/// Built by [`TokenPrograms::validate`] and asked, per account,
+/// [`which program owns it`](TokenPrograms::program_for). The instruction
+/// issues that account's transfers against the answer, which is what lets a
+/// single settlement mix tokens from both programs.
+pub struct TokenPrograms<'a> {
+    /// The legacy SPL Token program, or `None` where its slot held the
+    /// placeholder.
+    spl_token: Option<&'a Address>,
+    /// Token-2022, filled the same way.
+    token_2022: Option<&'a Address>,
+}
+
+impl<'a> TokenPrograms<'a> {
+    /// Validate a settlement's two token-program slots, in the order the
+    /// instruction lays them out.
+    ///
+    /// Each slot has to hold either the program it stands for or
+    /// `SYSTEM_PROGRAM_ID`; anything else is a caller mistake rather than an
+    /// opt-out. The addresses are taken from the accounts themselves so the
+    /// programs the transfers CPI into are ones the transaction named, which is
+    /// what makes those CPIs dispatchable at all.
+    #[must_use = "the returned slots decide which program each transfer targets"]
+    pub fn validate(
+        spl_token_account: &'a AccountView,
+        token_2022_account: &'a AccountView,
+    ) -> Result<Self, ProgramError> {
+        Ok(Self {
+            spl_token: validate_slot(spl_token_account, &SPL_TOKEN_PROGRAM_ID)?,
+            token_2022: validate_slot(token_2022_account, &TOKEN_2022_PROGRAM_ID)?,
+        })
+    }
+
+    /// The token program `account`'s transfers must be issued against: the one
+    /// that owns it.
+    ///
+    /// `None` when `account` isn't owned by a supported token program, which
+    /// means it is no token account at all and the caller reports it as
+    /// whatever it failed to be. An account owned by a supported program whose
+    /// slot held the placeholder is a different matter: the settlement can't
+    /// reach that program, so it says so with
+    /// [`SettlementError::TokenProgramNotProvided`] rather than pretending the
+    /// account is malformed.
+    pub fn program_for(
+        &self,
+        account: &AccountView,
+    ) -> Result<Option<&'a Address>, SettlementError> {
+        let owner = account.owner();
+        let slot = if owner == &SPL_TOKEN_PROGRAM_ID {
+            self.spl_token
+        } else if owner == &TOKEN_2022_PROGRAM_ID {
+            self.token_2022
+        } else {
+            return Ok(None);
+        };
+        slot.map(Some)
+            .ok_or(SettlementError::TokenProgramNotProvided)
+    }
+}
+
+/// One [`TokenPrograms`] slot: `program` where the account holds it, `None`
+/// where it holds the placeholder instead.
+fn validate_slot<'a>(
+    account: &'a AccountView,
+    program: &Address,
+) -> Result<Option<&'a Address>, ProgramError> {
+    let address = account.address();
+    if address == program {
+        Ok(Some(address))
+    } else if address == &SYSTEM_PROGRAM_ID {
+        Ok(None)
+    } else {
+        Err(ProgramError::IncorrectProgramId)
+    }
 }
 
 /// The data length a token account holding `mint` has to be allocated at,
@@ -107,9 +194,11 @@ pub fn token_account_len(token_program: &Address, mint: &AccountView) -> Result<
 /// [`read_token_account`].
 ///
 /// Held by value rather than borrowed from the account so the caller can go on
-/// to use the same account in a CPI that touches it: a live borrow would make
-/// that CPI fail.
+/// to use the same account in a transfer: a live borrow would make the CPI
+/// fail.
 pub struct TokenAccount {
+    pub mint: Address,
+    pub owner: Address,
     pub amount: u64,
 }
 
@@ -131,11 +220,15 @@ pub fn read_token_account(
     if token_program == &SPL_TOKEN_PROGRAM_ID {
         let account = pinocchio_token::state::Account::from_account_view(account)?;
         Ok(TokenAccount {
+            mint: *account.mint(),
+            owner: *account.owner(),
             amount: account.amount(),
         })
     } else if token_program == &TOKEN_2022_PROGRAM_ID {
         let account = pinocchio_token_2022::state::Account::from_account_view(account)?;
         Ok(TokenAccount {
+            mint: *account.mint(),
+            owner: *account.owner(),
             amount: account.amount(),
         })
     } else {
@@ -236,6 +329,123 @@ mod tests {
         );
     }
 
+    /// The settlement's own two slots, each holding the program it stands for.
+    fn both_slots() -> [AccountView; 2] {
+        [
+            fake_account(SPL_TOKEN_PROGRAM_ID),
+            fake_account(TOKEN_2022_PROGRAM_ID),
+        ]
+    }
+
+    /// A token account of `program`, well-formed but empty of interest: only
+    /// its owner decides which program its transfers go to.
+    fn token_account_of(program: Address) -> AccountView {
+        fake_account_owned_by(UNRELATED, program, &base_layout(UNRELATED, UNRELATED, 0))
+    }
+
+    /// A settlement carrying both programs settles accounts under either, each
+    /// against the program that owns it. This is what one instruction pair
+    /// mixing the two token programs rests on.
+    #[test]
+    fn program_for_dispatches_on_the_accounts_owner() {
+        let [spl_token, token_2022] = both_slots();
+        let programs =
+            TokenPrograms::validate(&spl_token, &token_2022).expect("both slots hold a program");
+
+        for program in SUPPORTED_TOKEN_PROGRAMS {
+            assert_eq!(
+                programs.program_for(&token_account_of(program)),
+                Ok(Some(&program)),
+                "an account owned by {program} should be settled against it",
+            );
+        }
+    }
+
+    /// An account under neither program is no token account at all, which the
+    /// caller reports as whatever the account failed to be.
+    #[test]
+    fn program_for_returns_nothing_for_an_unowned_account() {
+        let [spl_token, token_2022] = both_slots();
+        let programs =
+            TokenPrograms::validate(&spl_token, &token_2022).expect("both slots hold a program");
+
+        assert_eq!(programs.program_for(&token_account_of(UNRELATED)), Ok(None));
+    }
+
+    /// A settlement that left a program out can't reach it, so an account under
+    /// it is refused by name rather than mistaken for a malformed one.
+    #[test]
+    fn program_for_rejects_an_account_under_a_left_out_program() {
+        let placeholder = fake_account(SYSTEM_PROGRAM_ID);
+        for [carried, left_out] in [
+            [SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID],
+            [TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID],
+        ] {
+            let carried_account = fake_account(carried);
+            let (spl_token, token_2022) = if carried == SPL_TOKEN_PROGRAM_ID {
+                (&carried_account, &placeholder)
+            } else {
+                (&placeholder, &carried_account)
+            };
+            let programs =
+                TokenPrograms::validate(spl_token, token_2022).expect("the placeholder is allowed");
+
+            assert_eq!(
+                programs.program_for(&token_account_of(left_out)),
+                Err(SettlementError::TokenProgramNotProvided),
+                "{left_out} was left out, so its accounts have nothing to settle against",
+            );
+            // The program that *is* carried still settles its own accounts.
+            assert_eq!(
+                programs.program_for(&token_account_of(carried)),
+                Ok(Some(&carried)),
+            );
+        }
+    }
+
+    /// Leaving both programs out is allowed — it only makes every token account
+    /// unsettleable, which is exactly what a settlement moving no tokens wants.
+    #[test]
+    fn validate_accepts_two_placeholders() {
+        let placeholder = fake_account(SYSTEM_PROGRAM_ID);
+        let programs = TokenPrograms::validate(&placeholder, &placeholder)
+            .expect("two placeholders are allowed");
+
+        for program in SUPPORTED_TOKEN_PROGRAMS {
+            assert_eq!(
+                programs.program_for(&token_account_of(program)),
+                Err(SettlementError::TokenProgramNotProvided),
+            );
+        }
+    }
+
+    /// The slots are positional: each one holds its own program or the
+    /// placeholder, so the two programs can't be swapped between them.
+    #[test]
+    fn validate_rejects_swapped_slots() {
+        let [spl_token, token_2022] = both_slots();
+        assert_eq!(
+            TokenPrograms::validate(&token_2022, &spl_token).err(),
+            Some(ProgramError::IncorrectProgramId),
+        );
+    }
+
+    /// Anything that is neither the slot's program nor the placeholder is a
+    /// caller mistake, not an opt-out.
+    #[test]
+    fn validate_rejects_an_unrelated_account_in_a_slot() {
+        let unrelated = fake_account(UNRELATED);
+        let [spl_token, token_2022] = both_slots();
+        assert_eq!(
+            TokenPrograms::validate(&unrelated, &token_2022).err(),
+            Some(ProgramError::IncorrectProgramId),
+        );
+        assert_eq!(
+            TokenPrograms::validate(&spl_token, &unrelated).err(),
+            Some(ProgramError::IncorrectProgramId),
+        );
+    }
+
     #[test]
     fn validate_token_program_accepts_every_supported_program() {
         for program in SUPPORTED_TOKEN_PROGRAMS {
@@ -264,6 +474,8 @@ mod tests {
                 fake_account_owned_by(UNRELATED, program, &base_layout(mint, owner, 4_200));
             let read = read_token_account(&program, &account)
                 .unwrap_or_else(|error| panic!("{program} account should read: {error:?}"));
+            assert_eq!(read.mint, mint);
+            assert_eq!(read.owner, owner);
             assert_eq!(read.amount, 4_200);
         }
     }
@@ -284,6 +496,8 @@ mod tests {
         let account = fake_account_owned_by(UNRELATED, TOKEN_2022_PROGRAM_ID, &data);
         let read = read_token_account(&TOKEN_2022_PROGRAM_ID, &account)
             .expect("an extended Token-2022 account should read");
+        assert_eq!(read.mint, mint);
+        assert_eq!(read.owner, owner);
         assert_eq!(read.amount, 7);
     }
 

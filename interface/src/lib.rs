@@ -225,6 +225,12 @@ pub enum SettlementError {
     /// buffer. Defensive: a token program that fails this query aborts the
     /// instruction on its own.
     BufferSizeUnavailable = 35,
+    /// `BeginSettle`/`FinalizeSettle`: a token account it has to move is owned
+    /// by a supported token program whose slot carries the system-program
+    /// placeholder, so there is no program to issue that transfer against. The
+    /// settlement has to carry every token program its accounts live under; see
+    /// [`token_program::TokenPrograms`].
+    TokenProgramNotProvided = 36,
 }
 
 impl From<SettlementError> for u32 {

@@ -3,7 +3,9 @@
 
 use solana_program_error::ProgramError;
 
-pub use crate::token_program::SPL_TOKEN_PROGRAM_ID;
+pub use crate::token_program::{
+    TokenPrograms, SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID, TOKEN_2022_PROGRAM_ID,
+};
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
 mod begin;

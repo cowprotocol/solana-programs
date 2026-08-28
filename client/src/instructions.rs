@@ -13,7 +13,7 @@ use cow_settlement_interface::{
 
 // Reexport the instruction builders that don't change from the interface.
 // We want the client to provide all instruction builders.
-pub use cow_settlement_interface::instruction::settle::Pull;
+pub use cow_settlement_interface::instruction::settle::{Pull, TokenPrograms};
 
 /// An order ready to be settled, together with the funds to pull from it:
 /// `intent` identifies the order and `pulls` lists the [`Pull`]s to make from
@@ -30,6 +30,10 @@ pub struct BeginSettle<'a> {
     /// The off-chain auction this settlement executes, carried so it can be tied
     /// back to its auction off-chain.
     pub auction_id: i64,
+    /// The token programs owning the accounts this settlement pulls from and
+    /// pays into. Leaving one out makes its accounts unsettleable here, so this
+    /// has to cover every one of them.
+    pub token_programs: TokenPrograms,
     pub orders: &'a [InitializedIntent<'a>],
 }
 
@@ -50,6 +54,7 @@ impl From<BeginSettle<'_>> for Instruction {
             state_pda,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
+            token_programs: builder.token_programs,
             order_pdas: &order_pdas,
             sell_token_accounts: &sell_token_accounts,
             pulls: &pull_lists,
@@ -81,6 +86,9 @@ pub struct FinalizedIntent<'a> {
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub begin_ix_index: u16,
+    /// The token programs owning the buffers and buy token accounts this
+    /// settlement pushes between, filled the same way as [`BeginSettle`]'s.
+    pub token_programs: TokenPrograms,
     pub orders: &'a [FinalizedIntent<'a>],
 }
 
@@ -113,6 +121,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             program_id: builder.program_id,
             state_pda,
             begin_ix_index: builder.begin_ix_index,
+            token_programs: builder.token_programs,
             source_buffers: &source_buffers,
             destinations: &destinations,
             bumps: &bumps,
@@ -256,7 +265,8 @@ mod tests {
         instruction::{
             fixtures::fake_account_from_array,
             settle::{
-                BeginSettleInput, FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
+                BeginSettleInput, FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID,
+                SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID,
             },
             InstructionInputParsing,
         },
@@ -283,6 +293,7 @@ mod tests {
                 program_id,
                 finalize_ix_index,
                 auction_id: 0,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &orders,
             });
 
@@ -348,6 +359,7 @@ mod tests {
             let ix = Instruction::from(FinalizeSettle {
                 program_id,
                 begin_ix_index,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &orders,
             });
 
@@ -393,8 +405,14 @@ mod tests {
             let (state_pda, _bump) = find_state_pda(&program_id);
             prop_assert_eq!(parsed.state_pda_account.address(), &state_pda);
             prop_assert_eq!(
-                parsed.token_program_account.address(),
+                parsed.spl_token_program_account.address(),
                 &SPL_TOKEN_PROGRAM_ID,
+            );
+            // These settlements are legacy-only, so Token-2022's slot stands
+            // empty.
+            prop_assert_eq!(
+                parsed.token_2022_program_account.address(),
+                &SYSTEM_PROGRAM_ID,
             );
 
             let parsed_pushes: Vec<_> = parsed.pushes.iter().collect();
