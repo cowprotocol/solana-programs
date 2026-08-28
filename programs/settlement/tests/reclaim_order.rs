@@ -17,7 +17,11 @@ use solana_sdk::{
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    create_account_at, signed_tx, to_instruction_error, unique_keypair, unique_pubkey,
+    buffer, create_account_at,
+    order::OrderBuilder,
+    send,
+    settlement::{build_staged_settlement, stage_order, StagedOrder},
+    signed_tx, to_instruction_error, token, unique_keypair, unique_pubkey,
 };
 
 mod common;
@@ -397,4 +401,92 @@ fn rejects_when_reclaim_recipient_mismatch() {
         svm.send_transaction(tx).map_err(|e| e.err),
         to_instruction_error(SettlementError::ReclaimRecipientMismatch),
     );
+}
+
+fn settleable_order(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+) -> (StagedOrder, Pubkey) {
+    let sell_amount: u64 = 1_000_000;
+    let buy_amount: u64 = 2_000_000;
+
+    let intent = OrderBuilder::new(svm, program_id, payer)
+        .sell_amount(sell_amount)
+        .buy_amount(buy_amount)
+        .partially_fillable(false)
+        .build();
+    let (order_pda, _bump) = find_order_pda(program_id, &intent.uid());
+    let staged = stage_order(svm, program_id, payer, &intent, &[sell_amount], buy_amount);
+    (staged, order_pda)
+}
+
+#[test]
+fn rejects_reclaim_of_a_partially_filled_order() {
+    let (mut svm, program_id, payer, _solver) = common::setup_settle_ready();
+    let (_staged, order_pda) = settleable_order(&mut svm, &program_id, &payer);
+
+    let ix = ReclaimOrder {
+        program_id,
+        order_pda,
+        reclaim_recipient: payer.pubkey(),
+    }
+    .instruction();
+    let tx = signed_tx(&svm, &payer, &payer, ix);
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|e| e.err),
+        to_instruction_error(SettlementError::OrderNotReclaimable),
+    );
+    assert!(
+        svm.get_account(&order_pda).is_some(),
+        "order PDA must survive a rejected reclaim"
+    );
+}
+
+/// A reclaim placed between `BeginSettle` and `FinalizeSettle` closes the order
+/// PDA without breaking the settlement around it.
+///
+/// `BeginSettle` does all of the settlement's order validation and records the
+/// fill, and it's the only instruction of the pair that takes the order PDA as
+/// an account. So reclaim is free to happen after that point.
+#[test]
+fn reclaim_mid_settlement_succeeds() {
+    let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
+    let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer);
+    let pull_destination = staged.pulls[0].destination;
+    let buy_token_account = staged.intent.buy_token_account;
+    let buffer_pda = buffer::buffer_pda(&program_id, &staged.intent.buy_mint);
+    let pda_rent = svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE);
+
+    let reclaim = ReclaimOrder {
+        program_id,
+        order_pda,
+        reclaim_recipient: payer.pubkey(),
+    }
+    .instruction();
+    let instructions =
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![reclaim]);
+
+    // The `payer` that created the order signs nothing here and pays no fee (the
+    // solver does), so its balance moves by the returned rent alone.
+    let payer_before = common::lamports(&svm, &payer.pubkey());
+    send(&mut svm, &solver, instructions)
+        .expect("reclaiming a just-filled order mid-settlement should succeed");
+
+    assert!(
+        svm.get_account(&order_pda).is_none(),
+        "order PDA must be closed by the mid-settlement reclaim"
+    );
+    assert_eq!(
+        common::lamports(&svm, &payer.pubkey()) - payer_before,
+        pda_rent,
+        "the order's creator must receive the closed PDA's rent"
+    );
+
+    // Both legs of the settlement went through around the reclaim: the pull in
+    // `BeginSettle`, before the order PDA was closed, and the push in
+    // `FinalizeSettle`, after.
+    assert_eq!(token::balance(&svm, &pull_destination), SETTLED_SELL_AMOUNT);
+    assert_eq!(token::balance(&svm, &buy_token_account), SETTLED_BUY_AMOUNT);
+    assert_eq!(token::balance(&svm, &buffer_pda), 0);
 }
