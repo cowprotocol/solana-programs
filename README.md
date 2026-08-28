@@ -139,6 +139,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --help`).
 - Create a PR with the changes and wait for approval.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
 
 ### Patch update
 
