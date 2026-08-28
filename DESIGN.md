@@ -132,6 +132,8 @@ struct OrderIntent {
 }
 
 struct Flags {
+	// Indicates the path by which the order was created. Important for reclaim.
+	created_on_chain: bool
 	// Either Buy or Sell
 	kind: OrderKind
 	partially_fillable: bool
