@@ -49,6 +49,7 @@ pub fn build_settlement(
 /// to draw from its sell token account, and the amount to push to its buy token
 /// account. It owns its intent, so a helper that mints an order can stage it and
 /// hand back the result in one piece.
+#[derive(Clone)]
 pub struct StagedOrder {
     pub intent: OrderIntent,
     pub pulls: Vec<Pull>,

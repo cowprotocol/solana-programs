@@ -615,6 +615,35 @@ fn fill_or_kill_order_cannot_be_settled_twice() {
 }
 
 #[test]
+fn partially_fillable_order_cannot_be_settled_twice_in_one_settlement() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .partially_fillable(true)
+        .sell_amount(1_000)
+        .buy_amount(10)
+        .build();
+
+    let staged = stage_order(&mut svm, &program_id, &payer, &intent, &[1], 1_337);
+    let instructions = build_staged_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[staged.clone(), staged],
+        vec![],
+    );
+
+    // A settlement can't fill one order twice in a single pass: orders must be
+    // strictly increasing by PDA and the two listings share the one PDA, so the
+    // second trips the ordering check before it can fill again.
+    assert_settlement_error(
+        BEGIN_INDEX,
+        send(&mut svm, &solver, instructions).map(|_| ()),
+        SettlementError::OrdersNotStrictlyIncreasing,
+    );
+}
+
+#[test]
 fn settlement_rejected_when_one_order_exceeds_its_amount() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
