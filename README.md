@@ -137,7 +137,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Switch your network to mainnet (`solana config set --url mainnet-beta`). You should try out the next steps before the PR on devnet first, but switch to mainnet for the actual release.
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --help`).
-- Make sure the package installs without errors: run `cargo install --locked cow-test-cli` (it depends on all other packages).
+- Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 - Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
