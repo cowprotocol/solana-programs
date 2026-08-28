@@ -129,13 +129,12 @@ pub fn check_state_pda(
 /// Run `f` with a signer for the state PDA, given its already-derived canonical
 /// `state_bump`.
 ///
-/// The signer only borrows its seed buffers, which are local to this frame;
-/// running `f` here rather than returning the signer keeps them alive for as
-/// long as `f` needs it.
+/// This function is to be used as an alternative for [`with_state_pda_signer`]
+/// in the case where the state PDA has been checked in an earlier call.
+/// The caller is responsible for having validated the bump against the state
+/// PDA (e.g. via [`check_state_pda`] or [`require_solver`]).
 ///
-/// The caller is responsible for having validated the bump against the state PDA
-/// (e.g. via [`check_state_pda`] or [`require_solver`]); see
-/// [`with_state_pda_signer`] for the combined check-and-sign.
+/// If state PDA validation is needed, use [`with_state_pda_signer`].
 pub fn with_state_pda_signer_from_bump(
     state_bump: u8,
     f: impl FnOnce(&Signer) -> ProgramResult,
@@ -144,10 +143,9 @@ pub fn with_state_pda_signer_from_bump(
     let signer_seeds = state_pda_signer_seeds(&state_bump).map(Seed::from);
     f(&Signer::from(&signer_seeds))
 }
-
-/// Validate that `state_pda_account` is the canonical state PDA and run `f` with
-/// a signer for it, in one step. Use [`with_state_pda_signer_from_bump`] directly
-/// when the bump has already been derived (as settling does, via
+/// Validate that `state_pda_account` is the canonical state PDA and run `f`
+/// with a signer for it, in one step. Use [`with_state_pda_signer_from_bump`]
+/// directly when the bump has already been derived (as settling does, via
 /// [`require_solver`]) to avoid re-deriving the PDA.
 pub fn with_state_pda_signer(
     program_id: &Address,
