@@ -448,10 +448,10 @@ mod tests {
         // Hack: xoring each byte makes sure all bytes are different.
         // In general, it isn't guaranteed that the result encodes to a
         // valid intent, but in this case we know it because the only byte
-        // that may fail decoding is the flags byte, and `^0x07` only flips
-        // its lowest three bits, never a reserved one.
+        // that may fail decoding is the flags byte, and `^0x01` only flips
+        // its `created_on_chain` flag bits, never a reserved one.
         let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
-            encoded_intent.map(|b| b ^ 0x07);
+            encoded_intent.map(|b| b ^ 0x01);
         sample_account_base.intent =
             OrderIntent::try_from(&bitwise_different_encoded_intent).expect("hack should work");
         let changed_intent: [u8; EncodedOrderAccount::SIZE] =
