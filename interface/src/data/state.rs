@@ -28,7 +28,7 @@ use solana_account_view::{AccountView, Ref};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::{Role, SettlementAccount};
+use crate::{Role, SettlementAccount, SettlementError};
 
 /// Single-byte account discriminator at the front of the header.
 pub const DISCRIMINATOR: u8 = SettlementAccount::SettlementState.discriminator();
@@ -82,9 +82,9 @@ fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
     }
 }
 
-/// The role holders that make up a state account's header.
+/// The parameters used to initialize the state account.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Header {
+pub struct StateInitArgs {
     /// The [`Role::Manager`] holder.
     pub manager: Pubkey,
     /// The [`Role::ReclaimAuthority`] holder.
@@ -159,8 +159,8 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
     }
 
     /// The account's data length after growing it by one solver slot: the size
-    /// it must be resized to before [`insert_solver_at`](Self::insert_solver_at)
-    /// can fill that new slot.
+    /// it must be resized to before [`insert_solver`](Self::insert_solver) can
+    /// fill that new slot.
     ///
     /// Returns [`ProgramError::ArithmeticOverflow`] if that length overflows
     /// `usize`, which a caller handling data from a real account can treat as
@@ -186,7 +186,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
     ///
     /// The generated data is a full header long, which is needed for the read
     /// accessors not to panic.
-    pub fn initialize(mut bytes: T, header: &Header) -> Result<Self, ProgramError> {
+    pub fn initialize(mut bytes: T, args: &StateInitArgs) -> Result<Self, ProgramError> {
         {
             let slots = header_slots_mut(
                 bytes
@@ -194,8 +194,8 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
                     .ok_or(ProgramError::AccountDataTooSmall)?,
             );
             *slots.discriminator = [DISCRIMINATOR];
-            *slots.manager = header.manager.to_bytes();
-            *slots.reclaim_authority = header.reclaim_authority.to_bytes();
+            *slots.manager = args.manager.to_bytes();
+            *slots.reclaim_authority = args.reclaim_authority.to_bytes();
         }
         Ok(Self(bytes))
     }
@@ -217,32 +217,46 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
         *holder = new.to_bytes();
     }
 
-    /// Insert `solver` into the sorted solver list at `index`.
+    /// Insert `solver` into the sorted solver list, or fail with
+    /// [`SettlementError::SolverAlreadyExists`] if it is already stored.
     ///
-    /// This function assumes that the underlying storage (e.g., the account)
-    /// has already been enlarged to the correct size ([`Self::grown_len`]) and
-    /// that the index has been computed correctly (is in rage, preserves
-    /// ordering, and isn't writing a duplicate).
-    pub fn insert_solver_at(&mut self, index: usize, solver: &Pubkey) {
-        let data: &mut [u8] = &mut self.0;
+    /// The account must already be grown by one solver slot
+    /// ([`grown_len`](Self::grown_len)): the trailing slot is spare capacity
+    /// for the new entry, so the live list is every entry but that last one.
+    /// The solver is placed in sorted order by shifting all entries and
+    /// inserting the new solver in the initial slot.
+    /// An error is returned if the solver is already included.
+    pub fn insert_solver(&mut self, solver: &Pubkey) -> Result<(), ProgramError> {
+        let (_spare, occupied) = self
+            .solver_region()
+            .split_last()
+            .expect("account grown by one solver slot before insertion");
+        let index = match occupied.binary_search(&solver.to_bytes()) {
+            Ok(_) => return Err(SettlementError::SolverAlreadyExists.into()),
+            Err(index) => index,
+        };
 
-        let old_len = data
+        // Shift the entries at and after `index` up one slot into the spare,
+        // then write the solver into the gap that opens at `index`.
+        let data: &mut [u8] = &mut self.0;
+        let occupied_end = data
             .len()
             .checked_sub(WIDTH_PUBKEY)
             .expect("account grown by one solver slot before insertion");
-        let offset = WIDTH_HEADER
+        let gap = WIDTH_HEADER
             .checked_add(
                 index
                     .checked_mul(WIDTH_PUBKEY)
                     .expect("insertion index bound by account length"),
             )
             .expect("insertion offset bound by account length");
-        let gap_end = offset
+        let gap_end = gap
             .checked_add(WIDTH_PUBKEY)
             .expect("insertion slot bound by account length");
 
-        data.copy_within(offset..old_len, gap_end);
-        data[offset..gap_end].copy_from_slice(&solver.to_bytes());
+        data.copy_within(gap..occupied_end, gap_end);
+        data[gap..gap_end].copy_from_slice(&solver.to_bytes());
+        Ok(())
     }
 }
 
@@ -253,12 +267,12 @@ pub mod fixtures {
     use proptest::prelude::*;
     use solana_pubkey::Pubkey;
 
-    use super::{Header, StateAccount, WIDTH_HEADER};
+    use super::{StateAccount, StateInitArgs, WIDTH_HEADER};
 
     /// The bytes of a state account: the `header` followed by `solvers`, stored
     /// sorted ascending by address as the on-chain list always is (so callers can
     /// pass them in any order).
-    pub fn state_account_bytes(header: &Header, solvers: &[Pubkey]) -> Vec<u8> {
+    pub fn state_account_bytes(header: &StateInitArgs, solvers: &[Pubkey]) -> Vec<u8> {
         let mut sorted = solvers.to_vec();
         sorted.sort();
         let mut bytes = vec![0u8; WIDTH_HEADER];
@@ -269,11 +283,13 @@ pub mod fixtures {
         bytes
     }
 
-    /// Any valid [`Header`].
-    pub fn arb_header() -> impl Strategy<Value = Header> {
-        (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(|(manager, reclaim_authority)| Header {
-            manager: Pubkey::new_from_array(manager),
-            reclaim_authority: Pubkey::new_from_array(reclaim_authority),
+    /// Any valid [`StateInitArgs`].
+    pub fn arb_init_params() -> impl Strategy<Value = StateInitArgs> {
+        (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(|(manager, reclaim_authority)| {
+            StateInitArgs {
+                manager: Pubkey::new_from_array(manager),
+                reclaim_authority: Pubkey::new_from_array(reclaim_authority),
+            }
         })
     }
 }
@@ -288,22 +304,22 @@ mod tests {
     /// Byte offset of the discriminator within the account.
     const DISCRIMINATOR_OFFSET: usize = 0;
 
-    static SAMPLE_HEADER: LazyLock<Header> = LazyLock::new(|| Header {
-        manager: pubkey_from_seed("SAMPLE_HEADER's sample manager"),
-        reclaim_authority: pubkey_from_seed("SAMPLE_HEADER's sample reclaim authority"),
+    static SAMPLE_INIT_ARGS: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
+        manager: pubkey_from_seed("SAMPLE_INIT_ARGS's sample manager"),
+        reclaim_authority: pubkey_from_seed("SAMPLE_INIT_ARGS's sample reclaim authority"),
     });
 
-    /// State account bytes stamped with [`SAMPLE_HEADER`].
+    /// State account bytes stamped with [`SAMPLE_INIT_ARGS`].
     fn header_bytes() -> [u8; WIDTH_HEADER] {
         let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(&mut bytes[..], &SAMPLE_HEADER).expect("header fits");
+        StateAccount::initialize(&mut bytes[..], &SAMPLE_INIT_ARGS).expect("header fits");
         bytes
     }
 
-    /// [`SAMPLE_HEADER`] followed by `solvers`, stored sorted ascending by address
+    /// [`SAMPLE_INIT_ARGS`] followed by `solvers`, stored sorted ascending by address
     /// as the on-chain list always is, so callers can pass them in any order.
     fn state_bytes(solvers: &[Pubkey]) -> Vec<u8> {
-        super::fixtures::state_account_bytes(&SAMPLE_HEADER, solvers)
+        super::fixtures::state_account_bytes(&SAMPLE_INIT_ARGS, solvers)
     }
 
     #[test]
@@ -312,10 +328,10 @@ mod tests {
 
         let bytes = header_bytes();
         assert_eq!(bytes[0], SettlementAccount::SettlementState.discriminator());
-        assert_eq!(&bytes[1..33], &SAMPLE_HEADER.manager.to_bytes()[..]);
+        assert_eq!(&bytes[1..33], &SAMPLE_INIT_ARGS.manager.to_bytes()[..]);
         assert_eq!(
             &bytes[33..65],
-            &SAMPLE_HEADER.reclaim_authority.to_bytes()[..]
+            &SAMPLE_INIT_ARGS.reclaim_authority.to_bytes()[..]
         );
     }
 
@@ -323,29 +339,11 @@ mod tests {
     fn reads_role_holders_from_the_header() {
         let bytes = header_bytes();
         let state = StateAccount::attach(&bytes[..]).expect("valid header");
-        assert_eq!(state.authority(Role::Manager), SAMPLE_HEADER.manager);
+        assert_eq!(state.authority(Role::Manager), SAMPLE_INIT_ARGS.manager);
         assert_eq!(
             state.authority(Role::ReclaimAuthority),
-            SAMPLE_HEADER.reclaim_authority
+            SAMPLE_INIT_ARGS.reclaim_authority
         );
-    }
-
-    #[test]
-    fn initialize_round_trips_a_header() {
-        let header = Header {
-            manager: pubkey_from_seed("manager"),
-            reclaim_authority: pubkey_from_seed("reclaim authority"),
-        };
-
-        let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
-
-        let state = StateAccount::attach(&bytes[..]).expect("valid header");
-        let read_back = Header {
-            manager: state.authority(Role::Manager),
-            reclaim_authority: state.authority(Role::ReclaimAuthority),
-        };
-        assert_eq!(read_back, header);
     }
 
     #[test]
@@ -409,10 +407,10 @@ mod tests {
         bytes.push(0x42);
 
         let state = StateAccount::attach(&bytes[..]).expect("header with trailing bytes is valid");
-        assert_eq!(state.authority(Role::Manager), SAMPLE_HEADER.manager);
+        assert_eq!(state.authority(Role::Manager), SAMPLE_INIT_ARGS.manager);
         assert_eq!(
             state.authority(Role::ReclaimAuthority),
-            SAMPLE_HEADER.reclaim_authority
+            SAMPLE_INIT_ARGS.reclaim_authority
         );
     }
 
@@ -477,7 +475,7 @@ mod tests {
     fn initialize_rejects_too_small_buffer() {
         let mut bytes = [0u8; WIDTH_HEADER - 1];
         assert_eq!(
-            StateAccount::initialize(&mut bytes[..], &SAMPLE_HEADER).err(),
+            StateAccount::initialize(&mut bytes[..], &SAMPLE_INIT_ARGS).err(),
             Some(ProgramError::AccountDataTooSmall),
         );
     }
@@ -492,7 +490,7 @@ mod tests {
             /// isn't stored.
             #[test]
             fn is_solver_reflects_membership(
-                header in fixtures::arb_header(),
+                header in fixtures::arb_init_params(),
                 // Unique and already sorted, being a `BTreeSet`.
                 raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 0..50),
                 raw_absent in any::<[u8; 32]>(),
@@ -514,19 +512,19 @@ mod tests {
             /// The encode roundtrip: any two role holders written with
             /// `initialize` read back unchanged.
             #[test]
-            fn account_encode_roundtrip(header in fixtures::arb_header()) {
+            fn account_encode_roundtrip(header in fixtures::arb_init_params()) {
                 let mut bytes = [0u8; WIDTH_HEADER];
                 StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
 
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
-                let Header { manager, reclaim_authority } = header;
+                let StateInitArgs { manager, reclaim_authority } = header;
                 prop_assert_eq!(state.authority(Role::Manager), manager);
                 prop_assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
             }
 
             #[test]
-            fn insert_solver_at_shifts_the_tail_and_writes_the_solver(
-                header in fixtures::arb_header(),
+            fn insert_solver_inserts_an_absent_solver(
+                header in fixtures::arb_init_params(),
                 // Unique and already sorted, being a `BTreeSet`.
                 raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 0..50),
                 raw_new in any::<[u8; 32]>(),
@@ -536,16 +534,9 @@ mod tests {
                     raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
                 let new = Pubkey::new_from_array(raw_new);
 
-                // The slot the new solver sorts into, before any growth.
+                // Grow by one slot, exactly as the handler resizes the account
+                // before delegating the insert.
                 let mut bytes = fixtures::state_account_bytes(&header, &stored);
-                let index = StateAccount::attach(&bytes[..])
-                    .expect("valid header")
-                    .solver_search(&new)
-                    .expect_err("solver is absent");
-
-                // Grow to the length `grown_len` reports, exactly as the handler
-                // resizes the account, then let `insert_solver_at` fill the new
-                // slot.
                 let grown_len = StateAccount::attach(&bytes[..])
                     .expect("valid header")
                     .grown_len()
@@ -554,13 +545,43 @@ mod tests {
                 bytes.resize(grown_len, 0);
                 StateAccount::attach(&mut bytes[..])
                     .expect("valid header")
-                    .insert_solver_at(index, &new);
+                    .insert_solver(&new)
+                    .expect("absent solver inserts");
 
                 let mut expected = stored;
-                expected.insert(index, new);
+                expected.push(new);
+                expected.sort();
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
                 prop_assert_eq!(state.solvers().collect::<Vec<_>>(), expected);
-                prop_assert_eq!(state.solver_search(&new), Ok(index));
+            }
+
+            /// `insert_solver` rejects a solver that is already stored and leaves
+            /// the live list untouched.
+            #[test]
+            fn insert_solver_rejects_an_existing_solver(
+                header in fixtures::arb_init_params(),
+                // Unique and already sorted, being a `BTreeSet`.
+                raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 1..50),
+                pick in any::<prop::sample::Index>(),
+            ) {
+                let stored: Vec<Pubkey> =
+                    raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
+                let existing = stored[pick.index(stored.len())];
+
+                // Grow by one slot as the handler does, then try to re-add.
+                let mut bytes = fixtures::state_account_bytes(&header, &stored);
+                bytes.resize(bytes.len().strict_add(WIDTH_PUBKEY), 0);
+                prop_assert_eq!(
+                    StateAccount::attach(&mut bytes[..])
+                        .expect("valid header")
+                        .insert_solver(&existing),
+                    Err(SettlementError::SolverAlreadyExists.into()),
+                );
+
+                // Nothing was written: the stored solvers still read back in
+                // order (the trailing spare slot is left as the zero pubkey).
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
+                prop_assert_eq!(state.solvers().take(stored.len()).collect::<Vec<_>>(), stored);
             }
         }
     }
