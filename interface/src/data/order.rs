@@ -96,9 +96,9 @@ impl OrderAccount {
     }
 }
 
-/// How much of the order's exact side has been filled by the given cumulative
-/// totals, paired with the intent amount that side fills up to: a `Sell` order
-/// fills by what's withdrawn from it, a `Buy` order by what it receives.
+/// Extract the values relevant for understanding the fill of an order.
+/// Returns a tuple. First return value is the amount currently filled, and the second return
+/// value is the amount that has been requested to be filled by the intent.
 pub fn fill_progress(
     intent: &OrderIntent,
     amount_withdrawn: u64,
