@@ -6,7 +6,6 @@ use cow_settlement_client::{
 };
 use solana_sdk::{
     signature::{read_keypair_file, Signer},
-    signer::keypair::Keypair,
     transaction::Transaction,
 };
 
@@ -65,17 +64,16 @@ fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
         solver: args.solver,
     };
 
-    // A manager that is the payer signs a single slot, so don't pass it twice.
-    let mut signers: Vec<&Keypair> = vec![&ctx.payer];
-    if manager_pubkey != payer {
-        signers.push(manager);
-    }
-
     let blockhash = ctx
         .rpc
         .get_latest_blockhash()
         .context("failed to fetch blockhash")?;
-    let tx = Transaction::new_signed_with_payer(&[ix.into()], Some(&payer), &signers, blockhash);
+    let tx = Transaction::new_signed_with_payer(
+        &[ix.into()],
+        Some(&payer),
+        &[&ctx.payer, manager],
+        blockhash,
+    );
     let sig = ctx
         .rpc
         .send_and_confirm_transaction(&tx)
