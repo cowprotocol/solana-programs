@@ -94,23 +94,24 @@ fn non_signing_solver_may_not_settle() {
     let solver = unique_keypair();
     register_solver(&mut svm, &params, &solver.pubkey());
 
-    // Build a valid settlement, then clear the solver account's signer flag in
-    // every instruction so the program sees a registered solver that didn't
-    // sign (and the message no longer requires its signature).
-    let mut instructions = noop_settlement(&params.program_id, &solver.pubkey());
-    for instruction in &mut instructions {
-        for meta in &mut instruction.accounts {
-            if meta.pubkey == solver.pubkey() {
-                assert!(
-                    meta.is_signer,
-                    "sanity check: the solver account should start as a signer"
-                );
-                meta.is_signer = false;
-            }
-        }
+    let mut begin_settle: Instruction = BeginSettle {
+        program_id: params.program_id,
+        solver: solver.pubkey(),
+        finalize_ix_index: 0,
+        auction_id: 0,
+        orders: &[],
     }
+    .into();
+
+    let solver_index = 0;
+    assert!(
+        begin_settle.accounts[solver_index].is_signer
+            && begin_settle.accounts[solver_index].pubkey == solver.pubkey(),
+        "sanity check: the solver account should start as a signer"
+    );
+    begin_settle.accounts[solver_index].is_signer = false;
     let tx = Transaction::new_signed_with_payer(
-        &instructions,
+        &[begin_settle],
         Some(&params.payer.pubkey()),
         &[&params.payer],
         svm.latest_blockhash(),
