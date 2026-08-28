@@ -145,11 +145,11 @@ pub fn build_staged_settlement(
 }
 
 /// Where the `FinalizeSettle` lands in a settlement with `interposed`
-/// instructions sitting between the pair: [`FINALIZE_INDEX`] shifted along by
-/// them.
+/// instructions sitting between
 fn finalize_index(interposed: usize) -> u16 {
     u16::try_from(interposed)
         .ok()
-        .and_then(|shift| shift.checked_add(u16::from(FINALIZE_INDEX)))
+        .and_then(|shift| shift.checked_add(BEGIN_INDEX.into()))
+        .and_then(|shift| shift.checked_add(1))
         .expect("a test transaction holds far fewer than u16::MAX instructions")
 }
