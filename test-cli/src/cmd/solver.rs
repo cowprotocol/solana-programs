@@ -82,7 +82,7 @@ fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     let (state_pda, _) = find_state_pda(&ctx.program_id);
     print_summary(&[
         ("signature", &sig),
-        ("solver", &args.solver),
+        ("added solver", &args.solver),
         ("manager", &manager_pubkey),
         ("statePda", &state_pda),
     ]);
