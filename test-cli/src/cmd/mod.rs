@@ -9,6 +9,7 @@ use crate::Cli;
 pub mod create_order;
 pub mod initialize;
 pub mod settle;
+pub mod solver;
 
 /// Shared context threaded through every subcommand.
 pub struct Context {
