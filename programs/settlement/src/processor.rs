@@ -132,7 +132,7 @@ pub fn check_state_pda(
 /// This function is to be used as an alternative for [`with_state_pda_signer`]
 /// in the case where the state PDA has been checked in an earlier call.
 /// The caller is responsible for having validated the bump against the state
-/// PDA (e.g. via [`check_state_pda`] or [`require_solver`]).
+/// PDA, via [`check_state_pda`].
 ///
 /// If state PDA validation is needed, use [`with_state_pda_signer`].
 pub fn with_state_pda_signer_from_bump(
@@ -146,7 +146,7 @@ pub fn with_state_pda_signer_from_bump(
 /// Validate that `state_pda_account` is the canonical state PDA and run `f`
 /// with a signer for it, in one step. Use [`with_state_pda_signer_from_bump`]
 /// directly when the bump has already been derived (as settling does, via
-/// [`require_solver`]) to avoid re-deriving the PDA.
+/// [`check_state_pda`]) to avoid re-deriving the PDA.
 pub fn with_state_pda_signer(
     program_id: &Address,
     state_pda_account: &AccountView,
@@ -155,22 +155,21 @@ pub fn with_state_pda_signer(
     with_state_pda_signer_from_bump(check_state_pda(program_id, state_pda_account)?, f)
 }
 
-/// Confirm that the given account is a valid solver.
+/// Confirm that `solver_account` signed the transaction and is in the solver
+/// list held by `state_pda_account`.
 ///
-/// Returns the state PDA's canonical bump, so the caller can build its signer via
-/// [`with_state_pda_signer_from_bump`] without deriving the PDA a second time.
+/// Confirming the state account sits at the canonical state PDA (and deriving
+/// its bump for the signer) is left to the caller, via [`check_state_pda`].
 #[must_use = "ignoring the result skips solver authentication"]
 pub fn require_solver(
-    program_id: &Address,
     state_pda_account: &AccountView,
     solver_account: &AccountView,
-) -> Result<u8, ProgramError> {
-    let state_bump = check_state_pda(program_id, state_pda_account)?;
+) -> ProgramResult {
     let state = StateAccount::attach(state_pda_account.try_borrow()?)?;
     if !solver_account.is_signer() || !state.is_solver(solver_account.address()) {
         return Err(SettlementError::UnauthorizedSolver.into());
     }
-    Ok(state_bump)
+    Ok(())
 }
 
 pub fn is_cpi_call() -> bool {
