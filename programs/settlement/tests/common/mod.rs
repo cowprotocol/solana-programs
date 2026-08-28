@@ -14,7 +14,7 @@ pub mod settlement;
 pub mod state;
 pub mod token;
 
-use cow_settlement_client::instructions::Initialize;
+use cow_settlement_client::instructions::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::SettlementError;
@@ -122,6 +122,41 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             reclaim,
         },
     )
+}
+
+/// Register `solver` in the state PDA's solver list, authorized by the manager
+/// and paid by the fee payer.
+pub fn register_solver(svm: &mut LiteSVM, params: &InitializedParams, solver: &Pubkey) {
+    let tx = Transaction::new_signed_with_payer(
+        &[AddSolver {
+            program_id: params.program_id,
+            manager: params.manager.pubkey(),
+            payer: params.payer.pubkey(),
+            solver: *solver,
+        }
+        .into()],
+        Some(&params.payer.pubkey()),
+        &[&params.payer, &params.manager],
+        svm.latest_blockhash(),
+    );
+    svm.send_transaction(tx)
+        .expect("registering a solver should succeed");
+}
+
+/// [`setup_init`] plus a freshly registered, funded `solver`, returned alongside
+/// the fee `payer`. `payer` funds the test's setup transactions (creating orders,
+/// funding buffers). `solver` authorizes settlements and must sign them; it is
+/// airdropped so it can submit and pay for the settlement itself.
+pub fn setup_settle_ready() -> (LiteSVM, Pubkey, Keypair, Keypair) {
+    let (mut svm, params) = setup_init();
+    let solver = unique_keypair();
+    register_solver(&mut svm, &params, &solver.pubkey());
+    svm.airdrop(&solver.pubkey(), 1_000_000_000)
+        .expect("airdrop to solver should succeed");
+    let InitializedParams {
+        program_id, payer, ..
+    } = params;
+    (svm, program_id, payer, solver)
 }
 
 /// Adds CPI caller test helper to the given SVM

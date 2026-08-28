@@ -108,8 +108,12 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .and_then(|begin| Some((begin, begin.checked_add(1)?)))
         .context("too many instructions: begin/finalize index overflow")?;
 
+    // `BeginSettle` is gated on a registered solver that signs. The fee payer
+    // is assumed to be a solver.
+    let solver = ctx.payer.pubkey();
     let begin_ix = BeginSettle {
         program_id: ctx.program_id,
+        solver,
         finalize_ix_index,
         orders: &initialized_intents,
         auction_id: 0,
