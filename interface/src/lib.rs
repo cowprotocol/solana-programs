@@ -207,8 +207,8 @@ pub enum SettlementError {
     /// `BeginSettle`: the order's cumulative `amount_received` would exceed
     /// `u64::MAX` once this settlement's push is added.
     AmountReceivedOverflow = 29,
-    /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
-    OrderNotExpired = 30,
+    /// `ReclaimOrder` was called on an order that has is not yet eligible for reclaim.
+    OrderNotReclaimable = 30,
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 31,
@@ -230,6 +230,9 @@ pub enum SettlementError {
     /// `BeginSettle`/`FinalizeSettle`'s solver account isn't a signer or isn't
     /// in the state PDA's solver list, so it may not settle.
     UnauthorizedSolver = 37,
+    /// A created order's intent isn't set with the `created_on_chain` flag corresponding
+    /// to the behavior of the invoked order creation instruction.
+    OrderCreatedOnChainMismatch = 38,
 }
 
 impl From<SettlementError> for u32 {

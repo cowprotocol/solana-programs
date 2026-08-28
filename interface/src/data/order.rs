@@ -28,7 +28,7 @@ use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::data::intent::{self, EncodedOrderIntent, OrderIntent};
+use crate::data::intent::{self, EncodedOrderIntent, OrderIntent, OrderKind};
 use crate::pda::is_pda_with_signer_seeds;
 use crate::pda::order::order_pda_signer_seeds;
 use crate::{SettlementAccount, SettlementError};
@@ -85,6 +85,28 @@ impl OrderAccount {
         }
 
         Ok(account)
+    }
+
+    /// Whether the order has been filled to the full amount of its exact side,
+    /// so no settlement can ever fill it again.
+    pub fn is_fully_filled(&self) -> bool {
+        let (filled, order_amount) =
+            fill_progress(&self.intent, self.amount_withdrawn, self.amount_received);
+        filled >= order_amount
+    }
+}
+
+/// Extract the values relevant for understanding the fill of an order.
+/// Returns a tuple. First return value is the amount currently filled, and the second return
+/// value is the amount that has been requested to be filled by the intent.
+pub fn fill_progress(
+    intent: &OrderIntent,
+    amount_withdrawn: u64,
+    amount_received: u64,
+) -> (u64, u64) {
+    match intent.flags.kind {
+        OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
+        OrderKind::Buy => (amount_received, intent.buy_amount),
     }
 }
 
@@ -314,6 +336,7 @@ mod tests {
     use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
     use crate::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
+    use crate::data::intent::Flags;
 
     // Pin each width to the size of the `OrderAccount` field it encodes. The
     // widths summing to `SIZE` is enforced separately, at compile time, by the
@@ -364,6 +387,46 @@ mod tests {
     }
 
     #[test]
+    fn is_fully_filled_tracks_the_exact_side_only() {
+        const SELL_AMOUNT: u64 = 1_000;
+        const BUY_AMOUNT: u64 = 2_000;
+
+        let account = |kind, amount_withdrawn, amount_received| OrderAccount {
+            amount_withdrawn,
+            amount_received,
+            intent: OrderIntent {
+                sell_amount: SELL_AMOUNT,
+                buy_amount: BUY_AMOUNT,
+                ..sample_intent(Flags {
+                    kind,
+                    ..Default::default()
+                })
+            },
+            ..sample_account(false)
+        };
+
+        // (kind, withdrawn, received, expected)
+        let cases = [
+            (OrderKind::Sell, SELL_AMOUNT, 0, true), // fully filled SELL order (stolen money, generally impossible)
+            (OrderKind::Buy, 0, BUY_AMOUNT, true),   // fully filled BUY order (free money)
+            (OrderKind::Sell, u64::MAX, 0, true), // sell fill past the intent amount (should be impossible)
+            (OrderKind::Sell, u64::MAX, u64::MAX, true), // sell fill past the intent amount (should be impossible)
+            (OrderKind::Buy, 0, u64::MAX, true),         // buy fill past the intent amount
+            (OrderKind::Buy, u64::MAX, u64::MAX, true),  // buy fill past the intent amount
+            (OrderKind::Sell, 0, 0, false),              // unfilled order
+            (OrderKind::Sell, SELL_AMOUNT - 1, BUY_AMOUNT, false), // not fully filled SELL order
+            (OrderKind::Buy, SELL_AMOUNT, BUY_AMOUNT - 1, false), // not fully filled BUY order with fully filled sell side (generally should be impossible)
+        ];
+        for (kind, withdrawn, received, expected) in cases {
+            assert_eq!(
+                account(kind, withdrawn, received).is_fully_filled(),
+                expected,
+                "{kind:?} order withdrawn={withdrawn} received={received}",
+            );
+        }
+    }
+
+    #[test]
     fn sanity_check_offsets() {
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
             lhs.iter().zip(rhs).position(|(l, r)| l != r)
@@ -386,7 +449,7 @@ mod tests {
         // In general, it isn't guaranteed that the result encodes to a
         // valid intent, but in this case we know it because the only byte
         // that may fail decoding is the flags byte, and `^0x01` only flips
-        // its `kind` bit, never a reserved one.
+        // its `created_on_chain` flag bits, never a reserved one.
         let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
             encoded_intent.map(|b| b ^ 0x01);
         sample_account_base.intent =
