@@ -31,7 +31,7 @@
   },
   "compute_units": {
     "add_solver/add_with_many_existing_solvers": 5074,
-    "add_solver/adds_a_solver": 4622,    
+    "add_solver/adds_a_solver": 4622,
     "create_buffers/happy_path_creates_initialized_buffer_token_account": 7345,
     "create_buffers/happy_path_creates_multiple_buffers_in_one_instruction": 17243,
     "create_buffers/max_buffers_in_one_instruction": 169540,
