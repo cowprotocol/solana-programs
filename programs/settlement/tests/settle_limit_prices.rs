@@ -7,7 +7,7 @@
 //! succeeds or is rejected with the expected error.
 
 use crate::common::{
-    assert_settlement_error, buffer,
+    assert_instruction_error_at, buffer,
     order::OrderBuilder,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
     setup, to_instruction_error, token, unique_pubkey,
@@ -29,6 +29,19 @@ use solana_sdk::{
 };
 
 mod common;
+
+/// Convenience wrapper around [`assert_instruction_error_at`] for asserting a
+/// specific [`SettlementError`] at the instruction that produced it: settlements
+/// run as a `[BeginSettle, FinalizeSettle]` pair, so the failing instruction
+/// isn't always the first.
+#[track_caller]
+fn assert_settlement_error<T>(
+    ix_idx: u8,
+    result: Result<T, TransactionError>,
+    expected: SettlementError,
+) {
+    assert_instruction_error_at(ix_idx, result, to_instruction_error(expected));
+}
 
 /// Read `intent`'s order PDA and return its persisted `(amount_withdrawn,
 /// amount_received)` cumulative fill totals.
