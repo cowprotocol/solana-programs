@@ -135,6 +135,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
 - Commit the code changes resulting from the steps above (excluding the key of the generated account).
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
+- Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --help`).
 - Create a PR with the changes and wait for approval.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
