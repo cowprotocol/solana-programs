@@ -14,9 +14,10 @@ pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 use super::InstructionInputParsing;
 use crate::SettlementInstruction;
 
-/// The SPL Token program. Buffers are created as token accounts owned by this
-/// program.
-pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
+/// The legacy SPL Token program, the default this builder places in the
+/// `token_program` account. Buffers are created as token accounts owned by
+/// whichever of [`crate::token_program::SUPPORTED_TOKEN_PROGRAMS`] is passed.
+pub use crate::token_program::SPL_TOKEN_PROGRAM_ID;
 
 /// Builder for a `CreateBuffer` instruction that creates one buffer per
 /// `(buffer_pda, mint)` pair in `buffers`.

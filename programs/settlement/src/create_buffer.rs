@@ -2,15 +2,18 @@
 
 use cow_settlement_interface::{
     instruction::{
-        create_buffer::{BufferAccounts, CreateBufferInput, SPL_TOKEN_PROGRAM_ID},
+        create_buffer::{BufferAccounts, CreateBufferInput},
         InstructionInputParsing,
     },
     pda::{buffer::buffer_pda_seeds, state::state_pda_seeds},
 };
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use pinocchio_token::{instructions::InitializeAccount3, state::Account as TokenAccount};
+use pinocchio::{AccountView, Address, ProgramResult};
+use pinocchio_token::instructions::InitializeAccount3;
 
-use crate::processor::CanonicalPda;
+use crate::{
+    processor::CanonicalPda,
+    token::{token_account_len, validate_token_program},
+};
 
 pub fn process_create_buffer(
     program_id: &Address,
@@ -19,12 +22,10 @@ pub fn process_create_buffer(
 ) -> ProgramResult {
     let input = CreateBufferInput::parse(instruction_data, accounts)?;
 
-    // Only the legacy SPL Token program is supported. The InitializeAccount3
-    // CPI targets that program unconditionally; reject a mismatching account
-    // up front so the caller gets a clear error.
-    if input.token_program.address() != &SPL_TOKEN_PROGRAM_ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
+    // Every buffer this instruction creates belongs to the one token program
+    // it was handed, so reject an unsupported one up front rather than at the
+    // first CPI.
+    let token_program = validate_token_program(input.token_program)?;
 
     // The buffers' token authority is the settlement state PDA, the single
     // authority over every buffer. Derive it once for all buffers.
@@ -34,8 +35,12 @@ pub fn process_create_buffer(
         // One buffer per token. `CanonicalPda::create_idempotent` derives the
         // canonical bump and, by signing the allocation with the buffer seeds,
         // rejects any `buffer_pda` that isn't the canonical address. The buffer
-        // is a token account, so it's assigned to the SPL Token program rather
-        // than to the settlement program.
+        // is a token account, so it's assigned to the token program rather than
+        // to the settlement program.
+        //
+        // The buffer is sized for the mint it will hold: a Token-2022 mint
+        // whose extensions require matching ones on its token accounts needs
+        // room for them, and `token_account_len` is what works out how much.
         //
         // We don't validate `mint` here. `InitializeAccount3` requires a real,
         // token-program-owned mint (and special-cases the native mint), so a
@@ -45,8 +50,8 @@ pub fn process_create_buffer(
             program_id,
             payer: input.payer,
             pda: buffer_pda,
-            size: TokenAccount::LEN as u64,
-            owner: &SPL_TOKEN_PROGRAM_ID,
+            size: token_account_len(token_program, mint)?,
+            owner: token_program,
             seeds: buffer_pda_seeds(mint_key),
         }
         .create_idempotent()?;
@@ -54,7 +59,8 @@ pub fn process_create_buffer(
         // An existing buffer is already an initialized token account, so only
         // initialize a freshly created one.
         if created {
-            InitializeAccount3::new(buffer_pda, mint, &state_pda).invoke()?;
+            InitializeAccount3::new(buffer_pda, mint, &state_pda)
+                .invoke_with_unverified_program(token_program)?;
         }
     }
 
@@ -68,6 +74,7 @@ mod tests {
         create_buffer_data, NUM_SHARED_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use pinocchio::error::ProgramError;
 
     /// Arbitrary placeholder program id. The failure path exercised below
     /// returns before the program id is used for any syscall.

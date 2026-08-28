@@ -32,7 +32,8 @@ litesvm-token = "0.15"
 num_enum = "0.7"
 pinocchio = "0.11"
 pinocchio-system = "0.6"
-pinocchio-token = "0.6"
+pinocchio-token = "0.7"
+pinocchio-token-2022 = "0.4"
 proptest = "1"
 cow-settlement-client = { path = "client", version = "0.2.0" }
 cow-settlement-interface = { path = "interface", version = "0.2.0" }
@@ -56,6 +57,7 @@ solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
 spl-associated-token-account-interface = "2"
 spl-token = "9"
+spl-token-2022-interface = "3"
 spl-token-interface = "3"
 
 [workspace.metadata.cli]

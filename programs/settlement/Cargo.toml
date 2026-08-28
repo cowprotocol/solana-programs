@@ -21,6 +21,7 @@ crate-type = ["cdylib", "lib"]
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system.workspace = true
 pinocchio-token.workspace = true
+pinocchio-token-2022.workspace = true
 cow-settlement-interface.workspace = true
 solana-instruction = { workspace = true, features = ["syscalls"] }
 

@@ -9,6 +9,7 @@ solana_pubkey::declare_id!("J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w");
 pub mod data;
 pub mod instruction;
 pub mod pda;
+pub mod token_program;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
@@ -219,6 +220,11 @@ pub enum SettlementError {
     /// `TransferAuthority`'s signer is neither the manager nor the current
     /// holder of the role being transferred, so it may not transfer it.
     UnauthorizedAuthorityTransfer = 34,
+    /// `CreateBuffer` asked the token program how long a token account for a
+    /// mint has to be and couldn't read the answer, so it can't size the
+    /// buffer. Defensive: a token program that fails this query aborts the
+    /// instruction on its own.
+    BufferSizeUnavailable = 35,
 }
 
 impl From<SettlementError> for u32 {

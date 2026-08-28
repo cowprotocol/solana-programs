@@ -7,6 +7,7 @@ mod processor;
 mod reclaim_buffer;
 mod reclaim_order;
 mod settle;
+mod token;
 mod transfer_authority;
 
 use cow_settlement_interface::{recover_discriminator, SettlementInstruction};
