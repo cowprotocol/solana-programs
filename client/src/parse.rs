@@ -115,6 +115,7 @@ mod tests {
             .into(),
             SettlementInstruction::BeginSettle => BeginSettle {
                 program_id,
+                solver: payer,
                 finalize_ix_index: 1,
                 auction_id: 42,
                 orders: &[InitializedIntent {

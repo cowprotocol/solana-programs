@@ -29,7 +29,7 @@ enum AbstractInstruction {
 fn run_sequence(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
-    payer: &Keypair,
+    solver: &Keypair,
     sequence: &[AbstractInstruction],
 ) -> Result<(), Box<FailedTransactionMetadata>> {
     let instructions: Vec<Instruction> = sequence
@@ -37,6 +37,7 @@ fn run_sequence(
         .map(|spec| match spec {
             AbstractInstruction::Init(idx) => BeginSettle {
                 program_id: *program_id,
+                solver: solver.pubkey(),
                 finalize_ix_index: *idx,
                 auction_id: 0,
                 orders: &[],
@@ -52,15 +53,17 @@ fn run_sequence(
             // (unlike Compute Budget) Solana allows to appear multiple times
             // in the same transaction.
             AbstractInstruction::Other => {
-                system_instruction::transfer(&payer.pubkey(), &payer.pubkey(), 0)
+                system_instruction::transfer(&solver.pubkey(), &solver.pubkey(), 0)
             }
         })
         .collect();
 
+    // The solver settles and pays: it's the fee payer and the only signer any of
+    // these instructions needs (a `BeginSettle` names it as its solver-signer).
     let tx = Transaction::new_signed_with_payer(
         &instructions,
-        Some(&payer.pubkey()),
-        &[payer],
+        Some(&solver.pubkey()),
+        &[solver],
         svm.latest_blockhash(),
     );
     svm.send_transaction(tx).map(|_| ()).map_err(Box::new)
@@ -90,9 +93,9 @@ fn valid_sequences() {
         ],
     ];
 
-    let (mut svm, program_id, payer) = common::setup();
+    let (mut svm, program_id, _payer, solver) = common::setup_settle_ready();
     for sequence in cases {
-        let result = run_sequence(&mut svm, &program_id, &payer, sequence);
+        let result = run_sequence(&mut svm, &program_id, &solver, sequence);
         assert!(
             result.is_ok(),
             "expected {sequence:?} to succeed, got {result:?}"
@@ -165,9 +168,9 @@ fn invalid_sequences() {
         ),
     ];
 
-    let (mut svm, program_id, payer) = common::setup();
+    let (mut svm, program_id, _payer, solver) = common::setup_settle_ready();
     for (sequence, (failing_index, expected)) in cases {
-        let err = run_sequence(&mut svm, &program_id, &payer, sequence)
+        let err = run_sequence(&mut svm, &program_id, &solver, sequence)
             .expect_err(&format!("expected {sequence:?} to fail, got Ok"));
         assert_eq!(
             err.err,
@@ -182,17 +185,18 @@ fn invalid_sequences() {
 /// should reject the substitution with `UnsupportedSysvar` and revert the
 /// transaction.
 #[test]
-fn rejects_non_instructions_sysvar_account_at_position_zero() {
-    let (mut svm, program_id, payer) = common::setup();
+fn rejects_non_instructions_sysvar_account_at_position_one() {
+    let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
 
     let mut begin: Instruction = BeginSettle {
         program_id,
+        solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
         orders: &[],
     }
     .into();
-    begin.accounts[0] = AccountMeta::new_readonly(payer.pubkey(), false);
+    begin.accounts[1] = AccountMeta::new_readonly(payer.pubkey(), false);
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: 0,
@@ -202,7 +206,7 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
     let tx = Transaction::new_signed_with_payer(
         &[begin, finalize.into()],
         Some(&payer.pubkey()),
-        &[&payer],
+        &[&payer, &solver],
         svm.latest_blockhash(),
     );
     let err = svm
@@ -220,10 +224,11 @@ fn rejects_non_instructions_sysvar_account_at_position_zero() {
 /// filled with an instruction that has the same data shape as a begin/finalize
 /// settlement instruction but `init.get_program_id() != program_id`.
 fn rejects_counterpart_instruction_in_different_program() {
-    let (mut svm, program_id, payer) = common::setup();
+    let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
 
     let begin = BeginSettle {
         program_id,
+        solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
         orders: &[],
@@ -242,7 +247,7 @@ fn rejects_counterpart_instruction_in_different_program() {
     let tx = Transaction::new_signed_with_payer(
         &instructions,
         Some(&payer.pubkey()),
-        &[&payer],
+        &[&payer, &solver],
         svm.latest_blockhash(),
     );
     let err = svm
@@ -278,13 +283,14 @@ fn as_cpi_call(cpi_caller_id: Pubkey, ix: impl Into<Instruction>) -> Instruction
 /// via CPI.  The settlement program should reject it with `CalledViaCpi`.
 #[test]
 fn rejects_cpi_call_to_begin_settle() {
-    let (mut svm, settlement_id, payer) = common::setup();
+    let (mut svm, settlement_id, payer, solver) = common::setup_settle_ready();
     let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
     let cpi_caller_ix = as_cpi_call(
         cpi_caller_id,
         BeginSettle {
             program_id: settlement_id,
+            solver: solver.pubkey(),
             finalize_ix_index: 1,
             auction_id: 0,
             orders: &[],
@@ -294,7 +300,7 @@ fn rejects_cpi_call_to_begin_settle() {
     let tx = Transaction::new_signed_with_payer(
         &[cpi_caller_ix],
         Some(&payer.pubkey()),
-        &[&payer],
+        &[&payer, &solver],
         svm.latest_blockhash(),
     );
     let err = svm
@@ -310,7 +316,8 @@ fn rejects_cpi_call_to_begin_settle() {
 /// Same as `rejects_cpi_call_to_begin_settle` but for `finalize_settle`.
 #[test]
 fn rejects_cpi_call_to_finalize_settle() {
-    let (mut svm, settlement_id, payer) = common::setup();
+    // `FinalizeSettle` isn't gated, so no solver signature is needed here.
+    let (mut svm, settlement_id, payer, _solver) = common::setup_settle_ready();
     let cpi_caller_id = common::setup_cpi_caller(&mut svm);
 
     let cpi_caller_ix = as_cpi_call(
@@ -344,10 +351,11 @@ fn rejects_cpi_call_to_finalize_settle() {
 /// valid discriminator, and `Other` belongs to a different program.
 #[test]
 fn rejects_counterpart_with_unrecoverable_discriminator() {
-    let (mut svm, program_id, payer) = common::setup();
+    let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
 
     let begin = BeginSettle {
         program_id,
+        solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
         orders: &[],
@@ -363,7 +371,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
     let tx = Transaction::new_signed_with_payer(
         &[begin.into(), malformed],
         Some(&payer.pubkey()),
-        &[&payer],
+        &[&payer, &solver],
         svm.latest_blockhash(),
     );
     let err = svm
@@ -385,10 +393,11 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
 /// outside what the abstract harness can produce.
 #[test]
 fn rejects_counterpart_with_unrecoverable_counterpart_index() {
-    let (mut svm, program_id, payer) = common::setup();
+    let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
 
     let begin = BeginSettle {
         program_id,
+        solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
         orders: &[],
@@ -405,7 +414,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
     let tx = Transaction::new_signed_with_payer(
         &[begin.into(), malformed],
         Some(&payer.pubkey()),
-        &[&payer],
+        &[&payer, &solver],
         svm.latest_blockhash(),
     );
     let err = svm
