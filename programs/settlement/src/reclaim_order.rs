@@ -54,11 +54,12 @@ pub fn process_reclaim_order(
 
 /// Determines whether the order may be reclaimed despite being unexpired
 fn is_reclaimable_before_expiry(account: &OrderAccount) -> bool {
-    account.intent.created_on_chain && (account.cancelled || account.is_fully_filled())
+    account.intent.flags.created_on_chain && (account.cancelled || account.is_fully_filled())
 }
 
 #[cfg(test)]
 mod tests {
+    use cow_settlement_interface::data::intent::Flags;
     use cow_settlement_interface::data::intent::{fixtures::sample_intent, OrderIntent, OrderKind};
     use cow_settlement_interface::data::order::EncodedOrderAccount;
     use cow_settlement_interface::instruction::{
@@ -118,8 +119,11 @@ mod tests {
             amount_withdrawn,
             intent: OrderIntent {
                 sell_amount: SELL_AMOUNT,
-                created_on_chain,
-                ..sample_intent(OrderKind::Sell, true)
+                ..sample_intent(Flags {
+                    created_on_chain,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                })
             },
             ..Default::default()
         };

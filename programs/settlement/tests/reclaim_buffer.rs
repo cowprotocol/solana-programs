@@ -13,7 +13,9 @@ use solana_sdk::{
 
 use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
-use crate::common::{unique_pubkey, InitializedParams};
+use crate::common::{
+    assert_instruction_error, to_instruction_error, unique_pubkey, InitializedParams,
+};
 
 mod common;
 
@@ -262,7 +264,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    common::assert_instruction_error(
+    assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
         InstructionError::InvalidAccountData,
     );
@@ -291,10 +293,9 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
-    common::assert_settlement_error(
-        0,
+    assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        SettlementError::ReclaimAuthorityMismatch,
+        to_instruction_error(SettlementError::ReclaimAuthorityMismatch),
     );
 }
 
@@ -335,10 +336,9 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
         .expect("instruction should reference the reclaim authority");
     authority_meta.is_signer = false;
 
-    common::assert_settlement_error(
-        0,
+    assert_instruction_error(
         common::send(&mut svm, &payer, vec![ix]),
-        SettlementError::ReclaimAuthorityMismatch,
+        to_instruction_error(SettlementError::ReclaimAuthorityMismatch),
     );
     assert!(
         svm.get_account(&buffer_pda).is_some(),

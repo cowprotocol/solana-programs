@@ -115,28 +115,31 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
-	// Origin and destination of funds in this order.
-	// They implicitly encode both the receiver account and the traded tokens.
+	// Origin and destination of funds in this order, each with the mint it
+	// should correspond to.
 	buy_token_account: Pubkey
+	buy_mint: Pubkey
 	sell_token_account: Pubkey
+	sell_mint: Pubkey
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
 	// Unix timestamp
 	valid_to: u32
-	// Either Buy or Sell
-	kind: OrderKind
-	partially_fillable: bool
-	// Which of the two authentication schemes applies to this order:
-	// on-chain creation by the owner, or an off-chain signature.
-	created_on_chain: bool
+	flags: Flags
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
+
+struct Flags {
+	// Either Buy or Sell
+	kind: OrderKind
+	partially_fillable: bool
+}
 ```
 
-The intent's `kind` and booleans share a single flags byte in the encoded form,
-one bit each, with the remaining bits reserved and required to be zero.
+The fields grouped in `Flags` share a single byte in the encoded form, one bit
+each, with the remaining bits reserved and required when decoding to be zero.
 
 Differences with Ethereum:
 

@@ -16,6 +16,7 @@ pub const FINALIZE_INDEX: u8 = 1;
 /// to. Submit the result with [`send`](super::send).
 pub fn build_settlement(
     program_id: &Pubkey,
+    solver: &Pubkey,
     orders: &[FinalizedIntent],
     finalize: impl Into<Instruction>,
 ) -> Vec<Instruction> {
@@ -28,6 +29,7 @@ pub fn build_settlement(
         .collect();
     let begin = BeginSettle {
         program_id: *program_id,
+        solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
         orders: &begin_orders,

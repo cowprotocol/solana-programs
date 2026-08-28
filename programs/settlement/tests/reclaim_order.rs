@@ -1,9 +1,12 @@
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind},
-    data::order::{EncodedOrderAccount, OrderAccount},
+    data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent},
     instruction::{create_order::CreateOrder, reclaim_order::ReclaimOrder},
     pda::order::find_order_pda,
     SettlementError,
+};
+use cow_settlement_interface::data::{
+    intent::Flags,
+    order::{EncodedOrderAccount, OrderAccount},
 };
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -25,7 +28,10 @@ fn reclaim_sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
         valid_to: VALID_TO,
-        ..sample_intent(OrderKind::Sell, true)
+        ..sample_intent(Flags {
+            created_on_chain: true,
+            ..Default::default()
+        })
     }
 }
 
@@ -268,7 +274,10 @@ fn off_chain_order_is_reclaimable_only_once_expired() {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = OrderIntent {
-        created_on_chain: false,
+        flags: Flags {
+            created_on_chain: false,
+            ..Default::default()
+        },
         ..reclaim_sample_intent(owner.pubkey())
     };
     // Cancelled *and* completely filled: the strongest case for early reclaim,

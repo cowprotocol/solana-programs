@@ -26,6 +26,7 @@ pub struct InitializedIntent<'a> {
 /// Builder for a `BeginSettle` instruction settling the given orders.
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
+    pub solver: Pubkey,
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes, carried so it can be tied
     /// back to its auction off-chain.
@@ -48,6 +49,7 @@ impl From<BeginSettle<'_>> for Instruction {
         cow_settlement_interface::instruction::settle::BeginSettle {
             program_id: builder.program_id,
             state_pda,
+            solver: builder.solver,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
             order_pdas: &order_pdas,
@@ -59,14 +61,10 @@ impl From<BeginSettle<'_>> for Instruction {
 }
 
 /// A settled order whose proceeds are pushed to it: `intent` identifies the
-/// order (its `buy_token_account` is the push destination), `mint` selects the
-/// canonical source buffer, and `amount` is the quantity to push.
-/// Technically the mint is already included in the intent, but for that we need
-/// to read the sell account data on-chain, which makes the builder harder to
-/// use.
+/// order (its `buy_token_account` is the push destination and its `buy_mint`
+/// selects the canonical source buffer) and `amount` is the quantity to push.
 pub struct FinalizedIntent<'a> {
     pub intent: &'a OrderIntent,
-    pub mint: Pubkey,
     pub amount: u64,
 }
 
@@ -74,10 +72,11 @@ pub struct FinalizedIntent<'a> {
 /// its buy token account.
 ///
 /// The destination is the order intent's `buy_token_account` and the source is
-/// the canonical buffer PDA for `mint` (see [`find_buffer_pda`]). The orders are
-/// sorted by their canonical order PDA (the same key [`BeginSettle`] orders its
-/// settled-order list by) so the two instructions present the orders in the
-/// same order and their lists line up.
+/// the canonical buffer PDA for its `buy_mint` (see [`find_buffer_pda`]), the
+/// only buffer `BeginSettle` accepts as the source of that order's push. The
+/// orders are sorted by their canonical order PDA (the same key [`BeginSettle`]
+/// orders its settled-order list by) so the two instructions present the orders
+/// in the same order and their lists line up.
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub begin_ix_index: u16,
@@ -102,7 +101,8 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let mut bumps = Vec::with_capacity(num_orders);
         let mut amounts = Vec::with_capacity(num_orders);
         for &i in &orders {
-            let (buffer_pda, bump) = find_buffer_pda(&builder.program_id, &builder.orders[i].mint);
+            let (buffer_pda, bump) =
+                find_buffer_pda(&builder.program_id, &builder.orders[i].intent.buy_mint);
             source_buffers.push(buffer_pda);
             destinations.push(builder.orders[i].intent.buy_token_account);
             bumps.push(bump);
@@ -247,12 +247,37 @@ impl From<TransferAuthority> for Instruction {
     }
 }
 
+/// Inserts `solver` into the state PDA's solver list. `manager` authorizes the
+/// change and must be the current manager; `payer` funds the account's growth.
+/// Both sign.
+pub struct AddSolver {
+    pub program_id: Pubkey,
+    pub manager: Pubkey,
+    pub payer: Pubkey,
+    pub solver: Pubkey,
+}
+
+impl From<AddSolver> for Instruction {
+    fn from(builder: AddSolver) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
+        cow_settlement_interface::instruction::add_solver::AddSolver {
+            program_id: builder.program_id,
+            manager: builder.manager,
+            payer: builder.payer,
+            state_pda,
+            solver: builder.solver,
+        }
+        .into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
         data::intent::fixtures::arb_order_intent,
+        fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
             settle::{
@@ -272,7 +297,7 @@ mod tests {
             finalize_ix_index in any::<u16>(),
             intents in prop::collection::vec(arb_order_intent(), 1..=5),
         ) {
-            let program_id = Pubkey::new_unique();
+            let program_id = pubkey_from_seed("program id");
             // No pulls here: this test only checks that orders are derived and
             // laid out correctly.
             let orders: Vec<InitializedIntent> = intents
@@ -281,6 +306,7 @@ mod tests {
                 .collect();
             let ix = Instruction::from(BeginSettle {
                 program_id,
+                solver: pubkey_from_seed("solver"),
                 finalize_ix_index,
                 auction_id: 0,
                 orders: &orders,
@@ -324,24 +350,23 @@ mod tests {
             prop_assert_eq!(actual, expected);
         }
 
-        // `FinalizeSettle` derives each order's source buffer from its mint and
-        // destination from the intent, sorting by canonical order PDA like
+        // `FinalizeSettle` derives each order's source buffer from its buy mint
+        // and destination from the intent, sorting by canonical order PDA like
         // `BeginSettle` so the on-chain parser recovers exactly those pushes in
         // that order.
         #[test]
         fn finalize_settle_derives_buffers_from_mints(
             begin_ix_index in any::<u16>(),
             cases in prop::collection::vec(
-                (arb_order_intent(), any::<[u8; 32]>(), any::<u64>()),
+                (arb_order_intent(), any::<u64>()),
                 1..=5,
             ),
         ) {
-            let program_id = Pubkey::new_unique();
+            let program_id = pubkey_from_seed("program id");
             let orders: Vec<FinalizedIntent> = cases
                 .iter()
-                .map(|(intent, mint, amount)| FinalizedIntent {
+                .map(|(intent, amount)| FinalizedIntent {
                     intent,
-                    mint: Pubkey::new_from_array(*mint),
                     amount: *amount,
                 })
                 .collect();
@@ -365,7 +390,7 @@ mod tests {
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump) = find_buffer_pda(&program_id, &order.mint);
+                    let (buffer, bump) = find_buffer_pda(&program_id, &order.intent.buy_mint);
                     ExpectedPush {
                         order_pda,
                         buffer,

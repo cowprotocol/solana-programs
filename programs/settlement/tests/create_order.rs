@@ -1,12 +1,13 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::{
-        intent::{fixtures, EncodedOrderIntent, OrderIntent, OrderKind},
+        intent::{fixtures, EncodedOrderIntent, OrderIntent},
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::create_order::CreateOrder,
     pda::order::{find_order_pda, order_pda_seeds},
     SettlementError,
 };
+use cow_settlement_interface::data::intent::{Flags, OrderKind};
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,
@@ -24,7 +25,11 @@ mod common;
 fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
-        ..fixtures::sample_intent(OrderKind::Sell, true)
+        ..fixtures::sample_intent(Flags {
+            created_on_chain: true,
+            kind: OrderKind::Sell,
+            partially_fillable: false,
+        })
     }
 }
 
@@ -332,7 +337,10 @@ fn rejects_intent_authenticated_off_chain() {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = OrderIntent {
-        created_on_chain: false,
+        flags: Flags {
+            created_on_chain: false,
+            ..Default::default()
+        },
         ..sample_intent(owner.pubkey())
     };
     let (encoded, pda, _bump) = encode_and_derive(&intent, &program_id);

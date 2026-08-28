@@ -77,7 +77,7 @@ impl OrderAccount {
         };
 
         if !is_pda_with_signer_seeds(
-            order_pda,
+            order_pda.address(),
             program_id,
             order_pda_signer_seeds(&uid, &[account.bump]),
         ) {
@@ -104,13 +104,13 @@ pub fn fill_progress(
     amount_withdrawn: u64,
     amount_received: u64,
 ) -> (u64, u64) {
-    match intent.kind {
+    match intent.flags.kind {
         OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
         OrderKind::Buy => (amount_received, intent.buy_amount),
     }
 }
 
-/// Canonical 200-byte representation of an [`OrderAccount`]. The bytes
+/// Canonical 264-byte representation of an [`OrderAccount`]. The bytes
 /// written to/read from the order PDA's data area.
 ///
 /// Layout: one character per byte, cell widths proportional to field size,
@@ -127,7 +127,7 @@ pub fn fill_progress(
 ///  ││││with-  │re-    │           created_by          │     intent (EncodedOrderIntent)     │
 ///  ││││drawn  │ceived │                               │                                     │
 ///  └┴┴┴───────┴───────┴───────────────────────────────┴─────────────────...─────────────────┘
-/// 0 1 2 3      11      19                              51                ...               200
+/// 0 1 2 3      11      19                              51                ...               264
 /// ```
 #[derive(Clone, Debug, Deref, Eq, PartialEq)]
 pub struct EncodedOrderAccount([u8; Self::SIZE]);
@@ -142,7 +142,7 @@ impl EncodedOrderAccount {
     const W_CREATED_BY: usize = size_of::<Pubkey>();
     const W_INTENT: usize = EncodedOrderIntent::SIZE;
 
-    pub const SIZE: usize = 200;
+    pub const SIZE: usize = 264;
 
     /// Single-byte account discriminator. See [`SettlementAccount`].
     pub const DISCRIMINATOR: u8 = SettlementAccount::OrderAccount.discriminator();
@@ -285,10 +285,7 @@ pub mod fixtures {
     use proptest::prelude::*;
 
     use super::{OrderAccount, Pubkey};
-    use crate::data::intent::{
-        fixtures::{arb_order_intent, sample_intent},
-        OrderKind,
-    };
+    use crate::data::intent::fixtures::{arb_order_intent, sample_intent};
 
     // Hardcoded but verified in a sanity-check test.
     pub const DISCRIMINATOR_OFFSET: usize = 0;
@@ -303,7 +300,7 @@ pub mod fixtures {
             amount_withdrawn: 0x0112_2334_4556_6778,
             amount_received: 0x899a_abbc_cdde_eff0,
             created_by: Pubkey::new_from_array([0x43; 32]),
-            intent: sample_intent(OrderKind::Sell, false),
+            intent: sample_intent(Default::default()),
         }
     }
 
@@ -338,10 +335,8 @@ mod tests {
 
     use super::fixtures::{sample_account, CANCELLED_OFFSET, DISCRIMINATOR_OFFSET, INTENT_OFFSET};
     use super::*;
-    use crate::data::intent::{
-        fixtures::{sample_intent, FLAGS_OFFSET},
-        OrderKind,
-    };
+    use crate::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
+    use crate::data::intent::Flags;
 
     // Pin each width to the size of the `OrderAccount` field it encodes. The
     // widths summing to `SIZE` is enforced separately, at compile time, by the
@@ -402,7 +397,10 @@ mod tests {
             intent: OrderIntent {
                 sell_amount: SELL_AMOUNT,
                 buy_amount: BUY_AMOUNT,
-                ..sample_intent(kind, true)
+                ..sample_intent(Flags {
+                    kind,
+                    ..Default::default()
+                })
             },
             ..sample_account(false)
         };
@@ -448,10 +446,10 @@ mod tests {
         // Hack: xoring each byte makes sure all bytes are different.
         // In general, it isn't guaranteed that the result encodes to a
         // valid intent, but in this case we know it because the only byte
-        // that may fail decoding is the flags byte, and `^0x01` only flips
-        // its `created_on_chain` bit, never a reserved one.
+        // that may fail decoding is the flags byte, and `^0x07` only flips
+        // its lowest three bits, never a reserved one.
         let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
-            encoded_intent.map(|b| b ^ 0x01);
+            encoded_intent.map(|b| b ^ 0x07);
         sample_account_base.intent =
             OrderIntent::try_from(&bitwise_different_encoded_intent).expect("hack should work");
         let changed_intent: [u8; EncodedOrderAccount::SIZE] =
@@ -623,7 +621,7 @@ mod tests {
         let cancelled = true;
         let amount_withdrawn = 1337;
         let amount_received = 31337;
-        let intent = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(Default::default());
         let created_by = Pubkey::new_from_array([0x42u8; 32]);
 
         let mut buffer = [0u8; EncodedOrderAccount::SIZE];
