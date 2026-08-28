@@ -21,7 +21,9 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// derives the bump itself and rejects any other address.
 ///
 /// `owner` signs the instruction and must match the intent owner; this is
-/// what authenticates the order. It may be a normal user account or a PDA,
+/// what authenticates the order. The intent must also be flagged
+/// `created_on_chain`, the authentication scheme this instruction implements,
+/// or the program rejects it. It may be a normal user account or a PDA,
 /// the program does not check `is_on_curve`. A parent program that wants to
 /// create orders on behalf of its own PDA can `invoke_signed` into the
 /// settlement program using this instruction directly.

@@ -26,6 +26,7 @@ pub struct InitializedIntent<'a> {
 /// Builder for a `BeginSettle` instruction settling the given orders.
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
+    pub solver: Pubkey,
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes, carried so it can be tied
     /// back to its auction off-chain.
@@ -48,6 +49,7 @@ impl From<BeginSettle<'_>> for Instruction {
         cow_settlement_interface::instruction::settle::BeginSettle {
             program_id: builder.program_id,
             state_pda,
+            solver: builder.solver,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
             order_pdas: &order_pdas,
@@ -245,12 +247,37 @@ impl From<TransferAuthority> for Instruction {
     }
 }
 
+/// Inserts `solver` into the state PDA's solver list. `manager` authorizes the
+/// change and must be the current manager; `payer` funds the account's growth.
+/// Both sign.
+pub struct AddSolver {
+    pub program_id: Pubkey,
+    pub manager: Pubkey,
+    pub payer: Pubkey,
+    pub solver: Pubkey,
+}
+
+impl From<AddSolver> for Instruction {
+    fn from(builder: AddSolver) -> Self {
+        let (state_pda, _bump) = find_state_pda(&builder.program_id);
+        cow_settlement_interface::instruction::add_solver::AddSolver {
+            program_id: builder.program_id,
+            manager: builder.manager,
+            payer: builder.payer,
+            state_pda,
+            solver: builder.solver,
+        }
+        .into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
         data::intent::fixtures::arb_order_intent,
+        fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
             settle::{
@@ -270,7 +297,7 @@ mod tests {
             finalize_ix_index in any::<u16>(),
             intents in prop::collection::vec(arb_order_intent(), 1..=5),
         ) {
-            let program_id = Pubkey::new_unique();
+            let program_id = pubkey_from_seed("program id");
             // No pulls here: this test only checks that orders are derived and
             // laid out correctly.
             let orders: Vec<InitializedIntent> = intents
@@ -279,6 +306,7 @@ mod tests {
                 .collect();
             let ix = Instruction::from(BeginSettle {
                 program_id,
+                solver: pubkey_from_seed("solver"),
                 finalize_ix_index,
                 auction_id: 0,
                 orders: &orders,
@@ -334,7 +362,7 @@ mod tests {
                 1..=5,
             ),
         ) {
-            let program_id = Pubkey::new_unique();
+            let program_id = pubkey_from_seed("program id");
             let orders: Vec<FinalizedIntent> = cases
                 .iter()
                 .map(|(intent, amount)| FinalizedIntent {

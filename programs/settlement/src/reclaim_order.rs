@@ -27,9 +27,11 @@ pub fn process_reclaim_order(
         return Err(SettlementError::ReclaimRecipientMismatch.into());
     }
 
-    let now = Clock::get()?.unix_timestamp;
-    if now <= i64::from(account.intent.valid_to) {
-        return Err(SettlementError::OrderNotExpired.into());
+    if !is_reclaimable_before_expiry(&account) {
+        let now = Clock::get()?.unix_timestamp;
+        if now <= i64::from(account.intent.valid_to) {
+            return Err(SettlementError::OrderNotReclaimable.into());
+        }
     }
 
     // Transfer the rent lamports to the reclaim_recipient account, then close the PDA.
@@ -49,8 +51,15 @@ pub fn process_reclaim_order(
     Ok(())
 }
 
+/// Determines whether the order may be reclaimed despite being unexpired
+fn is_reclaimable_before_expiry(account: &OrderAccount) -> bool {
+    account.intent.flags.created_on_chain && (account.cancelled || account.is_fully_filled())
+}
+
 #[cfg(test)]
 mod tests {
+    use cow_settlement_interface::data::intent::Flags;
+    use cow_settlement_interface::data::intent::{fixtures::sample_intent, OrderIntent, OrderKind};
     use cow_settlement_interface::data::order::EncodedOrderAccount;
     use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
@@ -98,5 +107,52 @@ mod tests {
             process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),
             Err(SettlementError::ReclaimRecipientMismatch.into()),
         );
+    }
+
+    #[test]
+    fn early_reclaim_conditions() {
+        const SELL_AMOUNT: u64 = 1_000;
+
+        let account = |created_on_chain, cancelled, amount_withdrawn| OrderAccount {
+            cancelled,
+            amount_withdrawn,
+            intent: OrderIntent {
+                sell_amount: SELL_AMOUNT,
+                ..sample_intent(Flags {
+                    created_on_chain,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                })
+            },
+            ..Default::default()
+        };
+
+        // (created_on_chain, cancelled, amount_withdrawn, expected)
+        let cases = [
+            // Created on-chain and either cancelled or fully settled.
+            (true, true, 0, true),
+            (true, false, SELL_AMOUNT, true),
+            (true, true, SELL_AMOUNT, true),
+            // Authenticated by signature: prior cancelled or fully settled cases no longer apply
+            (false, true, 0, false),
+            (false, false, SELL_AMOUNT, false),
+            (false, true, SELL_AMOUNT, false),
+            (false, false, 0, false),
+            // Created on-chain and not fully filled.
+            (true, false, 0, false),
+            (true, false, SELL_AMOUNT - 1, false),
+        ];
+        for (created_on_chain, cancelled, amount_withdrawn, expected) in cases {
+            assert_eq!(
+                is_reclaimable_before_expiry(&account(
+                    created_on_chain,
+                    cancelled,
+                    amount_withdrawn
+                )),
+                expected,
+                "created_on_chain={created_on_chain} cancelled={cancelled} \
+                 amount_withdrawn={amount_withdrawn}",
+            );
+        }
     }
 }

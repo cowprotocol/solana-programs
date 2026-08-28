@@ -4,7 +4,7 @@ pub use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w");
+solana_pubkey::declare_id!("FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb");
 
 pub mod data;
 pub mod instruction;
@@ -25,6 +25,7 @@ pub enum SettlementInstruction {
     ReclaimOrder = 5,
     ReclaimBuffer = 6,
     TransferAuthority = 7,
+    AddSolver = 8,
 }
 
 impl SettlementInstruction {
@@ -54,6 +55,9 @@ pub enum Role {
 }
 
 impl Role {
+    /// Every [`Role`] variant, in discriminant order.
+    pub const ALL: [Self; 2] = [Role::Manager, Role::ReclaimAuthority];
+
     /// The single wire byte that selects this role in the authority-transfer
     /// instruction.
     pub fn discriminator(self) -> u8 {
@@ -203,8 +207,8 @@ pub enum SettlementError {
     /// `BeginSettle`: the order's cumulative `amount_received` would exceed
     /// `u64::MAX` once this settlement's push is added.
     AmountReceivedOverflow = 29,
-    /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
-    OrderNotExpired = 30,
+    /// `ReclaimOrder` was called on an order that has is not yet eligible for reclaim.
+    OrderNotReclaimable = 30,
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 31,
@@ -218,6 +222,17 @@ pub enum SettlementError {
     /// `TransferAuthority`'s signer is neither the manager nor the current
     /// holder of the role being transferred, so it may not transfer it.
     UnauthorizedAuthorityTransfer = 34,
+    /// `AddSolver`'s manager account isn't a signer, or doesn't match the
+    /// `manager` recorded in the settlement state PDA.
+    UnauthorizedSolverManagement = 35,
+    /// `AddSolver`'s solver is already in the state PDA's solver list.
+    SolverAlreadyExists = 36,
+    /// `BeginSettle`/`FinalizeSettle`'s solver account isn't a signer or isn't
+    /// in the state PDA's solver list, so it may not settle.
+    UnauthorizedSolver = 37,
+    /// A created order's intent isn't set with the `created_on_chain` flag corresponding
+    /// to the behavior of the invoked order creation instruction.
+    OrderCreatedOnChainMismatch = 38,
 }
 
 impl From<SettlementError> for u32 {
@@ -327,5 +342,17 @@ mod tests {
     #[test]
     fn role_try_from_matches_manager() {
         assert_eq!(Role::try_from(0), Ok(Role::Manager));
+    }
+
+    #[test]
+    fn all_roles_lists_every_role_in_discriminator_order() {
+        // The roles `try_from` accepts, discovered independently of `Role::ALL`.
+        // The scan runs over ascending bytes, so this is every role that exists,
+        // in discriminant order.
+        let every_role: Vec<Role> = (u8::MIN..=u8::MAX)
+            .filter_map(|byte| Role::try_from(byte).ok())
+            .collect();
+
+        assert_eq!(Role::ALL.as_slice(), every_role.as_slice());
     }
 }

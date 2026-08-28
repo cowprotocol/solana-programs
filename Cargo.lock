@@ -885,7 +885,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "cow-settlement-client"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cow-settlement-interface",
  "proptest",
@@ -894,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "cow-settlement-interface"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arrayref",
  "derive_more",
@@ -915,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "cow-test-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3134,7 +3134,7 @@ dependencies = [
 
 [[package]]
 name = "settlement"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arrayref",
  "bincode",
@@ -5653,7 +5653,7 @@ dependencies = [
 
 [[package]]
 name = "test-cpi-caller"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pinocchio",
 ]

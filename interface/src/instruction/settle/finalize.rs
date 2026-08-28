@@ -246,6 +246,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::pubkey_from_seed;
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
@@ -261,8 +262,8 @@ mod tests {
         // A no-push finalize carries exactly the fixed accounts, so the constant
         // must equal the account count the builder emits with no pushes.
         let ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
             source_buffers: &[],
             destinations: &[],
@@ -274,8 +275,8 @@ mod tests {
 
     #[test]
     fn expected_encoding_finalize_settle_no_pushes() {
-        let program_id = Pubkey::new_unique();
-        let state_pda = Pubkey::new_unique();
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
         let Instruction {
             program_id: ix_program_id,
             accounts,
@@ -310,8 +311,8 @@ mod tests {
 
     #[test]
     fn finalize_settle_encodes_pushes() {
-        let program_id = Pubkey::new_unique();
-        let state_pda = Pubkey::new_unique();
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
         let source_a = Pubkey::new_from_array([0x01; 32]);
         let dest_a = Pubkey::new_from_array([0x02; 32]);
         let source_b = Pubkey::new_from_array([0x03; 32]);
@@ -366,10 +367,9 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_parses_no_pushes() {
-        let sysvar = Address::new_from_array([0x42u8; 32]);
-        // The state-PDA and token-program slots are reserved but not surfaced.
-        let state = Address::new_from_array([0x43u8; 32]);
-        let token_program = Address::new_from_array([0x44u8; 32]);
+        let sysvar = pubkey_from_seed("sysvar");
+        let state = pubkey_from_seed("state pda");
+        let token_program = pubkey_from_seed("token program");
         let accounts = [
             fake_account(sysvar),
             fake_account(state),
@@ -395,14 +395,14 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_parses_pushes() {
-        let sysvar = Address::new_from_array([1u8; 32]);
-        let state = Address::new_from_array([0xa1u8; 32]);
-        let token_program = Address::new_from_array([0xa2u8; 32]);
+        let sysvar = pubkey_from_seed("sysvar");
+        let state = pubkey_from_seed("state pda");
+        let token_program = pubkey_from_seed("token program");
         // The same source buffer funds both pushes: parsing makes no uniqueness
         // assumption about source buffers.
-        let source = Address::new_from_array([3u8; 32]);
-        let dest0 = Address::new_from_array([4u8; 32]);
-        let dest1 = Address::new_from_array([5u8; 32]);
+        let source = pubkey_from_seed("source buffer");
+        let dest0 = pubkey_from_seed("destination 0");
+        let dest1 = pubkey_from_seed("destination 1");
         let accounts = [
             fake_account(sysvar),
             fake_account(state),
@@ -455,8 +455,8 @@ mod tests {
         }
         let mut expected: Vec<ExpectedPush> = Vec::new();
         for i in 0..PUSH_COUNT {
-            let source = Address::new_from_array([i as u8; 32]);
-            let dest = Address::new_from_array([(i + PUSH_COUNT) as u8; 32]);
+            let source = pubkey_from_seed(&format!("source buffer {i}"));
+            let dest = pubkey_from_seed(&format!("destination {i}"));
             let bump = (i + 2 * PUSH_COUNT) as u8;
             let amount = u64::from_le_bytes([(i + 3 * PUSH_COUNT) as u8; 8]);
             expected.push(ExpectedPush {
@@ -575,11 +575,17 @@ mod tests {
         let bumps = [0xa1, 0xb1];
         let amounts = [0x0102, 0x0304];
         let ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0x1337,
-            source_buffers: &[Pubkey::new_unique(), Pubkey::new_unique()],
-            destinations: &[Pubkey::new_unique(), Pubkey::new_unique()],
+            source_buffers: &[
+                pubkey_from_seed("source buffer 0"),
+                pubkey_from_seed("source buffer 1"),
+            ],
+            destinations: &[
+                pubkey_from_seed("destination 0"),
+                pubkey_from_seed("destination 1"),
+            ],
             bumps: &bumps,
             amounts: &amounts,
         });
@@ -592,8 +598,8 @@ mod tests {
     #[test]
     fn finalize_push_data_handles_no_pushes() {
         let ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
             source_buffers: &[],
             destinations: &[],
@@ -607,11 +613,11 @@ mod tests {
     #[test]
     fn finalize_push_data_rejects_incorrect_bytes() {
         let mut ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
-            source_buffers: &[Pubkey::new_unique()],
-            destinations: &[Pubkey::new_unique()],
+            source_buffers: &[pubkey_from_seed("source buffer")],
+            destinations: &[pubkey_from_seed("destination")],
             bumps: &[0xff],
             amounts: &[31337],
         });

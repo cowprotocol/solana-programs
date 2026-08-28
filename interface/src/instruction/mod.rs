@@ -8,6 +8,7 @@ use solana_program_error::ProgramError;
 
 use crate::{recover_discriminator, SettlementInstruction};
 
+pub mod add_solver;
 pub mod create_buffer;
 pub mod create_order;
 pub mod initialize;

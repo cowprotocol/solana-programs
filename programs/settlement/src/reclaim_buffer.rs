@@ -6,7 +6,7 @@
 //! reclaiming a set of buffers succeeds even when none of them were closed.
 
 use cow_settlement_interface::{
-    data::state::EncodedStateAccount,
+    data::state::StateAccount,
     instruction::{
         create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
         InstructionInputParsing,
@@ -37,14 +37,8 @@ pub fn process_reclaim_buffer(
     }
 
     with_state_pda_signer(program_id, state_pda, |state_signer| {
-        let reclaim_authority_pubkey: Pubkey = {
-            let data = state_pda.try_borrow()?;
-            let bytes: &[u8; EncodedStateAccount::SIZE] = data
-                .as_ref()
-                .try_into()
-                .map_err(|_| ProgramError::InvalidAccountData)?;
-            EncodedStateAccount::authority(bytes, Role::ReclaimAuthority)
-        };
+        let reclaim_authority_pubkey: Pubkey =
+            StateAccount::from_account(state_pda)?.authority(Role::ReclaimAuthority);
         if !reclaim_authority.is_signer()
             || reclaim_authority.address() != &reclaim_authority_pubkey
         {
@@ -79,7 +73,7 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::state::StateAccount;
+    use cow_settlement_interface::data::state::{StateAccount, StateInitArgs, WIDTH_HEADER};
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
@@ -108,6 +102,21 @@ mod tests {
     const TOKEN_PROGRAM: usize = 3;
     const BUFFER_PDA: usize = 4;
 
+    /// State account bytes for planting a well-formed state PDA in tests.
+    fn state_account_bytes(init_args: &StateInitArgs) -> [u8; WIDTH_HEADER] {
+        let mut bytes = [0u8; WIDTH_HEADER];
+        StateAccount::initialize(&mut bytes[..], init_args).expect("header fits");
+        bytes
+    }
+
+    /// The [`StateInitArgs`] planted by [`base_accounts`].
+    fn base_init_args() -> StateInitArgs {
+        StateInitArgs {
+            manager: MANAGER,
+            reclaim_authority: AUTHORITY,
+        }
+    }
+
     fn empty_buffer_data(mint: Address, state_pda: Address) -> Vec<u8> {
         let mut data = vec![0; SplTokenAccount::LEN];
         SplTokenAccount {
@@ -128,13 +137,7 @@ mod tests {
         let state_pda = Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0;
 
         [
-            fake_account_with_data(
-                state_pda,
-                &*EncodedStateAccount::from(StateAccount {
-                    manager: MANAGER,
-                    reclaim_authority: AUTHORITY,
-                }),
-            ), // state PDA
+            fake_account_with_data(state_pda, &state_account_bytes(&base_init_args())), // state PDA
             fake_signer(AUTHORITY),             // reclaim authority
             fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
@@ -184,13 +187,8 @@ mod tests {
     #[test]
     fn process_reclaim_buffer_rejects_wrong_state_pda() {
         let mut accounts = base_accounts();
-        accounts[STATE_PDA] = fake_account_with_data(
-            UNRELATED,
-            &*EncodedStateAccount::from(StateAccount {
-                manager: MANAGER,
-                reclaim_authority: AUTHORITY,
-            }),
-        );
+        accounts[STATE_PDA] =
+            fake_account_with_data(UNRELATED, &state_account_bytes(&base_init_args()));
         assert_rejects(accounts, SettlementError::StateAccountMismatch.into());
     }
 
@@ -211,13 +209,12 @@ mod tests {
     fn process_reclaim_buffer_rejects_zeroed_state_pda() {
         let mut accounts = base_accounts();
 
-        // Allocated to the right size but never initialized, so its reclaim
-        // authority reads back as the all-zero address, which no real signer can
-        // match.
+        // Allocated to the right size but never initialized: its leading byte
+        // isn't the state discriminator, so it isn't a valid state account.
         let state_pda = *accounts[STATE_PDA].address();
-        accounts[STATE_PDA] = fake_account_with_data(state_pda, &[0; EncodedStateAccount::SIZE]);
+        accounts[STATE_PDA] = fake_account_with_data(state_pda, &[0; WIDTH_HEADER]);
 
-        assert_rejects(accounts, SettlementError::ReclaimAuthorityMismatch.into());
+        assert_rejects(accounts, ProgramError::InvalidAccountData);
     }
 
     #[test]
