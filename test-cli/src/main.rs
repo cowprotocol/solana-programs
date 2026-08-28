@@ -73,6 +73,8 @@ enum Commands {
     Buy(cmd::create_order::BuyOrSellArgs),
     #[command(about = "Settle one or more orders")]
     Settle(cmd::settle::SettleArgs),
+    #[command(about = "Manage the program's solvers (e.g. `cow solver add <address>`)")]
+    Solver(cmd::solver::SolverArgs),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -83,5 +85,6 @@ fn main() -> anyhow::Result<()> {
         Commands::Sell(args) => cmd::create_order::run_sell(ctx, args),
         Commands::Buy(args) => cmd::create_order::run_buy(ctx, args),
         Commands::Settle(args) => cmd::settle::run(ctx, args),
+        Commands::Solver(args) => cmd::solver::run(ctx, args),
     }
 }
