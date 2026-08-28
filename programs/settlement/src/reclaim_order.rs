@@ -137,6 +137,7 @@ mod tests {
             (false, true, 0, false),
             (false, false, SELL_AMOUNT, false),
             (false, true, SELL_AMOUNT, false),
+            (false, false, 0, false),
             // Created on-chain and not fully filled.
             (true, false, 0, false),
             (true, false, SELL_AMOUNT - 1, false),
