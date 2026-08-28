@@ -3,8 +3,8 @@
 
 use solana_program_error::ProgramError;
 
+pub use crate::token_program::SPL_TOKEN_PROGRAM_ID;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
-pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
 
 mod begin;
 mod finalize;

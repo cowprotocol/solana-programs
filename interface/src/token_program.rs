@@ -14,7 +14,11 @@
 use crate::Pubkey;
 
 /// The legacy SPL Token program.
-pub use spl_token_interface::ID as SPL_TOKEN_PROGRAM_ID;
+///
+/// Taken from the Token-2022 crate, which carries the address precisely so a
+/// program that has to recognize both doesn't grow a second dependency for the
+/// one it never calls directly.
+pub use spl_token_2022_interface::inline_spl_token::ID as SPL_TOKEN_PROGRAM_ID;
 
 /// The SPL Token-2022 program. Its instruction encoding is a superset of the
 /// legacy program's, so the instructions this program issues are byte-identical

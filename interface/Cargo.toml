@@ -31,7 +31,6 @@ solana-sdk-ids.workspace = true
 solana-sha256-hasher.workspace = true
 solana-system-interface.workspace = true
 spl-token-2022-interface.workspace = true
-spl-token-interface.workspace = true
 
 [dev-dependencies]
 hex-literal.workspace = true
