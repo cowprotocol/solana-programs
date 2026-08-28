@@ -403,12 +403,9 @@ mod tests {
                 high_sell_token_account,
             ],
         );
-        let signers: Vec<Pubkey> = accounts
-            .iter()
-            .filter(|account| account.is_signer)
-            .map(|account| account.pubkey)
-            .collect();
-        assert_eq!(signers, vec![solver]);
+        // The solver is the sole signer; none of the order accounts signs.
+        let (_fixed, order_accounts) = accounts.split_at(FIXED_ACCOUNTS);
+        assert!(order_accounts.iter().all(|account| !account.is_signer));
     }
 
     #[test]
@@ -492,12 +489,9 @@ mod tests {
             writable,
             vec![order_a, sell_a, dest_a0, dest_a1, order_b, sell_b, dest_b0],
         );
-        let signers: Vec<Pubkey> = accounts
-            .iter()
-            .filter(|account| account.is_signer)
-            .map(|account| account.pubkey)
-            .collect();
-        assert_eq!(signers, vec![solver]);
+        // The solver is the sole signer; none of the order accounts signs.
+        let (_fixed, order_accounts) = accounts.split_at(FIXED_ACCOUNTS);
+        assert!(order_accounts.iter().all(|account| !account.is_signer));
     }
 
     #[test]
