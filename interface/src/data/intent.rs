@@ -59,21 +59,21 @@ impl Flags {
     const PARTIALLY_FILLABLE: u8 = 1 << 2;
 
     /// Every bit the encoding defines; the others are reserved.
-    const DEFINED: u8 = Self::PARTIALLY_FILLABLE | Self::KIND | Self::CREATED_ON_CHAIN;
+    const DEFINED: u8 = Self::CREATED_ON_CHAIN | Self::KIND | Self::PARTIALLY_FILLABLE;
 }
 
 impl From<Flags> for [u8; 1] {
     /// The canonical flags byte. Reserved bits are left clear.
     fn from(flags: Flags) -> Self {
         let mut byte = 0;
-        if flags.partially_fillable {
-            byte |= Flags::PARTIALLY_FILLABLE;
+        if flags.created_on_chain {
+            byte |= Flags::CREATED_ON_CHAIN;
         }
         if flags.kind == OrderKind::Buy {
             byte |= Flags::KIND;
         }
-        if flags.created_on_chain {
-            byte |= Flags::CREATED_ON_CHAIN;
+        if flags.partially_fillable {
+            byte |= Flags::PARTIALLY_FILLABLE;
         }
         [byte]
     }
@@ -434,11 +434,12 @@ mod tests {
     use super::fixtures::sample_intent;
     use super::*;
 
-    // Every shape an `OrderIntent` can take on its validated axes: the `kind`
-    // enum and the `partially_fillable` flag bit.
+    // Every shape an `OrderIntent` can take on its validated axes: the
+    // `created_on_chain` flag bit, the `kind` enum, and the
+    // `partially_fillable` flag bit.
     fn all_flag_shapes() -> impl Iterator<Item = OrderIntent> {
-        fixtures::ALL_ORDER_KINDS.into_iter().flat_map(|kind| {
-            [false, true].into_iter().flat_map(move |created_on_chain| {
+        [false, true].into_iter().flat_map(|created_on_chain| {
+            fixtures::ALL_ORDER_KINDS.into_iter().flat_map(move |kind| {
                 [false, true].into_iter().map(move |partially_fillable| {
                     sample_intent(Flags {
                         created_on_chain,
@@ -515,9 +516,9 @@ mod tests {
 
         let set_one_by_one = [
             (
-                Flags::PARTIALLY_FILLABLE,
+                Flags::CREATED_ON_CHAIN,
                 Flags {
-                    partially_fillable: true,
+                    created_on_chain: true,
                     ..cleared
                 },
             ),
@@ -529,9 +530,9 @@ mod tests {
                 },
             ),
             (
-                Flags::CREATED_ON_CHAIN,
+                Flags::PARTIALLY_FILLABLE,
                 Flags {
-                    created_on_chain: true,
+                    partially_fillable: true,
                     ..cleared
                 },
             ),
@@ -541,8 +542,8 @@ mod tests {
             assert_eq!(bit.count_ones(), 1, "a flag must occupy a single bit");
             assert_eq!(seen & bit, 0, "two flags must not share a bit");
             assert!(
-                seen == 0 || bit < seen,
-                "each flag must be less significant than the ones before it"
+                bit > seen,
+                "each flag must be more significant than the ones before it"
             );
             seen |= bit;
             assert_eq!(byte(flags), bit);
@@ -580,28 +581,28 @@ mod tests {
             lhs.iter().zip(rhs).position(|(l, r)| l != r)
         }
         let sell_false: EncodedOrderIntent = (&sample_intent(Flags {
+            created_on_chain: false,
             kind: OrderKind::Sell,
             partially_fillable: false,
-            created_on_chain: false,
         }))
             .into();
         let sell_true: EncodedOrderIntent = (&sample_intent(Flags {
+            created_on_chain: false,
             kind: OrderKind::Sell,
             partially_fillable: true,
-            created_on_chain: false,
         }))
             .into();
         let buy_true: EncodedOrderIntent = (&sample_intent(Flags {
+            created_on_chain: false,
             kind: OrderKind::Buy,
             partially_fillable: true,
-            created_on_chain: false,
         }))
             .into();
 
         let created_on_chain: EncodedOrderIntent = (&sample_intent(Flags {
+            created_on_chain: true,
             kind: OrderKind::Sell,
             partially_fillable: false,
-            created_on_chain: true,
         }))
             .into();
 
@@ -703,7 +704,7 @@ mod tests {
             0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
             // valid_to (0xdead_beef, LE u32)
             0xef, 0xbe, 0xad, 0xde,
-            // flags (partially_fillable | kind (Buy = 1) | created_on_chain)
+            // flags (created_on_chain | kind (Buy = 1) | partially_fillable)
             0b00000111,
             // app_data ([0x66; 32])
             0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
