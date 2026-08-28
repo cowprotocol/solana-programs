@@ -239,6 +239,8 @@ Raw Ed25519 signatures are supported by all native Solana accounts.
 
 The data to be signed is encoded as an off-chain message and signed with raw Ed25519 signatures.
 
+Orders that are created by this path must specify the flag `created_on_chain = false`.
+
 Differences with Ethereum:
 
 - Unlike ECDSA signatures in Ethereum, the owner account address cannot be recovered from the Ed25519 signature. This means that the address needs to be included as part of the signed data.
@@ -248,9 +250,11 @@ Differences with Ethereum:
 
 Orders can be created by the owner by executing an instruction on-chain.
 
-The order owner executes the `CreateOrder` instruction. The settlement program checks that the order comes from the owner, that the intent declares this authentication scheme (`created_on_chain`), and [creates the order PDA](#orders-are-accounts). Intents that don't declare it are rejected, so the flag always states which flow actually created the order.
+The order owner executes the `CreateOrder` instruction. The settlement program checks that the order comes from the owner and [creates the order PDA](#orders-are-accounts).
 
-In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered by the user once the order has expired, or once it's cancelled or completely filled, by [clearing the order](#order-clearing).
+In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered by the user once the order has expired by [clearing the order](#order-clearing).
+
+Orders that are created by this path must specify the flag `created_on_chain = true`.
 
 This flow supports both standard ("on-curve") accounts and PDA signatures.
 
