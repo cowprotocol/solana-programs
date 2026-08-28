@@ -1,3 +1,9 @@
 /target
 proptest-regressions/
 .cargo-root/
+
+# Make sure no Solana key is uploaded by accident.
+*.json
+!bench-report.json
+!programs/settlement/cu-report.json
+!programs/settlement/idl/**
