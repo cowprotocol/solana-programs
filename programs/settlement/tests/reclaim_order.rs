@@ -403,21 +403,28 @@ fn rejects_when_reclaim_recipient_mismatch() {
     );
 }
 
+const SETTLED_SELL_AMOUNT: u64 = 1_000_000;
+const SETTLED_BUY_AMOUNT: u64 = 2_000_000;
+
 fn settleable_order(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
 ) -> (StagedOrder, Pubkey) {
-    let sell_amount: u64 = 1_000_000;
-    let buy_amount: u64 = 2_000_000;
-
     let intent = OrderBuilder::new(svm, program_id, payer)
-        .sell_amount(sell_amount)
-        .buy_amount(buy_amount)
+        .sell_amount(SETTLED_SELL_AMOUNT)
+        .buy_amount(SETTLED_BUY_AMOUNT)
         .partially_fillable(false)
         .build();
     let (order_pda, _bump) = find_order_pda(program_id, &intent.uid());
-    let staged = stage_order(svm, program_id, payer, &intent, &[sell_amount], buy_amount);
+    let staged = stage_order(
+        svm,
+        program_id,
+        payer,
+        &intent,
+        &[SETTLED_SELL_AMOUNT],
+        SETTLED_BUY_AMOUNT,
+    );
     (staged, order_pda)
 }
 
