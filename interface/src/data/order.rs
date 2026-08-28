@@ -410,8 +410,10 @@ mod tests {
             (OrderKind::Sell, SELL_AMOUNT, 0, true), // fully filled SELL order (stolen money, generally impossible)
             (OrderKind::Buy, 0, BUY_AMOUNT, true),   // fully filled BUY order (free money)
             (OrderKind::Sell, u64::MAX, 0, true), // sell fill past the intent amount (should be impossible)
-            (OrderKind::Buy, 0, u64::MAX, true), // buy fill past the intent amount (should be impossible)
-            (OrderKind::Sell, 0, 0, false),      // unfilled order
+            (OrderKind::Sell, u64::MAX, u64::MAX, true), // sell fill past the intent amount (should be impossible)
+            (OrderKind::Buy, 0, u64::MAX, true),         // buy fill past the intent amount
+            (OrderKind::Buy, u64::MAX, u64::MAX, true),  // buy fill past the intent amount
+            (OrderKind::Sell, 0, 0, false),              // unfilled order
             (OrderKind::Sell, SELL_AMOUNT - 1, BUY_AMOUNT, false), // not fully filled SELL order
             (OrderKind::Buy, SELL_AMOUNT, BUY_AMOUNT - 1, false), // not fully filled BUY order with fully filled sell side (generally should be impossible)
         ];
