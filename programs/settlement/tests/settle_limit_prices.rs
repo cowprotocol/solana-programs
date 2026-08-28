@@ -19,7 +19,7 @@ use cow_settlement_client::cow_settlement_interface::{
     SettlementError,
 };
 use cow_settlement_client::instructions::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
+    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenPrograms,
 };
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -109,11 +109,13 @@ fn settle_all(
         program_id: *program_id,
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &initialized,
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &finalized,
     };
     let tx = Transaction::new_signed_with_payer(

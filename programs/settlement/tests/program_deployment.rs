@@ -1,4 +1,4 @@
-use cow_settlement_client::instructions::{BeginSettle, FinalizeSettle};
+use cow_settlement_client::instructions::{BeginSettle, FinalizeSettle, TokenPrograms};
 use solana_sdk::{
     instruction::{Instruction, InstructionError},
     signature::Signer,
@@ -33,12 +33,14 @@ fn program_can_be_invoked() {
                 program_id,
                 finalize_ix_index: 1,
                 auction_id: 0,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &[],
             }
             .into(),
             FinalizeSettle {
                 program_id,
                 begin_ix_index: 0,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &[],
             }
             .into(),

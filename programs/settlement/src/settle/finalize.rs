@@ -15,7 +15,7 @@ use pinocchio_token::instructions::Transfer;
 
 use crate::{
     processor::{is_cpi_call, with_state_pda_signer},
-    token::{read_token_account, validate_token_program},
+    token::{read_token_account, TokenPrograms},
 };
 
 use super::validate_counterpart;
@@ -47,7 +47,10 @@ pub fn process_finalize_settle(
     // validated the push count and destinations. `push_funds` adds the only
     // remaining check: each push draws from the buffer for its mint.
 
-    let token_program = validate_token_program(input.token_program_account)?;
+    let token_programs = TokenPrograms::validate(
+        input.spl_token_program_account,
+        input.token_2022_program_account,
+    )?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
         push_funds(
@@ -55,7 +58,7 @@ pub fn process_finalize_settle(
             input.state_pda_account,
             state_pda_signer,
             input.pushes,
-            token_program,
+            &token_programs,
         )
     })
 }
@@ -70,9 +73,16 @@ fn push_funds<'a>(
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
     pushes: Pushes<'a, AccountView>,
-    token_program: &Address,
+    token_programs: &TokenPrograms<'_>,
 ) -> ProgramResult {
     for push in pushes.iter() {
+        // The push moves this destination's tokens, so it is issued against the
+        // token program that owns it — the one this settlement has to be
+        // carrying. An account under neither program isn't a token account at
+        // all, so there is no mint to derive the buffer from.
+        let token_program = token_programs
+            .program_for(push.destination)?
+            .ok_or(SettlementError::InvalidBuyTokenAccount)?;
         // The read is by value, so nothing is left borrowing the destination
         // when the transfer below reuses it.
         let mint = read_token_account(token_program, push.destination)

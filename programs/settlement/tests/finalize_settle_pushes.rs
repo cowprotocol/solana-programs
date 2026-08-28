@@ -18,10 +18,11 @@ use crate::common::{
     setup, to_instruction_error, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    instruction::settle::SPL_TOKEN_PROGRAM_ID, pda::state::find_state_pda, Instruction,
-    SettlementError,
+    instruction::settle::{FINALIZE_FIXED_ACCOUNTS, SPL_TOKEN_PROGRAM_ID},
+    pda::state::find_state_pda,
+    Instruction, SettlementError,
 };
-use cow_settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
+use cow_settlement_client::instructions::{FinalizeSettle, FinalizedIntent, TokenPrograms};
 use solana_sdk::{
     instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signature::Signer,
     transaction::TransactionError,
@@ -44,6 +45,7 @@ fn finalize(program_id: &Pubkey, orders: &[FinalizedIntent]) -> Vec<Instruction>
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders,
     };
     build_settlement(program_id, orders, finalize)
@@ -210,14 +212,15 @@ fn rejects_push_from_substituted_source() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // Point the push at an account that isn't the canonical buffer, leaving the
-    // rest well-formed. Accounts: `[sysvar, state, token_program, source,
+    // rest well-formed. Accounts: `[FINALIZE_FIXED_ACCOUNTS..., source,
     // destination]`. `BeginSettle` doesn't validate the source, so it passes;
     // `FinalizeSettle` re-derives the buffer from the destination's mint and
     // rejects the mismatch before touching the substituted account.
-    let source_index = 3;
+    let source_index = FINALIZE_FIXED_ACCOUNTS;
     finalize.accounts[source_index].pubkey = unique_pubkey();
 
     let instructions = build_settlement(&program_id, &orders, finalize);
@@ -288,6 +291,7 @@ fn rejects_push_account_count_mismatch() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // ...with another push's worth of data bytes appended but no matching
@@ -313,6 +317,7 @@ fn rejects_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     });
     // ...with one of its three fixed accounts popped. `BeginSettle` runs first
@@ -354,6 +359,7 @@ fn rejects_two_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // ...with that push's whole (source, destination) pair popped, so the data
@@ -446,6 +452,7 @@ fn rejects_partial_push_amount() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // Drop one byte so the trailing amount is no longer a whole `u64`.

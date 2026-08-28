@@ -69,6 +69,7 @@ mod tests {
     use super::*;
     use crate::instructions::{
         BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize, InitializedIntent,
+        TokenPrograms,
     };
     use cow_settlement_interface::{
         data::intent::{fixtures::sample_intent, OrderKind},
@@ -111,6 +112,7 @@ mod tests {
                 program_id,
                 finalize_ix_index: 1,
                 auction_id: 42,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &[InitializedIntent {
                     intent: &intent,
                     pulls: &[],
@@ -120,6 +122,7 @@ mod tests {
             SettlementInstruction::FinalizeSettle => FinalizeSettle {
                 program_id,
                 begin_ix_index: 0,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &[],
             }
             .into(),

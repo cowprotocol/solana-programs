@@ -1,6 +1,8 @@
 //! Scaffolding for building `[BeginSettle, FinalizeSettle]` settlement pairs.
 
-use cow_settlement_client::instructions::{BeginSettle, FinalizedIntent, InitializedIntent};
+use cow_settlement_client::instructions::{
+    BeginSettle, FinalizedIntent, InitializedIntent, TokenPrograms,
+};
 use cow_settlement_interface::Instruction;
 use solana_sdk::pubkey::Pubkey;
 
@@ -30,6 +32,7 @@ pub fn build_settlement(
         program_id: *program_id,
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &begin_orders,
     };
     vec![begin.into(), finalize.into()]
