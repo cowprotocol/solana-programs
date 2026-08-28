@@ -37,7 +37,7 @@ pub struct Pull {
 /// token_program (R)]` followed, per order, by `[order_pda (W),
 /// sell_token_account (W), destination (W)...]`.
 ///
-/// `solver` must sign: only approved solvers may settle.
+/// `solver` must sign, and the solver must be registered in the state pda.
 ///
 /// The program requires the order PDAs to be strictly increasing by address.
 /// This builder establishes that ordering for the caller: it sorts the orders by
