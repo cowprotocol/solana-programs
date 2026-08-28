@@ -10,6 +10,7 @@ use cow_settlement_interface::data::{
 };
 use litesvm::LiteSVM;
 use solana_sdk::{
+    clock::Clock,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
 };
@@ -49,11 +50,16 @@ fn encode_and_derive(
     (bytes, pda)
 }
 
+/// Decode the order stored in an order PDA.
+fn read_order(svm: &LiteSVM, pda: &Pubkey) -> OrderAccount {
+    let account = svm.get_account(pda).expect("order PDA must exist");
+    OrderAccount::try_from(&account.data[..]).expect("order PDA must decode")
+}
+
 /// Directly overwrite the body stored in an order PDA.
 fn patch_order(svm: &mut LiteSVM, pda: &Pubkey, patch: impl FnOnce(OrderAccount) -> OrderAccount) {
     let mut account = svm.get_account(pda).expect("order PDA must exist");
-    let order = OrderAccount::try_from(&account.data[..]).expect("order PDA must decode");
-    account.data = EncodedOrderAccount::from(patch(order)).to_vec();
+    account.data = EncodedOrderAccount::from(patch(read_order(svm, pda))).to_vec();
     svm.set_account(*pda, account)
         .expect("set_account should succeed");
 }
@@ -61,7 +67,7 @@ fn patch_order(svm: &mut LiteSVM, pda: &Pubkey, patch: impl FnOnce(OrderAccount)
 /// Put an order PDA on-chain directly, bypassing `CreateOrder`, which only
 /// accepts intents declaring on-chain authentication. This is how an order
 /// authenticated by an off-chain signature is staged.
-fn place_order_pda(
+fn hack_write_order(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     intent: &OrderIntent,
@@ -171,15 +177,17 @@ fn happy_path_expired_returns_lamports_and_closes_pda() {
 }
 
 /// Reclaim `pda` before its `valid_to`, crediting `owner`, and return the
-/// transaction result. The clock is pinned to the order's last valid second, so
-/// nothing here is reclaimable by expiry.
-fn assert_reclaim_while_unexpired(
+/// transaction result.
+fn perform_reclaim_while_unexpired(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     owner: &Keypair,
     pda: &Pubkey,
 ) -> Result<(), solana_sdk::transaction::TransactionError> {
-    common::set_unix_timestamp(svm, VALID_TO as i64);
+    // Taken from the order itself rather than from `VALID_TO`, so the clock the
+    // transaction runs at can't drift from the order it's reclaiming.
+    let valid_to = i64::from(read_order(svm, pda).intent.valid_to);
+    common::set_unix_timestamp(svm, valid_to);
 
     let ix = ReclaimOrder {
         program_id: *program_id,
@@ -189,7 +197,15 @@ fn assert_reclaim_while_unexpired(
     .instruction();
     let tx = signed_tx(svm, owner, owner, ix);
 
-    send_transaction_metered(svm, tx, BenchLabel::ReclaimOrder).map_err(|e| e.err)?;
+    let result = send_transaction_metered(svm, tx, BenchLabel::ReclaimOrder);
+
+    let executed_at = svm.get_sysvar::<Clock>().unix_timestamp;
+    assert!(
+        executed_at <= valid_to,
+        "reclaim must run while the order is unexpired, ran at {executed_at} with valid_to {valid_to}"
+    );
+
+    result.map_err(|e| e.err)?;
 
     assert!(
         svm.get_account(pda).is_none(),
@@ -211,7 +227,7 @@ fn happy_path_on_chain_order_fully_filled_is_reclaimable_before_expiry() {
         ..order
     });
 
-    assert_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
+    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
         .expect("a filled on-chain order should be reclaimable before it expires");
 }
 
@@ -226,7 +242,7 @@ fn happy_path_on_chain_order_cancelled_is_reclaimable_before_expiry() {
         ..order
     });
 
-    assert_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
+    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
         .expect("a cancelled on-chain order should be reclaimable before it expires");
 }
 
@@ -266,7 +282,7 @@ fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
     });
 
     assert_instruction_error(
-        assert_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
+        perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
         to_instruction_error(SettlementError::OrderNotReclaimable),
     );
 }
@@ -288,7 +304,7 @@ fn off_chain_order_is_reclaimable_only_once_expired() {
     };
     // Cancelled *and* completely filled: the strongest case for early reclaim,
     // and it still has to wait.
-    let pda = place_order_pda(&mut svm, &program_id, &intent, &owner.pubkey(), |order| {
+    let pda = hack_write_order(&mut svm, &program_id, &intent, &owner.pubkey(), |order| {
         OrderAccount {
             cancelled: true,
             amount_withdrawn: order.intent.sell_amount,
@@ -297,7 +313,7 @@ fn off_chain_order_is_reclaimable_only_once_expired() {
     });
 
     assert_instruction_error(
-        assert_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
+        perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
         to_instruction_error(SettlementError::OrderNotReclaimable),
     );
     assert!(

@@ -104,10 +104,6 @@ pub fn stage_order(
 /// carrying each order's pulls, `between` right after it, and the matching
 /// `FinalizeSettle` last, pushing each order's `amount_out`. Submit the result
 /// with [`send`](super::send).
-///
-/// With `between` empty this is the plain pair at
-/// [`BEGIN_INDEX`]/[`FINALIZE_INDEX`]. Anything interposed shifts the finalize,
-/// and the two instructions' counterpart indices follow it.
 pub fn build_staged_settlement(
     program_id: &Pubkey,
     solver: &Pubkey,
