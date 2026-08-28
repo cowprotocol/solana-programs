@@ -128,6 +128,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 
 ### Breaking change
 
+- Check out the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
 - [Bump the crate version](#bumping-the-crate-version) *by at least a minor version*.
 - Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
 - Store the newly generated account in 1password (under "Settlement account by version").
@@ -139,6 +140,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 
 ### Patch update
 
+- Check out the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
 - [Bump the crate version](#bumping-the-crate-version) by a patch version.
 - Commit the code changes resulting from the changes above.
 - Create a PR with the changes and wait for approval.
