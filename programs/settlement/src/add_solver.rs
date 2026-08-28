@@ -93,8 +93,8 @@ mod tests {
 
     #[test]
     fn process_add_solver_rejects_non_canonical_state_pda() {
-        // `fake_sequential_accounts` puts the state PDA at `[3; 32]`, which is
-        // not the canonical state PDA for this program.
+        // `fake_sequential_accounts` puts the state PDA at some arbitrary
+        // address, which is not the canonical state PDA for this program.
         let data = add_solver_data();
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(

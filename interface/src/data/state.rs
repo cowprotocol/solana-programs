@@ -172,6 +172,19 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
             .checked_add(WIDTH_PUBKEY)
             .ok_or(ProgramError::ArithmeticOverflow)
     }
+
+    /// The account's data length after shrinking it by one solver slot: the size
+    /// it must be resized to once [`remove_solver`](Self::remove_solver) has
+    /// shifted the tail over the removed slot.
+    ///
+    /// Returns [`ProgramError::ArithmeticOverflow`] if that length underflows,
+    /// which a caller that located a solver to remove can treat as unreachable.
+    pub fn shrunk_len(&self) -> Result<usize, ProgramError> {
+        self.0
+            .len()
+            .checked_sub(WIDTH_PUBKEY)
+            .ok_or(ProgramError::ArithmeticOverflow)
+    }
 }
 
 impl<'a> StateAccount<Ref<'a, [u8]>> {
@@ -256,6 +269,37 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
 
         data.copy_within(gap..occupied_end, gap_end);
         data[gap..gap_end].copy_from_slice(&solver.to_bytes());
+        Ok(())
+    }
+
+    /// Remove `solver` from the sorted solver list, or fail with
+    /// [`SettlementError::SolverNotFound`] if it isn't stored.
+    ///
+    /// The entries after the removed one are shifted one slot left to close the
+    /// gap; the now-stale trailing slot is left in place for the caller to drop
+    /// by resizing the account down to [`shrunk_len`](Self::shrunk_len).
+    pub fn remove_solver(&mut self, solver: &Pubkey) -> Result<(), ProgramError> {
+        let index = match self.solver_region().binary_search(&solver.to_bytes()) {
+            Ok(index) => index,
+            Err(_) => return Err(SettlementError::SolverNotFound.into()),
+        };
+
+        // Shift the entries after `index` down one slot; the trailing slot is
+        // left unchanged.
+        let data: &mut [u8] = &mut self.0;
+        let len = data.len();
+        let offset = WIDTH_HEADER
+            .checked_add(
+                index
+                    .checked_mul(WIDTH_PUBKEY)
+                    .expect("removal index bound by data length"),
+            )
+            .expect("removal offset bound by data length");
+        let slot_end = offset
+            .checked_add(WIDTH_PUBKEY)
+            .expect("removal slot bound by data length");
+
+        data.copy_within(slot_end..len, offset);
         Ok(())
     }
 }
@@ -555,8 +599,6 @@ mod tests {
                 prop_assert_eq!(state.solvers().collect::<Vec<_>>(), expected);
             }
 
-            /// `insert_solver` rejects a solver that is already stored and leaves
-            /// the live list untouched.
             #[test]
             fn insert_solver_rejects_an_existing_solver(
                 header in fixtures::arb_init_params(),
@@ -582,6 +624,64 @@ mod tests {
                 // order (the trailing spare slot is left as the zero pubkey).
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
                 prop_assert_eq!(state.solvers().take(stored.len()).collect::<Vec<_>>(), stored);
+            }
+
+            #[test]
+            fn remove_solver_drops_a_present_solver(
+                header in fixtures::arb_init_params(),
+                // Unique and already sorted, being a `BTreeSet`.
+                raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 1..50),
+                pick in any::<prop::sample::Index>(),
+            ) {
+                let stored: Vec<Pubkey> =
+                    raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
+                let index = pick.index(stored.len());
+                let removed = stored[index];
+
+                // Remove the solver, then shrink to the length `shrunk_len`
+                // reports, exactly as the handler resizes the account.
+                let mut bytes = fixtures::state_account_bytes(&header, &stored);
+                let shrunk_len = StateAccount::attach(&bytes[..])
+                    .expect("valid header")
+                    .shrunk_len()
+                    .expect("shrunk length fits");
+                prop_assert_eq!(shrunk_len, bytes.len().strict_sub(WIDTH_PUBKEY));
+                StateAccount::attach(&mut bytes[..])
+                    .expect("valid header")
+                    .remove_solver(&removed)
+                    .expect("a present solver is removed");
+                bytes.truncate(shrunk_len);
+
+                let mut expected = stored;
+                expected.remove(index);
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
+                prop_assert_eq!(state.solvers().collect::<Vec<_>>(), expected);
+                prop_assert_eq!(state.solver_search(&removed), Err(index));
+            }
+
+            #[test]
+            fn remove_solver_rejects_an_absent_solver(
+                header in fixtures::arb_init_params(),
+                // Unique and already sorted, being a `BTreeSet`.
+                raw_solvers in prop::collection::btree_set(any::<[u8; 32]>(), 0..50),
+                raw_absent in any::<[u8; 32]>(),
+            ) {
+                prop_assume!(!raw_solvers.contains(&raw_absent));
+                let stored: Vec<Pubkey> =
+                    raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
+                let absent = Pubkey::new_from_array(raw_absent);
+
+                let mut bytes = fixtures::state_account_bytes(&header, &stored);
+                prop_assert_eq!(
+                    StateAccount::attach(&mut bytes[..])
+                        .expect("valid header")
+                        .remove_solver(&absent),
+                    Err(SettlementError::SolverNotFound.into()),
+                );
+
+                // Nothing was removed: the stored solvers still read back in order.
+                let state = StateAccount::attach(&bytes[..]).expect("valid header");
+                prop_assert_eq!(state.solvers().collect::<Vec<_>>(), stored);
             }
         }
     }
