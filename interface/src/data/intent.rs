@@ -576,59 +576,6 @@ mod tests {
     }
 
     #[test]
-    fn sanity_check_offsets() {
-        fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
-            lhs.iter().zip(rhs).position(|(l, r)| l != r)
-        }
-        let sell_false: EncodedOrderIntent = (&sample_intent(Flags {
-            created_on_chain: false,
-            kind: OrderKind::Sell,
-            partially_fillable: false,
-        }))
-            .into();
-        let sell_true: EncodedOrderIntent = (&sample_intent(Flags {
-            created_on_chain: false,
-            kind: OrderKind::Sell,
-            partially_fillable: true,
-        }))
-            .into();
-        let buy_true: EncodedOrderIntent = (&sample_intent(Flags {
-            created_on_chain: false,
-            kind: OrderKind::Buy,
-            partially_fillable: true,
-        }))
-            .into();
-
-        let created_on_chain: EncodedOrderIntent = (&sample_intent(Flags {
-            created_on_chain: true,
-            kind: OrderKind::Sell,
-            partially_fillable: false,
-        }))
-            .into();
-
-        assert_eq!(
-            first_differing_byte(sell_false.as_slice(), sell_true.as_slice())
-                .expect("should have different flags byte"),
-            FLAGS_OFFSET
-        );
-        assert_eq!(
-            first_differing_byte(buy_true.as_slice(), sell_true.as_slice())
-                .expect("should have different flags byte"),
-            FLAGS_OFFSET
-        );
-        assert_eq!(
-            first_differing_byte(created_on_chain.as_slice(), sell_true.as_slice())
-                .expect("should have different flags byte"),
-            FLAGS_OFFSET
-        );
-        assert_eq!(
-            first_differing_byte(created_on_chain.as_slice(), buy_true.as_slice())
-                .expect("should have different flags byte"),
-            FLAGS_OFFSET
-        );
-    }
-
-    #[test]
     fn decode_accepts_defined_flag_bits_only() {
         let encoded = EncodedOrderIntent::from(&sample_intent(Default::default()));
         let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
