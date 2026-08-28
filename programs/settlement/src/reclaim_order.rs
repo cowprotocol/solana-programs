@@ -27,7 +27,6 @@ pub fn process_reclaim_order(
         return Err(SettlementError::ReclaimRecipientMismatch.into());
     }
 
-    // Is this order eligible for reclaimation?
     if !is_reclaimable_before_expiry(&account) {
         let now = Clock::get()?.unix_timestamp;
         if now <= i64::from(account.intent.valid_to) {
@@ -138,6 +137,7 @@ mod tests {
             (false, true, 0, false),
             (false, false, SELL_AMOUNT, false),
             (false, true, SELL_AMOUNT, false),
+            (false, false, 0, false),
             // Created on-chain and not fully filled.
             (true, false, 0, false),
             (true, false, SELL_AMOUNT - 1, false),
