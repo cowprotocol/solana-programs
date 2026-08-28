@@ -1,15 +1,14 @@
-//! The token programs a buffer may be created under.
+//! The token programs settlement transfers may be issued against.
 //!
-//! `CreateBuffer` and `ReclaimBuffer` take a single `token_program` account and
-//! issue every one of their CPIs against it. That account has to be one of
+//! Every instruction that moves tokens takes a single `token_program` account
+//! and issues all of its transfers against it. That account has to be one of
 //! [`SUPPORTED_TOKEN_PROGRAMS`], which is what [`is_supported`] checks.
 //!
-//! Because the program account is shared by the whole instruction, the mints an
-//! instruction touches must all live under the same token program: a legacy SPL
-//! mint and a Token-2022 mint can't have their buffers created by one
-//! `CreateBuffer`. Splitting them across two is the caller's job.
-//!
-//! `BeginSettle` and `FinalizeSettle` still accept only the legacy program.
+//! Because the program account is shared by the whole instruction, the tokens
+//! an instruction touches must all live under the same token program: a mint
+//! registered with SPL Token can't be settled by the same `BeginSettle` /
+//! `FinalizeSettle` pair as a Token-2022 mint. Splitting them across two pairs
+//! is the caller's job.
 
 use crate::Pubkey;
 
@@ -21,7 +20,7 @@ use crate::Pubkey;
 pub use spl_token_2022_interface::inline_spl_token::ID as SPL_TOKEN_PROGRAM_ID;
 
 /// The SPL Token-2022 program. Its instruction encoding is a superset of the
-/// legacy program's, so the instructions this program issues are byte-identical
+/// legacy program's, so the transfers this program issues are byte-identical
 /// either way and only the CPI target changes.
 pub use spl_token_2022_interface::ID as TOKEN_2022_PROGRAM_ID;
 
@@ -29,8 +28,8 @@ pub use spl_token_2022_interface::ID as TOKEN_2022_PROGRAM_ID;
 /// order.
 pub const SUPPORTED_TOKEN_PROGRAMS: [Pubkey; 2] = [SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID];
 
-/// Whether `address` is a token program buffers may be created under, that is,
-/// whether it is one of [`SUPPORTED_TOKEN_PROGRAMS`].
+/// Whether `address` is a token program settlement transfers may be issued
+/// against, that is, whether it is one of [`SUPPORTED_TOKEN_PROGRAMS`].
 pub fn is_supported(address: &Pubkey) -> bool {
     SUPPORTED_TOKEN_PROGRAMS.contains(address)
 }

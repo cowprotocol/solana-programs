@@ -11,11 +11,14 @@ use cow_settlement_interface::{
 use pinocchio::{
     cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
+use pinocchio_token::instructions::Transfer;
 
-use crate::processor::{is_cpi_call, with_state_pda_signer};
+use crate::{
+    processor::{is_cpi_call, with_state_pda_signer},
+    token::{read_token_account, validate_token_program},
+};
 
-use super::{validate_counterpart, validate_token_program_account};
+use super::validate_counterpart;
 
 pub fn process_finalize_settle(
     program_id: &Address,
@@ -44,7 +47,7 @@ pub fn process_finalize_settle(
     // validated the push count and destinations. `push_funds` adds the only
     // remaining check: each push draws from the buffer for its mint.
 
-    validate_token_program_account(input.token_program_account)?;
+    let token_program = validate_token_program(input.token_program_account)?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
         push_funds(
@@ -52,6 +55,7 @@ pub fn process_finalize_settle(
             input.state_pda_account,
             state_pda_signer,
             input.pushes,
+            token_program,
         )
     })
 }
@@ -66,15 +70,14 @@ fn push_funds<'a>(
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
     pushes: Pushes<'a, AccountView>,
+    token_program: &Address,
 ) -> ProgramResult {
     for push in pushes.iter() {
-        // Read the destination's mint; the borrow ends with this block, before
-        // the transfer reuses the account.
-        let mint = {
-            let destination = TokenAccount::from_account_view(push.destination)
-                .map_err(|_| SettlementError::InvalidBuyTokenAccount)?;
-            *destination.mint()
-        };
+        // The read is by value, so nothing is left borrowing the destination
+        // when the transfer below reuses it.
+        let mint = read_token_account(token_program, push.destination)
+            .map_err(|_| SettlementError::InvalidBuyTokenAccount)?
+            .mint;
         validate_buffer_pda(program_id, push.source_buffer, &mint, push.bump)?;
 
         Transfer::new(
@@ -83,7 +86,10 @@ fn push_funds<'a>(
             state_pda_account,
             push.amount,
         )
-        .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+        .invoke_signed_with_unverified_program(
+            core::slice::from_ref(state_pda_signer),
+            token_program,
+        )?;
     }
 
     Ok(())

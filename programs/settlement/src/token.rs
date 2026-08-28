@@ -1,11 +1,11 @@
-//! Token-program validation and token-account reads shared by `CreateBuffer`
-//! and `ReclaimBuffer`.
+//! Token-program validation and token-account reads shared by every
+//! instruction that moves tokens.
 //!
-//! Each takes one `token_program` account, validates it with
-//! [`validate_token_program`], and issues all of its CPIs against the address
-//! that returns. Token-2022 encodes the instructions this program issues
-//! exactly as the legacy program does, so only the CPI target changes; nothing
-//! else about them depends on which program it is.
+//! Each such instruction takes one `token_program` account, validates it with
+//! [`validate_token_program`], and issues all of its transfers against the
+//! address that returns. Token-2022 encodes the instructions this program
+//! issues exactly as the legacy program does, so only the CPI target changes;
+//! nothing else about a transfer depends on which program it is.
 //!
 //! What does differ is the account data. A Token-2022 account carrying
 //! extensions is longer than the base layout, so the legacy reader (which
@@ -24,8 +24,9 @@ use pinocchio_token::{instructions::GetAccountDataSize, state::Mint};
 /// every legacy token account and a Token-2022 one carrying no extensions.
 const BASE_TOKEN_ACCOUNT_LEN: u64 = pinocchio_token::state::Account::LEN as u64;
 
-/// Validate that `token_program_account` is a token program this program may
-/// issue CPIs against, returning its address for the instruction to target.
+/// Validate that `token_program_account` is a token program settlement
+/// transfers may be issued against, returning its address for the instruction's
+/// CPIs to target.
 ///
 /// This is the single gate in front of every token CPI: the callers pass the
 /// address it returns to `invoke_*_with_unverified_program`, which skips the
@@ -107,9 +108,11 @@ pub fn token_account_len(token_program: &Address, mint: &AccountView) -> Result<
 /// [`read_token_account`].
 ///
 /// Held by value rather than borrowed from the account so the caller can go on
-/// to use the same account in a CPI that touches it: a live borrow would make
-/// that CPI fail.
+/// to use the same account in a transfer: a live borrow would make the CPI
+/// fail.
 pub struct TokenAccount {
+    pub mint: Address,
+    pub owner: Address,
     pub amount: u64,
 }
 
@@ -131,11 +134,15 @@ pub fn read_token_account(
     if token_program == &SPL_TOKEN_PROGRAM_ID {
         let account = pinocchio_token::state::Account::from_account_view(account)?;
         Ok(TokenAccount {
+            mint: *account.mint(),
+            owner: *account.owner(),
             amount: account.amount(),
         })
     } else if token_program == &TOKEN_2022_PROGRAM_ID {
         let account = pinocchio_token_2022::state::Account::from_account_view(account)?;
         Ok(TokenAccount {
+            mint: *account.mint(),
+            owner: *account.owner(),
             amount: account.amount(),
         })
     } else {
@@ -264,6 +271,8 @@ mod tests {
                 fake_account_owned_by(UNRELATED, program, &base_layout(mint, owner, 4_200));
             let read = read_token_account(&program, &account)
                 .unwrap_or_else(|error| panic!("{program} account should read: {error:?}"));
+            assert_eq!(read.mint, mint);
+            assert_eq!(read.owner, owner);
             assert_eq!(read.amount, 4_200);
         }
     }
@@ -284,6 +293,8 @@ mod tests {
         let account = fake_account_owned_by(UNRELATED, TOKEN_2022_PROGRAM_ID, &data);
         let read = read_token_account(&TOKEN_2022_PROGRAM_ID, &account)
             .expect("an extended Token-2022 account should read");
+        assert_eq!(read.mint, mint);
+        assert_eq!(read.owner, owner);
         assert_eq!(read.amount, 7);
     }
 
