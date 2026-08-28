@@ -202,6 +202,123 @@ mod tests {
         );
     }
 
+    /// The settlement's own two slots, each holding the program it stands for.
+    fn both_slots() -> [AccountView; 2] {
+        [
+            fake_account(SPL_TOKEN_PROGRAM_ID),
+            fake_account(TOKEN_2022_PROGRAM_ID),
+        ]
+    }
+
+    /// A token account of `program`, well-formed but empty of interest: only
+    /// its owner decides which program its transfers go to.
+    fn token_account_of(program: Address) -> AccountView {
+        fake_account_owned_by(UNRELATED, program, &base_layout(UNRELATED, UNRELATED, 0))
+    }
+
+    /// A settlement carrying both programs settles accounts under either, each
+    /// against the program that owns it. This is what one instruction pair
+    /// mixing the two token programs rests on.
+    #[test]
+    fn program_for_dispatches_on_the_accounts_owner() {
+        let [spl_token, token_2022] = both_slots();
+        let programs =
+            TokenPrograms::validate(&spl_token, &token_2022).expect("both slots hold a program");
+
+        for program in SUPPORTED_TOKEN_PROGRAMS {
+            assert_eq!(
+                programs.program_for(&token_account_of(program)),
+                Ok(Some(&program)),
+                "an account owned by {program} should be settled against it",
+            );
+        }
+    }
+
+    /// An account under neither program is no token account at all, which the
+    /// caller reports as whatever the account failed to be.
+    #[test]
+    fn program_for_returns_nothing_for_an_unowned_account() {
+        let [spl_token, token_2022] = both_slots();
+        let programs =
+            TokenPrograms::validate(&spl_token, &token_2022).expect("both slots hold a program");
+
+        assert_eq!(programs.program_for(&token_account_of(UNRELATED)), Ok(None));
+    }
+
+    /// A settlement that left a program out can't reach it, so an account under
+    /// it is refused by name rather than mistaken for a malformed one.
+    #[test]
+    fn program_for_rejects_an_account_under_a_left_out_program() {
+        let placeholder = fake_account(SYSTEM_PROGRAM_ID);
+        for [carried, left_out] in [
+            [SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID],
+            [TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID],
+        ] {
+            let carried_account = fake_account(carried);
+            let (spl_token, token_2022) = if carried == SPL_TOKEN_PROGRAM_ID {
+                (&carried_account, &placeholder)
+            } else {
+                (&placeholder, &carried_account)
+            };
+            let programs =
+                TokenPrograms::validate(spl_token, token_2022).expect("the placeholder is allowed");
+
+            assert_eq!(
+                programs.program_for(&token_account_of(left_out)),
+                Err(SettlementError::TokenProgramNotProvided),
+                "{left_out} was left out, so its accounts have nothing to settle against",
+            );
+            // The program that *is* carried still settles its own accounts.
+            assert_eq!(
+                programs.program_for(&token_account_of(carried)),
+                Ok(Some(&carried)),
+            );
+        }
+    }
+
+    /// Leaving both programs out is allowed — it only makes every token account
+    /// unsettleable, which is exactly what a settlement moving no tokens wants.
+    #[test]
+    fn validate_accepts_two_placeholders() {
+        let placeholder = fake_account(SYSTEM_PROGRAM_ID);
+        let programs = TokenPrograms::validate(&placeholder, &placeholder)
+            .expect("two placeholders are allowed");
+
+        for program in SUPPORTED_TOKEN_PROGRAMS {
+            assert_eq!(
+                programs.program_for(&token_account_of(program)),
+                Err(SettlementError::TokenProgramNotProvided),
+            );
+        }
+    }
+
+    /// The slots are positional: each one holds its own program or the
+    /// placeholder, so the two programs can't be swapped between them.
+    #[test]
+    fn validate_rejects_swapped_slots() {
+        let [spl_token, token_2022] = both_slots();
+        assert_eq!(
+            TokenPrograms::validate(&token_2022, &spl_token).err(),
+            Some(ProgramError::IncorrectProgramId),
+        );
+    }
+
+    /// Anything that is neither the slot's program nor the placeholder is a
+    /// caller mistake, not an opt-out.
+    #[test]
+    fn validate_rejects_an_unrelated_account_in_a_slot() {
+        let unrelated = fake_account(UNRELATED);
+        let [spl_token, token_2022] = both_slots();
+        assert_eq!(
+            TokenPrograms::validate(&unrelated, &token_2022).err(),
+            Some(ProgramError::IncorrectProgramId),
+        );
+        assert_eq!(
+            TokenPrograms::validate(&spl_token, &unrelated).err(),
+            Some(ProgramError::IncorrectProgramId),
+        );
+    }
+
     #[test]
     fn validate_token_program_accepts_every_supported_program() {
         for program in TokenProgram::ALL {

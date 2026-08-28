@@ -5,7 +5,6 @@ use cow_settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    token_program::TokenProgram,
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -15,7 +14,7 @@ use pinocchio_token::instructions::Transfer;
 
 use crate::{
     processor::{is_cpi_call, with_state_pda_signer},
-    token::validate_token_program,
+    token::TokenPrograms,
 };
 
 use super::validate_counterpart;
@@ -48,14 +47,17 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    let token_program = validate_token_program(input.token_program_account)?;
+    let token_programs = TokenPrograms::validate(
+        input.spl_token_program_account,
+        input.token_2022_program_account,
+    )?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
         push_funds(
             input.state_pda_account,
             state_pda_signer,
             input.pushes,
-            token_program,
+            &token_programs,
         )
     })
 }
@@ -75,9 +77,16 @@ fn push_funds<'a>(
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
     pushes: Pushes<'a, AccountView>,
-    token_program: TokenProgram,
+    token_programs: &TokenPrograms,
 ) -> ProgramResult {
     for push in pushes.iter() {
+        // The push moves this destination's tokens, so it is issued against the
+        // token program that owns it — the one this settlement has to be
+        // carrying. An account under neither program isn't a token account at
+        // all.
+        let token_program = token_programs
+            .program_for(push.destination)?
+            .ok_or(SettlementError::PushDestinationInvalid)?;
         Transfer::new(
             push.source_buffer,
             push.destination,

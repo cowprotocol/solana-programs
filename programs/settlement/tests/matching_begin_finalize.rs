@@ -1,5 +1,5 @@
 use cow_settlement_client::cow_settlement_interface::{SettlementError, SettlementInstruction};
-use cow_settlement_client::instructions::{BeginSettle, FinalizeSettle};
+use cow_settlement_client::instructions::{BeginSettle, FinalizeSettle, TokenPrograms};
 use litesvm::{types::FailedTransactionMetadata, LiteSVM};
 use solana_sdk::{
     instruction::{AccountMeta, Instruction, InstructionError},
@@ -40,12 +40,14 @@ fn run_sequence(
                 solver: solver.pubkey(),
                 finalize_ix_index: *idx,
                 auction_id: 0,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &[],
             }
             .into(),
             AbstractInstruction::Fin(idx) => FinalizeSettle {
                 program_id: *program_id,
                 begin_ix_index: *idx,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &[],
             }
             .into(),
@@ -193,6 +195,7 @@ fn rejects_non_instructions_sysvar_account_at_position_one() {
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     }
     .into();
@@ -200,6 +203,7 @@ fn rejects_non_instructions_sysvar_account_at_position_one() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     };
 
@@ -231,6 +235,7 @@ fn rejects_counterpart_instruction_in_different_program() {
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     };
     // We build a transaction that looks like a valid finalize_settle but
@@ -239,6 +244,7 @@ fn rejects_counterpart_instruction_in_different_program() {
     let stranger = FinalizeSettle {
         program_id: solana_system_interface::program::ID,
         begin_ix_index: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     };
 
@@ -293,6 +299,7 @@ fn rejects_cpi_call_to_begin_settle() {
             solver: solver.pubkey(),
             finalize_ix_index: 1,
             auction_id: 0,
+            token_programs: TokenPrograms::SPL_TOKEN,
             orders: &[],
         },
     );
@@ -325,6 +332,7 @@ fn rejects_cpi_call_to_finalize_settle() {
         FinalizeSettle {
             program_id: settlement_id,
             begin_ix_index: 0,
+            token_programs: TokenPrograms::SPL_TOKEN,
             orders: &[],
         },
     );
@@ -358,6 +366,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     };
     // Uses the settlement program, but no data: `recover_discriminator` fails
@@ -400,6 +409,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     };
     // Same program as `begin`, with a valid discriminator but no trailing

@@ -29,14 +29,14 @@ use crate::common::{
 use cow_settlement_client::cow_settlement_interface::{
     data::order::{EncodedOrderAccount, OrderAccount},
     instruction::settle::{
-        BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw, INSTRUCTIONS_SYSVAR_ID,
-        SPL_TOKEN_PROGRAM_ID,
+        BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw,
+        FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
     },
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     Instruction, SettlementError, SettlementInstruction,
 };
 use cow_settlement_client::instructions::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
+    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenPrograms,
 };
 use cow_settlement_interface::data::intent::OrderIntent;
 use litesvm::LiteSVM;
@@ -137,11 +137,13 @@ fn settle_and_pay_amounts(
         solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders,
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &settled,
     };
     vec![begin.into(), finalize.into()]
@@ -254,6 +256,7 @@ fn rejects_fabricated_program_owned_account() {
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         order_pdas: &[fake_order],
         sell_token_accounts: &[sell_token],
         pulls: &no_pulls(1),
@@ -264,6 +267,7 @@ fn rejects_fabricated_program_owned_account() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         source_buffers: &[unique_pubkey()],
         destinations: &[intent.buy_token_account],
         bumps: &[0],
@@ -294,6 +298,7 @@ fn rejects_non_order_account_in_order_slot() {
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         order_pdas: &[sell_token],
         sell_token_accounts: &[sell_token],
         pulls: &no_pulls(1),
@@ -303,6 +308,7 @@ fn rejects_non_order_account_in_order_slot() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         source_buffers: &[unique_pubkey()],
         destinations: &[unique_pubkey()],
         bumps: &[0],
@@ -479,10 +485,10 @@ fn rejects_orders_in_wrong_address_order() {
     // instructions by hand in the current wire format. Begin data is
     // `[discriminator, finalize_ix_index (LE), order_count, transfer_count×n]`
     // (no transfers here) and begin accounts are `[solver, instructions_sysvar,
-    // state_pda, token_program, (order_pda, sell_token_account)...]`. The
-    // finalize's push destinations are laid out in the same decreasing order,
-    // so the first order's destination check passes and the second order trips
-    // the ordering check.
+    // state_pda, spl_token_program, token_2022_program, (order_pda,
+    // sell_token_account)...]`. The finalize's push destinations are laid out in
+    // the same decreasing order, so the first order's destination check passes
+    // and the second order trips the ordering check.
     let mut orders = [(first_pda, &first), (second_pda, &second)];
     orders.sort_by_key(|&(pda, ..)| std::cmp::Reverse(pda));
 
@@ -498,8 +504,12 @@ fn rejects_orders_in_wrong_address_order() {
         AccountMeta::new_readonly(solver.pubkey(), true),
         AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
         AccountMeta::new_readonly(find_state_pda(&program_id).0, false),
-        AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
     ];
+    accounts.extend(
+        TokenPrograms::SPL_TOKEN
+            .addresses()
+            .map(|program| AccountMeta::new_readonly(program, false)),
+    );
     for (order_pda, intent) in orders {
         accounts.push(AccountMeta::new_readonly(order_pda, false));
         accounts.push(AccountMeta::new(intent.sell_token_account, false));
@@ -528,6 +538,7 @@ fn rejects_orders_in_wrong_address_order() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         source_buffers: &source_buffers,
         destinations: &destinations,
         bumps: &bumps,
@@ -1076,11 +1087,12 @@ fn rejects_push_to_wrong_destination() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // Redirect the push to an account that isn't the order's buy token account.
-    // Finalize accounts: `[sysvar, state, token_program, source, destination]`.
-    let destination_index = 4;
+    // Finalize accounts: `[FINALIZE_FIXED_ACCOUNTS..., source, destination]`.
+    let destination_index = FINALIZE_FIXED_ACCOUNTS + 1;
     finalize.accounts[destination_index].pubkey = unique_pubkey();
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -1109,6 +1121,7 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         source_buffers: &[other_buffer],
         destinations: &[intent.buy_token_account],
         bumps: &[other_bump],
@@ -1135,6 +1148,7 @@ fn rejects_fewer_pushes_than_orders() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     };
 
@@ -1155,6 +1169,7 @@ fn rejects_more_pushes_than_orders() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[FinalizedIntent {
             intent: &intent,
             amount: 0,
@@ -1180,6 +1195,7 @@ fn rejects_partial_push_amount_in_finalize_settle() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // Drop one byte from the finalize intstruction so the trailing amount is no

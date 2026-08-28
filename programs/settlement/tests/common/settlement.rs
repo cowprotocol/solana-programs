@@ -1,7 +1,7 @@
 //! Scaffolding for building `[BeginSettle, FinalizeSettle]` settlement pairs.
 
 use cow_settlement_client::instructions::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
+    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenPrograms,
 };
 use cow_settlement_interface::{data::intent::OrderIntent, Instruction};
 use litesvm::LiteSVM;
@@ -40,6 +40,7 @@ pub fn build_settlement(
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &begin_orders,
     };
     vec![begin.into(), finalize.into()]
@@ -131,11 +132,13 @@ pub fn build_staged_settlement(
         solver: *solver,
         finalize_ix_index: finalize_index(between.len()),
         auction_id: 0,
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &begin_orders,
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &finalize_orders,
     };
 

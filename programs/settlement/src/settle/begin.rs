@@ -15,9 +15,7 @@ use cow_settlement_interface::{
         InstructionInputParsing,
     },
     pda::buffer::validate_buffer_pda,
-    recover_discriminator,
-    token_program::TokenProgram,
-    SettlementError, SettlementInstruction,
+    recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
     cpi::Signer,
@@ -33,7 +31,7 @@ use pinocchio_token::instructions::Transfer;
 
 use crate::{
     processor::{check_state_pda, is_cpi_call, require_solver, with_state_pda_signer_from_bump},
-    token::{read_token_account, validate_token_program},
+    token::{read_token_account, TokenPrograms},
 };
 
 use super::validate_counterpart;
@@ -78,7 +76,10 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    let token_program = validate_token_program(input.token_program_account)?;
+    let token_programs = TokenPrograms::validate(
+        input.spl_token_program_account,
+        input.token_2022_program_account,
+    )?;
 
     with_state_pda_signer_from_bump(state_bump, |signer| {
         settle_orders(
@@ -87,7 +88,7 @@ pub fn process_begin_settle(
             signer,
             &input.orders,
             &finalize_ix,
-            token_program,
+            &token_programs,
         )
     })
 }
@@ -208,7 +209,7 @@ fn settle_orders(
     state_pda_signer: &Signer,
     orders: &SettledOrders<'_, AccountView>,
     finalize_ix: &IntrospectedInstruction,
-    token_program: TokenProgram,
+    token_programs: &TokenPrograms,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
@@ -239,7 +240,7 @@ fn settle_orders(
             now,
             state_pda_account,
             state_pda_signer,
-            token_program,
+            token_programs,
         )?;
     }
 
@@ -263,7 +264,7 @@ fn process_order(
     now: i64,
     state_account: &AccountView,
     state_pda_signer: &Signer,
-    token_program: TokenProgram,
+    token_programs: &TokenPrograms,
 ) -> ProgramResult {
     let SettledOrder {
         order_pda,
@@ -301,12 +302,17 @@ fn process_order(
     if sell_token_account.address() != &intent.sell_token_account {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
+    // The pulls below move this account's tokens, so they are issued against
+    // the token program that owns it — the one this settlement has to be
+    // carrying. An account under neither program isn't a token account at all.
+    let token_program = token_programs
+        .program_for(sell_token_account)?
+        .ok_or(SettlementError::SellTokenAccountInvalid)?;
     // Assert the order intent owner and sell mint match those of the sell token
     // account.
-    // `read_token_account` confirms this is a real token account of the
-    // instruction's token program before we read its owner and mint, and reads
-    // by value, so nothing is left borrowing the account when the transfers
-    // below touch it.
+    // `read_token_account` confirms this is a real token account of that token
+    // program before we read its owner and mint, and reads by value, so nothing
+    // is left borrowing the account when the transfers below touch it.
     let sell_token = read_token_account(token_program, sell_token_account)
         .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
     if sell_token.owner != intent.owner {
@@ -424,7 +430,9 @@ mod tests {
     use cow_settlement_interface::data::intent::Flags;
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
+    use cow_settlement_interface::instruction::settle::{
+        FinalizeSettle, FinalizeSettleInput, TokenPrograms,
+    };
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
@@ -1029,6 +1037,7 @@ mod tests {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
                 begin_ix_index,
+                token_programs: TokenPrograms::BOTH,
                 source_buffers: &source_buffers,
                 destinations: &destinations,
                 bumps: &bumps,
