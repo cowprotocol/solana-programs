@@ -27,7 +27,6 @@ pub fn process_reclaim_order(
         return Err(SettlementError::ReclaimRecipientMismatch.into());
     }
 
-    // Is this order eligible for reclaimation?
     if !is_reclaimable_before_expiry(&account) {
         let now = Clock::get()?.unix_timestamp;
         if now <= i64::from(account.intent.valid_to) {
