@@ -118,6 +118,53 @@ just deploy FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb ~/solana-keys/deployer.
 
 The deployer for the canonical devnet program (`FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
 
+## Alpha releases
+
+There are two possible release flows while the project is in alpha:
+- Program breaking change: the logic of the program changes meaningfully or there's some change on the layout of _any_ PDA.
+- Patch update: it's mostly a hotfix for the program that doesn't meaningfully change the program state. The old client/interface should still work with the new program code. 
+
+You can use the settle CLI for a smoke test of the programs after a release. See `cargo run -p cow-test-cli -- sell --help` and `cargo run -p cow-test-cli -- settle --help`.
+
+### Breaking change
+
+- Check out the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
+- [Bump the crate version](#bumping-the-crate-version) *by at least a minor version*.
+- Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
+- Store the newly generated account in 1password (under "Settlement account by version").
+- Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
+- Commit the code changes resulting from the steps above (excluding the key of the generated account).
+- Switch your network to mainnet (`solana config set --url mainnet-beta`). You should try out the next steps before the PR on devnet first, but switch to mainnet for the actual release.
+- [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
+- Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --help`).
+- Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
+- Create a PR with the changes and wait for approval.
+- [Publish the cargo packages](#publishing-the-cargo-packages).
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
+
+### Patch update
+
+- Check out the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
+- [Bump the crate version](#bumping-the-crate-version) by a patch version.
+- Commit the code changes resulting from the changes above.
+- Create a PR with the changes and wait for approval.
+- [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
+- [Publish the cargo packages](#publishing-the-cargo-packages).
+
+### Bumping the crate version
+
+You need to update Cargo's toml and lock file.
+Here is a list of commands to help bumping all relevant strings:
+
+```sh
+export VERSION=0.42.1337
+perl -i -pe '
+  s/^version = ".*"/version = "$ENV{VERSION}"/;
+  s/(path = "[^"]*", version = )"[^"]*"/$1"$ENV{VERSION}"/;
+' ./Cargo.toml
+just build
+```
+
 ## License
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./COPYING.MIT) [![License: Apache v2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](./COPYING.APACHE) [![License: LGPL v3](https://img.shields.io/badge/License-LGPLv3-blue.svg)](./COPYING.LESSER)
