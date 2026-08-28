@@ -29,7 +29,9 @@ use pinocchio::{
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 
-use crate::processor::{is_cpi_call, require_solver, with_state_pda_signer_from_bump};
+use crate::processor::{
+    check_state_pda, is_cpi_call, require_solver, with_state_pda_signer_from_bump,
+};
 
 use super::{validate_counterpart, validate_token_program_account};
 
@@ -44,9 +46,8 @@ pub fn process_begin_settle(
 
     let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
-    // Only an approved solver may settle. Reuse the bump this derives so the
-    // signer below doesn't re-derive the state PDA.
-    let state_bump = require_solver(program_id, input.state_pda_account, input.solver_account)?;
+    let state_bump = check_state_pda(program_id, input.state_pda_account)?;
+    require_solver(input.state_pda_account, input.solver_account)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
     // any address since parsing doesn't validate the input. We rely on the
