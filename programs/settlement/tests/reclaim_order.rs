@@ -101,7 +101,7 @@ fn create_order(
 }
 
 #[test]
-fn happy_path_returns_lamports_and_closes_pda() {
+fn happy_path_expired_returns_lamports_and_closes_pda() {
     let (mut svm, program_id, fee_payer) = common::setup();
 
     // `reclaim_recipient` is the `created_by` funder; it's separate from the fee
@@ -170,6 +170,66 @@ fn happy_path_returns_lamports_and_closes_pda() {
     );
 }
 
+/// Reclaim `pda` before its `valid_to`, crediting `owner`, and return the
+/// transaction result. The clock is pinned to the order's last valid second, so
+/// nothing here is reclaimable by expiry.
+fn assert_reclaim_while_unexpired(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    owner: &Keypair,
+    pda: &Pubkey,
+) -> Result<(), solana_sdk::transaction::TransactionError> {
+    common::set_unix_timestamp(svm, VALID_TO as i64);
+
+    let ix = ReclaimOrder {
+        program_id: *program_id,
+        order_pda: *pda,
+        reclaim_recipient: owner.pubkey(),
+    }
+    .instruction();
+    let tx = signed_tx(svm, owner, owner, ix);
+
+    send_transaction_metered(svm, tx, BenchLabel::ReclaimOrder).map_err(|e| e.err)?;
+
+    assert!(
+        svm.get_account(pda).is_none(),
+        "order PDA must be closed after reclaim"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn happy_path_on_chain_order_fully_filled_is_reclaimable_before_expiry() {
+    let (mut svm, program_id, owner) = common::setup();
+
+    let intent = reclaim_sample_intent(owner.pubkey());
+    let pda = create_order(&mut svm, &program_id, &owner, &intent);
+    // A sell order is full once its whole sell amount has been withdrawn.
+    patch_order(&mut svm, &pda, |order| OrderAccount {
+        amount_withdrawn: order.intent.sell_amount,
+        ..order
+    });
+
+    assert_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
+        .expect("a filled on-chain order should be reclaimable before it expires");
+}
+
+#[test]
+fn happy_path_on_chain_order_cancelled_is_reclaimable_before_expiry() {
+    let (mut svm, program_id, owner) = common::setup();
+
+    let intent = reclaim_sample_intent(owner.pubkey());
+    let pda = create_order(&mut svm, &program_id, &owner, &intent);
+    patch_order(&mut svm, &pda, |order| OrderAccount {
+        cancelled: true,
+        ..order
+    });
+
+    assert_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
+        .expect("a cancelled on-chain order should be reclaimable before it expires");
+}
+
 #[test]
 fn rejects_when_order_not_yet_expired() {
     let (mut svm, program_id, owner) = common::setup();
@@ -192,64 +252,6 @@ fn rejects_when_order_not_yet_expired() {
     );
 }
 
-/// Reclaim `pda` before its `valid_to`, crediting `owner`, and return the
-/// transaction result. The clock is pinned to the order's last valid second, so
-/// nothing here is reclaimable by expiry.
-fn reclaim_while_unexpired(
-    svm: &mut LiteSVM,
-    program_id: &Pubkey,
-    owner: &Keypair,
-    pda: &Pubkey,
-) -> Result<(), solana_sdk::transaction::TransactionError> {
-    common::set_unix_timestamp(svm, VALID_TO as i64);
-
-    let ix = ReclaimOrder {
-        program_id: *program_id,
-        order_pda: *pda,
-        reclaim_recipient: owner.pubkey(),
-    }
-    .instruction();
-    let tx = signed_tx(svm, owner, owner, ix);
-    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)?;
-    assert!(
-        svm.get_account(pda).is_none(),
-        "order PDA must be closed after reclaim"
-    );
-
-    Ok(())
-}
-
-#[test]
-fn on_chain_order_fully_filled_is_reclaimable_before_expiry() {
-    let (mut svm, program_id, owner) = common::setup();
-
-    let intent = reclaim_sample_intent(owner.pubkey());
-    let pda = create_order(&mut svm, &program_id, &owner, &intent);
-    // A sell order is full once its whole sell amount has been withdrawn.
-    patch_order(&mut svm, &pda, |order| OrderAccount {
-        amount_withdrawn: order.intent.sell_amount,
-        ..order
-    });
-
-    reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
-        .expect("a filled on-chain order should be reclaimable before it expires");
-}
-
-#[test]
-fn on_chain_order_cancelled_is_reclaimable_before_expiry() {
-    let (mut svm, program_id, owner) = common::setup();
-
-    let intent = reclaim_sample_intent(owner.pubkey());
-    let pda = create_order(&mut svm, &program_id, &owner, &intent);
-    patch_order(&mut svm, &pda, |order| OrderAccount {
-        cancelled: true,
-        ..order
-    });
-
-    reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
-        .expect("a cancelled on-chain order should be reclaimable before it expires");
-}
-
 #[test]
 fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
     let (mut svm, program_id, owner) = common::setup();
@@ -264,7 +266,7 @@ fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
     });
 
     assert_instruction_error(
-        reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
+        assert_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
         to_instruction_error(SettlementError::OrderNotReclaimable),
     );
 }
@@ -295,7 +297,7 @@ fn off_chain_order_is_reclaimable_only_once_expired() {
     });
 
     assert_instruction_error(
-        reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
+        assert_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
         to_instruction_error(SettlementError::OrderNotReclaimable),
     );
     assert!(

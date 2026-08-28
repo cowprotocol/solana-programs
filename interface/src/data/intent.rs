@@ -296,14 +296,6 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             EncodedOrderIntent::WIDTH_APP_DATA
         ];
 
-        let flags = *flags;
-        // A reserved bit carries no meaning to this version of the program, so
-        // accepting it would give the same intent several encodings, and with
-        // them several UIDs.
-        if flags[0] & !Flags::DEFINED != 0 {
-            return Err(ProgramError::InvalidInstructionData);
-        }
-
         Ok(OrderIntent {
             owner: Pubkey::new_from_array(*owner),
             buy_token_account: Pubkey::new_from_array(*buy_token),
@@ -313,7 +305,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             sell_amount: u64::from_le_bytes(*sell_amount),
             buy_amount: u64::from_le_bytes(*buy_amount),
             valid_to: u32::from_le_bytes(*valid_to),
-            flags: Flags::try_from(flags)?,
+            flags: Flags::try_from(*flags)?,
             app_data: *app_data,
         })
     }
