@@ -192,10 +192,7 @@ pub fn struct_type(rust_struct: &syn::ItemStruct, context: &str) -> Value {
 }
 
 /// An enum as an IDL `types[]` entry's `type`: `{"kind": "enum", "variants":
-/// [...]}`, with the variants in declaration order, which is the order the wire
-/// discriminant counts in. The spec's `IdlEnumVariant` carries a name and
-/// nothing else — no discriminant, since a variant's index is its wire byte,
-/// and nowhere to put docs.
+/// [...]}`, with the variants in declaration order.
 pub fn enum_type(rust_enum: &syn::ItemEnum) -> Value {
     let variants: Vec<Value> = rust_enum
         .variants
@@ -218,9 +215,6 @@ pub fn field_name(field: &syn::Field, context: &str) -> String {
 /// reads as `Role`. The IDL has no notion of a link target, so carrying one
 /// there would only be Rust markup leaking into the published interface.
 fn strip_doc_links(text: &str) -> String {
-    /// The display text and the remainder past `[display](target)`, when `text`
-    /// starts with a link whose two halves nest no brackets of their own.
-    /// Anything else isn't a link and is left exactly as written.
     fn split_link(text: &str) -> Option<(&str, &str)> {
         let (display, after_display) = text.strip_prefix('[')?.split_once("](")?;
         let (target, after_link) = after_display.split_once(')')?;
@@ -299,4 +293,16 @@ pub fn docs(attrs: &[syn::Attribute]) -> Vec<String> {
         paragraphs.push(normalize_doc(&paragraph));
     }
     paragraphs
+}
+
+mod tests {
+    use crate::parse_rust::strip_doc_links;
+
+    #[test]
+    fn test_link_stripping() {
+        assert_eq!(
+            strip_doc_links("There are two ixs, [Begin](begin) and [Finalize](finalize)"),
+            "There are two ixs, Begin and Finalize"
+        )
+    }
 }
