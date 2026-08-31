@@ -150,7 +150,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     // Approve the settlement state PDA to pull sell tokens on the user's behalf.
     ixs.push(crate::instructions::approve(
         &ctx.program_id,
-        &sell.ta,
+        &sell,
         &ctx.payer.pubkey(),
         sell_amount,
     )?);

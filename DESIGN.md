@@ -363,4 +363,8 @@ The main reason to prefer the SOL flow described here is the handling of the ren
 
 ## Token 2022
 
-The settlement program will natively support [Token-2022](https://www.solana-program.com/docs/token-2022) tokens. All operations available to standard tokens will be usable for tokens based on this standard, and no major front-end or back-end changes are expected in order to support the majority of tokens based on this standard.
+The settlement program natively supports [Token-2022](https://www.solana-program.com/docs/token-2022) tokens. All token
+extensions will be supported.
+
+Only one token program can be supplied to an instruction at a time. If mints from two separate token programs are required,
+the client needs to divide it into separate instructions.
