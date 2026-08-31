@@ -172,19 +172,6 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
             .checked_add(WIDTH_PUBKEY)
             .ok_or(ProgramError::ArithmeticOverflow)
     }
-
-    /// The account's data length after shrinking it by one solver slot: the size
-    /// it must be resized to once [`remove_solver`](Self::remove_solver) has
-    /// shifted the tail over the removed slot.
-    ///
-    /// Returns [`ProgramError::ArithmeticOverflow`] if that length underflows,
-    /// which a caller that located a solver to remove can treat as unreachable.
-    pub fn shrunk_len(&self) -> Result<usize, ProgramError> {
-        self.0
-            .len()
-            .checked_sub(WIDTH_PUBKEY)
-            .ok_or(ProgramError::ArithmeticOverflow)
-    }
 }
 
 impl<'a> StateAccount<Ref<'a, [u8]>> {
@@ -273,12 +260,13 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
     }
 
     /// Remove `solver` from the sorted solver list, or fail with
-    /// [`SettlementError::SolverNotFound`] if it isn't stored.
+    /// [`SettlementError::SolverNotFound`] if it isn't stored. Returns the
+    /// length the account must be resized down to.
     ///
     /// The entries after the removed one are shifted one slot left to close the
     /// gap; the now-stale trailing slot is left in place for the caller to drop
-    /// by resizing the account down to [`shrunk_len`](Self::shrunk_len).
-    pub fn remove_solver(&mut self, solver: &Pubkey) -> Result<(), ProgramError> {
+    /// by resizing the account down to the returned length.
+    pub fn remove_solver(&mut self, solver: &Pubkey) -> Result<usize, ProgramError> {
         let index = match self.solver_region().binary_search(&solver.to_bytes()) {
             Ok(index) => index,
             Err(_) => return Err(SettlementError::SolverNotFound.into()),
@@ -300,7 +288,11 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
             .expect("removal slot bound by data length");
 
         data.copy_within(slot_end..len, offset);
-        Ok(())
+
+        let updated_length = len
+            .checked_sub(WIDTH_PUBKEY)
+            .expect("a solver was removed, so the length doesn't underflow");
+        Ok(updated_length)
     }
 }
 
@@ -638,18 +630,14 @@ mod tests {
                 let index = pick.index(stored.len());
                 let removed = stored[index];
 
-                // Remove the solver, then shrink to the length `shrunk_len`
-                // reports, exactly as the handler resizes the account.
+                // Remove the solver, then shrink to the length it reports,
+                // exactly as the handler resizes the account.
                 let mut bytes = fixtures::state_account_bytes(&header, &stored);
-                let shrunk_len = StateAccount::attach(&bytes[..])
-                    .expect("valid header")
-                    .shrunk_len()
-                    .expect("shrunk length fits");
-                prop_assert_eq!(shrunk_len, bytes.len().strict_sub(WIDTH_PUBKEY));
-                StateAccount::attach(&mut bytes[..])
+                let shrunk_len = StateAccount::attach(&mut bytes[..])
                     .expect("valid header")
                     .remove_solver(&removed)
                     .expect("a present solver is removed");
+                prop_assert_eq!(shrunk_len, bytes.len().strict_sub(WIDTH_PUBKEY));
                 bytes.truncate(shrunk_len);
 
                 let mut expected = stored;

@@ -39,10 +39,7 @@ pub fn process_remove_solver(
         if !manager.is_signer() || *manager.address() != state.authority(Role::Manager) {
             return Err(SettlementError::UnauthorizedSolverManagement.into());
         }
-        state.remove_solver(&solver)?;
-        state
-            .shrunk_len()
-            .expect("a solver has been removed, so the length doesn't underflow")
+        state.remove_solver(&solver)?
     };
     state_pda.resize(new_len)?;
 
