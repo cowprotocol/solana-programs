@@ -60,13 +60,12 @@ pub fn process_remove_solver(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
     use cow_settlement_interface::instruction::remove_solver::fixtures::{
         remove_solver_data, NUM_ACCOUNTS,
     };
     use pinocchio::error::ProgramError;
-
-    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_remove_solver_propagates_parse_error() {
@@ -129,13 +128,13 @@ mod tests {
                     fake_account(pubkey_from_seed("rent recipient")),
                     fake_account_owned_by(
                         state_pda_address,
-                        PROGRAM_ID,
+                        *PROGRAM_ID,
                         &state_account_bytes(&header, &stored),
                     ),
                 ];
 
                 let data = Instruction::from(RemoveSolver {
-                    program_id: PROGRAM_ID,
+                    program_id: *PROGRAM_ID,
                     manager,
                     rent_recipient: pubkey_from_seed("rent recipient"),
                     state_pda: state_pda_address,

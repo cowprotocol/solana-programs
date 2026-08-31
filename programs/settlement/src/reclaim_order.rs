@@ -56,13 +56,12 @@ mod tests {
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
     };
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::pda::order::find_order_pda;
     use cow_settlement_interface::SettlementInstruction;
     use pinocchio::Address;
 
     use super::*;
-
-    const PROGRAM_ID: pinocchio::Address = pinocchio::Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_reclaim_order_propagates_parse_error() {

@@ -72,13 +72,12 @@ pub fn process_add_solver(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::add_solver::fixtures::{
         add_solver_data, NUM_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
     use pinocchio::error::ProgramError;
-
-    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_add_solver_propagates_parse_error() {

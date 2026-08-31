@@ -67,11 +67,8 @@ mod tests {
     use cow_settlement_interface::instruction::create_buffer::fixtures::{
         create_buffer_data, NUM_SHARED_ACCOUNTS,
     };
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
-
-    /// Arbitrary placeholder program id. The failure path exercised below
-    /// returns before the program id is used for any syscall.
-    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_create_buffer_propagates_error() {
