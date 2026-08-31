@@ -115,22 +115,33 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
-	// Origin and destination of funds in this order.
-	// They implicitly encode both the receiver account and the traded tokens.
+	// Origin and destination of funds in this order, each with the mint it
+	// should correspond to.
 	buy_token_account: Pubkey
+	buy_mint: Pubkey
 	sell_token_account: Pubkey
+	sell_mint: Pubkey
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
 	// Unix timestamp
 	valid_to: u32
-	// Either Buy or Sell
-	kind: OrderKind
-	partially_fillable: bool
+	flags: Flags
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
+
+struct Flags {
+	// Indicates the path by which the order was created. Important for reclaim.
+	created_on_chain: bool
+	// Either Buy or Sell
+	kind: OrderKind
+	partially_fillable: bool
+}
 ```
+
+The fields grouped in `Flags` share a single byte in the encoded form, one bit
+each, with the remaining bits reserved and required when decoding to be zero.
 
 Differences with Ethereum:
 
@@ -199,6 +210,8 @@ Allocating an order PDA requires paying rent.
 
 If the order is expired, anyone can close the order account through the `ReclaimOrder` instruction. On account closure, the rent is sent to the order's `created_by` account, i.e., the original creator of the order.
 
+If an order created on-chain (`created_on_chain`), it can safely be closed earlier. In this case, `ReclaimOrder` will additionally allow reclaiming of orders that are cancelled or completely filled.
+
 This is useful for solvers who need to allocate the order for executing it, but the allocation itself would be orders of magnitude more expensive than the compute cost for executing an instruction. This is particularly relevant to make small orders economically viable.
 
 ## Authenticating an order
@@ -226,6 +239,8 @@ Raw Ed25519 signatures are supported by all native Solana accounts.
 
 The data to be signed is encoded as an off-chain message and signed with raw Ed25519 signatures.
 
+Orders that are created by this path must specify the flag `created_on_chain = false`.
+
 Differences with Ethereum:
 
 - Unlike ECDSA signatures in Ethereum, the owner account address cannot be recovered from the Ed25519 signature. This means that the address needs to be included as part of the signed data.
@@ -238,6 +253,8 @@ Orders can be created by the owner by executing an instruction on-chain.
 The order owner executes the `CreateOrder` instruction. The settlement program checks that the order comes from the owner and [creates the order PDA](#orders-are-accounts).
 
 In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered by the user once the order has expired by [clearing the order](#order-clearing).
+
+Orders that are created by this path must specify the flag `created_on_chain = true`.
 
 This flow supports both standard ("on-curve") accounts and PDA signatures.
 

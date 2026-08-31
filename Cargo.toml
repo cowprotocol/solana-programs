@@ -3,7 +3,7 @@ resolver = "2"
 members = ["test-cli", "client", "interface", "programs/settlement", "programs/test/cpi-caller"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 # Solana recommends edition 2021: https://solana.com/docs/programs/rust
 edition = "2021"
 
@@ -35,8 +35,8 @@ pinocchio-system = "0.6"
 pinocchio-token = "0.7"
 pinocchio-token-2022 = "0.4"
 proptest = "1"
-cow-settlement-client = { path = "client", version = "0.2.0" }
-cow-settlement-interface = { path = "interface", version = "0.2.0" }
+cow-settlement-client = { path = "client", version = "0.3.0" }
+cow-settlement-interface = { path = "interface", version = "0.3.0" }
 solana-account-view = "2"
 # Held below 2.7 on purpose. solana-address 2.7 switched to wincode 0.6, but the
 # released solana-rpc-client 4.1.x stack (pulled by test-cli) still builds against

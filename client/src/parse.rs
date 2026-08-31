@@ -5,6 +5,7 @@
 
 use cow_settlement_interface::{
     instruction::{
+        add_solver::AddSolverInput,
         create_buffer::CreateBufferInput,
         create_order::CreateOrderInput,
         initialize::InitializeInput,
@@ -28,6 +29,7 @@ pub enum ParsedInstruction<'a, A> {
     ReclaimOrder(ReclaimOrderInput<'a, A>),
     ReclaimBuffer(ReclaimBufferInput<'a, A>),
     TransferAuthority(TransferAuthorityInput<'a, A>),
+    AddSolver(AddSolverInput<'a, A>),
 }
 
 /// Parses any settlement instruction by its discriminator.
@@ -61,6 +63,9 @@ pub fn parse_instruction<'a, A>(
         SettlementInstruction::TransferAuthority => ParsedInstruction::TransferAuthority(
             TransferAuthorityInput::parse_body(remaining_data, accounts)?,
         ),
+        SettlementInstruction::AddSolver => {
+            ParsedInstruction::AddSolver(AddSolverInput::parse_body(remaining_data, accounts)?)
+        }
     })
 }
 
@@ -68,10 +73,11 @@ pub fn parse_instruction<'a, A>(
 mod tests {
     use super::*;
     use crate::instructions::{
-        BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize, InitializedIntent,
+        AddSolver, BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize,
+        InitializedIntent,
     };
     use cow_settlement_interface::{
-        data::intent::{fixtures::sample_intent, OrderKind},
+        data::intent::fixtures::sample_intent,
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array, reclaim_buffer::ReclaimBuffer,
@@ -85,7 +91,7 @@ mod tests {
     fn build(instruction: SettlementInstruction) -> Instruction {
         let program_id = pubkey_from_seed("program id");
         let payer = pubkey_from_seed("payer");
-        let intent = sample_intent(OrderKind::Sell, false);
+        let intent = sample_intent(Default::default());
         match instruction {
             SettlementInstruction::Initialize => Initialize {
                 program_id,
@@ -109,6 +115,7 @@ mod tests {
             .into(),
             SettlementInstruction::BeginSettle => BeginSettle {
                 program_id,
+                solver: payer,
                 finalize_ix_index: 1,
                 auction_id: 42,
                 orders: &[InitializedIntent {
@@ -145,6 +152,13 @@ mod tests {
                 new_authority: payer,
             }
             .into(),
+            SettlementInstruction::AddSolver => AddSolver {
+                program_id,
+                manager: payer,
+                payer,
+                solver: pubkey_from_seed("solver"),
+            }
+            .into(),
         }
     }
 
@@ -162,6 +176,7 @@ mod tests {
             SettlementInstruction::ReclaimOrder,
             SettlementInstruction::ReclaimBuffer,
             SettlementInstruction::TransferAuthority,
+            SettlementInstruction::AddSolver,
         ] {
             let ix = build(expected);
             let accounts: Vec<_> = ix
@@ -180,6 +195,7 @@ mod tests {
                 ParsedInstruction::ReclaimOrder(_) => SettlementInstruction::ReclaimOrder,
                 ParsedInstruction::ReclaimBuffer(_) => SettlementInstruction::ReclaimBuffer,
                 ParsedInstruction::TransferAuthority(_) => SettlementInstruction::TransferAuthority,
+                ParsedInstruction::AddSolver(_) => SettlementInstruction::AddSolver,
             };
             assert_eq!(actual, expected);
         }

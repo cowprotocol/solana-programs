@@ -4,7 +4,6 @@
 //! the major and minor version of the cargo package; each submodule defines the additional seeds and the
 //! derivation helper for one kind of PDA.
 
-use solana_account_view::AccountView;
 use solana_address::Address;
 
 pub mod buffer;
@@ -62,12 +61,12 @@ const fn write_at(dest: &mut [u8], offset: usize, src: &[u8]) {
 
 #[must_use]
 pub fn is_pda_with_signer_seeds<const N: usize>(
-    account: &AccountView,
+    account: &Address,
     program_id: &Address,
     signer_seeds: [&[u8]; N],
 ) -> bool {
     Address::create_program_address(&signer_seeds, program_id)
-        .is_ok_and(|derived| account.address() == &derived)
+        .is_ok_and(|derived| account == &derived)
 }
 
 #[cfg(test)]
