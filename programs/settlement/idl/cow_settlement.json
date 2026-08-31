@@ -57,7 +57,7 @@
             ]
           },
           "docs": [
-            "Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's. The const bytes below are authoritative and change on every minor version bump."
+            "Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
           ]
         },
         {
@@ -359,7 +359,7 @@
             ]
           },
           "docs": [
-            "Must be the canonical state PDA; holds the reclaim_authority the signer is checked against, and is the buffers' SPL token authority. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's. The const bytes below are authoritative and change on every minor version bump."
+            "Must be the canonical state PDA; holds the reclaim_authority the signer is checked against, and is the buffers' SPL token authority. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
           ]
         },
         {
@@ -488,7 +488,7 @@
             ]
           },
           "docs": [
-            "Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's. The const bytes below are authoritative and change on every minor version bump."
+            "Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
           ]
         }
       ],
