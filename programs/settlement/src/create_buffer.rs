@@ -64,10 +64,10 @@ pub fn process_create_buffer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::create_buffer::fixtures::{
         create_buffer_data, NUM_SHARED_ACCOUNTS,
     };
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
 
     #[test]

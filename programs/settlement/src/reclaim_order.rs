@@ -52,11 +52,11 @@ pub fn process_reclaim_order(
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::order::EncodedOrderAccount;
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
     };
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::pda::order::find_order_pda;
     use cow_settlement_interface::SettlementInstruction;
     use pinocchio::Address;

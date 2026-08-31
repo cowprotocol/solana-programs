@@ -73,10 +73,10 @@ pub fn process_create_order(
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_from, fake_sequential_accounts,
     };
