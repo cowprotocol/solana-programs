@@ -17,7 +17,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult, Resize,
 };
 
-use crate::processor::check_state_pda;
+use crate::processor::{check_state_pda, move_lamports};
 
 pub fn process_remove_solver(
     program_id: &Address,
@@ -55,16 +55,7 @@ pub fn process_remove_solver(
         // protocol changes to the rent mechanism.
         .ok_or(ProgramError::AccountNotRentExempt)?;
     let mut rent_recipient = *rent_recipient;
-    let refunded = rent_recipient
-        .lamports()
-        .checked_add(surplus)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    let retained = state_pda
-        .lamports()
-        .checked_sub(surplus)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    state_pda.set_lamports(retained);
-    rent_recipient.set_lamports(refunded);
+    move_lamports(&mut state_pda, &mut rent_recipient, surplus)?;
 
     Ok(())
 }
