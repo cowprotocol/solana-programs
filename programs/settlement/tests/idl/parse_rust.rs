@@ -216,9 +216,16 @@ pub fn field_name(field: &syn::Field, context: &str) -> String {
 /// there would only be Rust markup leaking into the published interface.
 fn strip_doc_links(text: &str) -> String {
     fn split_link(text: &str) -> Option<(&str, &str)> {
-        let (display, after_display) = text.strip_prefix('[')?.split_once("](")?;
-        let (target, after_link) = after_display.split_once(')')?;
-        (!display.contains('[') && !target.contains('(')).then_some((display, after_link))
+        let (display, after_display) = text.strip_prefix('[')?.split_once("]")?;
+
+        if let Some((target, after_link)) = after_display
+            .strip_prefix("(")
+            .and_then(|f| f.split_once(')'))
+        {
+            (!display.contains('[') && !target.contains('(')).then_some((display, after_link))
+        } else {
+            (!display.contains("[")).then_some((display, after_display))
+        }
     }
 
     let mut out = String::with_capacity(text.len());
@@ -303,6 +310,11 @@ mod tests {
         assert_eq!(
             strip_doc_links("There are two ixs, [Begin](begin) and [Finalize](finalize)"),
             "There are two ixs, Begin and Finalize"
+        );
+
+        assert_eq!(
+            strip_doc_links("Testing a [standalone] link"),
+            "Testing a standalone link"
         )
     }
 }

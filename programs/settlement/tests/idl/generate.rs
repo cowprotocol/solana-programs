@@ -7,11 +7,6 @@
 //! list, the prose describing each argument, the `metadata` blurbs — is simply
 //! left out, and [`crate::superset`] is what says the checked-in IDL has to
 //! agree with everything that _is_ here.
-//!
-//! The tables below are the one place a name has to be written twice. They
-//! exist because nothing in the Rust source says which file holds an
-//! instruction's parsed input, which struct backs a `types[]` entry, or which
-//! of an instruction's accounts the IDL derives as a PDA.
 
 use cow_settlement_interface::{
     pda::{buffer::BUFFER_SEED, SETTLEMENT_SEED},
