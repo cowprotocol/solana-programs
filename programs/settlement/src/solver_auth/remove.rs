@@ -8,7 +8,7 @@
 
 use cow_settlement_interface::{
     data::state::StateAccount,
-    instruction::{remove_solver::RemoveSolverInput, InstructionInputParsing},
+    instruction::{solver_auth::remove::RemoveSolverInput, InstructionInputParsing},
     Role, SettlementError,
 };
 use pinocchio::{
@@ -62,7 +62,7 @@ mod tests {
     use super::*;
     use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
-    use cow_settlement_interface::instruction::remove_solver::fixtures::{
+    use cow_settlement_interface::instruction::solver_auth::remove::fixtures::{
         remove_solver_data, NUM_ACCOUNTS,
     };
     use pinocchio::error::ProgramError;
@@ -101,7 +101,7 @@ mod tests {
         use cow_settlement_interface::instruction::fixtures::{
             fake_account, fake_account_owned_by, fake_signer,
         };
-        use cow_settlement_interface::instruction::remove_solver::RemoveSolver;
+        use cow_settlement_interface::instruction::solver_auth::remove::RemoveSolver;
         use cow_settlement_interface::pda::state::find_state_pda;
         use cow_settlement_interface::{Instruction, Pubkey};
 

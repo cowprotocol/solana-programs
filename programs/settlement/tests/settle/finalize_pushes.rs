@@ -28,8 +28,6 @@ use solana_sdk::{
     transaction::TransactionError,
 };
 
-mod common;
-
 /// Assert the transaction failed in `FinalizeSettle` (at [`FINALIZE_INDEX`])
 /// with `expected`.
 fn assert_finalize_error<T>(result: Result<T, TransactionError>, expected: InstructionError) {

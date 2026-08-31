@@ -41,13 +41,13 @@ pub const INITIALIZE_RS: Source = Source {
 };
 
 pub const CREATE_BUFFER_RS: Source = Source {
-    display: "interface/src/instruction/create_buffer.rs",
-    text: include_str!("../../../../interface/src/instruction/create_buffer.rs"),
+    display: "interface/src/instruction/buffer/create.rs",
+    text: include_str!("../../../../interface/src/instruction/buffer/create.rs"),
 };
 
 pub const CREATE_ORDER_RS: Source = Source {
-    display: "interface/src/instruction/create_order.rs",
-    text: include_str!("../../../../interface/src/instruction/create_order.rs"),
+    display: "interface/src/instruction/order/create.rs",
+    text: include_str!("../../../../interface/src/instruction/order/create.rs"),
 };
 
 pub const BEGIN_SETTLE_RS: Source = Source {
@@ -61,13 +61,13 @@ pub const FINALIZE_SETTLE_RS: Source = Source {
 };
 
 pub const RECLAIM_ORDER_RS: Source = Source {
-    display: "interface/src/instruction/reclaim_order.rs",
-    text: include_str!("../../../../interface/src/instruction/reclaim_order.rs"),
+    display: "interface/src/instruction/order/reclaim.rs",
+    text: include_str!("../../../../interface/src/instruction/order/reclaim.rs"),
 };
 
 pub const RECLAIM_BUFFER_RS: Source = Source {
-    display: "interface/src/instruction/reclaim_buffer.rs",
-    text: include_str!("../../../../interface/src/instruction/reclaim_buffer.rs"),
+    display: "interface/src/instruction/buffer/reclaim.rs",
+    text: include_str!("../../../../interface/src/instruction/buffer/reclaim.rs"),
 };
 
 pub const TRANSFER_AUTHORITY_RS: Source = Source {
@@ -76,13 +76,13 @@ pub const TRANSFER_AUTHORITY_RS: Source = Source {
 };
 
 pub const ADD_SOLVER_RS: Source = Source {
-    display: "interface/src/instruction/add_solver.rs",
-    text: include_str!("../../../../interface/src/instruction/add_solver.rs"),
+    display: "interface/src/instruction/solver_auth/add.rs",
+    text: include_str!("../../../../interface/src/instruction/solver_auth/add.rs"),
 };
 
 pub const REMOVE_SOLVER_RS: Source = Source {
-    display: "interface/src/instruction/remove_solver.rs",
-    text: include_str!("../../../../interface/src/instruction/remove_solver.rs"),
+    display: "interface/src/instruction/solver_auth/remove.rs",
+    text: include_str!("../../../../interface/src/instruction/solver_auth/remove.rs"),
 };
 
 impl Source {

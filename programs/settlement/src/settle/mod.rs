@@ -1,9 +1,9 @@
-//! `BeginSettle`/`FinalizeSettle` instruction handlers.
+//! Instruction handlers for the settlement.
 
 use std::ops::Deref;
 
 use cow_settlement_interface::{
-    instruction::{create_buffer::SPL_TOKEN_PROGRAM_ID, settle::recover_counterpart},
+    instruction::{buffer::create::SPL_TOKEN_PROGRAM_ID, settle::recover_counterpart},
     recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{

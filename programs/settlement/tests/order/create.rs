@@ -3,7 +3,7 @@ use cow_settlement_client::cow_settlement_interface::{
         intent::{fixtures, EncodedOrderIntent, OrderIntent},
         order::{EncodedOrderAccount, OrderAccount},
     },
-    instruction::create_order::CreateOrder,
+    instruction::order::create::CreateOrder,
     pda::order::{find_order_pda, order_pda_seeds},
     SettlementError,
 };
@@ -20,7 +20,7 @@ use crate::common::{
     signed_tx, to_instruction_error, unique_pubkey,
 };
 
-mod common;
+use crate::common;
 
 fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {

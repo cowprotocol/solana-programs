@@ -3,25 +3,19 @@
 use cow_settlement_interface::{recover_discriminator, SettlementInstruction};
 use pinocchio::{entrypoint, AccountView, Address, ProgramResult};
 
-mod add_solver;
-mod create_buffer;
-mod create_order;
+mod buffer;
 mod initialize;
+mod order;
 mod processor;
-mod reclaim_buffer;
-mod reclaim_order;
-mod remove_solver;
 mod settle;
+mod solver_auth;
 mod transfer_authority;
 
-use add_solver::process_add_solver;
-use create_buffer::process_create_buffer;
-use create_order::process_create_order;
+use buffer::{process_create_buffer, process_reclaim_buffer};
 use initialize::process_initialize;
-use reclaim_buffer::process_reclaim_buffer;
-use reclaim_order::process_reclaim_order;
-use remove_solver::process_remove_solver;
+use order::{process_create_order, process_reclaim_order};
 use settle::{process_begin_settle, process_finalize_settle};
+use solver_auth::{process_add_solver, process_remove_solver};
 use transfer_authority::process_transfer_authority;
 
 entrypoint!(process_instruction);

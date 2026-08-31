@@ -14,7 +14,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use super::InstructionInputParsing;
+use crate::instruction::InstructionInputParsing;
 use crate::SettlementInstruction;
 
 /// Builder for a `ReclaimOrder` instruction.

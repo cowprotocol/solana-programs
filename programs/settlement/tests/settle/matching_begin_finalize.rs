@@ -11,7 +11,7 @@ use solana_system_interface::instruction as system_instruction;
 
 use crate::common::to_instruction_error;
 
-mod common;
+use crate::common;
 
 #[derive(Clone, Copy, Debug)]
 /// Abstract representation of instructions in a settlement transaction.

@@ -24,7 +24,7 @@ use crate::common::{
     to_instruction_error, unique_keypair, unique_pubkey, InitializedParams,
 };
 
-mod common;
+use crate::common;
 
 /// [`setup_init`] plus a funded, dedicated `rent_recipient` for removals. A
 /// removal refunds the rent to this account, and the recipient of a lamport

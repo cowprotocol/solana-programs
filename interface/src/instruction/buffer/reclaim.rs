@@ -15,8 +15,8 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use super::InstructionInputParsing;
-pub use crate::instruction::create_buffer::SPL_TOKEN_PROGRAM_ID;
+pub use crate::instruction::buffer::create::SPL_TOKEN_PROGRAM_ID;
+use crate::instruction::InstructionInputParsing;
 use crate::SettlementInstruction;
 
 /// Builder for a `ReclaimBuffer` instruction that closes one buffer per

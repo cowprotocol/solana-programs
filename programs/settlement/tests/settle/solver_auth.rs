@@ -13,8 +13,6 @@ use crate::common::{
     setup_init, to_instruction_error, unique_keypair,
 };
 
-mod common;
-
 /// A minimal no-op settlement: a `[BeginSettle, FinalizeSettle]` pair with no
 /// orders, naming `solver` as `BeginSettle`'s settling solver. It moves no funds,
 /// so it isolates the solver gate from the rest of settlement.

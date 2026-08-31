@@ -1,7 +1,7 @@
 use cow_settlement_client::instructions::ReclaimBuffer;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::{
-    instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
+    instruction::buffer::reclaim::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
     pda::state::find_state_pda, SettlementError,
 };
 use litesvm::LiteSVM;
@@ -17,7 +17,7 @@ use crate::common::{
     assert_instruction_error, to_instruction_error, unique_pubkey, InitializedParams,
 };
 
-mod common;
+use crate::common;
 
 #[test]
 fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {

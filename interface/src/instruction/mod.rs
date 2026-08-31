@@ -8,14 +8,11 @@ use solana_program_error::ProgramError;
 
 use crate::{recover_discriminator, SettlementInstruction};
 
-pub mod add_solver;
-pub mod create_buffer;
-pub mod create_order;
+pub mod buffer;
 pub mod initialize;
-pub mod reclaim_buffer;
-pub mod reclaim_order;
-pub mod remove_solver;
+pub mod order;
 pub mod settle;
+pub mod solver_auth;
 pub mod transfer_authority;
 
 /// Shared components for parsing an instruction's input (data fields and

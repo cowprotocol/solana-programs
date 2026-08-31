@@ -11,7 +11,7 @@ use solana_pubkey::Pubkey;
 
 pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
-use super::InstructionInputParsing;
+use crate::instruction::InstructionInputParsing;
 use crate::SettlementInstruction;
 
 /// The SPL Token program. Buffers are created as token accounts owned by this

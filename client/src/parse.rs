@@ -5,14 +5,11 @@
 
 use cow_settlement_interface::{
     instruction::{
-        add_solver::AddSolverInput,
-        create_buffer::CreateBufferInput,
-        create_order::CreateOrderInput,
+        buffer::{create::CreateBufferInput, reclaim::ReclaimBufferInput},
         initialize::InitializeInput,
-        reclaim_buffer::ReclaimBufferInput,
-        reclaim_order::ReclaimOrderInput,
-        remove_solver::RemoveSolverInput,
+        order::{create::CreateOrderInput, reclaim::ReclaimOrderInput},
         settle::{BeginSettleInput, FinalizeSettleInput},
+        solver_auth::{add::AddSolverInput, remove::RemoveSolverInput},
         transfer_authority::TransferAuthorityInput,
         InstructionInputParsing,
     },
@@ -85,8 +82,8 @@ mod tests {
         data::intent::fixtures::sample_intent,
         fixtures::pubkey_from_seed,
         instruction::{
-            fixtures::fake_account_from_array, reclaim_buffer::ReclaimBuffer,
-            reclaim_order::ReclaimOrder, transfer_authority::TransferAuthority,
+            buffer::reclaim::ReclaimBuffer, fixtures::fake_account_from_array,
+            order::reclaim::ReclaimOrder, transfer_authority::TransferAuthority,
         },
         Instruction, Role,
     };

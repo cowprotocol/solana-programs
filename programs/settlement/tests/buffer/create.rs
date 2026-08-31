@@ -1,5 +1,5 @@
 use cow_settlement_client::cow_settlement_interface::{
-    instruction::create_buffer::{CreateBuffers as CreateBuffersRaw, SPL_TOKEN_PROGRAM_ID},
+    instruction::buffer::create::{CreateBuffers as CreateBuffersRaw, SPL_TOKEN_PROGRAM_ID},
     pda::{
         buffer::{buffer_pda_seeds, find_buffer_pda},
         state::find_state_pda,
@@ -31,7 +31,7 @@ use crate::common::{
     unique_keypair, unique_pubkey,
 };
 
-mod common;
+use crate::common;
 
 #[test]
 fn happy_path_creates_initialized_buffer_token_account() {

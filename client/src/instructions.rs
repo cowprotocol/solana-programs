@@ -134,7 +134,7 @@ impl From<CreateOrder<'_>> for Instruction {
         let encoded = EncodedOrderIntent::from(builder.intent);
         let (order_pda, _bump) = find_order_pda(&builder.program_id, &encoded.hash());
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-        cow_settlement_interface::instruction::create_order::CreateOrder {
+        cow_settlement_interface::instruction::order::create::CreateOrder {
             program_id: builder.program_id,
             owner: builder.owner,
             created_by: builder.created_by,
@@ -158,7 +158,7 @@ impl From<CreateBuffers<'_>> for Instruction {
             .iter()
             .map(|mint| (find_buffer_pda(&builder.program_id, mint).0, *mint))
             .collect();
-        cow_settlement_interface::instruction::create_buffer::CreateBuffers {
+        cow_settlement_interface::instruction::buffer::create::CreateBuffers {
             program_id: builder.program_id,
             payer: builder.payer,
             buffers: &buffers,
@@ -213,7 +213,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
                 (buffer_pda, *mint)
             })
             .collect();
-        cow_settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
+        cow_settlement_interface::instruction::buffer::reclaim::ReclaimBuffer {
             program_id: builder.program_id,
             state_pda,
             reclaim_authority: builder.reclaim_authority,
@@ -260,7 +260,7 @@ pub struct AddSolver {
 impl From<AddSolver> for Instruction {
     fn from(builder: AddSolver) -> Self {
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        cow_settlement_interface::instruction::add_solver::AddSolver {
+        cow_settlement_interface::instruction::solver_auth::add::AddSolver {
             program_id: builder.program_id,
             manager: builder.manager,
             payer: builder.payer,
@@ -283,7 +283,7 @@ pub struct RemoveSolver {
 impl From<RemoveSolver> for Instruction {
     fn from(builder: RemoveSolver) -> Self {
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
-        cow_settlement_interface::instruction::remove_solver::RemoveSolver {
+        cow_settlement_interface::instruction::solver_auth::remove::RemoveSolver {
             program_id: builder.program_id,
             manager: builder.manager,
             rent_recipient: builder.rent_recipient,

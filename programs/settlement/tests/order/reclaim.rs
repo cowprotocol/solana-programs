@@ -1,6 +1,6 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent},
-    instruction::{create_order::CreateOrder, reclaim_order::ReclaimOrder},
+    instruction::{order::create::CreateOrder, order::reclaim::ReclaimOrder},
     pda::order::find_order_pda,
     SettlementError,
 };
@@ -25,7 +25,7 @@ use crate::common::{
     signed_tx, to_instruction_error, token, unique_keypair, unique_pubkey,
 };
 
-mod common;
+use crate::common;
 
 const VALID_TO: u32 = 1_000;
 

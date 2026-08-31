@@ -26,8 +26,6 @@ use solana_sdk::{
     transaction::TransactionError,
 };
 
-mod common;
-
 /// Convenience wrapper around [`assert_instruction_error_at`] for asserting a
 /// specific [`SettlementError`] at the instruction that produced it: settlements
 /// run as a `[BeginSettle, FinalizeSettle]` pair, so the failing instruction

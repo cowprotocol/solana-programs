@@ -48,7 +48,7 @@ use solana_sdk::{
     transaction::{Transaction, TransactionError},
 };
 
-mod common;
+use crate::common;
 
 /// Assert the transaction failed in `BeginSettle` (at [`BEGIN_INDEX`]) with
 /// `expected`.

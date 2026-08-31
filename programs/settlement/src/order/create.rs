@@ -5,7 +5,7 @@ use cow_settlement_interface::{
         intent::EncodedOrderIntent,
         order::{self, EncodedOrderAccount},
     },
-    instruction::{create_order::CreateOrderInput, InstructionInputParsing},
+    instruction::{order::create::CreateOrderInput, InstructionInputParsing},
     pda::order::order_pda_seeds,
     SettlementError,
 };
@@ -79,11 +79,11 @@ pub fn process_create_order(
 mod tests {
     use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
     use cow_settlement_interface::fixtures::PROGRAM_ID;
-    use cow_settlement_interface::instruction::create_order::fixtures::{
-        default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
-    };
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_from, fake_sequential_accounts,
+    };
+    use cow_settlement_interface::instruction::order::create::fixtures::{
+        default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
 
     use pinocchio::account::RuntimeAccount;

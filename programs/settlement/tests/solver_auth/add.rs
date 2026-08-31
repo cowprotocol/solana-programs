@@ -24,7 +24,7 @@ use crate::common::{
     to_instruction_error, unique_keypair, InitializedParams,
 };
 
-mod common;
+use crate::common;
 
 /// Build an `AddSolver` transaction authorized by the manager and paid by the
 /// payer, both of which sign. Split from [`add_solver`] so the happy-path test

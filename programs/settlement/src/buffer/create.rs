@@ -2,7 +2,7 @@
 
 use cow_settlement_interface::{
     instruction::{
-        create_buffer::{BufferAccounts, CreateBufferInput, SPL_TOKEN_PROGRAM_ID},
+        buffer::create::{BufferAccounts, CreateBufferInput, SPL_TOKEN_PROGRAM_ID},
         InstructionInputParsing,
     },
     pda::{buffer::buffer_pda_seeds, state::state_pda_seeds},
@@ -65,7 +65,7 @@ pub fn process_create_buffer(
 mod tests {
     use super::*;
     use cow_settlement_interface::fixtures::PROGRAM_ID;
-    use cow_settlement_interface::instruction::create_buffer::fixtures::{
+    use cow_settlement_interface::instruction::buffer::create::fixtures::{
         create_buffer_data, NUM_SHARED_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;

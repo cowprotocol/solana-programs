@@ -10,7 +10,7 @@ use solana_pubkey::Pubkey;
 
 pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
-use super::InstructionInputParsing;
+use crate::instruction::InstructionInputParsing;
 use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 
 /// Builder for a `CreateOrder` instruction.

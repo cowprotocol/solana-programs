@@ -7,7 +7,7 @@
 
 use cow_settlement_interface::{
     data::state::StateAccount,
-    instruction::{add_solver::AddSolverInput, InstructionInputParsing},
+    instruction::{solver_auth::add::AddSolverInput, InstructionInputParsing},
     Role, SettlementError,
 };
 use pinocchio::{
@@ -73,10 +73,10 @@ pub fn process_add_solver(
 mod tests {
     use super::*;
     use cow_settlement_interface::fixtures::PROGRAM_ID;
-    use cow_settlement_interface::instruction::add_solver::fixtures::{
+    use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use cow_settlement_interface::instruction::solver_auth::add::fixtures::{
         add_solver_data, NUM_ACCOUNTS,
     };
-    use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
     use pinocchio::error::ProgramError;
 
     #[test]
