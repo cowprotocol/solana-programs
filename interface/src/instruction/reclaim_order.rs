@@ -1,8 +1,10 @@
 //! `ReclaimOrder` instruction builder.
 //!
-//! Closes an expired order PDA and returns its rent lamports to the
-//! `created_by` account recorded in the order body. The instruction may only be
-//! executed after the order's `valid_to` timestamp has elapsed.
+//! Closes an order PDA and returns its rent lamports to the `created_by`
+//! account recorded in the order body. The instruction may only be executed
+//! once the order's `valid_to` timestamp has elapsed, or, for an order created
+//! on-chain (see `OrderIntent::created_on_chain`), as soon as it's cancelled or
+//! completely filled.
 //!
 //! Wire format: `[discriminator=5]`, 1 byte.
 //! Required accounts:
@@ -20,8 +22,8 @@ use crate::SettlementInstruction;
 /// `order_pda` is the order PDA to close. `reclaim_recipient` must be the
 /// account recorded as `created_by` in the order PDA; it receives the recovered
 /// rent lamports.
-/// The instruction enforces no signature requirement: anyone may reclaim an
-/// expired order on behalf of its reclaim_recipient.
+/// The instruction enforces no signature requirement: anyone may reclaim a
+/// reclaimable order on behalf of its reclaim_recipient.
 pub struct ReclaimOrder {
     pub program_id: Pubkey,
     pub order_pda: Pubkey,

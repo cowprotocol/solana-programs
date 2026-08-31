@@ -3,7 +3,7 @@ resolver = "2"
 members = ["test-cli", "client", "interface", "programs/settlement", "programs/test/cpi-caller"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 # Solana recommends edition 2021: https://solana.com/docs/programs/rust
 edition = "2021"
 
@@ -27,6 +27,7 @@ solana-program-pack = "3"
 solana-rpc-client = "4"
 derive_more = { version = "1", features = ["deref"] }
 hex-literal = "1"
+jsonschema = "0.30"
 litesvm = "0.15"
 litesvm-token = "0.15"
 num_enum = "0.7"
@@ -34,8 +35,9 @@ pinocchio = "0.11"
 pinocchio-system = "0.6"
 pinocchio-token = "0.6"
 proptest = "1"
-cow-settlement-client = { path = "client", version = "0.2.0" }
-cow-settlement-interface = { path = "interface", version = "0.2.0" }
+serde_json = { version = "1", features = ["preserve_order"] }
+cow-settlement-client = { path = "client", version = "0.3.0" }
+cow-settlement-interface = { path = "interface", version = "0.3.0" }
 solana-account-view = "2"
 # Held below 2.7 on purpose. solana-address 2.7 switched to wincode 0.6, but the
 # released solana-rpc-client 4.1.x stack (pulled by test-cli) still builds against
@@ -57,6 +59,7 @@ solana-system-interface = "3"
 spl-associated-token-account-interface = "2"
 spl-token = "9"
 spl-token-interface = "3"
+syn = { version = "2", features = ["full"] }
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.

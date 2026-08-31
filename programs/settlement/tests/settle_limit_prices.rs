@@ -7,10 +7,11 @@
 //! succeeds or is rejected with the expected error.
 
 use crate::common::{
-    assert_instruction_error_at, buffer,
+    assert_instruction_error_at,
     order::OrderBuilder,
-    settlement::{BEGIN_INDEX, FINALIZE_INDEX},
-    setup_settle_ready, to_instruction_error, token, unique_pubkey,
+    send,
+    settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX},
+    setup_settle_ready, to_instruction_error, token,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
@@ -18,14 +19,11 @@ use cow_settlement_client::cow_settlement_interface::{
     pda::order::find_order_pda,
     SettlementError,
 };
-use cow_settlement_client::instructions::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
-};
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::{Transaction, TransactionError},
+    transaction::TransactionError,
 };
 
 mod common;
@@ -83,64 +81,17 @@ fn settle_all(
     solver: &Keypair,
     orders: &[(&OrderIntent, &[u64], u64)],
 ) -> Result<(), TransactionError> {
-    let mut initialized: Vec<InitializedIntent> = vec![];
-    let mut finalized: Vec<FinalizedIntent> = vec![];
-    for &(intent, pulls, amount_out) in orders {
-        // Sell side: fund and delegate the total pulled, and give each pull its
-        // own throwaway destination of the sell mint to pull into.
-        let amount_in: u64 = pulls.iter().sum();
-        token::fund_and_delegate(
-            svm,
-            program_id,
-            payer,
-            &intent.sell_token_account,
-            amount_in,
-        );
-        let mut pull_list: Vec<Pull> = vec![];
-        for &amount in pulls {
-            let destination =
-                token::create_token_account(svm, payer, &intent.sell_mint, &unique_pubkey());
-            pull_list.push(Pull {
-                destination,
-                amount,
-            });
-        }
-        // Leak the pulls so the `InitializedIntent` can borrow them until the
-        // builder consumes every order's pulls at once, below.
-        let pulls: &[Pull] = Box::leak(pull_list.into_boxed_slice());
-        initialized.push(InitializedIntent { intent, pulls });
-
-        // Buy side: fund the buffer so the push can draw `amount_out`.
-        buffer::ensure_funded(svm, program_id, payer, &intent.buy_mint, amount_out);
-
-        finalized.push(FinalizedIntent {
-            intent,
-            amount: amount_out,
-        });
-    }
-
-    let begin = BeginSettle {
-        program_id: *program_id,
-        solver: solver.pubkey(),
-        finalize_ix_index: FINALIZE_INDEX.into(),
-        auction_id: 0,
-        orders: &initialized,
-    };
-    let finalize = FinalizeSettle {
-        program_id: *program_id,
-        begin_ix_index: BEGIN_INDEX.into(),
-        orders: &finalized,
-    };
+    let staged: Vec<StagedOrder> = orders
+        .iter()
+        .map(|&(intent, pulls, amount_out)| {
+            stage_order(svm, program_id, payer, intent, pulls, amount_out)
+        })
+        .collect();
+    let instructions = build_staged_settlement(program_id, &solver.pubkey(), &staged, vec![]);
     // The solver settles and pays: it's the fee payer and the only signer the
     // pair needs (`BeginSettle` names it as its solver-signer). `payer` above
     // only funds the order/buffer setup.
-    let tx = Transaction::new_signed_with_payer(
-        &[begin.into(), finalize.into()],
-        Some(&solver.pubkey()),
-        &[solver],
-        svm.latest_blockhash(),
-    );
-    svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
+    send(svm, solver, instructions).map(|_| ())
 }
 
 // --- Limit price ---------------------------------------------------------
@@ -660,6 +611,32 @@ fn fill_or_kill_order_cannot_be_settled_twice() {
             2_000_000,
         ),
         SettlementError::OrderNotExactlyFilled,
+    );
+}
+
+#[test]
+fn partially_fillable_order_cannot_be_settled_twice_in_one_settlement() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .kind(OrderKind::Sell)
+        .partially_fillable(true)
+        .sell_amount(1_000)
+        .buy_amount(10)
+        .build();
+
+    let staged = stage_order(&mut svm, &program_id, &payer, &intent, &[1], 1_337);
+    let instructions = build_staged_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[staged.clone(), staged],
+        vec![],
+    );
+
+    assert_settlement_error(
+        BEGIN_INDEX,
+        send(&mut svm, &solver, instructions).map(|_| ()),
+        SettlementError::OrdersNotStrictlyIncreasing,
     );
 }
 

@@ -4,7 +4,7 @@ pub use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("J516Mv7YvvvJyMvNEca8tWNTJyDHbFpzwDZD96BNfR3w");
+solana_pubkey::declare_id!("FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb");
 
 pub mod data;
 pub mod instruction;
@@ -17,11 +17,28 @@ pub mod pda;
     constructor = SettlementInstruction::unknown_discriminator,
 ))]
 pub enum SettlementInstruction {
+    /// Pulls funds for a batch of orders. Must be paired in the same
+    /// transaction with a `FinalizeSettle` at `finalize_ix_index`.
     BeginSettle = 0,
+    /// Validates that a `BeginSettle` at `begin_ix_index` exists and points
+    /// back at this instruction. Must not be called via CPI.
     FinalizeSettle = 1,
+    /// Allocates a per-order PDA and writes the initial `OrderAccount` body.
     CreateOrder = 2,
+    /// Creates the singleton settlement state PDA. Succeeds only once.
     Initialize = 3,
+    /// Creates one or more per-token buffer PDAs (SPL token accounts) in a
+    /// single instruction.
+    ///
+    /// Each buffer_pda_i must be the canonical PDA for seeds
+    /// [SETTLEMENT_SEED, mint_i, "buffer"].
     CreateBuffer = 4,
+    /// Closes an expired order PDA and returns its rent lamports to the
+    /// created_by account recorded in the order body. The instruction may only
+    /// be executed after the order's valid_to timestamp has elapsed.
+    ///
+    /// No signature requirement: anyone may reclaim an expired order on behalf
+    /// of its reclaim_recipient.
     ReclaimOrder = 5,
     ReclaimBuffer = 6,
     TransferAuthority = 7,
@@ -208,8 +225,8 @@ pub enum SettlementError {
     /// `BeginSettle`: the order's cumulative `amount_received` would exceed
     /// `u64::MAX` once this settlement's push is added.
     AmountReceivedOverflow = 29,
-    /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
-    OrderNotExpired = 30,
+    /// `ReclaimOrder` was called on an order that has is not yet eligible for reclaim.
+    OrderNotReclaimable = 30,
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 31,
@@ -229,11 +246,14 @@ pub enum SettlementError {
     UnauthorizedSolverManagement = 35,
     /// `AddSolver`'s solver is already in the state PDA's solver list.
     SolverAlreadyExists = 36,
-    /// `RemoveSolver`'s solver isn't in the state PDA's solver list.
-    SolverNotFound = 37,
     /// `BeginSettle`'s solver account isn't a signer or isn't in the state PDA's
     /// solver list, so it may not settle.
-    UnauthorizedSolver = 38,
+    UnauthorizedSolver = 37,
+    /// `RemoveSolver`'s solver isn't in the state PDA's solver list.
+    SolverNotFound = 38,
+    /// A created order's intent isn't set with the `created_on_chain` flag
+    /// corresponding to the behavior of the invoked order creation instruction.
+    OrderCreatedOnChainMismatch = 39,
 }
 
 impl From<SettlementError> for u32 {
