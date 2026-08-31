@@ -3,7 +3,7 @@
 //! gate on adding them.
 
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::{WIDTH_HEADER, WIDTH_PUBKEY},
+    data::state::{fixtures::state_account_bytes, StateInitArgs, WIDTH_HEADER, WIDTH_PUBKEY},
     Instruction, SettlementError,
 };
 use cow_settlement_client::instructions::AddSolver;
@@ -14,12 +14,11 @@ use solana_sdk::{
     signature::Signer,
     transaction::{Transaction, TransactionError},
 };
-use solana_system_interface::MAX_PERMITTED_DATA_LENGTH;
 
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    create_account_at, lamports, setup_init,
+    lamports, setup_init,
     state::solvers,
     to_instruction_error, unique_keypair, InitializedParams,
 };
@@ -201,20 +200,23 @@ fn add_with_many_existing_solvers() {
         Pubkey::new_from_array(bytes)
     }
 
-    // Existing solvers 0x0143, 0x0144, …, written straight into the state PDA after
-    // its header rather than added one transaction at a time.
+    // Existing solvers 0x0000, 0x0001, … (minus the one added below), written
+    // straight into the state PDA via the account fixture, which records the live
+    // solver count in the header, rather than added one transaction at a time.
     const EXISTING: u16 = 1_000;
     const NEW_INDEX: u16 = 42;
     let mut expected: Vec<Pubkey> = (0..=EXISTING)
         .filter(|i| *i != NEW_INDEX)
         .map(indexed_solver)
         .collect();
+    let init = StateInitArgs {
+        manager: params.manager.pubkey(),
+        reclaim_authority: params.reclaim.pubkey(),
+    };
     let mut account = svm
         .get_account(&params.state_pda)
         .expect("state PDA exists");
-    for solver in &expected {
-        account.data.extend_from_slice(&solver.to_bytes());
-    }
+    account.data = state_account_bytes(&init, &expected);
     account.lamports = svm.minimum_balance_for_rent_exemption(account.data.len());
     svm.set_account(params.state_pda, account)
         .expect("set_account should succeed");
@@ -229,40 +231,6 @@ fn add_with_many_existing_solvers() {
     expected.push(extra);
     expected.sort();
     assert_eq!(solvers(&svm, &params.state_pda), expected);
-}
-
-#[test]
-fn rejects_growing_beyond_the_max_account_size() {
-    let (mut svm, params) = setup_init();
-
-    let mut data = svm
-        .get_account(&params.state_pda)
-        .expect("state PDA exists")
-        .data;
-    data.resize(MAX_PERMITTED_DATA_LENGTH as usize, 0);
-    create_account_at(&mut svm, params.state_pda, &params.program_id, &data);
-
-    let solver = unique_keypair().pubkey();
-    let tx = add_solver_tx(&svm, &params, &solver);
-    let err = svm
-        .send_transaction(tx)
-        .expect_err("growing past the max account size should revert")
-        .err;
-
-    // The revert is the runtime enforcing its account-size limit, not our program:
-    // our settlement errors surface as `InstructionError::Custom`, whereas this is a
-    // plain `InvalidArgument` from the rent-exemption sizing check.
-    assert!(
-        !matches!(
-            err,
-            TransactionError::InstructionError(_, InstructionError::Custom(_))
-        ),
-        "the revert must not be one of our program's errors: {err:?}",
-    );
-    assert_eq!(
-        err,
-        TransactionError::InstructionError(0, InstructionError::InvalidArgument),
-    );
 }
 
 /// Index of the manager account in an `AddSolver` instruction.

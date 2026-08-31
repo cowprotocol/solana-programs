@@ -1,13 +1,13 @@
 //! `RemoveSolver` instruction handler.
 //!
 //! Removes a solver from the sorted solver list that follows the state PDA
-//! header, shifting the tail left to close the gap. Only the manager may
-//! authorize it.
+//! header, shifting the tail left to close the gap and decrementing the header's
+//! live-solver count. Only the manager may authorize it.
 //!
-//! EXPERIMENT: the account is intentionally left at its current size, with the
-//! now-stale trailing slot still present and no rent refunded. The state PDA's
-//! data length (and therefore its rent lamports) only ever grows across
-//! add/remove cycles, never shrinking back.
+//! The account is left at its current size: the vacated trailing slot becomes a
+//! spare past the live region that the next add reuses, and no rent is refunded.
+//! Reads are bounded by the live count, so the stale spare is never mistaken for
+//! a solver.
 
 use cow_settlement_interface::{
     data::state::StateAccount,
@@ -36,7 +36,8 @@ pub fn process_remove_solver(
     if !manager.is_signer() || *manager.address() != state.authority(Role::Manager) {
         return Err(SettlementError::UnauthorizedSolverManagement.into());
     }
-    // We deliberately neither resize the account nor refund rent (experiment).
+    // The account is neither resized nor refunded; the freed slot stays as a
+    // spare and the header's live count is what bounds future reads.
     state.remove_solver(&solver)?;
 
     Ok(())

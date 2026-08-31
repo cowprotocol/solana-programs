@@ -1,9 +1,11 @@
 //! `AddSolver` instruction handler.
 //!
 //! Inserts a solver into the sorted solver list that follows the state PDA
-//! header, keeping it sorted so the list stays binary-searchable. Only the
-//! manager may authorize it. The account grows by one solver, so the `payer`
-//! funds the extra rent through a `Transfer` before the account is resized.
+//! header, keeping it sorted so the list stays binary-searchable, and bumps the
+//! header's live-solver count. Only the manager may authorize it. The account
+//! reuses a spare slot left by a past removal when one exists; otherwise it
+//! grows by one solver and the `payer` funds the extra rent through a `Transfer`
+//! before the account is resized.
 
 use cow_settlement_interface::{
     data::state::StateAccount,
@@ -33,36 +35,48 @@ pub fn process_add_solver(
     check_state_pda(program_id, state_pda)?;
 
     // Only the manager may change the solver list. Attaching validates the
-    // account; `grown_len` is the size it must reach to hold one more solver.
-    let new_len = {
+    // account. If the list has a spare slot from a past removal, reuse it;
+    // otherwise `grown_len` is the size the account must reach for one more.
+    let grown_len = {
         let state = StateAccount::attach(state_pda.try_borrow()?)?;
         if !manager.is_signer() || manager.address() != &state.authority(Role::Manager) {
             return Err(SettlementError::UnauthorizedSolverManagement.into());
         }
-        state
-            .grown_len()
-            .expect("grown account length fits in usize")
+        if state.has_spare_slot() {
+            None
+        } else {
+            Some(
+                state
+                    .grown_len()
+                    .expect("grown account length fits in usize"),
+            )
+        }
     };
 
-    let shortfall = Rent::get()?
-        .try_minimum_balance(new_len)?
-        // why saturating: if there's more balance available than rent needed,
-        // then there's no shortfall, that is, `shortfall == 0``.
-        .saturating_sub(state_pda.lamports());
-    if shortfall > 0 {
-        Transfer {
-            from: payer,
-            to: state_pda,
-            lamports: shortfall,
+    // When growing, top up the rent for the larger size before resizing.
+    if let Some(new_len) = grown_len {
+        let shortfall = Rent::get()?
+            .try_minimum_balance(new_len)?
+            // why saturating: if there's more balance available than rent
+            // needed, then there's no shortfall, that is, `shortfall == 0`.
+            .saturating_sub(state_pda.lamports());
+        if shortfall > 0 {
+            Transfer {
+                from: payer,
+                to: state_pda,
+                lamports: shortfall,
+            }
+            .invoke()?;
         }
-        .invoke()?;
     }
 
-    // Grow the account by one solver slot and insert. A duplicate solver is
-    // rejected before anything is written; the error reverts the growth and the
-    // rent transfer along with the rest of the instruction.
+    // Grow the account by one solver slot if needed, then insert. A duplicate
+    // solver is rejected before anything is written; the error reverts the
+    // growth and the rent transfer along with the rest of the instruction.
     let mut state_pda = *state_pda;
-    state_pda.resize(new_len)?;
+    if let Some(new_len) = grown_len {
+        state_pda.resize(new_len)?;
+    }
     let mut state = StateAccount::attach(state_pda.try_borrow_mut()?)?;
     state.insert_solver(&solver)?;
 

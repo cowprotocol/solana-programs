@@ -1,22 +1,30 @@
 //! Settlement state account: its byte layout and the zero-copy accessor over it.
 //!
 //! The state PDA (see [`crate::pda::state`]) stores the protocol's authority
-//! configuration in a fixed header (a discriminator byte followed by the holder
-//! of each [`Role`]), then the list of approved solvers, packed and sorted
-//! ascending by address.
+//! configuration in a fixed header — a discriminator byte, the holder of each
+//! [`Role`], and the count of live solvers — followed by the solver list,
+//! packed and sorted ascending by address.
+//!
+//! Layout (byte offsets):
 //!
 //! ```text
-//!  ┌──── discriminator
-//!  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───── ... ─────┬───────────────────────────────┐
-//!  ││            manager            │       reclaim_authority       │           solver[0]           │ other solvers │          solver[N-1]          │
-//!  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───── ... ─────┴───────────────────────────────┘
-//! 0 1                               33                              65                              97
-//!  └───────────────────────────── header ──────────────────────────┘└─────────────────────────────── N sorted solvers ─────────────────────────────┘
+//!   0    discriminator     (1 byte)
+//!   1    manager           (32 bytes)
+//!   33   reclaim_authority (32 bytes)
+//!   65   length            (2 bytes, u16 little-endian: the live solver count)
+//!   67   solver[0], solver[1], …, solver[length - 1], then any stale spare slots
 //! ```
+//!
+//! The header's `length`, not the account's size, bounds the list. A removal
+//! decrements `length` and leaves the vacated trailing slot in place as a spare,
+//! so the account is never shrunk; a later insert reuses that spare before
+//! growing the account. Only the first `length` slots are ever read, so a stale
+//! spare can never be mistaken for a live solver — the binary search space is
+//! the live count, not whatever slots happen to fit in the account.
 //!
 //! [`StateAccount`] is a zero-copy accessor over an account's bytes, generic
 //! over the borrow (`&[u8]`, `&mut [u8]`): the reads are available for any
-//! borrow, the in-place role write only for a mutable one. It reads and updates
+//! borrow, the in-place writes only for a mutable one. It reads and updates
 //! the account data directly, so the program never copies the account into an
 //! owned struct.
 
@@ -40,17 +48,22 @@ const WIDTH_DISCRIMINATOR: usize = size_of::<u8>();
 /// header and each solver in the list is one.
 pub const WIDTH_PUBKEY: usize = size_of::<Pubkey>();
 
-/// Length of the fixed header: the discriminator byte followed by one holder
-/// per [`Role`].
-pub const WIDTH_HEADER: usize = WIDTH_DISCRIMINATOR + 2 * WIDTH_PUBKEY;
+/// Byte width of the live-solver count stored in the header, a little-endian
+/// `u16`. Its `u16` width is what caps the solver list at ~64k entries.
+const WIDTH_LENGTH: usize = size_of::<u16>();
+
+/// Length of the fixed header: the discriminator byte, one holder per [`Role`],
+/// and the live-solver count.
+pub const WIDTH_HEADER: usize = WIDTH_DISCRIMINATOR + 2 * WIDTH_PUBKEY + WIDTH_LENGTH;
 
 /// A borrowed view over the bytes of a state acc, split into its
-/// discriminator and per-role slots so each can be named. The slots hold raw
-/// encoded bytes, not decoded [`Pubkey`]s.
+/// discriminator, per-role, and length slots so each can be named. The slots
+/// hold raw encoded bytes, not decoded [`Pubkey`]s or integers.
 struct HeaderSlots<'a> {
     discriminator: &'a [u8; WIDTH_DISCRIMINATOR],
     manager: &'a [u8; WIDTH_PUBKEY],
     reclaim_authority: &'a [u8; WIDTH_PUBKEY],
+    length: &'a [u8; WIDTH_LENGTH],
 }
 
 /// The mutable counterpart of [`HeaderSlots`], for in-place writes.
@@ -58,27 +71,40 @@ struct HeaderSlotsMut<'a> {
     discriminator: &'a mut [u8; WIDTH_DISCRIMINATOR],
     manager: &'a mut [u8; WIDTH_PUBKEY],
     reclaim_authority: &'a mut [u8; WIDTH_PUBKEY],
+    length: &'a mut [u8; WIDTH_LENGTH],
 }
 
 /// Split the header into its named slots.
 fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
-    let (discriminator, manager, reclaim_authority) =
-        array_refs![header, WIDTH_DISCRIMINATOR, WIDTH_PUBKEY, WIDTH_PUBKEY];
+    let (discriminator, manager, reclaim_authority, length) = array_refs![
+        header,
+        WIDTH_DISCRIMINATOR,
+        WIDTH_PUBKEY,
+        WIDTH_PUBKEY,
+        WIDTH_LENGTH
+    ];
     HeaderSlots {
         discriminator,
         manager,
         reclaim_authority,
+        length,
     }
 }
 
 /// [`header_slots`] over a mutable header, for in-place writes.
 fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
-    let (discriminator, manager, reclaim_authority) =
-        mut_array_refs![header, WIDTH_DISCRIMINATOR, WIDTH_PUBKEY, WIDTH_PUBKEY];
+    let (discriminator, manager, reclaim_authority, length) = mut_array_refs![
+        header,
+        WIDTH_DISCRIMINATOR,
+        WIDTH_PUBKEY,
+        WIDTH_PUBKEY,
+        WIDTH_LENGTH
+    ];
     HeaderSlotsMut {
         discriminator,
         manager,
         reclaim_authority,
+        length,
     }
 }
 
@@ -101,13 +127,22 @@ pub struct StateAccount<T>(T);
 
 impl<T: Deref<Target = [u8]>> StateAccount<T> {
     /// Wrap an account's bytes, checking they begin with the settlement-state
-    /// discriminator and are at least a full header long. Every accessor relies
-    /// on that guarantee not to panic.
+    /// discriminator, are at least a full header long, and carry a live-solver
+    /// count no larger than the slots the account actually has. Every accessor
+    /// relies on those guarantees not to panic or read past the data.
     pub fn attach(bytes: T) -> Result<Self, ProgramError> {
         let header = bytes
             .first_chunk::<WIDTH_HEADER>()
             .ok_or(ProgramError::InvalidAccountData)?;
-        if header_slots(header).discriminator != &[DISCRIMINATOR] {
+        let slots = header_slots(header);
+        if slots.discriminator != &[DISCRIMINATOR] {
+            return Err(ProgramError::InvalidAccountData);
+        }
+        // A `length` past the slots the account holds would make the live region
+        // run off the end of the data, so reject it up front.
+        let length = usize::from(u16::from_le_bytes(*slots.length));
+        let capacity = bytes.get(WIDTH_HEADER..).unwrap_or_default().len() / WIDTH_PUBKEY;
+        if length > capacity {
             return Err(ProgramError::InvalidAccountData);
         }
         Ok(Self(bytes))
@@ -129,13 +164,32 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
         Pubkey::new_from_array(*holder)
     }
 
-    /// The sorted solver list that follows the header, as fixed-width entries.
-    /// A trailing partial entry (only possible on a corrupt account) is ignored
-    /// and an uninitialized/too-small account returns an empty slice.
-    fn solver_region(&self) -> &[[u8; WIDTH_PUBKEY]] {
+    /// The live-solver count recorded in the header. This — not the account's
+    /// size — bounds the solver list; slots beyond it are stale spares.
+    pub fn length(&self) -> usize {
+        usize::from(u16::from_le_bytes(*header_slots(self.header()).length))
+    }
+
+    /// Every solver-sized slot after the header, live and stale alike. A
+    /// trailing partial slot (only on a corrupt account) is ignored, and an
+    /// uninitialized/too-small account yields an empty slice.
+    fn solver_slots(&self) -> &[[u8; WIDTH_PUBKEY]] {
         let region = self.0.get(WIDTH_HEADER..).unwrap_or_default();
-        let (solvers, _partial) = region.as_chunks::<WIDTH_PUBKEY>();
-        solvers
+        let (slots, _partial) = region.as_chunks::<WIDTH_PUBKEY>();
+        slots
+    }
+
+    /// Number of solver slots the account can hold. Always at least
+    /// [`length`](Self::length) for an account this program wrote.
+    fn capacity(&self) -> usize {
+        self.solver_slots().len()
+    }
+
+    /// The live, sorted solver list: the first [`length`](Self::length) slots.
+    /// [`attach`](Self::attach) guarantees `length <= capacity`, so this never
+    /// reads past the account's data.
+    fn solver_region(&self) -> &[[u8; WIDTH_PUBKEY]] {
+        &self.solver_slots()[..self.length()]
     }
 
     /// Locate `solver` in the sorted solver list, mirroring
@@ -172,6 +226,13 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
             .checked_add(WIDTH_PUBKEY)
             .ok_or(ProgramError::ArithmeticOverflow)
     }
+
+    /// Whether the account already has a spare slot past the live region, so an
+    /// insert can reuse it instead of growing the account. A spare is left
+    /// behind by every removal.
+    pub fn has_spare_slot(&self) -> bool {
+        self.length() < self.capacity()
+    }
 }
 
 impl<'a> StateAccount<Ref<'a, [u8]>> {
@@ -196,8 +257,16 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
             *slots.discriminator = [DISCRIMINATOR];
             *slots.manager = args.manager.to_bytes();
             *slots.reclaim_authority = args.reclaim_authority.to_bytes();
+            *slots.length = 0u16.to_le_bytes();
         }
         Ok(Self(bytes))
+    }
+
+    /// Record the live-solver count in the header. Panics if it exceeds the
+    /// `u16` the header field holds, which caps the list at ~64k solvers.
+    fn set_length(&mut self, length: usize) {
+        let length = u16::try_from(length).expect("solver count fits in the header's u16");
+        *header_slots_mut(self.header_mut()).length = length.to_le_bytes();
     }
 
     fn header_mut(&mut self) -> &mut [u8; WIDTH_HEADER] {
@@ -220,29 +289,28 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
     /// Insert `solver` into the sorted solver list, or fail with
     /// [`SettlementError::SolverAlreadyExists`] if it is already stored.
     ///
-    /// The account must already be grown by one solver slot
-    /// ([`grown_len`](Self::grown_len)): the trailing slot is spare capacity
-    /// for the new entry, so the live list is every entry but that last one.
-    /// The solver is placed in sorted order by shifting all entries and
-    /// inserting the new solver in the initial slot.
-    /// An error is returned if the solver is already included.
+    /// The account must have a spare slot past the live region
+    /// ([`has_spare_slot`](Self::has_spare_slot)); the caller grows it via
+    /// [`grown_len`](Self::grown_len) when it doesn't. The solver is placed in
+    /// sorted order by shifting the entries at and after its slot up by one into
+    /// the spare, and the live count is bumped by one.
     pub fn insert_solver(&mut self, solver: &Pubkey) -> Result<(), ProgramError> {
-        let (_spare, occupied) = self
-            .solver_region()
-            .split_last()
-            .expect("account grown by one solver slot before insertion");
-        let index = match occupied.binary_search(&solver.to_bytes()) {
+        let length = self.length();
+        let index = match self.solver_region().binary_search(&solver.to_bytes()) {
             Ok(_) => return Err(SettlementError::SolverAlreadyExists.into()),
             Err(index) => index,
         };
 
-        // Shift the entries at and after `index` up one slot into the spare,
-        // then write the solver into the gap that opens at `index`.
-        let data: &mut [u8] = &mut self.0;
-        let occupied_end = data
-            .len()
-            .checked_sub(WIDTH_PUBKEY)
-            .expect("account grown by one solver slot before insertion");
+        // Byte offsets of the insertion gap and the end of the live region.
+        // There must be a spare slot past `live_end` (capacity > length) to
+        // shift into; the caller guarantees it.
+        let live_end = WIDTH_HEADER
+            .checked_add(
+                length
+                    .checked_mul(WIDTH_PUBKEY)
+                    .expect("live length bound by account length"),
+            )
+            .expect("live region bound by account length");
         let gap = WIDTH_HEADER
             .checked_add(
                 index
@@ -254,39 +322,59 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
             .checked_add(WIDTH_PUBKEY)
             .expect("insertion slot bound by account length");
 
-        data.copy_within(gap..occupied_end, gap_end);
+        let data: &mut [u8] = &mut self.0;
+        data.copy_within(gap..live_end, gap_end);
         data[gap..gap_end].copy_from_slice(&solver.to_bytes());
+        self.set_length(
+            length
+                .checked_add(1)
+                .expect("live count bound by account capacity"),
+        );
         Ok(())
     }
 
     /// Remove `solver` from the sorted solver list, or fail with
     /// [`SettlementError::SolverNotFound`] if it isn't stored.
     ///
-    /// The entries after the removed one are shifted one slot left to close the
-    /// gap; the now-stale trailing slot is left in place.
+    /// The live entries after the removed one are shifted one slot left to close
+    /// the gap and the live count drops by one. The account is not resized: the
+    /// vacated trailing slot is left in place as a stale spare, past the new live
+    /// region, for the next insert to reuse.
     pub fn remove_solver(&mut self, solver: &Pubkey) -> Result<(), ProgramError> {
+        let length = self.length();
         let index = match self.solver_region().binary_search(&solver.to_bytes()) {
             Ok(index) => index,
             Err(_) => return Err(SettlementError::SolverNotFound.into()),
         };
 
-        // Shift the entries after `index` down one slot; the trailing slot is
-        // left unchanged.
-        let data: &mut [u8] = &mut self.0;
-        let len = data.len();
+        // Byte offsets of the removed slot and the end of the live region. The
+        // entries in `slot_end..live_end` shift down over the removed one.
+        let live_end = WIDTH_HEADER
+            .checked_add(
+                length
+                    .checked_mul(WIDTH_PUBKEY)
+                    .expect("live length bound by account length"),
+            )
+            .expect("live region bound by account length");
         let offset = WIDTH_HEADER
             .checked_add(
                 index
                     .checked_mul(WIDTH_PUBKEY)
-                    .expect("removal index bound by data length"),
+                    .expect("removal index bound by account length"),
             )
-            .expect("removal offset bound by data length");
+            .expect("removal offset bound by account length");
         let slot_end = offset
             .checked_add(WIDTH_PUBKEY)
-            .expect("removal slot bound by data length");
+            .expect("removal slot bound by account length");
 
-        data.copy_within(slot_end..len, offset);
-
+        let data: &mut [u8] = &mut self.0;
+        data.copy_within(slot_end..live_end, offset);
+        // A solver was found, so `length >= 1` and this doesn't underflow.
+        self.set_length(
+            length
+                .checked_sub(1)
+                .expect("a solver was found, so the live count is at least one"),
+        );
         Ok(())
     }
 }
@@ -311,6 +399,10 @@ pub mod fixtures {
         for solver in &sorted {
             bytes.extend_from_slice(&solver.to_bytes());
         }
+        // Record the live-solver count so reads see exactly these solvers.
+        StateAccount::attach(&mut bytes[..])
+            .expect("valid header")
+            .set_length(sorted.len());
         bytes
     }
 
@@ -355,7 +447,7 @@ mod tests {
 
     #[test]
     fn header_has_the_canonical_wire_layout() {
-        assert_eq!(WIDTH_HEADER, 65);
+        assert_eq!(WIDTH_HEADER, 67);
 
         let bytes = header_bytes();
         assert_eq!(bytes[0], SettlementAccount::SettlementState.discriminator());
@@ -364,6 +456,8 @@ mod tests {
             &bytes[33..65],
             &SAMPLE_INIT_ARGS.reclaim_authority.to_bytes()[..]
         );
+        // A freshly initialized account has zero live solvers.
+        assert_eq!(&bytes[65..67], &0u16.to_le_bytes());
     }
 
     #[test]
@@ -625,14 +719,15 @@ mod tests {
                 let index = pick.index(stored.len());
                 let removed = stored[index];
 
-                // Remove the solver, then drop the now-stale trailing slot by
-                // truncating one solver's width, as a resizing caller would.
+                // Remove the solver: the live count drops so the stale trailing
+                // slot is no longer read, and the account keeps its size.
                 let mut bytes = fixtures::state_account_bytes(&header, &stored);
+                let len_before = bytes.len();
                 StateAccount::attach(&mut bytes[..])
                     .expect("valid header")
                     .remove_solver(&removed)
                     .expect("a present solver is removed");
-                bytes.truncate(bytes.len().strict_sub(WIDTH_PUBKEY));
+                prop_assert_eq!(bytes.len(), len_before);
 
                 let mut expected = stored;
                 expected.remove(index);

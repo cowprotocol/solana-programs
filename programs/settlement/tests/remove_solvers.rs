@@ -2,13 +2,14 @@
 //! manager gate on removal. Adding solvers is covered by `add_solvers.rs`; the
 //! solver gate on settling by `settle_solver_auth.rs`.
 //!
-//! EXPERIMENT: removal no longer resizes the account or refunds rent, so the
-//! state PDA keeps its size and lamports and its data only ever grows. The
-//! now-stale trailing slot left behind means the on-account solver list is no
-//! longer trustworthy to read back, so these tests assert the size/lamports
-//! behavior rather than the list contents.
+//! Removal decrements the header's live-solver count and leaves the account's
+//! size and lamports untouched: the vacated slot becomes a spare the next add
+//! reuses, and reads are bounded by the live count so the spare is never seen.
 
-use cow_settlement_client::cow_settlement_interface::{Instruction, SettlementError};
+use cow_settlement_client::cow_settlement_interface::{
+    data::state::{fixtures::state_account_bytes, StateInitArgs},
+    Instruction, SettlementError,
+};
 use cow_settlement_client::instructions::RemoveSolver;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -20,7 +21,9 @@ use solana_sdk::{
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    setup_init, to_instruction_error, unique_keypair, InitializedParams,
+    setup_init,
+    state::solvers,
+    to_instruction_error, unique_keypair, InitializedParams,
 };
 
 mod common;
@@ -62,9 +65,9 @@ fn removes_a_solver() {
     send_transaction_metered(&mut svm, tx, BenchLabel::RemoveSolver)
         .expect("removing a solver should succeed");
 
-    // EXPERIMENT: the account is neither shrunk nor refunded, so it keeps its
-    // size and lamports. A stale trailing slot is left behind, so the on-account
-    // list is intentionally not read back here.
+    // The removed solver is gone from the live list, but the account is neither
+    // shrunk nor refunded: the freed slot is left behind as a spare.
+    assert_eq!(solvers(&svm, &params.state_pda), vec![keep]);
     let after = svm
         .get_account(&params.state_pda)
         .expect("state PDA exists");
@@ -133,8 +136,8 @@ fn rejects_removing_solver_if_manager_is_not_signer() {
     );
 }
 
-/// Removing a solver still succeeds when the list is already large. This test
-/// also benchmarks moving a lot of account data.
+/// Removing a solver still succeeds, and the live list stays sorted, when it is
+/// already large. This test also benchmarks moving a lot of account data.
 #[test]
 fn remove_with_many_existing_solvers() {
     let (mut svm, params) = setup_init();
@@ -150,17 +153,20 @@ fn remove_with_many_existing_solvers() {
         Pubkey::new_from_array(bytes)
     }
 
-    // Existing solvers 0x0000, 0x0001, …, written straight into the state PDA after
-    // its header rather than added one transaction at a time.
+    // Existing solvers 0x0000, 0x0001, …, written straight into the state PDA via
+    // the account fixture (which records the live solver count) rather than added
+    // one transaction at a time.
     const EXISTING: u16 = 1_000;
     const REMOVE_INDEX: u16 = 42;
     let existing: Vec<Pubkey> = (0..=EXISTING).map(indexed_solver).collect();
+    let init = StateInitArgs {
+        manager: params.manager.pubkey(),
+        reclaim_authority: params.reclaim.pubkey(),
+    };
     let mut account = svm
         .get_account(&params.state_pda)
         .expect("state PDA exists");
-    for solver in &existing {
-        account.data.extend_from_slice(&solver.to_bytes());
-    }
+    account.data = state_account_bytes(&init, &existing);
     account.lamports = svm.minimum_balance_for_rent_exemption(account.data.len());
     let data_len_before = account.data.len();
     svm.set_account(params.state_pda, account)
@@ -171,7 +177,10 @@ fn remove_with_many_existing_solvers() {
     send_transaction_metered(&mut svm, tx, BenchLabel::RemoveSolver)
         .expect("removing from a large list should succeed");
 
-    // EXPERIMENT: the account isn't resized, so it keeps its (large) size.
+    // The solver is gone from the live list, and the account kept its (large) size.
+    let mut expected = existing;
+    expected.retain(|&s| s != sacrifice);
+    assert_eq!(solvers(&svm, &params.state_pda), expected);
     let after = svm
         .get_account(&params.state_pda)
         .expect("state PDA exists");

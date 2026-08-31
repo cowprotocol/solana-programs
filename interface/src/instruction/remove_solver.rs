@@ -3,8 +3,8 @@
 //! It removes a solver from the sorted solver list stored in the state PDA (see
 //! [`crate::data::state`]). Only the manager may authorize it.
 //!
-//! EXPERIMENT: removal no longer resizes the state PDA or refunds rent, so the
-//! instruction takes no rent-recipient account.
+//! Removal decrements the header's live-solver count and leaves the account's
+//! size and lamports untouched, so it takes no rent-recipient account.
 
 use core::mem::size_of;
 
