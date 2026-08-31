@@ -260,13 +260,11 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
     }
 
     /// Remove `solver` from the sorted solver list, or fail with
-    /// [`SettlementError::SolverNotFound`] if it isn't stored. Returns the
-    /// length the account must be resized down to.
+    /// [`SettlementError::SolverNotFound`] if it isn't stored.
     ///
     /// The entries after the removed one are shifted one slot left to close the
-    /// gap; the now-stale trailing slot is left in place for the caller to drop
-    /// by resizing the account down to the returned length.
-    pub fn remove_solver(&mut self, solver: &Pubkey) -> Result<usize, ProgramError> {
+    /// gap; the now-stale trailing slot is left in place.
+    pub fn remove_solver(&mut self, solver: &Pubkey) -> Result<(), ProgramError> {
         let index = match self.solver_region().binary_search(&solver.to_bytes()) {
             Ok(index) => index,
             Err(_) => return Err(SettlementError::SolverNotFound.into()),
@@ -289,10 +287,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
 
         data.copy_within(slot_end..len, offset);
 
-        let updated_length = len
-            .checked_sub(WIDTH_PUBKEY)
-            .expect("a solver was removed, so the length doesn't underflow");
-        Ok(updated_length)
+        Ok(())
     }
 }
 
@@ -630,15 +625,14 @@ mod tests {
                 let index = pick.index(stored.len());
                 let removed = stored[index];
 
-                // Remove the solver, then shrink to the length it reports,
-                // exactly as the handler resizes the account.
+                // Remove the solver, then drop the now-stale trailing slot by
+                // truncating one solver's width, as a resizing caller would.
                 let mut bytes = fixtures::state_account_bytes(&header, &stored);
-                let shrunk_len = StateAccount::attach(&mut bytes[..])
+                StateAccount::attach(&mut bytes[..])
                     .expect("valid header")
                     .remove_solver(&removed)
                     .expect("a present solver is removed");
-                prop_assert_eq!(shrunk_len, bytes.len().strict_sub(WIDTH_PUBKEY));
-                bytes.truncate(shrunk_len);
+                bytes.truncate(bytes.len().strict_sub(WIDTH_PUBKEY));
 
                 let mut expected = stored;
                 expected.remove(index);

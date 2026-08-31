@@ -601,7 +601,7 @@
       "name": "remove_solver",
       "docs": [
         "Removes a solver, deleting it from the sorted solver list stored in the state PDA. Only the current holder of the Manager role may authorize this, and a solver that isn't registered is rejected.",
-        "The state PDA shrinks by one address, and the freed rent is paid to rent_recipient by a direct debit from the program-owned PDA, so no system program is involved."
+        "EXPERIMENT: the state PDA is not resized and no rent is refunded, so its data and lamports only ever grow across add/remove cycles."
       ],
       "discriminator": [
         9
@@ -612,13 +612,6 @@
           "signer": true,
           "docs": [
             "Must match the manager address recorded in the state PDA. Authorizes the change but doesn't receive anything."
-          ]
-        },
-        {
-          "name": "rent_recipient",
-          "writable": true,
-          "docs": [
-            "Receives the rent freed by shrinking the state PDA."
           ]
         },
         {
@@ -653,7 +646,7 @@
             ]
           },
           "docs": [
-            "Holds the manager the signer is checked against and the solver list the removed solver is taken from; shrunk by one address. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+            "Holds the manager the signer is checked against and the solver list the removed solver is taken from. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
           ]
         }
       ],

@@ -1,16 +1,17 @@
-//! Integration tests for removing solvers from the state PDA's list (shrinking
-//! the account and refunding rent) and the manager gate on removal. Adding
-//! solvers is covered by `add_solvers.rs`; the solver gate on settling by
-//! `settle_solver_auth.rs`.
+//! Integration tests for removing solvers from the state PDA's list and the
+//! manager gate on removal. Adding solvers is covered by `add_solvers.rs`; the
+//! solver gate on settling by `settle_solver_auth.rs`.
+//!
+//! EXPERIMENT: removal no longer resizes the account or refunds rent, so the
+//! state PDA keeps its size and lamports and its data only ever grows. The
+//! now-stale trailing slot left behind means the on-account solver list is no
+//! longer trustworthy to read back, so these tests assert the size/lamports
+//! behavior rather than the list contents.
 
-use cow_settlement_client::cow_settlement_interface::{
-    data::state::{WIDTH_HEADER, WIDTH_PUBKEY},
-    Instruction, SettlementError,
-};
+use cow_settlement_client::cow_settlement_interface::{Instruction, SettlementError};
 use cow_settlement_client::instructions::RemoveSolver;
 use litesvm::LiteSVM;
 use solana_sdk::{
-    instruction::InstructionError,
     pubkey::Pubkey,
     signature::Signer,
     transaction::{Transaction, TransactionError},
@@ -19,37 +20,18 @@ use solana_sdk::{
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    lamports, setup_init,
-    state::solvers,
-    to_instruction_error, unique_keypair, unique_pubkey, InitializedParams,
+    setup_init, to_instruction_error, unique_keypair, InitializedParams,
 };
 
 mod common;
 
-/// [`setup_init`] plus a funded, dedicated `rent_recipient` for removals. A
-/// removal refunds the rent to this account, and the recipient of a lamport
-/// credit must itself end up rent-exempt, so it's airdropped here.
-fn setup() -> (LiteSVM, InitializedParams, Pubkey) {
-    let (mut svm, params) = setup_init();
-    let rent_recipient = unique_pubkey();
-    svm.airdrop(&rent_recipient, 1_000_000_000)
-        .expect("airdrop to rent recipient should succeed");
-    (svm, params, rent_recipient)
-}
-
-/// Build a `RemoveSolver` transaction authorized by the manager, refunding the
-/// freed rent to `rent_recipient`. Signed by the payer and the manager. Split
-/// from [`remove_solver`] so the happy-path test can meter the same transaction.
-fn remove_solver_tx(
-    svm: &LiteSVM,
-    params: &InitializedParams,
-    rent_recipient: &Pubkey,
-    solver: &Pubkey,
-) -> Transaction {
+/// Build a `RemoveSolver` transaction authorized by the manager. Signed by the
+/// payer and the manager. Split from [`remove_solver`] so the happy-path test
+/// can meter the same transaction.
+fn remove_solver_tx(svm: &LiteSVM, params: &InitializedParams, solver: &Pubkey) -> Transaction {
     let ix = RemoveSolver {
         program_id: params.program_id,
         manager: params.manager.pubkey(),
-        rent_recipient: *rent_recipient,
         solver: *solver,
     };
     common::signed_tx(svm, &params.payer, &params.manager, ix)
@@ -59,57 +41,51 @@ fn remove_solver_tx(
 fn remove_solver(
     svm: &mut LiteSVM,
     params: &InitializedParams,
-    rent_recipient: &Pubkey,
     solver: &Pubkey,
 ) -> Result<(), TransactionError> {
-    let tx = remove_solver_tx(svm, params, rent_recipient, solver);
+    let tx = remove_solver_tx(svm, params, solver);
     svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err)
 }
 
 #[test]
 fn removes_a_solver() {
-    let (mut svm, params, rent_recipient) = setup();
+    let (mut svm, params) = setup_init();
     let keep = unique_keypair().pubkey();
     let drop = unique_keypair().pubkey();
     common::register_solver(&mut svm, &params, &keep);
     common::register_solver(&mut svm, &params, &drop);
 
-    let recipient_before = lamports(&svm, &rent_recipient);
-    let tx = remove_solver_tx(&svm, &params, &rent_recipient, &drop);
+    let before = svm
+        .get_account(&params.state_pda)
+        .expect("state PDA exists");
+    let tx = remove_solver_tx(&svm, &params, &drop);
     send_transaction_metered(&mut svm, tx, BenchLabel::RemoveSolver)
         .expect("removing a solver should succeed");
 
-    // Only `keep` remains, the account shrank by one solver and stayed exactly
-    // rent-exempt, and the freed rent went to the rent recipient.
-    assert_eq!(solvers(&svm, &params.state_pda), vec![keep]);
-    let account = svm
+    // EXPERIMENT: the account is neither shrunk nor refunded, so it keeps its
+    // size and lamports. A stale trailing slot is left behind, so the on-account
+    // list is intentionally not read back here.
+    let after = svm
         .get_account(&params.state_pda)
         .expect("state PDA exists");
-    assert_eq!(account.data.len(), WIDTH_HEADER + WIDTH_PUBKEY);
-    assert_eq!(
-        account.lamports,
-        svm.minimum_balance_for_rent_exemption(account.data.len()),
-    );
-    assert!(
-        lamports(&svm, &rent_recipient) > recipient_before,
-        "the rent recipient received the freed rent",
-    );
+    assert_eq!(after.data.len(), before.data.len());
+    assert_eq!(after.lamports, before.lamports);
 }
 
 #[test]
 fn rejects_removing_absent_solver() {
-    let (mut svm, params, rent_recipient) = setup();
+    let (mut svm, params) = setup_init();
     let absent = unique_keypair().pubkey();
 
     assert_instruction_error(
-        remove_solver(&mut svm, &params, &rent_recipient, &absent),
+        remove_solver(&mut svm, &params, &absent),
         to_instruction_error(SettlementError::SolverNotFound),
     );
 }
 
 #[test]
 fn rejects_removing_solver_by_non_manager() {
-    let (mut svm, params, rent_recipient) = setup();
+    let (mut svm, params) = setup_init();
     let solver = unique_keypair().pubkey();
     common::register_solver(&mut svm, &params, &solver);
 
@@ -117,7 +93,6 @@ fn rejects_removing_solver_by_non_manager() {
     let ix = RemoveSolver {
         program_id: params.program_id,
         manager: stranger.pubkey(),
-        rent_recipient,
         solver,
     };
     let tx = common::signed_tx(&svm, &params.payer, &stranger, ix);
@@ -129,7 +104,7 @@ fn rejects_removing_solver_by_non_manager() {
 
 #[test]
 fn rejects_removing_solver_if_manager_is_not_signer() {
-    let (mut svm, params, rent_recipient) = setup();
+    let (mut svm, params) = setup_init();
     let solver = unique_keypair().pubkey();
     common::register_solver(&mut svm, &params, &solver);
 
@@ -138,7 +113,6 @@ fn rejects_removing_solver_if_manager_is_not_signer() {
     let mut ix: Instruction = RemoveSolver {
         program_id: params.program_id,
         manager: params.manager.pubkey(),
-        rent_recipient,
         solver,
     }
     .into();
@@ -159,41 +133,11 @@ fn rejects_removing_solver_if_manager_is_not_signer() {
     );
 }
 
-/// A state PDA holding less than its shrunk rent minimum is rejected with
-/// [`InstructionError::AccountNotRentExempt`], not refunded.
-/// The flow in this test isn't expected to be reachable unless there are
-/// changes to how rent is handled. Still, if it does, this will be less of an
-/// issue than it could be.
-#[test]
-fn rejects_removing_from_a_below_rent_state_pda() {
-    let (mut svm, params, rent_recipient) = setup();
-    let solver = unique_keypair().pubkey();
-    common::register_solver(&mut svm, &params, &solver);
-
-    // Reduce the state PDA to one lamport below the rent minimum for zero
-    // solvers (its size after the removal), so it can't hold the rent it needs to
-    // exist and the refund's `checked_sub` underflows.
-    let below_rent = svm
-        .minimum_balance_for_rent_exemption(WIDTH_HEADER)
-        .strict_sub(1);
-    let mut account = svm
-        .get_account(&params.state_pda)
-        .expect("state PDA exists");
-    account.lamports = below_rent;
-    svm.set_account(params.state_pda, account)
-        .expect("set_account should succeed");
-
-    assert_instruction_error(
-        remove_solver(&mut svm, &params, &rent_recipient, &solver),
-        InstructionError::AccountNotRentExempt,
-    );
-}
-
-/// Removing a solver still works, and stays sorted, when the list is already
-/// large. This test also benchmarks moving a lot of account data.
+/// Removing a solver still succeeds when the list is already large. This test
+/// also benchmarks moving a lot of account data.
 #[test]
 fn remove_with_many_existing_solvers() {
-    let (mut svm, params, rent_recipient) = setup();
+    let (mut svm, params) = setup_init();
 
     /// A deterministic solver address holding `index` big-endian in its leading
     /// two bytes and the rest zero, so their relative order is their index's
@@ -210,22 +154,26 @@ fn remove_with_many_existing_solvers() {
     // its header rather than added one transaction at a time.
     const EXISTING: u16 = 1_000;
     const REMOVE_INDEX: u16 = 42;
-    let mut expected: Vec<Pubkey> = (0..=EXISTING).map(indexed_solver).collect();
+    let existing: Vec<Pubkey> = (0..=EXISTING).map(indexed_solver).collect();
     let mut account = svm
         .get_account(&params.state_pda)
         .expect("state PDA exists");
-    for solver in &expected {
+    for solver in &existing {
         account.data.extend_from_slice(&solver.to_bytes());
     }
     account.lamports = svm.minimum_balance_for_rent_exemption(account.data.len());
+    let data_len_before = account.data.len();
     svm.set_account(params.state_pda, account)
         .expect("set_account should succeed");
 
     let sacrifice = indexed_solver(REMOVE_INDEX);
-    let tx = remove_solver_tx(&svm, &params, &rent_recipient, &sacrifice);
+    let tx = remove_solver_tx(&svm, &params, &sacrifice);
     send_transaction_metered(&mut svm, tx, BenchLabel::RemoveSolver)
         .expect("removing from a large list should succeed");
 
-    expected.retain(|&s| s != sacrifice);
-    assert_eq!(solvers(&svm, &params.state_pda), expected);
+    // EXPERIMENT: the account isn't resized, so it keeps its (large) size.
+    let after = svm
+        .get_account(&params.state_pda)
+        .expect("state PDA exists");
+    assert_eq!(after.data.len(), data_len_before);
 }

@@ -167,7 +167,6 @@ mod tests {
             SettlementInstruction::RemoveSolver => RemoveSolver {
                 program_id,
                 manager: payer,
-                rent_recipient: payer,
                 solver: pubkey_from_seed("solver"),
             }
             .into(),
