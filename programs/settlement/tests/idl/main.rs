@@ -94,10 +94,11 @@ fn idl_matches_everything_generated_from_rust() {
     superset::assert_superset(&generated, &IDL);
 }
 
-/// The IDL spec can only express a variant's wire value as its position, so a
-/// Rust variant that pins its own discriminant has to agree with its index.
-/// Nothing in the generated document can carry this: it's a fact about the Rust
-/// enum, checked so the `variants[]` the IDL does carry mean what they say.
+/// The IDL specification provides no way to specify the numeric value
+/// of enum variants. If an enum is used as an input for an instruction or
+/// account encoding (such as with OrderKind), a mismatch in the order
+/// in the IDL would lead to mis-encoding. This test prevents them from
+/// happening by making the ordering of variants sensitive.
 #[test]
 fn enum_type_discriminants_match_variant_order() {
     for (source, name) in generate::ENUM_TYPES {
