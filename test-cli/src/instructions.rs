@@ -5,7 +5,7 @@ use anyhow::Context as _;
 use cow_settlement_client::cow_settlement_interface::{pda::state::find_state_pda, Pubkey};
 use solana_instruction::Instruction;
 use solana_rpc_client::rpc_client::RpcClient;
-use spl_token_interface::instruction::{self as token_ix};
+use spl_token_2022_interface::instruction::{self as token_ix};
 
 /// Build instructions that wrap `amount` lamports into the payer's WSOL ATA.
 ///
@@ -27,26 +27,26 @@ pub fn wrap_sol(
     ));
 
     ixs.push(
-        token_ix::sync_native(&spl_token_interface::id(), &wsol.ta)
+        token_ix::sync_native(&wsol.token_program, &wsol.ta)
             .context("failed to build SyncNative instruction")?,
     );
 
     Ok((wsol.ta, ixs))
 }
 
-/// Build an `Approve` instruction delegating `amount` tokens on `token_account`
-/// to the PDA derived from `program_id`.
+/// Build an `Approve` instruction delegating `amount` of `token` to the PDA
+/// derived from `program_id`.
 pub fn approve(
     program_id: &Pubkey,
-    token_account: &Pubkey,
+    token: &token::ResolvedToken,
     owner: &Pubkey,
     amount: u64,
 ) -> anyhow::Result<Instruction> {
     let (settlement_pda, _) = find_state_pda(program_id);
 
     token_ix::approve(
-        &spl_token_interface::id(),
-        token_account,
+        &token.token_program,
+        &token.ta,
         &settlement_pda,
         owner,
         &[],
