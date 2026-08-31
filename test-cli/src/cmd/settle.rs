@@ -4,11 +4,11 @@ use cow_settlement_client::{
     cow_settlement_interface::{
         data::{intent::OrderIntent, order::OrderAccount},
         pda::buffer::find_buffer_pda,
-        token_program::TokenProgram,
         Pubkey,
     },
     instruction::{
         BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
+        TokenProgram,
     },
 };
 use solana_hash::Hash;
@@ -238,16 +238,18 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
         .collect()
 }
 
-/// Tally `amount` for `mint` in `tally`. The first time a mint is seen, also
-/// check whether its buffer PDA already exists on-chain and register it for
-/// creation if not.
+/// Tally `amount` for `token`'s mint in `tally`. The first time a mint is seen,
+/// also check whether its buffer PDA already exists on-chain and register it for
+/// creation if not. Buffers are grouped by token program, since a single
+/// `CreateBuffer` instruction creates buffers for only one of them.
 fn tally_and_register_buffer(
     ctx: &Context,
     tally: &mut HashMap<Pubkey, u64>,
-    mint_buffers_to_create: &mut HashSet<Pubkey>,
-    mint: Pubkey,
+    mint_buffers_to_create: &mut HashMap<Pubkey, HashSet<Pubkey>>,
+    token: &ResolvedToken,
     amount: u64,
 ) -> anyhow::Result<()> {
+    let mint = token.mint;
     match tally.get(&mint) {
         Some(cur_amount) => {
             let new_amount = cur_amount
@@ -258,7 +260,10 @@ fn tally_and_register_buffer(
         None => {
             let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, &mint);
             if ctx.rpc.get_account(&buffer_pda).is_err() {
-                mint_buffers_to_create.insert(mint);
+                mint_buffers_to_create
+                    .entry(token.token_program)
+                    .or_default()
+                    .insert(mint);
             }
             tally.insert(mint, amount);
         }
@@ -276,7 +281,7 @@ fn prepare_setup_ixs(
 ) -> anyhow::Result<()> {
     let mut sell_amount_pulled: HashMap<Pubkey, u64> = HashMap::new();
     let mut buy_amount_pushed: HashMap<Pubkey, u64> = HashMap::new();
-    let mut mint_buffers_to_create: HashSet<Pubkey> = HashSet::new();
+    let mut mint_buffers_to_create: HashMap<Pubkey, HashSet<Pubkey>> = HashMap::new();
 
     for intent in intents {
         // for both the buy and sell token: we need to tally the total transfer amounts
@@ -285,28 +290,27 @@ fn prepare_setup_ixs(
             ctx,
             &mut sell_amount_pulled,
             &mut mint_buffers_to_create,
-            intent.sell.mint,
+            &intent.sell,
             intent.data.sell_amount,
         )?;
         tally_and_register_buffer(
             ctx,
             &mut buy_amount_pushed,
             &mut mint_buffers_to_create,
-            intent.buy.mint,
+            &intent.buy,
             intent.data.buy_amount,
         )?;
     }
 
     ensure_cow_balance(&sell_amount_pulled, &buy_amount_pushed)?;
 
-    if !mint_buffers_to_create.is_empty() {
+    for (token_program, mints) in mint_buffers_to_create {
         all_ixs.push(
             CreateBuffers {
                 program_id: ctx.program_id,
                 payer: ctx.payer.pubkey(),
-                // The CLI only resolves tokens on the legacy program for now.
-                token_program: TokenProgram::SplToken,
-                mints: &mint_buffers_to_create.into_iter().collect::<Vec<_>>(),
+                token_program: TokenProgram::try_from(&token_program)?,
+                mints: &mints.into_iter().collect::<Vec<_>>(),
             }
             .into(),
         );
