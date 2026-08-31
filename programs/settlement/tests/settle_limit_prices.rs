@@ -633,9 +633,6 @@ fn partially_fillable_order_cannot_be_settled_twice_in_one_settlement() {
         vec![],
     );
 
-    // A settlement can't fill one order twice in a single pass: orders must be
-    // strictly increasing by PDA and the two listings share the one PDA, so the
-    // second trips the ordering check before it can fill again.
     assert_settlement_error(
         BEGIN_INDEX,
         send(&mut svm, &solver, instructions).map(|_| ()),
