@@ -58,6 +58,9 @@ solana-system-interface = "3"
 spl-associated-token-account-interface = "2"
 spl-token = "9"
 spl-token-2022-interface = "3"
+# Only the test CLI still builds against the legacy interface; it moves over
+# together with its Token-2022 support.
+spl-token-interface = "3"
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.
