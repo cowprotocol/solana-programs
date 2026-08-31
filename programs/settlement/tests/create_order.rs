@@ -1,12 +1,13 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::{
-        intent::{fixtures, EncodedOrderIntent, OrderIntent, OrderKind},
+        intent::{fixtures, EncodedOrderIntent, OrderIntent},
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::create_order::CreateOrder,
     pda::order::{find_order_pda, order_pda_seeds},
     SettlementError,
 };
+use cow_settlement_interface::data::intent::{Flags, OrderKind};
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,
@@ -24,7 +25,11 @@ mod common;
 fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
-        ..fixtures::sample_intent(OrderKind::Sell, true)
+        ..fixtures::sample_intent(Flags {
+            created_on_chain: true,
+            kind: OrderKind::Sell,
+            partially_fillable: false,
+        })
     }
 }
 
@@ -324,5 +329,39 @@ fn rejects_when_intent_owner_differs_from_signer() {
             to_instruction_error(SettlementError::OwnerMismatch),
         ),
         "expected MismatchingSettlePair at instruction {expected_failing_instruction_index}"
+    );
+}
+
+#[test]
+fn rejects_intent_authenticated_off_chain() {
+    let (mut svm, program_id, owner) = common::setup();
+
+    let intent = OrderIntent {
+        flags: Flags {
+            created_on_chain: false,
+            ..Default::default()
+        },
+        ..sample_intent(owner.pubkey())
+    };
+    let (encoded, pda, _bump) = encode_and_derive(&intent, &program_id);
+
+    let ix = CreateOrder {
+        program_id,
+        owner: owner.pubkey(),
+        created_by: owner.pubkey(),
+        order_pda: pda,
+        intent_bytes: encoded,
+    };
+    let tx = signed_tx(&svm, &owner, &owner, ix);
+    assert_eq!(
+        svm.send_transaction(tx).map_err(|e| e.err).err(),
+        Some(TransactionError::InstructionError(
+            0,
+            to_instruction_error(SettlementError::OrderCreatedOnChainMismatch),
+        )),
+    );
+    assert!(
+        svm.get_account(&pda).is_none(),
+        "no order PDA may be left behind by a rejected creation"
     );
 }

@@ -34,6 +34,11 @@ pub fn process_create_order(
     if owner.address() != &intent.owner {
         return Err(SettlementError::OwnerMismatch.into());
     }
+    // The intent commits to how it's authenticated, and this is the on-chain
+    // creation flow.
+    if !intent.flags.created_on_chain {
+        return Err(SettlementError::OrderCreatedOnChainMismatch.into());
+    }
 
     // We want a single order per uid; `CanonicalPda::create_new` derives the
     // canonical bump and, by signing the creation with the order seeds, rejects
@@ -72,7 +77,7 @@ pub fn process_create_order(
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::intent::{OrderIntent, OrderKind};
+    use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
@@ -107,11 +112,17 @@ mod tests {
     fn process_create_order_rejects_invalid_encoded_intent() {
         let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
         let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntent {
-            kind: OrderKind::Buy,
+            flags: Flags {
+                kind: OrderKind::Buy,
+                ..intent.flags
+            },
             ..intent
         });
         let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntent {
-            kind: OrderKind::Sell,
+            flags: Flags {
+                kind: OrderKind::Sell,
+                ..intent.flags
+            },
             ..intent
         });
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
@@ -171,6 +182,27 @@ mod tests {
         assert_eq!(
             process_create_order(&PROGRAM_ID, &mut accounts, &data),
             Err(SettlementError::OwnerMismatch.into()),
+        );
+    }
+
+    #[test]
+    fn process_create_order_rejects_intent_not_created_on_chain() {
+        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
+            (&EncodedOrderIntent::from(&OrderIntent { ..intent })).into();
+        let data = default_order_data(&intent_bytes);
+        let owner_runtime_account = RuntimeAccount {
+            address: DEFAULT_OWNER,
+            is_signer: 1,
+            ..Default::default()
+        };
+
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        accounts[0] = fake_account_from(owner_runtime_account);
+
+        assert_eq!(
+            process_create_order(&PROGRAM_ID, &mut accounts, &data),
+            Err(SettlementError::OrderCreatedOnChainMismatch.into()),
         );
     }
 }

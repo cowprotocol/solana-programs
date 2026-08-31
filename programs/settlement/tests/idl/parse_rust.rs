@@ -75,6 +75,11 @@ pub const TRANSFER_AUTHORITY_RS: Source = Source {
     text: include_str!("../../../../interface/src/instruction/transfer_authority.rs"),
 };
 
+pub const ADD_SOLVER_RS: Source = Source {
+    display: "interface/src/instruction/add_solver.rs",
+    text: include_str!("../../../../interface/src/instruction/add_solver.rs"),
+};
+
 impl Source {
     fn parse(&self) -> syn::File {
         syn::parse_file(self.text)
@@ -173,22 +178,6 @@ pub fn declared_discriminant(variant: &syn::Variant) -> Option<u64> {
 pub fn discriminant(variant: &syn::Variant) -> u64 {
     declared_discriminant(variant)
         .unwrap_or_else(|| panic!("discriminant should be defined on {}", variant.ident))
-}
-
-/// A struct as an IDL `types[]` entry's `type`: `{"kind": "struct", "fields":
-/// [...]}`, with the fields in declaration order, which is the order they're
-/// laid out on the wire.
-pub fn struct_type(rust_struct: &syn::ItemStruct, context: &str) -> Value {
-    let fields: Vec<Value> = rust_struct
-        .fields
-        .iter()
-        .map(|field| {
-            let name = field_name(field, context);
-            let ty = type_to_idl(&field.ty, &format!("{context}.{name}"));
-            json!({ "name": name, "type": ty })
-        })
-        .collect();
-    json!({ "kind": "struct", "fields": fields })
 }
 
 /// An enum as an IDL `types[]` entry's `type`: `{"kind": "enum", "variants":

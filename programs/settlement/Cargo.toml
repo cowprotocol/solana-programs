@@ -18,7 +18,7 @@ name = "cow_settlement"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-pinocchio = { workspace = true, features = ["cpi"] }
+pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
 pinocchio-system.workspace = true
 pinocchio-token.workspace = true
 cow-settlement-interface.workspace = true

@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser};
 use cow_settlement_client::{
     cow_settlement_interface::{
-        data::intent::{OrderIntent, OrderKind},
+        data::intent::{Flags, OrderIntent, OrderKind},
         pda::order::find_order_pda,
     },
     instructions::CreateOrder,
@@ -158,12 +158,17 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     let intent = OrderIntent {
         owner: ctx.payer.pubkey(),
         sell_token_account: sell.ta,
+        sell_mint: sell.mint,
         buy_token_account: buy.ta,
+        buy_mint: buy.mint,
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,
-        kind,
-        partially_fillable: common.partially_fillable,
+        flags: Flags {
+            created_on_chain: true,
+            kind,
+            partially_fillable: common.partially_fillable,
+        },
         app_data: [0u8; 32],
     };
 

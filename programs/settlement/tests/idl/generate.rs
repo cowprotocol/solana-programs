@@ -104,14 +104,18 @@ const INSTRUCTIONS: &[Instruction] = &[
         input: &parse_rust::TRANSFER_AUTHORITY_RS,
         pda_accounts: &[("state_pda", STATE_PDA)],
     },
+    Instruction {
+        variant: SettlementInstruction::AddSolver,
+        input: &parse_rust::ADD_SOLVER_RS,
+        pda_accounts: &[("state_pda", STATE_PDA)],
+    },
 ];
 
 /// The struct types the IDL defines, as `(source, Rust name, IDL name)`. The
-/// two names don't always agree: `StateAccount` is called `SettlementState` in
-/// the IDL, matching the `SettlementAccount` variant that names the account.
+/// two names don't always agree.
 const STRUCT_TYPES: &[(&Source, &str, &str)] = &[
     (&parse_rust::ORDER_RS, "OrderAccount", "OrderAccount"),
-    (&parse_rust::STATE_RS, "StateAccount", "SettlementState"),
+    (&parse_rust::STATE_RS, "StateInitArgs", "SettlementState"),
     (&parse_rust::INTENT_RS, "OrderIntent", "OrderIntent"),
 ];
 
@@ -208,7 +212,7 @@ fn pda_accounts(instruction: &Instruction) -> Value {
 /// and the trailing repeated groups next to the values the instruction data
 /// carries, in the order the data carries them. Dropping every field whose type
 /// the IDL's grammar can't name leaves exactly the arguments — with one
-/// exception, [`arg_alias`].
+/// exception, [`field_override`].
 fn args(instruction: &Instruction, variant: &str) -> Value {
     let input_name = format!("{variant}Input");
     let input = instruction.input.find_struct(&input_name);
@@ -218,8 +222,8 @@ fn args(instruction: &Instruction, variant: &str) -> Value {
         .iter()
         .filter_map(|field| {
             let name = parse_rust::field_name(field, &input_name);
-            let (name, ty) = match arg_override(instruction.variant, &name) {
-                Some(aliased) => aliased,
+            let (name, ty) = match field_override(&input_name, &name) {
+                Some(overridden) => overridden,
                 None => (name, parse_rust::try_type_to_idl(&field.ty)?),
             };
             Some(json!({ "name": name, "type": ty }))
@@ -228,15 +232,43 @@ fn args(instruction: &Instruction, variant: &str) -> Value {
     Value::Array(args)
 }
 
-/// In cases where the IDL needs to differ from the rust code, an override can be set here.
-fn arg_override(variant: SettlementInstruction, field: &str) -> Option<(String, Value)> {
-    match (variant, field) {
-        (SettlementInstruction::CreateOrder, "intent_bytes") => Some((
+/// In cases where the IDL needs to differ from the rust code, an override can be
+/// set here, keyed by the struct declaring the field and the field's Rust name.
+fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
+    match (owner, field) {
+        // The wire carries the canonical intent bytes; the IDL names the type
+        // they decode to.
+        ("CreateOrderInput", "intent_bytes") => Some((
             "intent".to_string(),
             json!({ "defined": { "name": "OrderIntent" } }),
         )),
+        // `Flags` packs three fields into a single byte, which the IDL's type
+        // grammar can't express. The byte is what the wire carries.
+        ("OrderIntent", "flags") => Some(("flags".to_string(), json!("u8"))),
         _ => None,
     }
+}
+
+/// A struct as an IDL `types[]` entry's `type`: `{"kind": "struct", "fields":
+/// [...]}`, with the fields in declaration order, which is the order they're
+/// laid out on the wire, and [`field_override`] applied to each.
+fn struct_type(rust_struct: &syn::ItemStruct, rust_name: &str) -> Value {
+    let fields: Vec<Value> = rust_struct
+        .fields
+        .iter()
+        .map(|field| {
+            let name = parse_rust::field_name(field, rust_name);
+            let (name, ty) = match field_override(rust_name, &name) {
+                Some(overridden) => overridden,
+                None => {
+                    let ty = parse_rust::type_to_idl(&field.ty, &format!("{rust_name}.{name}"));
+                    (name, ty)
+                }
+            };
+            json!({ "name": name, "type": ty })
+        })
+        .collect();
+    json!({ "kind": "struct", "fields": fields })
 }
 
 /// One entry per `SettlementAccount` variant, in discriminator order.
@@ -259,7 +291,7 @@ fn types() -> Vec<Value> {
         type_entry(
             idl_name,
             parse_rust::docs(&rust_struct.attrs),
-            parse_rust::struct_type(&rust_struct, rust_name),
+            struct_type(&rust_struct, rust_name),
         )
     });
     let enums = ENUM_TYPES.iter().map(|(source, name)| {
