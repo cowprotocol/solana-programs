@@ -27,6 +27,7 @@ solana-program-pack = "3"
 solana-rpc-client = "4"
 derive_more = { version = "1", features = ["deref"] }
 hex-literal = "1"
+jsonschema = "0.30"
 litesvm = "0.15"
 litesvm-token = "0.15"
 num_enum = "0.7"
@@ -35,6 +36,7 @@ pinocchio-system = "0.6"
 pinocchio-token = "0.7"
 pinocchio-token-2022 = "0.4"
 proptest = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 cow-settlement-client = { path = "client", version = "0.3.0" }
 cow-settlement-interface = { path = "interface", version = "0.3.0" }
 solana-account-view = "2"
@@ -61,6 +63,7 @@ spl-token-2022-interface = "3"
 # Only the test CLI still builds against the legacy interface; it moves over
 # together with its Token-2022 support.
 spl-token-interface = "3"
+syn = { version = "2", features = ["full"] }
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.

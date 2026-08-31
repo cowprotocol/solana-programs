@@ -103,6 +103,9 @@ impl TryFrom<[u8; 1]> for Flags {
     }
 }
 
+/// Canonical order intent. Also the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds,
+/// and the exact wire format of create_order's `intent` argument. Field order and encoding here are load-bearing: they
+/// must match this program's Rust definition exactly.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct OrderIntent {
     /// Account authorized to create and invalidate this order and whose

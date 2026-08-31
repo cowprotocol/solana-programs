@@ -1,0 +1,780 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/solana-foundation/idl-spec/schema/v0.1.0.json",
+  "title": "Solana IDL v0.1.0",
+  "description": "JSON Schema for Solana program Interface Description Language (IDL) files, spec version 0.1.0.",
+  "type": "object",
+  "required": ["address", "metadata", "instructions"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional JSON Schema reference for editor support."
+    },
+    "address": {
+      "type": "string",
+      "description": "The on-chain address of the deployed program."
+    },
+    "metadata": {
+      "$ref": "#/$defs/IdlMetadata"
+    },
+    "docs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Top-level documentation strings for the program. Omitted when empty."
+    },
+    "instructions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/IdlInstruction" },
+      "description": "All instructions the program exposes."
+    },
+    "accounts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/IdlAccount" },
+      "default": [],
+      "description": "Account types the program defines (with discriminators). Omitted when empty."
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/IdlEvent" },
+      "default": [],
+      "description": "Events the program can emit. Omitted when empty."
+    },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/IdlErrorCode" },
+      "default": [],
+      "description": "Custom error codes. Omitted when empty."
+    },
+    "types": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/IdlTypeDef" },
+      "default": [],
+      "description": "Custom type definitions (structs, enums, type aliases). Omitted when empty."
+    },
+    "constants": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/IdlConst" },
+      "default": [],
+      "description": "Exported constants. Omitted when empty."
+    }
+  },
+  "$defs": {
+    "IdlMetadata": {
+      "type": "object",
+      "required": ["name", "version", "spec"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Program name (typically snake_case)."
+        },
+        "version": {
+          "type": "string",
+          "description": "Program version (semver)."
+        },
+        "spec": {
+          "type": "string",
+          "const": "0.1.0",
+          "description": "IDL spec version. Must be \"0.1.0\" for this spec."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable program description. Omitted when absent."
+        },
+        "repository": {
+          "type": "string",
+          "description": "URL of the source repository. Omitted when absent."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdlDependency" },
+          "default": [],
+          "description": "External program dependencies. Omitted when empty."
+        },
+        "contact": {
+          "type": "string",
+          "description": "Contact information for the program maintainer. Omitted when absent."
+        },
+        "deployments": {
+          "$ref": "#/$defs/IdlDeployments",
+          "description": "Deployment addresses per cluster. Omitted when absent."
+        }
+      }
+    },
+    "IdlDependency": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Dependency name."
+        },
+        "version": {
+          "type": "string",
+          "description": "Dependency version (semver)."
+        }
+      }
+    },
+    "IdlDeployments": {
+      "type": "object",
+      "required": ["mainnet", "testnet", "devnet", "localnet"],
+      "additionalProperties": false,
+      "properties": {
+        "mainnet": {
+          "type": ["string", "null"],
+          "description": "Mainnet-beta program address, or null when absent."
+        },
+        "testnet": {
+          "type": ["string", "null"],
+          "description": "Testnet program address, or null when absent."
+        },
+        "devnet": {
+          "type": ["string", "null"],
+          "description": "Devnet program address, or null when absent."
+        },
+        "localnet": {
+          "type": ["string", "null"],
+          "description": "Localnet program address, or null when absent."
+        }
+      }
+    },
+    "IdlDiscriminator": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
+      "description": "Variable-length byte array uniquely identifying instructions, accounts, or events. Length and derivation are framework-specific."
+    },
+    "IdlInstruction": {
+      "type": "object",
+      "required": ["name", "discriminator", "accounts", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Instruction name (camelCase)."
+        },
+        "docs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Documentation strings. Omitted when empty."
+        },
+        "discriminator": {
+          "$ref": "#/$defs/IdlDiscriminator"
+        },
+        "accounts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdlInstructionAccountItem" },
+          "description": "Accounts required by this instruction."
+        },
+        "args": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdlField" },
+          "description": "Instruction arguments."
+        },
+        "returns": {
+          "$ref": "#/$defs/IdlType",
+          "description": "Return type (if the instruction returns data via return_data). Omitted when absent."
+        }
+      }
+    },
+    "IdlInstructionAccountItem": {
+      "description": "Untagged union: either a single account or a composite (nested group). Distinguished by structure: a Composite has an 'accounts' array, a Single does not.",
+      "oneOf": [
+        { "$ref": "#/$defs/IdlInstructionAccounts" },
+        { "$ref": "#/$defs/IdlInstructionAccount" }
+      ]
+    },
+    "IdlInstructionAccount": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Account name (camelCase)."
+        },
+        "docs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Documentation strings. Omitted when empty."
+        },
+        "writable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the account is written to. Omitted when false."
+        },
+        "signer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the account must sign the transaction. Omitted when false."
+        },
+        "optional": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the account is optional. Omitted when false."
+        },
+        "address": {
+          "type": "string",
+          "description": "Expected fixed address (e.g. a well-known program). Omitted when absent."
+        },
+        "pda": {
+          "$ref": "#/$defs/IdlPda",
+          "description": "PDA derivation info for this account. Omitted when absent."
+        },
+        "relations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Names of related accounts (constraint references). Omitted when empty."
+        }
+      }
+    },
+    "IdlInstructionAccounts": {
+      "type": "object",
+      "required": ["name", "accounts"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Group name."
+        },
+        "accounts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdlInstructionAccountItem" },
+          "description": "Nested account items."
+        }
+      }
+    },
+    "IdlField": {
+      "type": "object",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Field name (camelCase)."
+        },
+        "docs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Documentation strings. Omitted when empty."
+        },
+        "type": {
+          "$ref": "#/$defs/IdlType",
+          "description": "The field's type."
+        }
+      }
+    },
+    "IdlAccount": {
+      "type": "object",
+      "required": ["name", "discriminator"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Account type name (PascalCase)."
+        },
+        "discriminator": {
+          "$ref": "#/$defs/IdlDiscriminator"
+        }
+      }
+    },
+    "IdlEvent": {
+      "type": "object",
+      "required": ["name", "discriminator"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Event name (PascalCase)."
+        },
+        "discriminator": {
+          "$ref": "#/$defs/IdlDiscriminator"
+        }
+      }
+    },
+    "IdlErrorCode": {
+      "type": "object",
+      "required": ["code", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Numeric error code. Custom errors typically start at 6000."
+        },
+        "name": {
+          "type": "string",
+          "description": "Error name (PascalCase)."
+        },
+        "msg": {
+          "type": "string",
+          "description": "Human-readable error message. Omitted when absent."
+        }
+      }
+    },
+    "IdlTypeDef": {
+      "type": "object",
+      "required": ["name", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Type name (PascalCase)."
+        },
+        "docs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Documentation strings. Omitted when empty."
+        },
+        "serialization": {
+          "$ref": "#/$defs/IdlSerialization",
+          "description": "Serialization format. Omitted when \"borsh\" (default)."
+        },
+        "repr": {
+          "$ref": "#/$defs/IdlRepr",
+          "description": "Memory representation hint. Omitted when absent."
+        },
+        "generics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdlTypeDefGeneric" },
+          "default": [],
+          "description": "Generic parameters. Omitted when empty."
+        },
+        "type": {
+          "$ref": "#/$defs/IdlTypeDefTy",
+          "description": "The kind of type (struct, enum, or alias)."
+        }
+      }
+    },
+    "IdlTypeDefTy": {
+      "description": "Tagged union describing the shape of a type definition. Uses 'kind' as the tag field.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "struct" },
+            "fields": {
+              "$ref": "#/$defs/IdlDefinedFields",
+              "description": "Struct fields. Omitted when absent."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "variants"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "enum" },
+            "variants": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/IdlEnumVariant" },
+              "description": "Enum variants."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "alias"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "type" },
+            "alias": {
+              "$ref": "#/$defs/IdlType",
+              "description": "The aliased type."
+            }
+          }
+        }
+      ]
+    },
+    "IdlEnumVariant": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Variant name (PascalCase)."
+        },
+        "fields": {
+          "$ref": "#/$defs/IdlDefinedFields",
+          "description": "Variant data, if any. Omitted when absent."
+        }
+      }
+    },
+    "IdlDefinedFields": {
+      "description": "Untagged union: Named fields (array of objects with 'name' and 'type') or Tuple fields (array of IdlType values).",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdlField" },
+          "description": "Named fields (like a Rust struct)."
+        },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdlType" },
+          "description": "Positional fields (like a Rust tuple struct)."
+        }
+      ]
+    },
+    "IdlType": {
+      "description": "The IDL type system covering primitives, containers, defined types, and generics.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "bool",
+            "u8", "i8",
+            "u16", "i16",
+            "u32", "i32",
+            "f32",
+            "u64", "i64",
+            "f64",
+            "u128", "i128",
+            "u256", "i256",
+            "bytes", "string", "pubkey"
+          ],
+          "description": "Primitive type."
+        },
+        {
+          "type": "object",
+          "required": ["option"],
+          "additionalProperties": false,
+          "properties": {
+            "option": { "$ref": "#/$defs/IdlType" }
+          },
+          "description": "Optional value."
+        },
+        {
+          "type": "object",
+          "required": ["vec"],
+          "additionalProperties": false,
+          "properties": {
+            "vec": { "$ref": "#/$defs/IdlType" }
+          },
+          "description": "Variable-length list."
+        },
+        {
+          "type": "object",
+          "required": ["array"],
+          "additionalProperties": false,
+          "properties": {
+            "array": {
+              "type": "array",
+              "items": [
+                { "$ref": "#/$defs/IdlType" },
+                { "$ref": "#/$defs/IdlArrayLen" }
+              ],
+              "additionalItems": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "description": "Fixed-length array: [type, length]."
+        },
+        {
+          "type": "object",
+          "required": ["defined"],
+          "additionalProperties": false,
+          "properties": {
+            "defined": {
+              "type": "object",
+              "required": ["name"],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Name of the user-defined type from the types array."
+                },
+                "generics": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/IdlGenericArg" },
+                  "default": [],
+                  "description": "Generic arguments. Omitted when empty."
+                }
+              }
+            }
+          },
+          "description": "Reference to a user-defined type."
+        },
+        {
+          "type": "object",
+          "required": ["generic"],
+          "additionalProperties": false,
+          "properties": {
+            "generic": {
+              "type": "string",
+              "description": "Name of the generic type parameter."
+            }
+          },
+          "description": "A generic type parameter."
+        }
+      ]
+    },
+    "IdlArrayLen": {
+      "description": "Array length: a bare number for fixed sizes, or an object for generic const parameters.",
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Fixed numeric length."
+        },
+        {
+          "type": "object",
+          "required": ["generic"],
+          "additionalProperties": false,
+          "properties": {
+            "generic": {
+              "type": "string",
+              "description": "Generic const parameter name."
+            }
+          },
+          "description": "Generic const parameter length."
+        }
+      ]
+    },
+    "IdlGenericArg": {
+      "description": "Generic argument when instantiating a generic type. Tagged with 'kind'.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "type"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "type" },
+            "type": { "$ref": "#/$defs/IdlType" }
+          },
+          "description": "A type argument."
+        },
+        {
+          "type": "object",
+          "required": ["kind", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "const" },
+            "value": {
+              "type": "string",
+              "description": "Const value as a string."
+            }
+          },
+          "description": "A const argument."
+        }
+      ]
+    },
+    "IdlTypeDefGeneric": {
+      "description": "Declares a generic parameter on a type definition. Tagged with 'kind'.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "type" },
+            "name": {
+              "type": "string",
+              "description": "Generic type parameter name."
+            }
+          },
+          "description": "A generic type parameter."
+        },
+        {
+          "type": "object",
+          "required": ["kind", "name", "type"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "const" },
+            "name": {
+              "type": "string",
+              "description": "Const generic parameter name."
+            },
+            "type": {
+              "type": "string",
+              "description": "The const generic's type (e.g. \"usize\")."
+            }
+          },
+          "description": "A const generic parameter."
+        }
+      ]
+    },
+    "IdlSerialization": {
+      "description": "Serialization format. Default is \"borsh\" (omitted from output).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["borsh", "bytemuck", "bytemuckunsafe"],
+          "description": "Built-in serialization format."
+        },
+        {
+          "type": "object",
+          "required": ["custom"],
+          "additionalProperties": false,
+          "properties": {
+            "custom": {
+              "type": "string",
+              "description": "Custom serialization format name."
+            }
+          },
+          "description": "A custom serialization format."
+        }
+      ]
+    },
+    "IdlRepr": {
+      "description": "Memory representation hint, mirroring Rust's #[repr(...)]. Tagged with 'kind'.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "rust" },
+            "packed": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether the type uses packed layout. Omitted when false."
+            },
+            "align": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Explicit alignment in bytes. Omitted when absent."
+            }
+          },
+          "description": "Default Rust representation."
+        },
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "c" },
+            "packed": {
+              "type": "boolean",
+              "default": false,
+              "description": "Whether the type uses packed layout. Omitted when false."
+            },
+            "align": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Explicit alignment in bytes. Omitted when absent."
+            }
+          },
+          "description": "C-compatible representation."
+        },
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "transparent" }
+          },
+          "description": "Transparent representation (single-field wrapper)."
+        }
+      ]
+    },
+    "IdlConst": {
+      "type": "object",
+      "required": ["name", "type", "value"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Constant name (SCREAMING_SNAKE_CASE)."
+        },
+        "docs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Documentation strings. Omitted when empty."
+        },
+        "type": {
+          "$ref": "#/$defs/IdlType",
+          "description": "The constant's type."
+        },
+        "value": {
+          "type": "string",
+          "description": "The constant's value as a string representation."
+        }
+      }
+    },
+    "IdlPda": {
+      "type": "object",
+      "required": ["seeds"],
+      "additionalProperties": false,
+      "properties": {
+        "seeds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/IdlSeed" },
+          "description": "Ordered list of seeds."
+        },
+        "program": {
+          "$ref": "#/$defs/IdlSeed",
+          "description": "The program to derive against (defaults to the current program). Omitted when absent."
+        }
+      }
+    },
+    "IdlSeed": {
+      "description": "Tagged union for PDA seed sources. Uses 'kind' as the tag field.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "value"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "const" },
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "description": "Raw bytes of the constant seed."
+            }
+          },
+          "description": "A constant byte value."
+        },
+        {
+          "type": "object",
+          "required": ["kind", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "arg" },
+            "path": {
+              "type": "string",
+              "description": "Dot-delimited path to the instruction argument."
+            }
+          },
+          "description": "A value from an instruction argument."
+        },
+        {
+          "type": "object",
+          "required": ["kind", "path"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "account" },
+            "path": {
+              "type": "string",
+              "description": "Dot-delimited path to the account field."
+            },
+            "account": {
+              "type": "string",
+              "description": "The account type name (if resolving a field from a deserialized account). Omitted when absent."
+            }
+          },
+          "description": "A value from an account field."
+        }
+      ]
+    }
+  }
+}
