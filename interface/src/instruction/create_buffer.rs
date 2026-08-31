@@ -62,18 +62,32 @@ impl From<CreateBuffers<'_>> for Instruction {
     }
 }
 
+/// The two accounts of one buffer to create.
+pub struct BufferAccounts<'a, A> {
+    pub buffer_pda: &'a A,
+    pub mint: &'a A,
+}
+
 /// Parsed inputs of a `CreateBuffer` instruction.
 pub struct CreateBufferInput<'a, A> {
     pub payer: &'a A,
     pub token_program: &'a A,
-    /// One `[buffer_pda, mint]` pair per buffer to create.
-    pub buffers: &'a [[A; 2]],
+    buffer_pairs: &'a [[A; 2]],
+}
+
+impl<'a, A> CreateBufferInput<'a, A> {
+    /// The buffers to create, one [`BufferAccounts`] per pair.
+    pub fn buffers(&self) -> impl Iterator<Item = BufferAccounts<'a, A>> + '_ {
+        self.buffer_pairs
+            .iter()
+            .map(|[buffer_pda, mint]| BufferAccounts { buffer_pda, mint })
+    }
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for CreateBufferInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateBuffer;
 
-    fn parse_body(instruction_data: &[u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &[u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
         }
@@ -98,7 +112,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for CreateBufferInput<'a, A> {
         Ok(Self {
             payer,
             token_program,
-            buffers,
+            buffer_pairs: buffers,
         })
     }
 }
@@ -156,7 +170,7 @@ mod tests {
             buffers: &[(buffer_pda, mint)],
         })
         .data;
-        let mut accounts = [
+        let accounts = [
             fake_account(payer),
             system_program,
             fake_account(token_program),
@@ -164,17 +178,14 @@ mod tests {
             fake_account(mint),
         ];
 
-        let CreateBufferInput {
-            payer: parsed_payer,
-            token_program: parsed_token_program,
-            buffers,
-        } = CreateBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
+        let input = CreateBufferInput::parse(&data, &accounts).expect("parse should succeed");
 
-        assert_eq!(*parsed_payer.address(), payer);
-        assert_eq!(*parsed_token_program.address(), token_program);
+        assert_eq!(*input.payer.address(), payer);
+        assert_eq!(*input.token_program.address(), token_program);
+        let buffers: Vec<_> = input.buffers().collect();
         assert_eq!(buffers.len(), 1, "one buffer is one (pda, mint) pair");
-        assert_eq!(*buffers[0][0].address(), buffer_pda);
-        assert_eq!(*buffers[0][1].address(), mint);
+        assert_eq!(*buffers[0].buffer_pda.address(), buffer_pda);
+        assert_eq!(*buffers[0].mint.address(), mint);
     }
 
     #[test]
@@ -193,7 +204,7 @@ mod tests {
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
         })
         .data;
-        let mut accounts = [
+        let accounts = [
             fake_account(payer),
             fake_account_from_array([4; 32]),
             fake_account(token_program),
@@ -203,15 +214,15 @@ mod tests {
             fake_account(mint_b),
         ];
 
-        let CreateBufferInput { buffers, .. } =
-            CreateBufferInput::parse(&data, &mut accounts).expect("parse should succeed");
+        let input = CreateBufferInput::parse(&data, &accounts).expect("parse should succeed");
 
+        let buffers: Vec<_> = input.buffers().collect();
         assert_eq!(
-            buffers[0].each_ref().map(|a| *a.address()),
+            [*buffers[0].buffer_pda.address(), *buffers[0].mint.address()],
             [buffer_a, mint_a]
         );
         assert_eq!(
-            buffers[1].each_ref().map(|a| *a.address()),
+            [*buffers[1].buffer_pda.address(), *buffers[1].mint.address()],
             [buffer_b, mint_b]
         );
     }
@@ -220,9 +231,9 @@ mod tests {
     fn create_buffer_input_rejects_zero_buffers() {
         let data = vec![SettlementInstruction::CreateBuffer.discriminator()];
         // Only the three shared accounts, no (pda, mint) pairs.
-        let mut accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<NUM_SHARED_ACCOUNTS>();
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut accounts).err(),
+            CreateBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
             "an instruction that creates no buffers is rejected",
         );
@@ -232,9 +243,9 @@ mod tests {
     fn create_buffer_input_rejects_long_data() {
         let mut data = create_buffer_data();
         data.push(0); // trailing byte
-        let mut accounts: [AccountView; 0] = [];
+        let accounts: [AccountView; 0] = [];
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut accounts).err(),
+            CreateBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -243,9 +254,9 @@ mod tests {
     fn create_buffer_input_rejects_missing_accounts() {
         let data = create_buffer_data();
         // Fewer than the three shared accounts.
-        let mut accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS - 1 }>();
+        let accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS - 1 }>();
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut accounts).err(),
+            CreateBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -254,9 +265,9 @@ mod tests {
     fn create_buffer_input_rejects_odd_pair_accounts() {
         let data = create_buffer_data();
         // Three shared accounts plus a dangling account that can't form a pair.
-        let mut accounts = fake_sequential_accounts::<4>();
+        let accounts = fake_sequential_accounts::<4>();
         assert_eq!(
-            CreateBufferInput::parse(&data, &mut accounts).err(),
+            CreateBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }

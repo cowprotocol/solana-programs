@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/solana-idl/idl-spec/schema/v0.1.0.json",
+  "$id": "https://github.com/solana-foundation/idl-spec/schema/v0.1.0.json",
   "title": "Solana IDL v0.1.0",
   "description": "JSON Schema for Solana program Interface Description Language (IDL) files, spec version 0.1.0.",
   "type": "object",

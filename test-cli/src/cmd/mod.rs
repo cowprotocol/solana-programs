@@ -1,4 +1,4 @@
-use settlement_client::settlement_interface::Pubkey;
+use cow_settlement_client::cow_settlement_interface::Pubkey;
 use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::signature::read_keypair_file;
@@ -7,7 +7,9 @@ use solana_sdk::signer::keypair::Keypair;
 use crate::Cli;
 
 pub mod create_order;
+pub mod initialize;
 pub mod settle;
+pub mod solver;
 
 /// Shared context threaded through every subcommand.
 pub struct Context {

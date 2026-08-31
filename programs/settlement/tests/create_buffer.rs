@@ -1,17 +1,17 @@
+use cow_settlement_client::cow_settlement_interface::{
+    instruction::create_buffer::{CreateBuffers as CreateBuffersRaw, SPL_TOKEN_PROGRAM_ID},
+    pda::{
+        buffer::{buffer_pda_seeds, find_buffer_pda},
+        state::find_state_pda,
+    },
+};
+use cow_settlement_client::instructions::CreateBuffers;
 use litesvm::LiteSVM;
 use litesvm_token::{
     get_spl_account,
     spl_token::{
         native_mint,
         state::{Account as TokenAccount, AccountState},
-    },
-};
-use settlement_client::instructions::CreateBuffers;
-use settlement_client::settlement_interface::{
-    instruction::create_buffer::{CreateBuffers as CreateBuffersRaw, SPL_TOKEN_PROGRAM_ID},
-    pda::{
-        buffer::{buffer_pda_seeds, find_buffer_pda},
-        state::find_state_pda,
     },
 };
 use solana_compute_budget::{
@@ -502,34 +502,16 @@ fn same_mint_twice_in_one_instruction_is_idempotent() {
 /// Nothing is created because the sent buffers are non-canonical and the
 /// transaction errors out, so the probe leaves no state behind.
 fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> usize {
-    let mut n: usize = 1;
-    loop {
-        let pairs: Vec<(Pubkey, Pubkey)> =
+    common::lookup_table::max_items_via_lookup_table(svm, |svm, n| {
+        let buffers: Vec<(Pubkey, Pubkey)> =
             (0..n).map(|_| (unique_pubkey(), unique_pubkey())).collect();
         let ix = CreateBuffersRaw {
             program_id: *program_id,
             payer: payer.pubkey(),
-            buffers: &pairs,
+            buffers: &buffers,
         };
-        let tx = common::lookup_table::lookup_table_tx(svm, payer, ix);
-        match svm.send_transaction(tx) {
-            // Over the lock limit: rejected at sanitization, before executing.
-            Err(failed) if failed.err == TransactionError::TooManyAccountLocks => {
-                return n
-                    .checked_sub(1)
-                    .expect("Overflow means zero accounts are too many")
-            }
-            // Within the limit: the transaction reached the program, which, as
-            // expected, rejected the throwaway (non-canonical) buffer PDA.
-            Err(failed) if matches!(failed.err, TransactionError::InstructionError(..)) => {
-                n = n.strict_add(1)
-            }
-            // Anything else (an unexpected error, or a transaction that somehow
-            // succeeded) means the probe's own setup is broken, not a real signal
-            // about the limit. Fail loudly rather than miscount.
-            other => panic!("unexpected result probing {n} buffers: {other:?}"),
-        }
-    }
+        common::lookup_table::lookup_table_tx(svm, payer, ix)
+    })
 }
 
 /// This isn't really a test, it's a way to make it visible that a code change

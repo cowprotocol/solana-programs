@@ -4,7 +4,7 @@ pub use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 pub use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("MooohhPEAAHwAwEozL7JPEmnDvaahuUpccYN4Yb8ccK");
+solana_pubkey::declare_id!("FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb");
 
 pub mod data;
 pub mod instruction;
@@ -17,12 +17,32 @@ pub mod pda;
     constructor = SettlementInstruction::unknown_discriminator,
 ))]
 pub enum SettlementInstruction {
+    /// Pulls funds for a batch of orders. Must be paired in the same
+    /// transaction with a `FinalizeSettle` at `finalize_ix_index`.
     BeginSettle = 0,
+    /// Validates that a `BeginSettle` at `begin_ix_index` exists and points
+    /// back at this instruction. Must not be called via CPI.
     FinalizeSettle = 1,
+    /// Allocates a per-order PDA and writes the initial `OrderAccount` body.
     CreateOrder = 2,
+    /// Creates the singleton settlement state PDA. Succeeds only once.
     Initialize = 3,
+    /// Creates one or more per-token buffer PDAs (SPL token accounts) in a
+    /// single instruction.
+    ///
+    /// Each buffer_pda_i must be the canonical PDA for seeds
+    /// [SETTLEMENT_SEED, mint_i, "buffer"].
     CreateBuffer = 4,
+    /// Closes an expired order PDA and returns its rent lamports to the
+    /// created_by account recorded in the order body. The instruction may only
+    /// be executed after the order's valid_to timestamp has elapsed.
+    ///
+    /// No signature requirement: anyone may reclaim an expired order on behalf
+    /// of its reclaim_recipient.
     ReclaimOrder = 5,
+    ReclaimBuffer = 6,
+    TransferAuthority = 7,
+    AddSolver = 8,
 }
 
 impl SettlementInstruction {
@@ -31,6 +51,37 @@ impl SettlementInstruction {
     }
 
     fn unknown_discriminator(_: u8) -> ProgramError {
+        ProgramError::InvalidInstructionData
+    }
+}
+
+/// A transferable authority stored in the state PDA.
+///
+/// The discriminant is the wire value carried by the authority-transfer
+/// instruction (see [`transfer_authority`](instruction::transfer_authority)).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
+#[repr(u8)]
+#[num_enum(error_type(name = ProgramError, constructor = Role::unknown_role))]
+pub enum Role {
+    /// The account authorized to add and remove solvers and to transfer roles.
+    /// It is the highest authority: it may transfer any role.
+    Manager = 0,
+    /// The account authorized to close buffer accounts and reclaim their rent,
+    /// choosing where that rent goes.
+    ReclaimAuthority,
+}
+
+impl Role {
+    /// Every [`Role`] variant, in discriminant order.
+    pub const ALL: [Self; 2] = [Role::Manager, Role::ReclaimAuthority];
+
+    /// The single wire byte that selects this role in the authority-transfer
+    /// instruction.
+    pub fn discriminator(self) -> u8 {
+        self as u8
+    }
+
+    fn unknown_role(_: u8) -> ProgramError {
         ProgramError::InvalidInstructionData
     }
 }
@@ -148,13 +199,12 @@ pub enum SettlementError {
     /// to the order's buy token account; its destination differs from the
     /// `buy_token_account` in the order's intent.
     PushDestinationMismatch = 21,
-    /// `FinalizeSettle`: a push doesn't draw funds from the canonical buffer
-    /// for its destination's mint.
+    /// `BeginSettle`: a paired `FinalizeSettle` push doesn't draw funds from the
+    /// canonical buffer for the order's `buy_mint`.
     PushSourceNotBuffer = 22,
-    /// `FinalizeSettle`: a push's destination isn't a valid SPL token account
-    /// (wrong data length or not owned by the token program), so its mint can't
-    /// be read to derive the buffer.
-    InvalidBuyTokenAccount = 23,
+    /// `BeginSettle`: the OrderIntent `sell_token_account` holds a different
+    /// mint than the declared `sell_mint`.
+    SellMintMismatch = 23,
     /// `BeginSettle`: a settled order's executed price (`amount_out/amount_in`)
     /// is worse than the order's limit price (`buy_amount/sell_amount`).
     LimitPriceViolated = 24,
@@ -174,11 +224,32 @@ pub enum SettlementError {
     /// `BeginSettle`: the order's cumulative `amount_received` would exceed
     /// `u64::MAX` once this settlement's push is added.
     AmountReceivedOverflow = 29,
-    /// `ReclaimOrder` was called before the order's `valid_to` has elapsed.
-    OrderNotExpired = 30,
+    /// `ReclaimOrder` was called on an order that has is not yet eligible for reclaim.
+    OrderNotReclaimable = 30,
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
     ReclaimRecipientMismatch = 31,
+    /// `ReclaimBuffer`'s `reclaim_authority` account isn't a signer, or doesn't
+    /// match the `reclaim_authority` address recorded in the settlement state
+    /// PDA.
+    ReclaimAuthorityMismatch = 32,
+    /// A `ReclaimBuffer` `buffer_pda` doesn't sit at the canonical buffer PDA
+    /// derived from its paired `mint`.
+    ReclaimBufferNotCanonical = 33,
+    /// `TransferAuthority`'s signer is neither the manager nor the current
+    /// holder of the role being transferred, so it may not transfer it.
+    UnauthorizedAuthorityTransfer = 34,
+    /// `AddSolver`'s manager account isn't a signer, or doesn't match the
+    /// `manager` recorded in the settlement state PDA.
+    UnauthorizedSolverManagement = 35,
+    /// `AddSolver`'s solver is already in the state PDA's solver list.
+    SolverAlreadyExists = 36,
+    /// `BeginSettle`/`FinalizeSettle`'s solver account isn't a signer or isn't
+    /// in the state PDA's solver list, so it may not settle.
+    UnauthorizedSolver = 37,
+    /// A created order's intent isn't set with the `created_on_chain` flag corresponding
+    /// to the behavior of the invoked order creation instruction.
+    OrderCreatedOnChainMismatch = 38,
 }
 
 impl From<SettlementError> for u32 {
@@ -190,6 +261,20 @@ impl From<SettlementError> for u32 {
 impl From<SettlementError> for solana_program_error::ProgramError {
     fn from(e: SettlementError) -> Self {
         Self::Custom(e.into())
+    }
+}
+
+/// Test fixtures for building settlement values with stable, readable
+/// addresses. Exposed under the `test-fixtures` feature (and unconditionally
+/// for this crate's own `cargo test`) so other crates can reuse them.
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod fixtures {
+    use crate::Pubkey;
+
+    /// Deterministically generate a [`Pubkey`] by hashing a seed string, for
+    /// building fixtures with stable, readable addresses.
+    pub fn pubkey_from_seed(seed: &str) -> Pubkey {
+        Pubkey::new_from_array(solana_sha256_hasher::hash(seed.as_bytes()).to_bytes())
     }
 }
 
@@ -259,5 +344,32 @@ mod tests {
             SettlementAccount::OrderAccount.discriminator(),
             SettlementAccount::SettlementState.discriminator(),
         );
+    }
+
+    #[test]
+    fn role_try_from_partitions_all_bytes() {
+        for i in u8::MIN..=u8::MAX {
+            match Role::try_from(i) {
+                Ok(role) => assert_eq!(role as u8, i),
+                Err(err) => assert_eq!(err, ProgramError::InvalidInstructionData),
+            }
+        }
+    }
+
+    #[test]
+    fn role_try_from_matches_manager() {
+        assert_eq!(Role::try_from(0), Ok(Role::Manager));
+    }
+
+    #[test]
+    fn all_roles_lists_every_role_in_discriminator_order() {
+        // The roles `try_from` accepts, discovered independently of `Role::ALL`.
+        // The scan runs over ascending bytes, so this is every role that exists,
+        // in discriminant order.
+        let every_role: Vec<Role> = (u8::MIN..=u8::MAX)
+            .filter_map(|byte| Role::try_from(byte).ok())
+            .collect();
+
+        assert_eq!(Role::ALL.as_slice(), every_role.as_slice());
     }
 }

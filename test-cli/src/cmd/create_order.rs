@@ -1,17 +1,17 @@
 use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser};
-use settlement_client::{
-    instructions::CreateOrder,
-    settlement_interface::{
-        data::intent::{OrderIntent, OrderKind},
+use cow_settlement_client::{
+    cow_settlement_interface::{
+        data::intent::{Flags, OrderIntent, OrderKind},
         pda::order::find_order_pda,
     },
+    instructions::CreateOrder,
 };
 use solana_sdk::{signature::Signer, transaction::Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
-use crate::token::ResolvedToken;
+use crate::{helpers::print_summary, token::ResolvedToken};
 
 #[derive(ClapArgs)]
 struct CommonArgs {
@@ -158,12 +158,17 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     let intent = OrderIntent {
         owner: ctx.payer.pubkey(),
         sell_token_account: sell.ta,
+        sell_mint: sell.mint,
         buy_token_account: buy.ta,
+        buy_mint: buy.mint,
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,
-        kind,
-        partially_fillable: common.partially_fillable,
+        flags: Flags {
+            created_on_chain: true,
+            kind,
+            partially_fillable: common.partially_fillable,
+        },
         app_data: [0u8; 32],
     };
 
@@ -196,9 +201,12 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         .context("transaction failed")?;
 
     let uid_hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
-    println!("signature: {sig}");
-    println!("order PDA: {order_pda}");
-    println!("order UID: {uid_hex}");
+
+    print_summary(&[
+        ("signature", &sig),
+        ("orderPda", &order_pda),
+        ("orderUid", &uid_hex),
+    ]);
 
     Ok(())
 }

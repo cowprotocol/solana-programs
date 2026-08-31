@@ -4,3 +4,8 @@ proptest-regressions/
 node_modules/
 pnpm-lock.yaml
 generated/
+
+# Make sure no Solana key is uploaded by accident.
+*.json
+!bench-report.json
+!programs/settlement/idl/**

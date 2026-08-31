@@ -1,11 +1,11 @@
 //! SPL Token helpers for the settlement integration tests.
 
+use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
     spl_token::{instruction::initialize_mint2, state::Mint},
     Approve, CreateAccount, CreateAssociatedTokenAccount, MintTo, Transfer, TOKEN_ID,
 };
-use settlement_client::settlement_interface::pda::state::find_state_pda;
 use solana_program_pack::Pack;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -187,6 +187,22 @@ pub fn assert_no_token_instruction_touching(
             "expected no SPL Token instruction touching {account}, but one did",
         );
     }
+}
+
+/// Overwrite the account at `address` with a newly created account with the given parameters
+pub fn overwrite_token_account(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    address: &Pubkey,
+    mint: &Pubkey,
+) {
+    let template = create_token_account(svm, payer, mint, &payer.pubkey());
+    let data = svm
+        .get_account(&template)
+        .expect("the freshly created template exists")
+        .data;
+    let token_program = Pubkey::new_from_array(TOKEN_ID.to_bytes());
+    super::create_account_at(svm, *address, &token_program, &data);
 }
 
 /// Read the mint that `account` holds tokens of.

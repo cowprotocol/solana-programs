@@ -43,20 +43,21 @@ fn split_pushes(body: &[u8]) -> Result<(&[u8], impl Iterator<Item = u64> + '_), 
     Ok((bumps, amounts.iter().copied().map(u64::from_le_bytes)))
 }
 
-/// The push amounts, in push order, carried by a `FinalizeSettle` instruction,
+/// The per-push data — each push's source-buffer `bump` paired with the `amount`
+/// it pays — in push order, carried by a `FinalizeSettle` instruction and
 /// recovered from its full instruction data alone (discriminator included, as
 /// returned by instruction introspection).
 ///
 /// This function doesn't otherwise check that the instruction is consistent
 /// with a `FinalizeSettle` instruction. For example, the discriminator field is
 /// ignored.
-pub fn finalize_push_amounts(
+pub fn finalize_push_data(
     instruction_data: &[u8],
-) -> Result<impl Iterator<Item = u64> + '_, ProgramError> {
+) -> Result<impl Iterator<Item = (u8, u64)> + '_, ProgramError> {
     let (_discriminator, rest) = recover_discriminator(instruction_data)?;
     let (_begin_ix_index, body) = recover_counterpart(rest)?;
-    let (_bumps, amounts) = split_pushes(body)?;
-    Ok(amounts)
+    let (bumps, amounts) = split_pushes(body)?;
+    Ok(bumps.iter().copied().zip(amounts))
 }
 
 /// Builder for a `FinalizeSettle` instruction pushing the funds described by the
@@ -82,12 +83,8 @@ pub fn finalize_push_amounts(
 /// `[instructions_sysvar (R), state_pda (R), token_program (R)]` followed, per
 /// push, by `[source_buffer (W), destination (W)]`.
 ///
-/// `FinalizeSettle` validates that each source is the canonical buffer for its
-/// destination's mint and executes the transfers; the order correspondence and
-/// that each destination is an order's buy token account are `BeginSettle`'s
-/// checks. So a push isn't aware of what orders are being paid, just the accounts
-/// to move funds between, the source's bump, and the amount. The same buffer may
-/// legitimately fund several pushes.
+/// `FinalizeSettle` only executes the transfers. Every push is validated by
+/// `BeginSettle`, which reads this instruction through introspection.
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
@@ -137,6 +134,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
 /// A single fund push parsed from `FinalizeSettle`: move `amount` from
 /// `source_buffer` to `destination`. `bump` is `source_buffer`'s claimed
 /// canonical buffer bump, which the program re-derives against.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Push<'a, A> {
     pub source_buffer: &'a A,
     pub destination: &'a A,
@@ -210,7 +208,7 @@ pub struct FinalizeSettleInput<'a, A> {
 impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::FinalizeSettle;
 
-    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (begin_ix_index, body) = recover_counterpart(instruction_data)?;
 
         let [instructions_sysvar_account, state_pda_account, token_program_account, push_accounts @ ..] =
@@ -248,6 +246,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::pubkey_from_seed;
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
@@ -263,8 +262,8 @@ mod tests {
         // A no-push finalize carries exactly the fixed accounts, so the constant
         // must equal the account count the builder emits with no pushes.
         let ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
             source_buffers: &[],
             destinations: &[],
@@ -276,8 +275,8 @@ mod tests {
 
     #[test]
     fn expected_encoding_finalize_settle_no_pushes() {
-        let program_id = Pubkey::new_unique();
-        let state_pda = Pubkey::new_unique();
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
         let Instruction {
             program_id: ix_program_id,
             accounts,
@@ -312,8 +311,8 @@ mod tests {
 
     #[test]
     fn finalize_settle_encodes_pushes() {
-        let program_id = Pubkey::new_unique();
-        let state_pda = Pubkey::new_unique();
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
         let source_a = Pubkey::new_from_array([0x01; 32]);
         let dest_a = Pubkey::new_from_array([0x02; 32]);
         let source_b = Pubkey::new_from_array([0x03; 32]);
@@ -368,11 +367,10 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_parses_no_pushes() {
-        let sysvar = Address::new_from_array([0x42u8; 32]);
-        // The state-PDA and token-program slots are reserved but not surfaced.
-        let state = Address::new_from_array([0x43u8; 32]);
-        let token_program = Address::new_from_array([0x44u8; 32]);
-        let mut accounts = [
+        let sysvar = pubkey_from_seed("sysvar");
+        let state = pubkey_from_seed("state pda");
+        let token_program = pubkey_from_seed("token program");
+        let accounts = [
             fake_account(sysvar),
             fake_account(state),
             fake_account(token_program),
@@ -387,7 +385,7 @@ mod tests {
             state_pda_account,
             token_program_account,
             pushes,
-        } = FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
+        } = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(begin_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(state_pda_account.address(), &state);
@@ -397,15 +395,15 @@ mod tests {
 
     #[test]
     fn finalize_settle_input_parses_pushes() {
-        let sysvar = Address::new_from_array([1u8; 32]);
-        let state = Address::new_from_array([0xa1u8; 32]);
-        let token_program = Address::new_from_array([0xa2u8; 32]);
+        let sysvar = pubkey_from_seed("sysvar");
+        let state = pubkey_from_seed("state pda");
+        let token_program = pubkey_from_seed("token program");
         // The same source buffer funds both pushes: parsing makes no uniqueness
         // assumption about source buffers.
-        let source = Address::new_from_array([3u8; 32]);
-        let dest0 = Address::new_from_array([4u8; 32]);
-        let dest1 = Address::new_from_array([5u8; 32]);
-        let mut accounts = [
+        let source = pubkey_from_seed("source buffer");
+        let dest0 = pubkey_from_seed("destination 0");
+        let dest1 = pubkey_from_seed("destination 1");
+        let accounts = [
             fake_account(sysvar),
             fake_account(state),
             fake_account(token_program),
@@ -423,7 +421,7 @@ mod tests {
         ];
 
         let FinalizeSettleInput { pushes, .. } =
-            FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
+            FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
 
         let parsed: Vec<(&Address, &Address, u8, u64)> = pushes
             .iter()
@@ -457,8 +455,8 @@ mod tests {
         }
         let mut expected: Vec<ExpectedPush> = Vec::new();
         for i in 0..PUSH_COUNT {
-            let source = Address::new_from_array([i as u8; 32]);
-            let dest = Address::new_from_array([(i + PUSH_COUNT) as u8; 32]);
+            let source = pubkey_from_seed(&format!("source buffer {i}"));
+            let dest = pubkey_from_seed(&format!("destination {i}"));
             let bump = (i + 2 * PUSH_COUNT) as u8;
             let amount = u64::from_le_bytes([(i + 3 * PUSH_COUNT) as u8; 8]);
             expected.push(ExpectedPush {
@@ -491,8 +489,7 @@ mod tests {
             amount_bytes,
         ];
 
-        let parsed =
-            FinalizeSettleInput::parse(&data, &mut accounts).expect("parse should succeed");
+        let parsed = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         let pushes: Vec<_> = parsed.pushes.iter().collect();
 
         assert_eq!(pushes.len(), PUSH_COUNT);
@@ -510,9 +507,9 @@ mod tests {
             [SettlementInstruction::BeginSettle.discriminator()],
             [0, 0], // begin index
         ];
-        let mut accounts: [AccountView; 0] = [];
+        let accounts: [AccountView; 0] = [];
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut accounts).err(),
+            FinalizeSettleInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -523,9 +520,9 @@ mod tests {
             [SettlementInstruction::FinalizeSettle.discriminator()],
             [0, 0], // begin index
         ];
-        let mut accounts: [AccountView; 0] = [];
+        let accounts: [AccountView; 0] = [];
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut accounts).err(),
+            FinalizeSettleInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -542,16 +539,16 @@ mod tests {
         ];
 
         // Too few: only one push account follows the fixed accounts.
-        let mut too_few = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 1 }>();
+        let too_few = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 1 }>();
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut too_few).err(),
+            FinalizeSettleInput::parse(&data, &too_few).err(),
             Some(SettlementError::AccountCountNotMatchingPushCount.into()),
         );
 
         // Too many: three push accounts follow the fixed accounts.
-        let mut too_many = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 3 }>();
+        let too_many = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 3 }>();
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut too_many).err(),
+            FinalizeSettleInput::parse(&data, &too_many).err(),
             Some(SettlementError::AccountCountNotMatchingPushCount.into()),
         );
     }
@@ -560,7 +557,7 @@ mod tests {
     fn finalize_settle_input_rejects_partial_push() {
         // Four trailing bytes: not a whole number of 9-byte pushes (a bump plus a
         // `u64` amount), so the body can't be parsed into the push layout.
-        let mut accounts = fake_sequential_accounts::<FINALIZE_FIXED_ACCOUNTS>();
+        let accounts = fake_sequential_accounts::<FINALIZE_FIXED_ACCOUNTS>();
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
             [37, 13],                 // begin index
@@ -568,58 +565,65 @@ mod tests {
             [0x11, 0x22, 0x33, 0x44], // a partial push (4 bytes)
         ];
         assert_eq!(
-            FinalizeSettleInput::parse(&data, &mut accounts).err(),
+            FinalizeSettleInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
 
     #[test]
-    fn finalize_push_amounts_extracts_amounts() {
+    fn finalize_push_data_extracts_bumps_and_amounts() {
+        let bumps = [0xa1, 0xb1];
         let amounts = [0x0102, 0x0304];
         let ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0x1337,
-            source_buffers: &[Pubkey::new_unique(), Pubkey::new_unique()],
-            destinations: &[Pubkey::new_unique(), Pubkey::new_unique()],
-            bumps: &[0xa1, 0xb1],
+            source_buffers: &[
+                pubkey_from_seed("source buffer 0"),
+                pubkey_from_seed("source buffer 1"),
+            ],
+            destinations: &[
+                pubkey_from_seed("destination 0"),
+                pubkey_from_seed("destination 1"),
+            ],
+            bumps: &bumps,
             amounts: &amounts,
         });
 
-        let recovered = finalize_push_amounts(&ix.data).expect("valid finalize data");
-        let decoded: Vec<u64> = recovered.collect();
-        assert_eq!(decoded, amounts);
+        let recovered = finalize_push_data(&ix.data).expect("valid finalize data");
+        let decoded: Vec<(u8, u64)> = recovered.collect();
+        assert_eq!(decoded, [(0xa1, 0x0102), (0xb1, 0x0304)]);
     }
 
     #[test]
-    fn finalize_push_amounts_handles_no_pushes() {
+    fn finalize_push_data_handles_no_pushes() {
         let ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
             amounts: &[],
         });
-        let mut amounts = finalize_push_amounts(&ix.data).expect("valid empty finalize data");
-        assert!(amounts.next().is_none());
+        let mut pushes = finalize_push_data(&ix.data).expect("valid empty finalize data");
+        assert!(pushes.next().is_none());
     }
 
     #[test]
-    fn finalize_push_amounts_rejects_incorrect_bytes() {
+    fn finalize_push_data_rejects_incorrect_bytes() {
         let mut ix = Instruction::from(FinalizeSettle {
-            program_id: Pubkey::new_unique(),
-            state_pda: Pubkey::new_unique(),
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
-            source_buffers: &[Pubkey::new_unique()],
-            destinations: &[Pubkey::new_unique()],
+            source_buffers: &[pubkey_from_seed("source buffer")],
+            destinations: &[pubkey_from_seed("destination")],
             bumps: &[0xff],
             amounts: &[31337],
         });
         ix.data.pop();
         assert_eq!(
-            finalize_push_amounts(&ix.data).err(),
+            finalize_push_data(&ix.data).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -656,25 +660,25 @@ mod tests {
     }
 
     proptest! {
-        /// For any well-formed `FinalizeSettle`, the amounts `finalize_push_amounts`
-        /// recovers from the instruction data alone (the way `BeginSettle` sees it
-        /// through introspection) must equal the amounts the full
+        /// For any well-formed `FinalizeSettle`, the bumps and amounts
+        /// `finalize_push_data` recovers from the instruction data alone (the way
+        /// `BeginSettle` sees it through introspection) must equal what the full
         /// `FinalizeSettleInput` parser reads from the same data plus its accounts.
         #[test]
-        fn finalize_push_amounts_matches_parser(ix in arb_finalize_instruction(0..=16usize)) {
+        fn finalize_push_data_matches_parser(ix in arb_finalize_instruction(0..=16usize)) {
             // Recovered from the instruction data alone.
-            let recovered: Vec<u64> =
-                finalize_push_amounts(&ix.data).expect("well-formed finalize data").collect();
+            let recovered: Vec<(u8, u64)> =
+                finalize_push_data(&ix.data).expect("well-formed finalize data").collect();
 
             // Read by the full parser from the same data plus its accounts.
-            let mut accounts: Vec<AccountView> =
+            let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|meta| fake_account(meta.pubkey)).collect();
-            let parsed = FinalizeSettleInput::parse(&ix.data, &mut accounts)
+            let parsed = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
-            let parsed_amounts: Vec<u64> =
-                parsed.pushes.iter().map(|push| push.amount).collect();
+            let parsed_pushes: Vec<(u8, u64)> =
+                parsed.pushes.iter().map(|push| (push.bump, push.amount)).collect();
 
-            prop_assert_eq!(recovered, parsed_amounts);
+            prop_assert_eq!(recovered, parsed_pushes);
         }
     }
 }

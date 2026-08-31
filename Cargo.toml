@@ -3,12 +3,19 @@ resolver = "2"
 members = ["test-cli", "client", "interface", "programs/settlement", "programs/test/cpi-caller"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.3.0"
 # Solana recommends edition 2021: https://solana.com/docs/programs/rust
 edition = "2021"
 
 # Most crates in this repository use MIT or Apache-2.0 dual license.
 license = "MIT OR Apache-2.0"
+
+# Inherited `readme` paths are resolved relative to the workspace root, so every
+# published crate points at the repository-level README.
+readme = "README.md"
+repository = "https://github.com/cowprotocol/solana-programs"
+homepage = "https://cow.fi"
+keywords = ["solana", "cow-protocol", "defi", "trading", "settlement"]
 
 [workspace.dependencies]
 anyhow = "1"
@@ -29,8 +36,8 @@ pinocchio-system = "0.6"
 pinocchio-token = "0.6"
 proptest = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
-settlement-client = { path = "client" }
-settlement-interface = { path = "interface" }
+cow-settlement-client = { path = "client", version = "0.3.0" }
+cow-settlement-interface = { path = "interface", version = "0.3.0" }
 solana-account-view = "2"
 # Held below 2.7 on purpose. solana-address 2.7 switched to wincode 0.6, but the
 # released solana-rpc-client 4.1.x stack (pulled by test-cli) still builds against

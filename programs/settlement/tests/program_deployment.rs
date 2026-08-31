@@ -1,4 +1,4 @@
-use settlement_client::instructions::{BeginSettle, FinalizeSettle};
+use cow_settlement_client::instructions::{BeginSettle, FinalizeSettle};
 use solana_sdk::{
     instruction::{Instruction, InstructionError},
     signature::Signer,
@@ -23,7 +23,7 @@ fn program_is_deployed_with_code() {
 
 #[test]
 fn program_can_be_invoked() {
-    let (mut svm, program_id, payer) = common::setup();
+    let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
 
     let tx = Transaction::new_signed_with_payer(
         // Indices encode the BeginSettle/FinalizeSettle pair
@@ -31,6 +31,7 @@ fn program_can_be_invoked() {
         &[
             BeginSettle {
                 program_id,
+                solver: solver.pubkey(),
                 finalize_ix_index: 1,
                 auction_id: 0,
                 orders: &[],
@@ -44,7 +45,7 @@ fn program_can_be_invoked() {
             .into(),
         ],
         Some(&payer.pubkey()),
-        &[&payer],
+        &[&payer, &solver],
         svm.latest_blockhash(),
     );
 

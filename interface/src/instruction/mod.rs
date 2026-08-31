@@ -8,11 +8,14 @@ use solana_program_error::ProgramError;
 
 use crate::{recover_discriminator, SettlementInstruction};
 
+pub mod add_solver;
 pub mod create_buffer;
 pub mod create_order;
 pub mod initialize;
+pub mod reclaim_buffer;
 pub mod reclaim_order;
 pub mod settle;
+pub mod transfer_authority;
 
 /// Shared components for parsing an instruction's input (data fields and
 /// accounts).
@@ -29,9 +32,9 @@ pub mod settle;
 pub trait InstructionInputParsing<'a, A>: Sized {
     const DISCRIMINATOR: SettlementInstruction;
 
-    fn parse_body(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError>;
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError>;
 
-    fn parse(instruction_data: &'a [u8], accounts: &'a mut [A]) -> Result<Self, ProgramError> {
+    fn parse(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         match recover_discriminator(instruction_data)? {
             (discriminator, remaining_data) if discriminator == Self::DISCRIMINATOR => {
                 Self::parse_body(remaining_data, accounts)
@@ -92,7 +95,8 @@ pub mod fixtures {
     /// <https://docs.rs/crate/pinocchio/0.11.1/source/src/sysvars/slot_hashes/test_utils.rs#120-160>
     ///
     /// Allocate a heap-backed `AccountView` whose data region is initialized with
-    /// `data`, whose address is `address`, and whose borrow flag is `borrow_state`.
+    /// `data`, whose address is `address`, whose owning program is `owner`, and
+    /// whose borrow flag is `borrow_state`.
     ///
     /// The function also returns the backing `Vec<u64>` so the caller can keep it
     /// alive for the duration of the test (otherwise the memory would be freed and
@@ -108,6 +112,7 @@ pub mod fixtures {
     )]
     pub unsafe fn make_account_view(
         address: Address,
+        owner: Address,
         data: &[u8],
         borrow_state: u8,
     ) -> (AccountView, Vec<u64>) {
@@ -131,6 +136,7 @@ pub mod fixtures {
             hdr_ptr,
             RuntimeAccount {
                 address,
+                owner,
                 borrow_state,
                 data_len: data.len() as u64,
                 ..Default::default()
@@ -146,12 +152,17 @@ pub mod fixtures {
         (AccountView::new_unchecked(hdr_ptr), backing)
     }
 
-    /// Create an account view storing the input data.
-    pub fn fake_account_with_data(address: Address, data: &[u8]) -> AccountView {
+    /// Create an account view storing the input data, owned by `owner`.
+    pub fn fake_account_owned_by(address: Address, owner: Address, data: &[u8]) -> AccountView {
         let (account, backing) =
-            unsafe { make_account_view(address, data, solana_account_view::NOT_BORROWED) };
+            unsafe { make_account_view(address, owner, data, solana_account_view::NOT_BORROWED) };
         core::mem::forget(backing);
         account
+    }
+
+    /// Create an account view storing the input data.
+    pub fn fake_account_with_data(address: Address, data: &[u8]) -> AccountView {
+        fake_account_owned_by(address, Address::default(), data)
     }
 
     pub fn fake_account(address: Address) -> AccountView {
@@ -160,6 +171,14 @@ pub mod fixtures {
 
     pub fn fake_account_from_array(address_array: [u8; 32]) -> AccountView {
         fake_account(Address::new_from_array(address_array))
+    }
+
+    pub fn fake_signer(address: Address) -> AccountView {
+        fake_account_from(RuntimeAccount {
+            address,
+            is_signer: 1,
+            ..Default::default()
+        })
     }
 
     /// Build `N` fake accounts with sequential addresses (`[1; 32]`, `[2; 32]`, …).
@@ -226,7 +245,7 @@ mod tests {
 
             fn parse_body(
                 _instruction_data: &'a [u8],
-                _accounts: &'a mut [AccountView],
+                _accounts: &'a [AccountView],
             ) -> Result<Self, ProgramError> {
                 Ok(Self {})
             }
@@ -237,7 +256,7 @@ mod tests {
         assert_ne!(TestInputParsing::DISCRIMINATOR, different_discriminator);
         data[0] = different_discriminator.discriminator();
         assert_eq!(
-            TestInputParsing::parse(&data, &mut []).err(),
+            TestInputParsing::parse(&data, &[]).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
