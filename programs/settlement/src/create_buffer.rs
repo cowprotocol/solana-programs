@@ -38,10 +38,6 @@ pub fn process_create_buffer(
         // is a token account, so it's assigned to the token program rather than
         // to the settlement program.
         //
-        // The buffer is sized for the mint it will hold: a Token-2022 mint
-        // whose extensions require matching ones on its token accounts needs
-        // room for them, and `token_account_len` is what works out how much.
-        //
         // We don't validate `mint` here. `InitializeAccount3` requires a real,
         // token-program-owned mint (and special-cases the native mint), so a
         // check of our own would be redundant.

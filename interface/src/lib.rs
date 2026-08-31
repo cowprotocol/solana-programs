@@ -236,8 +236,7 @@ pub enum SettlementError {
     OrderCreatedOnChainMismatch = 38,
     /// `CreateBuffer` asked the token program how long a token account for a
     /// mint has to be and couldn't read the answer, so it can't size the
-    /// buffer. Defensive: a token program that fails this query aborts the
-    /// instruction on its own.
+    /// buffer.
     BufferSizeUnavailable = 39,
 }
 

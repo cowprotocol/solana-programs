@@ -1,36 +1,18 @@
-//! The token programs a buffer may be created under.
-//!
-//! `CreateBuffer` and `ReclaimBuffer` take a single `token_program` account and
-//! issue every one of their CPIs against it. That account has to be one of
-//! [`SUPPORTED_TOKEN_PROGRAMS`], which is what [`is_supported`] checks.
-//!
-//! Because the program account is shared by the whole instruction, the mints an
-//! instruction touches must all live under the same token program: a legacy SPL
-//! mint and a Token-2022 mint can't have their buffers created by one
-//! `CreateBuffer`. Splitting them across two is the caller's job.
-//!
-//! `BeginSettle` and `FinalizeSettle` still accept only the legacy program.
+//! Utilities related to the token programs supported by the settlement program.
 
 use crate::Pubkey;
 
 /// The legacy SPL Token program.
-///
-/// Taken from the Token-2022 crate, which carries the address precisely so a
-/// program that has to recognize both doesn't grow a second dependency for the
-/// one it never calls directly.
 pub use spl_token_2022_interface::inline_spl_token::ID as SPL_TOKEN_PROGRAM_ID;
 
-/// The SPL Token-2022 program. Its instruction encoding is a superset of the
-/// legacy program's, so the instructions this program issues are byte-identical
-/// either way and only the CPI target changes.
+/// The SPL Token-2022 program.
 pub use spl_token_2022_interface::ID as TOKEN_2022_PROGRAM_ID;
 
 /// Every token program a token-moving instruction accepts, in no particular
 /// order.
 pub const SUPPORTED_TOKEN_PROGRAMS: [Pubkey; 2] = [SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID];
 
-/// Whether `address` is a token program buffers may be created under, that is,
-/// whether it is one of [`SUPPORTED_TOKEN_PROGRAMS`].
+/// Whether `address` is a supported token program
 pub fn is_supported(address: &Pubkey) -> bool {
     SUPPORTED_TOKEN_PROGRAMS.contains(address)
 }
@@ -52,8 +34,6 @@ mod tests {
         assert!(!is_supported(&pubkey_from_seed("not a token program")));
     }
 
-    /// The list is two distinct programs, so it can't have been built from one
-    /// program repeated.
     #[test]
     fn supported_programs_are_distinct() {
         assert_ne!(SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID);
