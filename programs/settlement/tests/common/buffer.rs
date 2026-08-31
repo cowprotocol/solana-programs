@@ -1,6 +1,7 @@
 //! Buffer-account helpers for the settlement integration tests.
 
 use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
+use cow_settlement_client::cow_settlement_interface::token_program::SPL_TOKEN_PROGRAM_ID;
 use cow_settlement_client::cow_settlement_interface::Instruction;
 use cow_settlement_client::instructions::CreateBuffers;
 use litesvm::LiteSVM;
@@ -33,6 +34,7 @@ pub fn ensure_buffer_exists(
     let ix = Instruction::from(CreateBuffers {
         program_id: *program_id,
         payer: payer.pubkey(),
+        token_program: SPL_TOKEN_PROGRAM_ID,
         mints: &[*mint],
     });
     let tx = Transaction::new_signed_with_payer(

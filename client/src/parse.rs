@@ -110,6 +110,7 @@ mod tests {
             SettlementInstruction::CreateBuffer => CreateBuffers {
                 program_id,
                 payer,
+                token_program: pubkey_from_seed("token program"),
                 mints: &[pubkey_from_seed("mint")],
             }
             .into(),
@@ -141,6 +142,7 @@ mod tests {
                 state_pda: pubkey_from_seed("state pda"),
                 reclaim_authority: payer,
                 reclaim_recipient: payer,
+                token_program: pubkey_from_seed("token program"),
                 buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"))],
             }
             .into(),

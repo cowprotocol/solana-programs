@@ -3,12 +3,10 @@
 use std::ops::Deref;
 
 use cow_settlement_interface::{
-    instruction::{create_buffer::SPL_TOKEN_PROGRAM_ID, settle::recover_counterpart},
-    recover_discriminator, SettlementError, SettlementInstruction,
+    instruction::settle::recover_counterpart, recover_discriminator, SettlementError,
+    SettlementInstruction,
 };
-use pinocchio::{
-    error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
-};
+use pinocchio::{sysvars::instructions::Instructions, Address, ProgramResult};
 
 mod begin;
 mod finalize;
@@ -41,16 +39,6 @@ fn validate_counterpart<T: Deref<Target = [u8]>>(
         .map_err(|_| SettlementError::InvalidCounterpartCounterpart)?;
     if their_discriminator != expected_discriminator || their_counterpart_ix != current_index {
         return Err(SettlementError::MismatchedCounterpartDiscriminator.into());
-    }
-    Ok(())
-}
-
-/// Validate that `token_program_account` is the legacy SPL Token program, which
-/// every settlement transfer is issued against.
-#[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn validate_token_program_account(token_program_account: &AccountView) -> ProgramResult {
-    if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
-        return Err(ProgramError::IncorrectProgramId);
     }
     Ok(())
 }

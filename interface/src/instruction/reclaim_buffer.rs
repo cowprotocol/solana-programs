@@ -16,7 +16,6 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use super::InstructionInputParsing;
-pub use crate::instruction::create_buffer::SPL_TOKEN_PROGRAM_ID;
 use crate::SettlementInstruction;
 
 /// Builder for a `ReclaimBuffer` instruction that closes one buffer per
@@ -37,6 +36,9 @@ pub struct ReclaimBuffer<'a> {
     pub state_pda: Pubkey,
     pub reclaim_authority: Pubkey,
     pub reclaim_recipient: Pubkey,
+    /// The token program owning every buffer this instruction closes. Must be
+    /// one of [`crate::token_program::SUPPORTED_TOKEN_PROGRAMS`].
+    pub token_program: Pubkey,
     pub buffers: &'a [(Pubkey, Pubkey)],
 }
 
@@ -46,7 +48,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
             AccountMeta::new_readonly(builder.state_pda, false),
             AccountMeta::new_readonly(builder.reclaim_authority, true),
             AccountMeta::new(builder.reclaim_recipient, false),
-            AccountMeta::new_readonly(SPL_TOKEN_PROGRAM_ID, false),
+            AccountMeta::new_readonly(builder.token_program, false),
         ];
         for (buffer_pda, mint) in builder.buffers {
             accounts.push(AccountMeta::new(*buffer_pda, false));
@@ -126,6 +128,7 @@ pub mod fixtures {
             state_pda: zero,
             reclaim_authority: zero,
             reclaim_recipient: zero,
+            token_program: zero,
             buffers: &[(zero, zero)],
         })
         .data
@@ -148,6 +151,7 @@ mod tests {
         let state_pda = pubkey_from_seed("state pda");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let token_program = pubkey_from_seed("token program");
         let buffer_pda = pubkey_from_seed("buffer pda");
         let mint = pubkey_from_seed("mint");
 
@@ -156,6 +160,7 @@ mod tests {
             state_pda,
             reclaim_authority,
             reclaim_recipient,
+            token_program,
             buffers: &[(buffer_pda, mint)],
         })
         .data;
@@ -201,6 +206,7 @@ mod tests {
         let data = Instruction::from(ReclaimBuffer {
             program_id,
             state_pda,
+            token_program,
             reclaim_authority,
             reclaim_recipient,
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
@@ -282,6 +288,7 @@ mod tests {
         let state_pda = pubkey_from_seed("state pda");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let token_program = pubkey_from_seed("token program");
         let buffer_pda = pubkey_from_seed("buffer pda");
         let mint = pubkey_from_seed("mint");
         let Instruction { data, .. } = ReclaimBuffer {
@@ -289,6 +296,7 @@ mod tests {
             state_pda,
             reclaim_authority,
             reclaim_recipient,
+            token_program,
             buffers: &[(buffer_pda, mint)],
         }
         .into();
@@ -304,6 +312,7 @@ mod tests {
         let state_pda = pubkey_from_seed("state pda");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let token_program = pubkey_from_seed("token program");
         let buffer_pda = pubkey_from_seed("buffer pda");
         let mint = pubkey_from_seed("mint");
         let Instruction { accounts, .. } = ReclaimBuffer {
@@ -311,6 +320,7 @@ mod tests {
             state_pda,
             reclaim_authority,
             reclaim_recipient,
+            token_program,
             buffers: &[(buffer_pda, mint)],
         }
         .into();
@@ -319,7 +329,7 @@ mod tests {
         assert_readonly_nonsigner(&accounts[0], state_pda);
         assert_readonly_signer(&accounts[1], reclaim_authority);
         assert_writable_nonsigner(&accounts[2], reclaim_recipient);
-        assert_readonly_nonsigner(&accounts[3], SPL_TOKEN_PROGRAM_ID);
+        assert_readonly_nonsigner(&accounts[3], token_program);
         assert_writable_nonsigner(&accounts[4], buffer_pda);
         assert_readonly_nonsigner(&accounts[5], mint);
     }
@@ -332,6 +342,7 @@ mod tests {
             state_pda: pubkey_from_seed("state pda"),
             reclaim_authority,
             reclaim_recipient: reclaim_authority,
+            token_program: pubkey_from_seed("token program"),
             buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"))],
         }
         .into();
@@ -346,6 +357,7 @@ mod tests {
         let state_pda = pubkey_from_seed("state pda");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let token_program = pubkey_from_seed("token program");
         let buffer_a = pubkey_from_seed("buffer a");
         let mint_a = pubkey_from_seed("mint a");
         let buffer_b = pubkey_from_seed("buffer b");
@@ -355,6 +367,7 @@ mod tests {
             state_pda,
             reclaim_authority,
             reclaim_recipient,
+            token_program,
             buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
         }
         .into();
@@ -373,11 +386,13 @@ mod tests {
         let state_pda = pubkey_from_seed("state pda");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let reclaim_recipient = pubkey_from_seed("reclaim recipient");
+        let token_program = pubkey_from_seed("token program");
         let Instruction { accounts, .. } = ReclaimBuffer {
             program_id,
             state_pda,
             reclaim_authority,
             reclaim_recipient,
+            token_program,
             buffers: &[],
         }
         .into();
