@@ -4,7 +4,7 @@
 //! `settle_solver_auth.rs`.
 
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::{StateAccount, WIDTH_HEADER, WIDTH_PUBKEY},
+    data::state::{WIDTH_HEADER, WIDTH_PUBKEY},
     Instruction, SettlementError,
 };
 use cow_settlement_client::instructions::RemoveSolver;
@@ -19,7 +19,9 @@ use solana_sdk::{
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    lamports, setup_init, to_instruction_error, unique_keypair, unique_pubkey, InitializedParams,
+    lamports, setup_init,
+    state::solvers,
+    to_instruction_error, unique_keypair, unique_pubkey, InitializedParams,
 };
 
 mod common;
@@ -33,32 +35,6 @@ fn setup() -> (LiteSVM, InitializedParams, Pubkey) {
     svm.airdrop(&rent_recipient, 1_000_000_000)
         .expect("airdrop to rent recipient should succeed");
     (svm, params, rent_recipient)
-}
-
-#[track_caller]
-fn assert_solver_invariant(solvers: &[Pubkey]) {
-    assert!(
-        solvers.is_sorted_by(|a, b| a < b),
-        "invariant violated: solver list must be strictly ascending by address: {solvers:?}",
-    );
-}
-
-/// The solver list currently stored in the state PDA, in stored order. Reading
-/// it also re-checks the storage invariant (see [`assert_solver_invariant`]), so
-/// every test that inspects the list enforces it, not just the ones that compare
-/// against a sorted expectation.
-#[track_caller]
-fn solvers(svm: &LiteSVM, state_pda: &Pubkey) -> Vec<Pubkey> {
-    let data = svm
-        .get_account(state_pda)
-        .expect("state PDA should exist")
-        .data;
-    let solvers: Vec<Pubkey> = StateAccount::attach(&data[..])
-        .expect("state PDA should be a valid state account")
-        .solvers()
-        .collect();
-    assert_solver_invariant(&solvers);
-    solvers
 }
 
 /// Build a `RemoveSolver` transaction authorized by the manager, refunding the
