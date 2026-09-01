@@ -1,9 +1,13 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    // The package ships TS sources (see package.json's `main`) and is consumed
+    // through a bundler, as vitest does here: extensionless relative specifiers
+    // — which is all codama's renderer emits — only resolve under this pair.
+    "module": "Preserve",
+    "moduleResolution": "bundler",
     "strict": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "types": ["node"]

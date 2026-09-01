@@ -13,7 +13,41 @@
 
 import { getProgramDerivedAddress, type Address } from "@solana/kit";
 import { getOrderIntentEncoder, type OrderIntentArgs } from "./generated";
-import { SETTLEMENT_SEED } from "./generated/settlementSeed";
+import IDL from "./generated/idl.json" with { type: "json" };
+
+/**
+ * The slice of the IDL this file reads. Annotating the import replaces the shape
+ * TypeScript infers from the JSON — a union over every instruction, account and
+ * seed kind — with just the path walked below, on which `pda` is reachable.
+ */
+type SeedBearingIdl = {
+  instructions: {
+    name: string;
+    accounts: {
+      name: string;
+      pda?: { seeds: { kind: string; value?: number[] }[] };
+    }[];
+  }[];
+};
+
+/**
+ * Prefix seed shared by every PDA this program derives: the ASCII "settlement v"
+ * followed by the program's major.minor version, right-padded with spaces to a
+ * fixed 19 bytes. The fixed width keeps one version's seeds from being a prefix
+ * of another's. These bytes change on every minor version bump, so they're read
+ * off the IDL — the state PDA's sole const seed — rather than written out here.
+ */
+const SETTLEMENT_SEED: Uint8Array = (() => {
+  const idl: SeedBearingIdl = IDL;
+  const seed = idl.instructions
+    .find((instruction) => instruction.name === "initialize")
+    ?.accounts.find((account) => account.name === "state_pda")
+    ?.pda?.seeds[0]?.value;
+  if (!seed) {
+    throw new Error("IDL: initialize's state_pda has no const seed");
+  }
+  return new Uint8Array(seed);
+})();
 
 export async function resolveOrderPda({
   programAddress,
