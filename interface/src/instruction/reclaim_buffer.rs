@@ -6,10 +6,10 @@
 //! [`crate::data::state::StateAccount`]) may authorize this.
 //!
 //! A buffer that still holds tokens is skipped, not closed.
-//! 
+//!
 //! The token_program supplied to this instruction must be the owner of all mints
-//! supplied. Only one token program can be supplied to this instruction at a time. 
-//! If mints from two separate token programs are required, the client needs to 
+//! supplied. Only one token program can be supplied to this instruction at a time.
+//! If mints from two separate token programs are required, the client needs to
 //! divide it into separate instructions.
 //!
 //! Wire format: `[discriminator=6]`, 1 byte.

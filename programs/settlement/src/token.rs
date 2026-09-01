@@ -2,7 +2,7 @@
 
 use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
 use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView};
-use pinocchio_token::instructions::GetAccountDataSize;
+use pinocchio_token::{instructions::GetAccountDataSize, state::Mint};
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
@@ -22,6 +22,11 @@ pub fn token_account_len(
     token_program: TokenProgram,
     mint: &AccountView,
 ) -> Result<u64, ProgramError> {
+    // If the mint is of base SPL Mint length, the token accounts must be of base length accordingly.
+    if mint.data_len() <= Mint::LEN {
+        return Ok(BASE_TOKEN_ACCOUNT_LEN);
+    }
+
     let token_program = token_program.address();
     // SPL token provides a function to get the actual required account data size
     GetAccountDataSize::new(mint).invoke_with_unverified_program(&token_program)?;
@@ -75,7 +80,6 @@ mod tests {
         instruction::fixtures::{fake_account, fake_account_owned_by},
     };
     use pinocchio::Address;
-    use pinocchio_token::state::Mint;
     use pinocchio_token_2022::state::AccountType;
 
     /// The length of a token account holding nothing but the base layout. Both
@@ -107,6 +111,31 @@ mod tests {
     #[test]
     fn both_programs_share_the_base_layout_length() {
         assert_eq!(BASE_LEN, pinocchio_token_2022::state::Account::BASE_LEN);
+    }
+
+    #[test]
+    fn token_account_len_is_the_base_layout_for_a_plain_mint() {
+        for program in TokenProgram::ALL {
+            let mint = fake_account_owned_by(
+                pubkey_from_seed("mint"),
+                program.address(),
+                &[0u8; Mint::LEN],
+            );
+            assert_eq!(
+                token_account_len(program, &mint),
+                Ok(BASE_TOKEN_ACCOUNT_LEN),
+                "a base-layout mint should need a base-layout account under {program:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn token_account_len_is_the_base_layout_for_a_too_short_account() {
+        let mint = fake_account(pubkey_from_seed("mint"));
+        assert_eq!(
+            token_account_len(TokenProgram::SplToken, &mint),
+            Ok(BASE_TOKEN_ACCOUNT_LEN),
+        );
     }
 
     #[test]
