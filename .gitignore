@@ -9,3 +9,10 @@ generated/
 *.json
 !bench-report.json
 !programs/settlement/idl/**
+
+# That negation re-includes the whole IDL directory, taking installed dependencies
+# and the rendered client — excluded everywhere by the rules at the top — back with
+# it. Exclude them again; what the negation has to reach is the IDL, its schema and
+# the pnpm lockfiles, which CI installs from and so are committed here on purpose.
+programs/settlement/idl/**/node_modules/
+programs/settlement/idl/client/js/src/generated/

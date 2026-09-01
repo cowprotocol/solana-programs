@@ -18,6 +18,17 @@ build: build-program
 test: build-program build-test-programs
     cargo test
 
+# The two JS recipes below install with `corepack pnpm`, which runs the pnpm version
+# each package.json pins, so neither one needs pnpm installed globally.
+
+# Render the JS client from the hand-written IDL (the output is kept out of git, so re-render it before use).
+generate-js-client:
+    cd programs/settlement/idl && corepack pnpm install --frozen-lockfile && node generate.mjs
+
+# Run the JS client's tests, which drive the real program through litesvm (needs the .so and a freshly rendered client).
+test-js-client: build-program generate-js-client
+    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec vitest run
+
 # Each test outputs its consumption during test execution to a series of target/bench-report/*.jsonl files.
 # Assembles into a single `bench-report.json`
 bench: build-program build-test-programs
@@ -85,4 +96,4 @@ deploy programid keypair: build-verified
         initialize \
         || echo "warning: \`initialize\` failed, the state PDA may already exist" >&2
 
-all: build bench lint fmt-check doc-dev
+all: build bench test-js-client lint fmt-check doc-dev
