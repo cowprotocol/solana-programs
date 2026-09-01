@@ -5,7 +5,7 @@ use cow_settlement_client::cow_settlement_interface::{
         state::find_state_pda,
     },
 };
-use cow_settlement_client::instructions::CreateBuffers;
+use cow_settlement_client::instruction::CreateBuffers;
 use litesvm::LiteSVM;
 use litesvm_token::{
     get_spl_account,

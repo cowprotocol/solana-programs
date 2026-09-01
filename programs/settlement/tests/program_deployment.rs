@@ -1,4 +1,4 @@
-use cow_settlement_client::instructions::{BeginSettle, FinalizeSettle};
+use cow_settlement_client::instruction::{BeginSettle, FinalizeSettle};
 use solana_sdk::{
     instruction::{Instruction, InstructionError},
     signature::Signer,

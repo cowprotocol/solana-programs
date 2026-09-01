@@ -7,17 +7,14 @@
 
 use cow_settlement_interface::{
     data::state::StateAccount,
-    instruction::{
-        create_buffer::SPL_TOKEN_PROGRAM_ID, reclaim_buffer::ReclaimBufferInput,
-        InstructionInputParsing,
-    },
+    instruction::{reclaim_buffer::ReclaimBufferInput, InstructionInputParsing},
     pda::buffer::find_buffer_pda,
     Pubkey, Role, SettlementError,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use pinocchio_token::{instructions::CloseAccount, state::Account as TokenAccount};
 
-use crate::processor::with_state_pda_signer;
+use crate::processor::utils::{auth::with_state_pda_signer, token::validate_token_program_account};
 
 pub fn process_reclaim_buffer(
     program_id: &Address,
@@ -32,9 +29,7 @@ pub fn process_reclaim_buffer(
         buffers,
     } = ReclaimBufferInput::parse(instruction_data, accounts)?;
 
-    if token_program.address() != &SPL_TOKEN_PROGRAM_ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
+    validate_token_program_account(token_program)?;
 
     with_state_pda_signer(program_id, state_pda, |state_signer| {
         let reclaim_authority_pubkey: Pubkey =
@@ -74,6 +69,7 @@ pub fn process_reclaim_buffer(
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::state::{StateAccount, StateInitArgs, WIDTH_HEADER};
+    use cow_settlement_interface::instruction::create_buffer::SPL_TOKEN_PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,

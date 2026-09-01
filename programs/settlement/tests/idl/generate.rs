@@ -122,7 +122,7 @@ const STRUCT_TYPES: &[(&Source, &str, &str)] = &[
 /// The enum types the IDL defines, as `(source, name)`.
 pub const ENUM_TYPES: &[(&Source, &str)] = &[
     (&parse_rust::INTENT_RS, "OrderKind"),
-    (&parse_rust::INTERFACE_LIB_RS, "Role"),
+    (&parse_rust::ROLE_RS, "Role"),
 ];
 
 /// The enum whose variants are the IDL's `errors[]`.
@@ -163,7 +163,7 @@ pub fn partial_idl() -> Value {
 
 /// One entry per `SettlementInstruction` variant, in discriminator order.
 fn instructions() -> Vec<Value> {
-    discriminator_variants(&parse_rust::INTERFACE_LIB_RS.find_enum("SettlementInstruction"))
+    discriminator_variants(&parse_rust::INSTRUCTION_MOD_RS.find_enum("SettlementInstruction"))
         .map(|(byte, variant)| {
             let instruction = INSTRUCTIONS
                 .iter()
@@ -273,7 +273,7 @@ fn struct_type(rust_struct: &syn::ItemStruct, rust_name: &str) -> Value {
 
 /// One entry per `SettlementAccount` variant, in discriminator order.
 fn accounts() -> Vec<Value> {
-    discriminator_variants(&parse_rust::INTERFACE_LIB_RS.find_enum("SettlementAccount"))
+    discriminator_variants(&parse_rust::PDA_MOD_RS.find_enum("SettlementAccount"))
         .map(|(byte, variant)| {
             let mut entry = Map::new();
             entry.insert("name".into(), json!(variant.ident.to_string()));
@@ -317,7 +317,7 @@ fn type_entry(idl_name: &str, docs: Vec<String>, ty: Value) -> Value {
 /// `ProgramError::Custom` code the program returns, and its doc comment is the
 /// message the IDL publishes for that code.
 fn errors() -> Vec<Value> {
-    parse_rust::INTERFACE_LIB_RS
+    parse_rust::ERROR_RS
         .find_enum(ERRORS)
         .variants
         .iter()

@@ -11,7 +11,7 @@ use cow_settlement_interface::{
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
-use crate::processor::CanonicalPda;
+use crate::processor::utils::pda::CanonicalPda;
 
 pub fn process_create_order(
     program_id: &Address,

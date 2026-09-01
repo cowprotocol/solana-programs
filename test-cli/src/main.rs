@@ -2,9 +2,7 @@ use clap::{Parser, Subcommand};
 use cow_settlement_client::cow_settlement_interface::Pubkey;
 
 mod cmd;
-mod helpers;
-mod instructions;
-mod token;
+mod utils;
 
 fn home_dir() -> String {
     std::env::var("HOME").expect("`HOME` env not available")

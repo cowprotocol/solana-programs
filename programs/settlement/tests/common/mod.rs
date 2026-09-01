@@ -14,7 +14,7 @@ pub mod settlement;
 pub mod state;
 pub mod token;
 
-use cow_settlement_client::instructions::{AddSolver, Initialize};
+use cow_settlement_client::instruction::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::SettlementError;

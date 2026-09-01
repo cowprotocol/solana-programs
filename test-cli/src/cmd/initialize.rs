@@ -1,11 +1,11 @@
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
 use cow_settlement_client::{
-    cow_settlement_interface::pda::state::find_state_pda, instructions::Initialize,
+    cow_settlement_interface::pda::state::find_state_pda, instruction::Initialize,
 };
 use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 
-use crate::helpers::print_summary;
+use crate::utils::output::print_summary;
 
 use super::Context;
 

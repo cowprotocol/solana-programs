@@ -6,7 +6,7 @@ use cow_settlement_client::{
         pda::buffer::find_buffer_pda,
         Pubkey,
     },
-    instructions::{
+    instruction::{
         BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
     },
 };
@@ -19,7 +19,7 @@ use solana_sdk::{
 };
 use std::collections::{HashMap, HashSet};
 
-use crate::token::{resolve_from_token_account, ResolvedToken};
+use crate::utils::token::{resolve_from_token_account, ResolvedToken};
 
 use super::Context;
 
