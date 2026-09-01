@@ -111,7 +111,7 @@ cargo publish
 
 ### Publishing the npm package
 
-The TS/JS client (`@cowprotocol/cow-settlement-client-js`, generated from `programs/settlement/idl/cow_settlement.json` via Codama) is published automatically by [`publish-npm.yml`](.github/workflows/publish-npm.yml) whenever a GitHub release is cut — its version must already match the release tag (see [Bumping the crate version](#bumping-the-crate-version), which bumps it alongside the crates).
+The TS/JS client (`@cowprotocol/solana-settlement-client`, generated from `programs/settlement/idl/cow_settlement.json` via Codama) is published automatically by [`publish-npm.yml`](.github/workflows/publish-npm.yml) whenever a GitHub release is cut — its version must already match the release tag (see [Bumping the crate version](#bumping-the-crate-version), which bumps it alongside the crates).
 
 Publishing itself requires a manual approval in the `npm-publish` GitHub Environment. Before approving, check the job summary the workflow posts: it lists the exact tarball contents about to be published and a dependency diff against the previously published version. Approve only if both look as expected for the changes in this release.
 

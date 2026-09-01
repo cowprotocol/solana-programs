@@ -1,5 +1,5 @@
 {
-  "name": "@cowprotocol/cow-settlement-client-js",
+  "name": "@cowprotocol/solana-settlement-client",
   "version": "0.3.0",
   "description": "TypeScript/JavaScript client for the CoW Protocol Solana settlement program, generated from its IDL.",
   "type": "module",

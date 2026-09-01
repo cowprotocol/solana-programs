@@ -69,15 +69,22 @@ jobs:
             echo "2. The dependency diff below has no unexpected new/changed packages."
             echo "3. Package \`${{ steps.pkg.outputs.name }}\` is being published at version \`${{ steps.pkg.outputs.version }}\`, matching release \`${{ github.event.release.tag_name || github.ref_name }}\`."
             echo
-            echo "### Tarball contents (\`npm pack --dry-run\`)"
+            echo "### Tarball contents (\`npm pack --dry-run --ignore-scripts\`)"
             echo '```'
-            npm pack --dry-run 2>&1
+            npm pack --dry-run --ignore-scripts 2>&1
             echo '```'
             echo
             echo "### Dependency diff vs. previously published version"
             name="${{ steps.pkg.outputs.name }}"
-            if ! npm view "$name" version >/dev/null 2>&1; then
-              echo "_First publish of this package — nothing to diff against._"
+            view_err=$(mktemp)
+            if ! npm view "$name" version >/dev/null 2>"$view_err"; then
+              if grep -q "code E404" "$view_err"; then
+                echo "_First publish of this package — nothing to diff against._"
+              else
+                echo "::error::Failed to look up $name on the npm registry (not a 404 — could be auth, network, or an outage). Refusing to treat this as a first publish." >&2
+                cat "$view_err" >&2
+                exit 1
+              fi
             else
               prev_deps_json=$(npm view "$name" dependencies --json 2>/dev/null); [ -z "$prev_deps_json" ] && prev_deps_json='null'
               prev_peer_json=$(npm view "$name" peerDependencies --json 2>/dev/null); [ -z "$prev_peer_json" ] && prev_peer_json='null'
@@ -123,6 +130,9 @@ jobs:
 
       - name: Publish ${{ needs.build.outputs.package-name }}@${{ needs.build.outputs.package-version }}
         working-directory: package
-        run: npm publish --provenance --access public
+        # --ignore-scripts: the artifact was already built and reviewed in the `build`
+        # job; no lifecycle script should run at this point with access to NPM_TOKEN
+        # or a chance to alter dist after it's been reviewed.
+        run: npm publish --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
