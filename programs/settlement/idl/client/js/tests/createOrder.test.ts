@@ -45,8 +45,6 @@ describe("createOrder", () => {
       signTransactionMessageWithSigners,
     );
 
-    // litesvm returns a native class, not a POJO: `err`/`meta` are methods, so
-    // `JSON.stringify(result.err)` would print `undefined` and hide the failure.
     const result = svm.sendTransaction(tx);
     if ("err" in result) {
       throw new Error(
@@ -58,8 +56,7 @@ describe("createOrder", () => {
       programAddress: COW_SETTLEMENT_PROGRAM_ADDRESS,
       args: { intent },
     });
-    // `getAccount` returns a `MaybeEncodedAccount`, never null: a missing
-    // account comes back as `{ exists: false }`, so it needs an explicit check.
+    
     const account = svm.getAccount(orderPda);
     expect(account.exists).toBe(true);
     assertAccountExists(account);

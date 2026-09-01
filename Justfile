@@ -18,10 +18,7 @@ build: build-program
 test: build-program build-test-programs
     cargo test
 
-# The two JS recipes below install with `corepack pnpm`, which runs the pnpm version
-# each package.json pins, so neither one needs pnpm installed globally.
-
-# Render the JS client from the hand-written IDL (the output is kept out of git, so re-render it before use).
+# Builds the JS/TS client from IDL.
 generate-js-client:
     cd programs/settlement/idl && corepack pnpm install --frozen-lockfile && node generate.mjs
 
