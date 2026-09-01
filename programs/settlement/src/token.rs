@@ -70,13 +70,13 @@ pub fn read_token_account(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cow_settlement_interface::instruction::fixtures::{fake_account, fake_account_owned_by};
+    use cow_settlement_interface::{
+        fixtures::pubkey_from_seed,
+        instruction::fixtures::{fake_account, fake_account_owned_by},
+    };
     use pinocchio::Address;
     use pinocchio_token::state::Mint;
     use pinocchio_token_2022::state::AccountType;
-
-    /// An address that is not a token program.
-    const UNRELATED: Address = Address::new_from_array([0x99; 32]);
 
     /// The length of a token account holding nothing but the base layout. Both
     /// programs share it: it is Token-2022's `BASE_LEN` and the whole of a
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn token_account_len_reports_unavailable_without_an_answer() {
         let mint = fake_account_owned_by(
-            UNRELATED,
+            pubkey_from_seed("mint"),
             TokenProgram::Token2022.address(),
             &[0u8; Mint::LEN + 1],
         );
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn validate_token_program_rejects_unrelated_program() {
-        let account = fake_account(UNRELATED);
+        let account = fake_account(pubkey_from_seed("not a token program"));
         assert_eq!(
             validate_token_program(&account),
             Err(ProgramError::IncorrectProgramId),
@@ -141,11 +141,11 @@ mod tests {
 
     #[test]
     fn read_token_account_reads_a_base_layout_account() {
-        let mint = Address::new_from_array([0x11; 32]);
-        let owner = Address::new_from_array([0x22; 32]);
+        let mint = pubkey_from_seed("mint");
+        let owner = pubkey_from_seed("owner");
         for program in TokenProgram::ALL {
             let account = fake_account_owned_by(
-                UNRELATED,
+                pubkey_from_seed("token account"),
                 program.address(),
                 &base_layout(mint, owner, 4_200),
             );
@@ -157,15 +157,19 @@ mod tests {
 
     #[test]
     fn read_token_account_reads_past_token_2022_extensions() {
-        let mint = Address::new_from_array([0x33; 32]);
-        let owner = Address::new_from_array([0x44; 32]);
+        let mint = pubkey_from_seed("extended mint");
+        let owner = pubkey_from_seed("extended owner");
         let mut data = base_layout(mint, owner, 7);
         // Extensions are preceded by the account-type marker, which is what
         // distinguishes a longer account from a mint of the same size.
         data.push(AccountType::Account as u8);
         data.extend_from_slice(&[0xab; 16]);
 
-        let account = fake_account_owned_by(UNRELATED, TokenProgram::Token2022.address(), &data);
+        let account = fake_account_owned_by(
+            pubkey_from_seed("token account"),
+            TokenProgram::Token2022.address(),
+            &data,
+        );
         let read = read_token_account(TokenProgram::Token2022, &account)
             .expect("an extended Token-2022 account should read");
         assert_eq!(read.amount, 7);
@@ -173,10 +177,14 @@ mod tests {
 
     #[test]
     fn read_token_account_rejects_an_extended_mint() {
-        let mut data = base_layout(UNRELATED, UNRELATED, 7);
+        let mut data = base_layout(pubkey_from_seed("mint"), pubkey_from_seed("owner"), 7);
         data.push(AccountType::Mint as u8);
 
-        let account = fake_account_owned_by(UNRELATED, TokenProgram::Token2022.address(), &data);
+        let account = fake_account_owned_by(
+            pubkey_from_seed("mint account"),
+            TokenProgram::Token2022.address(),
+            &data,
+        );
         assert_eq!(
             read_token_account(TokenProgram::Token2022, &account).err(),
             Some(ProgramError::InvalidAccountData),
@@ -190,9 +198,9 @@ mod tests {
             [TokenProgram::Token2022, TokenProgram::SplToken],
         ] {
             let account = fake_account_owned_by(
-                UNRELATED,
+                pubkey_from_seed("token account"),
                 other.address(),
-                &base_layout(UNRELATED, UNRELATED, 0),
+                &base_layout(pubkey_from_seed("mint"), pubkey_from_seed("owner"), 0),
             );
             assert_eq!(
                 read_token_account(program, &account).err(),

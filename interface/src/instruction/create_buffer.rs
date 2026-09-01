@@ -25,10 +25,10 @@ use crate::SettlementInstruction;
 /// Buffer creation is idempotent: an already-existing `buffer_pda` is left
 /// unchanged and the instruction still succeeds, so two parties racing to
 /// create the same buffer both succeed.
-/// 
+///
 /// The token_program supplied to this instruction must be the owner of all mints
-/// supplied. Only one token program can be supplied to this instruction at a time. 
-/// If mints from two separate token programs are required, the client needs to 
+/// supplied. Only one token program can be supplied to this instruction at a time.
+/// If mints from two separate token programs are required, the client needs to
 /// divide it into separate instructions.
 ///
 /// Wire format: `[discriminator=4]`, 1 byte. The tokens are implied by the
@@ -152,23 +152,21 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::{create_buffer_data, NUM_SHARED_ACCOUNTS};
     use super::*;
-    use crate::instruction::fixtures::{
-        fake_account, fake_account_from_array, fake_sequential_accounts,
-    };
+    use crate::fixtures::pubkey_from_seed;
+    use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
     use crate::instruction::tests::{
         assert_readonly_nonsigner, assert_writable_nonsigner, assert_writable_signer,
     };
     use solana_account_view::AccountView;
-    use solana_address::Address;
 
     #[test]
     fn create_buffer_input_parses_valid_input() {
-        let program_id: Address = Address::new_from_array([1; 32]);
-        let payer: Address = Address::new_from_array([2; 32]);
-        let token_program = Address::new_from_array([3; 32]);
-        let system_program = fake_account_from_array([4; 32]);
-        let buffer_pda = Address::new_from_array([5; 32]);
-        let mint = Address::new_from_array([6; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
+        let token_program = pubkey_from_seed("token program");
+        let system_program = fake_account(pubkey_from_seed("system program"));
+        let buffer_pda = pubkey_from_seed("buffer pda");
+        let mint = pubkey_from_seed("mint");
 
         let data = Instruction::from(CreateBuffers {
             program_id,
@@ -197,13 +195,13 @@ mod tests {
 
     #[test]
     fn create_buffer_input_parses_multiple_buffers() {
-        let program_id = Address::new_from_array([1; 32]);
-        let payer = Address::new_from_array([2; 32]);
-        let token_program = Address::new_from_array([3; 32]);
-        let buffer_a = Address::new_from_array([4; 32]);
-        let mint_a = Address::new_from_array([5; 32]);
-        let buffer_b = Address::new_from_array([6; 32]);
-        let mint_b = Address::new_from_array([7; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
+        let token_program = pubkey_from_seed("token program");
+        let buffer_a = pubkey_from_seed("buffer a");
+        let mint_a = pubkey_from_seed("mint a");
+        let buffer_b = pubkey_from_seed("buffer b");
+        let mint_b = pubkey_from_seed("mint b");
 
         let data = Instruction::from(CreateBuffers {
             program_id,
@@ -214,7 +212,7 @@ mod tests {
         .data;
         let accounts = [
             fake_account(payer),
-            fake_account_from_array([4; 32]),
+            fake_account(pubkey_from_seed("system program")),
             fake_account(token_program),
             fake_account(buffer_a),
             fake_account(mint_a),
@@ -282,11 +280,11 @@ mod tests {
 
     #[test]
     fn instruction_data_has_expected_layout() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let payer = Pubkey::new_from_array([2; 32]);
-        let token_program = Pubkey::new_from_array([3; 32]);
-        let buffer_pda = Pubkey::new_from_array([4; 32]);
-        let mint = Pubkey::new_from_array([5; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
+        let token_program = pubkey_from_seed("token program");
+        let buffer_pda = pubkey_from_seed("buffer pda");
+        let mint = pubkey_from_seed("mint");
         let Instruction { data, .. } = CreateBuffers {
             program_id,
             payer,
@@ -302,11 +300,11 @@ mod tests {
 
     #[test]
     fn single_buffer_has_expected_accounts() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let payer = Pubkey::new_from_array([2; 32]);
-        let token_program = Pubkey::new_from_array([3; 32]);
-        let buffer_pda = Pubkey::new_from_array([4; 32]);
-        let mint = Pubkey::new_from_array([5; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
+        let token_program = pubkey_from_seed("token program");
+        let buffer_pda = pubkey_from_seed("buffer pda");
+        let mint = pubkey_from_seed("mint");
         let Instruction { accounts, .. } = CreateBuffers {
             program_id,
             payer,
@@ -328,13 +326,13 @@ mod tests {
 
     #[test]
     fn multiple_buffers_append_pairs_after_shared_accounts() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let payer = Pubkey::new_from_array([2; 32]);
-        let token_program = Pubkey::new_from_array([3; 32]);
-        let buffer_a = Pubkey::new_from_array([4; 32]);
-        let mint_a = Pubkey::new_from_array([5; 32]);
-        let buffer_b = Pubkey::new_from_array([6; 32]);
-        let mint_b = Pubkey::new_from_array([7; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
+        let token_program = pubkey_from_seed("token program");
+        let buffer_a = pubkey_from_seed("buffer a");
+        let mint_a = pubkey_from_seed("mint a");
+        let buffer_b = pubkey_from_seed("buffer b");
+        let mint_b = pubkey_from_seed("mint b");
         let Instruction { accounts, .. } = CreateBuffers {
             program_id,
             payer,
@@ -353,9 +351,9 @@ mod tests {
 
     #[test]
     fn empty_buffers_has_only_shared_accounts() {
-        let program_id = Pubkey::new_from_array([1; 32]);
-        let payer = Pubkey::new_from_array([2; 32]);
-        let token_program = Pubkey::new_from_array([3; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let payer = pubkey_from_seed("payer");
+        let token_program = pubkey_from_seed("token program");
         let Instruction { accounts, .. } = CreateBuffers {
             program_id,
             payer,
