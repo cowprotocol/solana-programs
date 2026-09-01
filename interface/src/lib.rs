@@ -28,7 +28,7 @@ pub enum SettlementInstruction {
     CreateOrder = 2,
     /// Creates the singleton settlement state PDA. Succeeds only once.
     Initialize = 3,
-    /// Creates one or more per-token buffer PDAs (SPL token accounts) in a
+    /// Creates one or more per-token buffer PDAs (token accounts) in a
     /// single instruction.
     ///
     /// Each buffer_pda_i must be the canonical PDA for seeds
