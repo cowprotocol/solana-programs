@@ -3,7 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
-    spl_token::{instruction::initialize_mint2, state::Mint},
+    spl_token::{instruction::initialize_mint2, native_mint, state::Mint},
     Approve, CreateAccount, CreateAssociatedTokenAccount, MintTo, Transfer, TOKEN_ID,
 };
 use solana_program_pack::Pack;
@@ -46,6 +46,29 @@ pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
     svm.send_transaction(tx)
         .expect("mint creation should succeed");
     mint.pubkey()
+}
+
+/// Seed the wrapped-SOL mint account, which `LiteSVM` does not create.
+///
+/// On chain the native mint is a real, token-program-owned mint account, and
+/// the program queries it with `GetAccountDataSize` to size a buffer. That
+/// query rejects an account the token program does not own, so a test touching
+/// the native mint has to put the account there first.
+pub fn create_native_mint(svm: &mut LiteSVM) {
+    /// The native mint's fixed decimals, matching `spl_token::native_mint`.
+    const DECIMALS: u8 = 9;
+
+    let mut data = vec![0u8; Mint::LEN];
+    Mint {
+        mint_authority: None.into(),
+        supply: 0,
+        decimals: DECIMALS,
+        is_initialized: true,
+        freeze_authority: None.into(),
+    }
+    .pack_into_slice(&mut data);
+    let token_program = Pubkey::new_from_array(TOKEN_ID.to_bytes());
+    super::create_account_at(svm, native_mint::ID, &token_program, &data);
 }
 
 /// Create an initialized SPL token account for `mint` whose SPL owner is

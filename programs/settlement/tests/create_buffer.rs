@@ -140,11 +140,11 @@ fn buffer_can_receive_tokens() {
 
 #[test]
 fn happy_path_creates_native_token_buffer() {
-    // The native mint is special-cased by the token program: it's recognized by
-    // key (no mint-account validation) and the buffer is initialized as a
-    // wrapped-SOL account. Since we fund exactly the rent-exempt minimum, the
-    // wrapped balance starts at zero.
+    // `InitializeAccount` special-cases the native mint: it's recognized by key
+    // and the buffer is initialized as a wrapped-SOL account. Since we fund
+    // exactly the rent-exempt minimum, the wrapped balance starts at zero.
     let (mut svm, program_id, payer) = common::setup();
+    common::token::create_native_mint(&mut svm);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &native_mint::ID);
 
     let ix = CreateBuffers {
