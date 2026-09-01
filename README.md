@@ -109,6 +109,12 @@ Then, all packages can published in one go:
 cargo publish
 ```
 
+### Publishing the npm package
+
+The TS/JS client (`@cowprotocol/cow-settlement-client-js`, generated from `programs/settlement/idl/cow_settlement.json` via Codama) is published automatically by [`publish-npm.yml`](.github/workflows/publish-npm.yml) whenever a GitHub release is cut — its version must already match the release tag (see [Bumping the crate version](#bumping-the-crate-version), which bumps it alongside the crates).
+
+Publishing itself requires a manual approval in the `npm-publish` GitHub Environment. Before approving, check the job summary the workflow posts: it lists the exact tarball contents about to be published and a dependency diff against the previously published version. Approve only if both look as expected for the changes in this release.
+
 ### Devnet example
 
 ```sh
@@ -140,7 +146,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
-- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42". This is also what triggers the npm package publish workflow — see [Publishing the npm package](#publishing-the-npm-package).
 
 ### Patch update
 
@@ -150,10 +156,11 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Create a PR with the changes and wait for approval.
 - [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
 - [Publish the cargo packages](#publishing-the-cargo-packages).
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag including the patch number, like `v0.42.1` (unlike breaking-change releases, the patch digit here is non-zero, so it must be included to avoid colliding with the `v0.42` tag); title "Alpha release, v0.42.1". This is also what triggers the npm package publish workflow — see [Publishing the npm package](#publishing-the-npm-package).
 
 ### Bumping the crate version
 
-You need to update Cargo's toml and lock file.
+You need to update Cargo's toml and lock file, and the npm package's version (kept in lockstep so a release tag maps to one version everywhere).
 Here is a list of commands to help bumping all relevant strings:
 
 ```sh
@@ -162,6 +169,7 @@ perl -i -pe '
   s/^version = ".*"/version = "$ENV{VERSION}"/;
   s/(path = "[^"]*", version = )"[^"]*"/$1"$ENV{VERSION}"/;
 ' ./Cargo.toml
+perl -i -pe 's/^(\s*"version": )".*"/$1"$ENV{VERSION}"/' ./programs/settlement/idl/client/js/package.json
 just build
 ```
 

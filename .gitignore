@@ -2,10 +2,11 @@
 proptest-regressions/
 .cargo-root/
 node_modules/
-pnpm-lock.yaml
 generated/
+dist/
+.idea/
 
 # Make sure no Solana key is uploaded by accident.
 *.json
 !bench-report.json
-!programs/settlement/idl/**
+!programs/settlement/idl/**/*.json

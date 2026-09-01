@@ -1,0 +1,128 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      package-name: ${{ steps.pkg.outputs.name }}
+      package-version: ${{ steps.pkg.outputs.version }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-solana
+      - uses: ./.github/actions/setup-just
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            programs/settlement/idl/pnpm-lock.yaml
+            programs/settlement/idl/client/js/pnpm-lock.yaml
+
+      - name: Build JS client
+        run: just build-js-client
+      - name: Test JS client
+        run: just test-js-client
+
+      - name: Read package metadata
+        id: pkg
+        working-directory: programs/settlement/idl/client/js
+        run: |
+          echo "name=$(node -p 'require("./package.json").name')" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Version must match the release tag
+        if: github.event_name == 'release'
+        working-directory: programs/settlement/idl/client/js
+        run: |
+          # Existing tags (v0.2, v0.3) are major.minor only, while npm/Cargo need
+          # full semver (0.3.0), so pad any missing patch component before comparing.
+          tag="${GITHUB_REF_NAME#v}"
+          IFS='.' read -r major minor patch <<< "$tag"
+          normalized_tag="${major}.${minor:-0}.${patch:-0}"
+          pkg_version="${{ steps.pkg.outputs.version }}"
+          if [ "$normalized_tag" != "$pkg_version" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME (normalized: $normalized_tag) does not match package.json version $pkg_version. Bump programs/settlement/idl/client/js/package.json's version as part of the release PR before publishing." >&2
+            exit 1
+          fi
+
+      - name: Write publish summary
+        working-directory: programs/settlement/idl/client/js
+        run: |
+          {
+            echo "## npm publish review"
+            echo
+            echo "Before approving, confirm:"
+            echo "1. The tarball contents below only include expected files (no stray secrets, keys, or debug output)."
+            echo "2. The dependency diff below has no unexpected new/changed packages."
+            echo "3. Package \`${{ steps.pkg.outputs.name }}\` is being published at version \`${{ steps.pkg.outputs.version }}\`, matching release \`${{ github.event.release.tag_name || github.ref_name }}\`."
+            echo
+            echo "### Tarball contents (\`npm pack --dry-run\`)"
+            echo '```'
+            npm pack --dry-run 2>&1
+            echo '```'
+            echo
+            echo "### Dependency diff vs. previously published version"
+            name="${{ steps.pkg.outputs.name }}"
+            if ! npm view "$name" version >/dev/null 2>&1; then
+              echo "_First publish of this package — nothing to diff against._"
+            else
+              prev_deps_json=$(npm view "$name" dependencies --json 2>/dev/null); [ -z "$prev_deps_json" ] && prev_deps_json='null'
+              prev_peer_json=$(npm view "$name" peerDependencies --json 2>/dev/null); [ -z "$prev_peer_json" ] && prev_peer_json='null'
+              node -e '
+                const fs = require("fs");
+                const [prevDeps, prevPeer] = process.argv.slice(1).map((s) => JSON.parse(s));
+                const curr = require("./package.json");
+                fs.writeFileSync("/tmp/prev-deps.json", JSON.stringify({dependencies: prevDeps, peerDependencies: prevPeer}, null, 2) + "\n");
+                fs.writeFileSync("/tmp/curr-deps.json", JSON.stringify({dependencies: curr.dependencies ?? null, peerDependencies: curr.peerDependencies ?? null}, null, 2) + "\n");
+              ' "$prev_deps_json" "$prev_peer_json"
+              echo '```diff'
+              diff -u /tmp/prev-deps.json /tmp/curr-deps.json || true
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: |
+            programs/settlement/idl/client/js/dist
+            programs/settlement/idl/client/js/package.json
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Configure this environment in repo Settings > Environments with required
+    # reviewers: whoever approves is confirming the checklist in the `build`
+    # job's step summary, not just that CI is green.
+    environment: npm-publish
+    permissions:
+      id-token: write # for npm provenance
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+          path: package
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish ${{ needs.build.outputs.package-name }}@${{ needs.build.outputs.package-version }}
+        working-directory: package
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

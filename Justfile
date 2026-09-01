@@ -61,6 +61,18 @@ doc *args:
 doc-dev *args:
     cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]' {{ args }}
 
+# Generate the TS/JS client from the IDL using Codama.
+gen-js-client:
+    cd programs/settlement/idl && pnpm install --frozen-lockfile && node generate.mjs
+
+# Build the publishable TS/JS client package (bundles the Codama-generated code plus hand-written wrappers).
+build-js-client: gen-js-client
+    cd programs/settlement/idl/client/js && pnpm install --frozen-lockfile && pnpm run build
+
+# Run the TS/JS client's test suite against the compiled settlement program.
+test-js-client: build-program gen-js-client
+    cd programs/settlement/idl/client/js && pnpm install --frozen-lockfile && pnpm test
+
 # Build the settlement program using solana-verify's reproducible Docker build.
 # Installs solana-verify via cargo if not already present (same as CI).
 build-verified:
