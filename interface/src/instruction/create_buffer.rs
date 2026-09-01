@@ -25,6 +25,11 @@ use crate::SettlementInstruction;
 /// Buffer creation is idempotent: an already-existing `buffer_pda` is left
 /// unchanged and the instruction still succeeds, so two parties racing to
 /// create the same buffer both succeed.
+/// 
+/// The token_program supplied to this instruction must be the owner of all mints
+/// supplied. Only one token program can be supplied to this instruction at a time. 
+/// If mints from two separate token programs are required, the client needs to 
+/// divide it into separate instructions.
 ///
 /// Wire format: `[discriminator=4]`, 1 byte. The tokens are implied by the
 /// `mint` accounts, so no further data is needed.
