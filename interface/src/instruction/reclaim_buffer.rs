@@ -37,7 +37,7 @@ pub struct ReclaimBuffer<'a> {
     pub reclaim_authority: Pubkey,
     pub reclaim_recipient: Pubkey,
     /// The token program owning every buffer this instruction closes. Must be
-    /// one of [`crate::token_program::SUPPORTED_TOKEN_PROGRAMS`].
+    /// the address of a [`crate::token_program::TokenProgram`].
     pub token_program: Pubkey,
     pub buffers: &'a [(Pubkey, Pubkey)],
 }

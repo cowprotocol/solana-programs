@@ -1,7 +1,6 @@
 //! Buffer-account helpers for the settlement integration tests.
 
 use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
-use cow_settlement_client::cow_settlement_interface::token_program::SPL_TOKEN_PROGRAM_ID;
 use cow_settlement_client::cow_settlement_interface::Instruction;
 use cow_settlement_client::instructions::CreateBuffers;
 use litesvm::LiteSVM;
@@ -11,7 +10,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 
-use super::token;
+use super::{token, SPL_TOKEN_PROGRAM_ID};
 
 /// The canonical buffer PDA for `mint`.
 pub fn buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {

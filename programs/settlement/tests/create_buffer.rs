@@ -4,7 +4,6 @@ use cow_settlement_client::cow_settlement_interface::{
         buffer::{buffer_pda_seeds, find_buffer_pda},
         state::find_state_pda,
     },
-    token_program::SPL_TOKEN_PROGRAM_ID,
 };
 use cow_settlement_client::instructions::CreateBuffers;
 use litesvm::LiteSVM;
@@ -29,7 +28,7 @@ use solana_sdk::{
 
 use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
-    unique_keypair, unique_pubkey,
+    unique_keypair, unique_pubkey, SPL_TOKEN_PROGRAM_ID,
 };
 
 mod common;

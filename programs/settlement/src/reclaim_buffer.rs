@@ -33,6 +33,7 @@ pub fn process_reclaim_buffer(
     } = ReclaimBufferInput::parse(instruction_data, accounts)?;
 
     let token_program = validate_token_program(token_program)?;
+    let token_program_id = token_program.address();
 
     with_state_pda_signer(program_id, state_pda, |state_signer| {
         let reclaim_authority_pubkey: Pubkey =
@@ -62,7 +63,7 @@ pub fn process_reclaim_buffer(
             CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
                 .invoke_signed_with_unverified_program(
                     core::slice::from_ref(state_signer),
-                    token_program,
+                    &token_program_id,
                 )?;
         }
 
@@ -81,7 +82,7 @@ mod tests {
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
     use cow_settlement_interface::pda::state::state_pda_seeds;
-    use cow_settlement_interface::token_program::SPL_TOKEN_PROGRAM_ID;
+    use cow_settlement_interface::token_program::TokenProgram;
     use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use pinocchio::error::ProgramError;
     use solana_program_pack::Pack;
@@ -92,6 +93,8 @@ mod tests {
     const AUTHORITY: Address = Address::new_from_array([101; 32]);
     const MANAGER: Address = Address::new_from_array([102; 32]);
     const UNRELATED: Address = Address::new_from_array([254; 32]);
+    /// The token program these fixtures build their buffers under.
+    const SPL_TOKEN_PROGRAM_ID: Address = TokenProgram::SplToken.address();
 
     /// Number of accounts in a one-buffer reclaim: the shared ones plus a
     /// single `(buffer_pda, mint)` pair.

@@ -2,7 +2,7 @@ use cow_settlement_client::instructions::ReclaimBuffer;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::{
     instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
-    pda::state::find_state_pda, token_program::SPL_TOKEN_PROGRAM_ID, SettlementError,
+    pda::state::find_state_pda, SettlementError,
 };
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -15,6 +15,7 @@ use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
 use crate::common::{
     assert_instruction_error, to_instruction_error, unique_pubkey, InitializedParams,
+    SPL_TOKEN_PROGRAM_ID,
 };
 
 mod common;

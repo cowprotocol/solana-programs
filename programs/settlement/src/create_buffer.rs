@@ -26,6 +26,7 @@ pub fn process_create_buffer(
     // it was handed, so reject an unsupported one up front rather than at the
     // first CPI.
     let token_program = validate_token_program(input.token_program)?;
+    let token_program_id = token_program.address();
 
     // The buffers' token authority is the settlement state PDA, the single
     // authority over every buffer. Derive it once for all buffers.
@@ -47,7 +48,7 @@ pub fn process_create_buffer(
             payer: input.payer,
             pda: buffer_pda,
             size: token_account_len(token_program, mint)?,
-            owner: token_program,
+            owner: &token_program_id,
             seeds: buffer_pda_seeds(mint_key),
         }
         .create_idempotent()?;
@@ -56,7 +57,7 @@ pub fn process_create_buffer(
         // initialize a freshly created one.
         if created {
             InitializeAccount3::new(buffer_pda, mint, &state_pda)
-                .invoke_with_unverified_program(token_program)?;
+                .invoke_with_unverified_program(&token_program_id)?;
         }
     }
 

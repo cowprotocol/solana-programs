@@ -37,7 +37,7 @@ pub struct CreateBuffers<'a> {
     pub program_id: Pubkey,
     pub payer: Pubkey,
     /// The token program that will own every buffer this instruction creates.
-    /// Must be one of [`crate::token_program::SUPPORTED_TOKEN_PROGRAMS`], and
+    /// Must be the address of a [`crate::token_program::TokenProgram`], and
     /// must be the program owning every `mint` in `buffers`.
     pub token_program: Pubkey,
     pub buffers: &'a [(Pubkey, Pubkey)],
