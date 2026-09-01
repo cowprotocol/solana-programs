@@ -14,13 +14,19 @@ build-test-programs:
 build: build-program
     cargo build
 
-# Run the test suite (builds the program first so the .so exists).
-test: build-program build-test-programs
-    cargo test
+# Runs all the generated code jobs
+generate: generate-js-client
 
 # Builds the JS/TS client from IDL.
 generate-js-client:
     cd programs/settlement/idl && corepack pnpm install --frozen-lockfile && node generate.mjs
+
+# Run the test suite (builds the program first so the .so exists).
+test: build-program build-test-programs
+    cargo test
+
+# Run tests from the generated clients from the IDL
+test-idl-generated: test-js-client
 
 # Run the JS client's tests, which drive the real program through litesvm (needs the .so and a freshly rendered client).
 test-js-client: build-program generate-js-client

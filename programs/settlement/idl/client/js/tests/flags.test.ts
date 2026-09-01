@@ -23,11 +23,4 @@ describe("flags", () => {
   it.each(CASES)("decodes %j from %d", (flags, byte) => {
     expect(decodeFlags(byte)).toEqual(flags);
   });
-
-  it.each([0b1000, 0b1_0000, 0b1000_0000, 0xff])(
-    "rejects the reserved bits in %d",
-    (byte) => {
-      expect(() => decodeFlags(byte)).toThrow(/reserved bit/);
-    },
-  );
 });

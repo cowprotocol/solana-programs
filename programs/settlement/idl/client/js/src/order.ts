@@ -34,7 +34,7 @@ export type Flags = {
   partiallyFillable: boolean;
 };
 
-/** Packs the settings into the canonical flags byte. Reserved bits are left clear. */
+/** Packs the settings into a valid canonical flags byte. */
 export function encodeFlags({
   createdOnChain,
   kind,
