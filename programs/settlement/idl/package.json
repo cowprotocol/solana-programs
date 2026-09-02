@@ -1,5 +1,5 @@
 {
-  "name": "idl",
+  "name": "@cowprotocol/solana-program-idl-generation",
   "version": "1.0.0",
   "private": true,
   "scripts": {
