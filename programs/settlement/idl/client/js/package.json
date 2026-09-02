@@ -2,7 +2,7 @@
   "name": "cow-solana-settlement-client",
   "version": "0.3.0",
   "type": "module",
-  "packageManager": "pnpm@10.30.3",
+  "packageManager": "pnpm@11.25.0",
   "description": "A library for interacting with CoW Protocol on Solana",
   "license": "(MIT OR Apache-2.0)",
   "main": "src/index.ts",
@@ -17,7 +17,7 @@
   "keywords": [],
   "author": "CoW ",
   "peerDependencies": {
-    "@solana/kit": "*"
+    "@solana/kit": "^6.10.0"
   },
   "dependencies": {
     "@solana/program-client-core": "^8.x"
