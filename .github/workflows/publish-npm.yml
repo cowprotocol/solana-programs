@@ -168,11 +168,24 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; the default bundled
+      # with actions/setup-node's Node 22 build can be older.
+      # https://docs.npmjs.com/trusted-publishers
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@~11.10.0 # pinned like cow-sdk's release workflow, see https://github.com/npm/cli/issues/9151
+
       - name: Publish ${{ needs.build.outputs.package-name }}@${{ needs.build.outputs.package-version }}
         working-directory: package
-        # --ignore-scripts: the artifact was already built and reviewed in the `build`
-        # job; no lifecycle script should run at this point with access to NPM_TOKEN
-        # or a chance to alter dist after it's been reviewed.
+        # No NODE_AUTH_TOKEN here on purpose: with `id-token: write` above and
+        # this package's npmjs.com Trusted Publisher configured for this repo +
+        # workflow + environment, npm authenticates via OIDC, no stored secret
+        # needed. NPM_TOKEN is a bootstrap-only fallback for the very first
+        # publish, before a Trusted Publisher can be configured (that requires
+        # the package to already exist on the registry) — once that's set up,
+        # delete the NPM_TOKEN secret; this step needs no other change.
+        # --ignore-scripts: the artifact was already built and reviewed in the
+        # `build` job; no lifecycle script should run at this point with a
+        # chance to alter dist after it's been reviewed.
         run: npm publish --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -131,6 +131,8 @@ The TS/JS client (`@cowprotocol/solana-settlement-client`, generated from `progr
 
 Publishing itself requires a manual approval in the `npm-publish` GitHub Environment. Before approving, check the job summary the workflow posts: it lists the exact tarball contents about to be published and a dependency diff against the previously published version. Approve only if both look as expected for the changes in this release.
 
+Authentication to npm uses [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) — no long-lived npm token is stored. This requires a one-time setup on npmjs.com *after* the package's first publish (a Trusted Publisher is configured on the package's own settings page, so it can't be set up before the package exists): add a Trusted Publisher for this exact repo, `publish-npm.yml`, and the `npm-publish` environment, then delete the `NPM_TOKEN` secret — it's a bootstrap-only fallback for that first publish.
+
 ### Devnet example
 
 ```sh
