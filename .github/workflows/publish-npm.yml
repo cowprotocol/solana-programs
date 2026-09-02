@@ -23,7 +23,7 @@ jobs:
       package-name: ${{ steps.pkg.outputs.name }}
       package-version: ${{ steps.pkg.outputs.version }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # A manual dispatch could pass --ref main while also supplying an
           # unrelated existing release's tag as input; without this, the tag
@@ -183,6 +183,16 @@ jobs:
         # publish, before a Trusted Publisher can be configured (that requires
         # the package to already exist on the registry) — once that's set up,
         # delete the NPM_TOKEN secret; this step needs no other change.
+        #
+        # Safe either way, including once NPM_TOKEN is deleted and this
+        # resolves to an empty string: npm's `publish` command always attempts
+        # OIDC first and unconditionally, before checking for any configured
+        # token, overwriting it on success (npm/cli lib/commands/publish.js
+        # calls oidc() right before reading getCredentialsByURI; lib/utils/oidc.js
+        # does config.set(authTokenKey, ...) when the exchange succeeds). The
+        # pre-configured token is only ever a fallback for when OIDC isn't
+        # available or the exchange fails — exactly the bootstrap-publish case,
+        # before this package has a Trusted Publisher configured.
         # --ignore-scripts: the artifact was already built and reviewed in the
         # `build` job; no lifecycle script should run at this point with a
         # chance to alter dist after it's been reviewed.
