@@ -4,16 +4,33 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Release tag to publish (e.g. v0.4.0). Set automatically when
+          auto-release.yml dispatches this workflow (GITHUB_TOKEN-created
+          releases don't fire the `release` event, so it can't rely on that
+          trigger — see https://docs.github.com/en/actions/concepts/security/github_token).
+          Leave empty for a manual build-only dry run (skips the tag/version check).
+        required: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # to look up releases in the "Version must match the release tag" step
     outputs:
       package-name: ${{ steps.pkg.outputs.name }}
       package-version: ${{ steps.pkg.outputs.version }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          # A manual dispatch could pass --ref main while also supplying an
+          # unrelated existing release's tag as input; without this, the tag
+          # would pass the version check below while the build actually ran
+          # against whatever `main` happens to be, not the released commit.
+          # Pinning to the tag input (when present) makes that impossible.
+          ref: ${{ github.event.inputs.tag || github.ref }}
           persist-credentials: false
 
       - uses: ./.github/actions/setup-solana
@@ -44,17 +61,34 @@ jobs:
           echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
 
       - name: Version must match the release tag
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '')
         working-directory: programs/settlement/idl/client/js
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # Real `release` events carry the tag as the ref; a dispatch from
+          # auto-release.yml (see its comment on why it can't use the `release`
+          # trigger) passes it as an explicit input instead. That input is
+          # free text from whoever ran the dispatch, so unlike the `release`
+          # case it isn't proof a real release exists — confirm one does,
+          # rather than only checking it's self-consistent with package.json.
+          if [ "${{ github.event_name }}" = "release" ]; then
+            raw_tag="$GITHUB_REF_NAME"
+          else
+            raw_tag="${{ github.event.inputs.tag }}"
+            if ! gh release view "$raw_tag" >/dev/null 2>&1; then
+              echo "::error::No release named $raw_tag exists. Refusing to publish against a tag that wasn't actually released." >&2
+              exit 1
+            fi
+          fi
           # Existing tags (v0.2, v0.3) are major.minor only, while npm/Cargo need
           # full semver (0.3.0), so pad any missing patch component before comparing.
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${raw_tag#v}"
           IFS='.' read -r major minor patch <<< "$tag"
           normalized_tag="${major}.${minor:-0}.${patch:-0}"
           pkg_version="${{ steps.pkg.outputs.version }}"
           if [ "$normalized_tag" != "$pkg_version" ]; then
-            echo "::error::Release tag $GITHUB_REF_NAME (normalized: $normalized_tag) does not match package.json version $pkg_version. Bump programs/settlement/idl/client/js/package.json's version as part of the release PR before publishing." >&2
+            echo "::error::Release tag $raw_tag (normalized: $normalized_tag) does not match package.json version $pkg_version. Bump programs/settlement/idl/client/js/package.json's version as part of the release PR before publishing." >&2
             exit 1
           fi
 
@@ -67,7 +101,7 @@ jobs:
             echo "Before approving, confirm:"
             echo "1. The tarball contents below only include expected files (no stray secrets, keys, or debug output)."
             echo "2. The dependency diff below has no unexpected new/changed packages."
-            echo "3. Package \`${{ steps.pkg.outputs.name }}\` is being published at version \`${{ steps.pkg.outputs.version }}\`, matching release \`${{ github.event.release.tag_name || github.ref_name }}\`."
+            echo "3. Package \`${{ steps.pkg.outputs.name }}\` is being published at version \`${{ steps.pkg.outputs.version }}\`, matching release \`${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}\`."
             echo
             echo "### Tarball contents (\`npm pack --dry-run --ignore-scripts\`)"
             echo '```'
@@ -110,6 +144,10 @@ jobs:
 
   publish:
     needs: build
+    # A workflow_dispatch with an empty `tag` is documented as a build-only dry
+    # run (skips the version check above) — it must not be able to reach an
+    # actual `npm publish` just because someone approves the environment gate.
+    if: github.event_name == 'release' || github.event.inputs.tag != ''
     runs-on: ubuntu-latest
     # Configure this environment in repo Settings > Environments with required
     # reviewers: whoever approves is confirming the checklist in the `build`

@@ -111,7 +111,7 @@ cargo publish
 
 ### Publishing the npm package
 
-The TS/JS client (`@cowprotocol/solana-settlement-client`, generated from `programs/settlement/idl/cow_settlement.json` via Codama) is published automatically by [`publish-npm.yml`](.github/workflows/publish-npm.yml) whenever a GitHub release is cut — its version must already match the release tag (see [Bumping the crate version](#bumping-the-crate-version), which bumps it alongside the crates).
+The TS/JS client (`@cowprotocol/solana-settlement-client`, generated from `programs/settlement/idl/cow_settlement.json` via Codama) is published automatically by [`publish-npm.yml`](.github/workflows/publish-npm.yml) whenever a GitHub release is cut — its version must already match the release tag (see [Bumping the crate version](#bumping-the-crate-version), which bumps it alongside the crates). The release itself is also created automatically, by [`auto-release.yml`](.github/workflows/auto-release.yml), as soon as a version-bump PR merges into `main` — see the [Breaking change](#breaking-change) and [Patch update](#patch-update) flows above. Merging the bump PR is the only manual step left before a release goes out; npm publishing still needs manual approval (below).
 
 Publishing itself requires a manual approval in the `npm-publish` GitHub Environment. Before approving, check the job summary the workflow posts: it lists the exact tarball contents about to be published and a dependency diff against the previously published version. Approve only if both look as expected for the changes in this release.
 
@@ -144,19 +144,17 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --help`).
 - Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
-- Create a PR with the changes and wait for approval.
+- Create a PR with the changes and wait for approval, then merge it. Merging automatically creates a GitHub release (tag `v$VERSION`, e.g. `v0.42.0`) via [`auto-release.yml`](.github/workflows/auto-release.yml), which in turn triggers the npm package publish workflow — see [Publishing the npm package](#publishing-the-npm-package).
 - [Publish the cargo packages](#publishing-the-cargo-packages).
-- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42". This is also what triggers the npm package publish workflow — see [Publishing the npm package](#publishing-the-npm-package).
 
 ### Patch update
 
 - Check out the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
 - [Bump the crate version](#bumping-the-crate-version) by a patch version.
 - Commit the code changes resulting from the changes above.
-- Create a PR with the changes and wait for approval.
+- Create a PR with the changes and wait for approval, then merge it. Merging automatically creates a GitHub release (tag `v$VERSION`, e.g. `v0.42.1`) via [`auto-release.yml`](.github/workflows/auto-release.yml), which in turn triggers the npm package publish workflow — see [Publishing the npm package](#publishing-the-npm-package).
 - [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
 - [Publish the cargo packages](#publishing-the-cargo-packages).
-- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag including the patch number, like `v0.42.1` (unlike breaking-change releases, the patch digit here is non-zero, so it must be included to avoid colliding with the `v0.42` tag); title "Alpha release, v0.42.1". This is also what triggers the npm package publish workflow — see [Publishing the npm package](#publishing-the-npm-package).
 
 ### Bumping the crate version
 

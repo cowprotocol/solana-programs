@@ -1,0 +1,109 @@
+name: Auto-create release on version bump
+
+# Watches pushes to main for a change to the workspace version in Cargo.toml
+# (the dedicated "bump version" PR from README.md's release flow). When it
+# changes, this automatically cuts the GitHub Release that publish-npm.yml
+# listens for, so merging the bump PR is the only manual step left before a
+# release goes out (npm publish itself still needs manual approval, see
+# publish-npm.yml's npm-publish environment).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write # to dispatch publish-npm.yml, see the note on the "Create release" step
+
+jobs:
+  auto-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect version bump
+        id: detect
+        run: |
+          # All-zeros `before` shows up on branch creation/force-push; there's
+          # no meaningful "previous version" to diff against, so skip.
+          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          old_version=$(git show "${{ github.event.before }}:Cargo.toml" 2>/dev/null | grep -m1 '^version = ' | sed -E 's/version = "(.*)"/\1/') || true
+          new_version=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+
+          if [ -z "$new_version" ] || [ "$old_version" = "$new_version" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Fail before creating anything if the bump PR forgot the npm package.
+          # Catching this here means no release/tag ever gets created against
+          # this commit — checking only after publish-npm.yml runs would leave
+          # a broken, immutable tag pinned to a commit that can never actually
+          # publish (a follow-up commit fixing just package.json wouldn't
+          # re-trigger this workflow, since it only watches Cargo.toml).
+          npm_version=$(node -p 'require("./programs/settlement/idl/client/js/package.json").version')
+          if [ "$new_version" != "$npm_version" ]; then
+            echo "::error::Cargo version $new_version does not match npm version $npm_version in programs/settlement/idl/client/js/package.json. Bump both together before merging." >&2
+            exit 1
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$new_version" >> "$GITHUB_OUTPUT"
+
+      - name: Check for existing release
+        id: check
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        if: steps.detect.outputs.changed == 'true' && steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          # --target pins the release to the exact commit this run is for, not
+          # whatever main's tip happens to be when this step runs — otherwise a
+          # commit landing on main mid-run could get tagged/published instead.
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "Alpha release, $tag" \
+            --generate-notes
+
+      # A separate, unconditional-on-"just created" step: if a previous run
+      # created the release but failed before dispatching (e.g. a transient
+      # API error), re-running this job must still retry the dispatch instead
+      # of short-circuiting on "release already exists".
+      - name: Dispatch publish workflow
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          # GitHub suppresses the `release` event when the resource that triggers
+          # it (this release) was itself created using GITHUB_TOKEN — otherwise
+          # this would recurse. That means publish-npm.yml's `release: published`
+          # trigger will NOT fire for a release created here.
+          # https://docs.github.com/en/actions/concepts/security/github_token
+          # So dispatch it explicitly instead of relying on that event.
+          #
+          # Dispatch against the tag itself, not `main`: the tag is immutable and
+          # points at $GITHUB_SHA above, whereas `main` can move between this line
+          # running and the dispatched run's checkout, which would silently build
+          # and (pending approval) publish a different, unreviewed commit.
+          gh workflow run publish-npm.yml --ref "$tag" -f tag="$tag"
