@@ -2,13 +2,13 @@
   "name": "idl",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "generate": "node generate.mjs"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@codama/nodes-from-anchor": "^1.5.2",
