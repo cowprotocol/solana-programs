@@ -1,13 +1,10 @@
 {
   "name": "idl",
   "version": "1.0.0",
-  "description": "",
   "private": true,
   "scripts": {
     "generate": "node generate.mjs"
   },
-  "keywords": [],
-  "author": "",
   "license": "MIT OR Apache-2.0",
   "packageManager": "pnpm@11.25.0",
   "dependencies": {

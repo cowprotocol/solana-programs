@@ -14,8 +14,6 @@
   "scripts": {
     "test": "vitest run"
   },
-  "keywords": [],
-  "author": "CoW ",
   "peerDependencies": {
     "@solana/kit": "^6.10.0"
   },
