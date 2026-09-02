@@ -28,7 +28,7 @@ test: build-program build-test-programs
 # Run tests from the generated clients from the IDL
 test-idl-generated: test-js-client
 
-# Run the JS client's tests, which drive the real program through litesvm (needs the .so and a freshly rendered client).
+# Run the JS client's tests
 test-js-client: build-program generate-js-client
     cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec vitest run
 
