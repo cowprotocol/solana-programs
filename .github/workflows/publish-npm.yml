@@ -37,20 +37,22 @@ jobs:
       - uses: ./.github/actions/setup-just
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        with:
-          version: 10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: |
-            programs/settlement/idl/pnpm-lock.yaml
-            programs/settlement/idl/client/js/pnpm-lock.yaml
+          # Matches ci.yml's test-js-client job: Node ships corepack, which
+          # `just build-js-client`/`test-js-client` use to run the pnpm version
+          # the packages pin, so pnpm needs no separate setup step here.
+          node-version: "24"
 
       - name: Build JS client
+        # Corepack otherwise asks for confirmation before fetching pnpm, which
+        # would hang the job.
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
         run: just build-js-client
       - name: Test JS client
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
         run: just test-js-client
 
       - name: Read package metadata

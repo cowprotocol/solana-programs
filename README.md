@@ -16,6 +16,8 @@ It contains a high-level technical description of what the program does and poin
 
 Install the Solana toolchain (Rust, Solana CLI, and friends) by following the [Solana quick setup](https://solana.com/docs/intro/installation).
 
+A Node.JS runtime is also necessary for generating client libraries from the IDL.
+
 Common dev tasks are exposed via [`just`](https://just.systems/) recipes (see `Justfile`).
 Most package managers provide this package, see [list of available Just packages](https://just.systems/man/en/packages.html).
 Run `just --list` to see what's available.
@@ -26,6 +28,8 @@ The repository is a Cargo workspace following the program / client / interface s
 
 - [`interface/`](./interface): shared types and the `Instruction` builders. Depends only on the lightweight crates so it can be consumed from both on-chain and off-chain code.
 - [`programs/settlement/`](./programs/settlement): the on-chain settlement program.
+  - [`programs/settlement/idl/`](./programs/settlement/idl): the IDL of the settlement program and its generated associated client libraries.
+    - [`programs/settlement/idl/client/js/`](./programs/settlement/idl/client/js/): A Typescript client generated from the IDL
 - [`client/`](./client): off-chain client helpers that re-export the builders from `interface` and add small convenience wrappers.
 
 
@@ -37,16 +41,28 @@ Build the on-chain program (produces `target/deploy/settlement.so`):
 just build-program
 ```
 
-Build everything (workspace crates plus the on-chain program):
+Build everything except IDL client libraries (workspace crates plus the on-chain program):
 
 ```sh
 just build
+```
+
+The IDL client libraries can be generated with:
+
+```sh
+just generate
 ```
 
 ### How to test
 
 ```sh
 just test
+```
+
+The IDL client libraries can be tested with:
+
+```sh
+just test-idl-generated
 ```
 
 ### Benchmarks

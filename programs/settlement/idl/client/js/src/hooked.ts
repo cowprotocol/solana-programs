@@ -1,20 +1,39 @@
-// Hand-written — Codama's "hooked" convention: functions referenced by a
-// `resolverValueNode` default value live here, imported by generated code
-// via the fixed "../../hooked" specifier (see generate.mjs). Never touched
-// by rendering, which only manages src/generated.
-//
-// create_order's order PDA is seeded by [SETTLEMENT_SEED, sha256(intent_bytes), "order"].
-// The middle seed is a hash of the whole `intent` argument rather than a plain
-// field/account reference, which the Anchor PDA-seed grammar (const / arg / account)
-// can't express — see cow_settlement.json's create_order docs — so it's handed off
-// to this resolver instead of a plain `pda` node. Codama calls this with a
-// `resolverScope` object and splices the returned `{ value }` onto the account
-// it's resolving, so its shape is dictated by the renderer, not chosen here.
+// This file is automatically loaded by codama for `resolverValueNode` types. For 
+// cases where the IDL syntax is not enough, custom code can be added to this file
+// to retain functionality.
 
 import { getProgramDerivedAddress, type Address } from "@solana/kit";
 import { getOrderIntentEncoder, type OrderIntentArgs } from "./generated";
-import { SETTLEMENT_SEED } from "./generated/settlementSeed";
+import IDL from "./generated/idl.json" with { type: "json" };
 
+/**
+ * The type definition for the slice of the IDL this file reads.
+ */
+type SeedBearingIdl = {
+  instructions: {
+    name: string;
+    accounts: {
+      name: string;
+      pda?: { seeds: { kind: string; value?: number[] }[] };
+    }[];
+  }[];
+};
+
+const SETTLEMENT_SEED: Uint8Array = (() => {
+  const idl: SeedBearingIdl = IDL;
+  const seed = idl.instructions
+    .find((instruction) => instruction.name === "initialize")
+    ?.accounts.find((account) => account.name === "state_pda")
+    ?.pda?.seeds[0]?.value;
+  if (!seed) {
+    throw new Error("IDL: initialize's state_pda has no const seed");
+  }
+  return new Uint8Array(seed);
+})();
+
+// Used to compute the actual order pda address. Needed 
+// because the middle field is the hash of the intent,
+// which is not an operation that can be expressed in IDL.
 export async function resolveOrderPda({
   programAddress,
   args,
