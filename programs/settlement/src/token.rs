@@ -102,8 +102,13 @@ mod tests {
     /// dependency, so this is what keeps them from drifting apart.
     #[test]
     fn interface_and_pinocchio_agree_on_the_program_ids() {
-        assert_eq!(TokenProgram::SplToken.address(), pinocchio_token::ID);
-        assert_eq!(TokenProgram::Token2022.address(), pinocchio_token_2022::ID);
+        for program in TokenProgram::ALL {
+            let pinocchio_id = match program {
+                TokenProgram::SplToken => pinocchio_token::ID,
+                TokenProgram::Token2022 => pinocchio_token_2022::ID,
+            };
+            assert_eq!(program.address(), pinocchio_id);
+        }
     }
 
     /// The base layout is the same under both programs, so one reader's idea of
