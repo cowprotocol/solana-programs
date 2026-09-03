@@ -40,10 +40,6 @@ pub fn token_account_len(
         .try_into()
         .map_err(|_| SettlementError::BufferSizeUnavailable)?;
     let length = u64::from_le_bytes(length);
-    // A token account is at least its base layout, whatever its mint carries.
-    if length < BASE_TOKEN_ACCOUNT_LEN {
-        return Err(SettlementError::BufferSizeUnavailable.into());
-    }
 
     Ok(length)
 }

@@ -55,7 +55,8 @@ fn happy_path_creates_initialized_buffer_token_account() {
         .get_account(&buffer_pda)
         .expect("buffer PDA should exist after create_buffer");
     assert_eq!(
-        account.owner, TokenProgram::SplToken.address(),
+        account.owner,
+        TokenProgram::SplToken.address(),
         "buffer must be owned by the SPL Token program"
     );
     assert_eq!(
@@ -199,7 +200,8 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
             .get_account(&buffer_pda)
             .expect("each buffer PDA should exist after create_buffers");
         assert_eq!(
-            account.owner, TokenProgram::SplToken.address(),
+            account.owner,
+            TokenProgram::SplToken.address(),
             "each buffer must be owned by the SPL Token program"
         );
         assert_eq!(
@@ -304,7 +306,8 @@ fn rejects_non_spl_token_program() {
     .into();
     let token_program_index = 2;
     assert_eq!(
-        ix.accounts[token_program_index].pubkey, TokenProgram::SplToken.address(),
+        ix.accounts[token_program_index].pubkey,
+        TokenProgram::SplToken.address(),
         "sanity: should replace token program"
     );
     ix.accounts[token_program_index].pubkey = unique_pubkey();

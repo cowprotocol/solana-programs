@@ -1,6 +1,6 @@
 use cow_settlement_client::instructions::ReclaimBuffer;
-use cow_settlement_interface::Instruction;
 use cow_settlement_interface::token_program::TokenProgram;
+use cow_settlement_interface::Instruction;
 use cow_settlement_interface::{
     instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
     pda::state::find_state_pda, SettlementError,

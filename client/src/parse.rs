@@ -77,10 +77,14 @@ mod tests {
         InitializedIntent,
     };
     use cow_settlement_interface::{
-        Instruction, Role, data::intent::fixtures::sample_intent, fixtures::pubkey_from_seed, instruction::{
+        data::intent::fixtures::sample_intent,
+        fixtures::pubkey_from_seed,
+        instruction::{
             fixtures::fake_account_from_array, reclaim_buffer::ReclaimBuffer,
             reclaim_order::ReclaimOrder, transfer_authority::TransferAuthority,
-        }, token_program::TokenProgram,
+        },
+        token_program::TokenProgram,
+        Instruction, Role,
     };
 
     /// One buildable instruction per discriminator. The exhaustive match makes

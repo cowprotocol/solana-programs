@@ -6,7 +6,10 @@
 //! by the function, making it more suitable for off-chain use.
 
 use cow_settlement_interface::{
-    Instruction, Pubkey, Role, data::intent::{EncodedOrderIntent, OrderIntent}, pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda}, token_program::TokenProgram,
+    data::intent::{EncodedOrderIntent, OrderIntent},
+    pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
+    token_program::TokenProgram,
+    Instruction, Pubkey, Role,
 };
 
 // Reexport the instruction builders that don't change from the interface.
