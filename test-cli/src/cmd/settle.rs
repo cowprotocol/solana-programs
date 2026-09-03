@@ -303,7 +303,7 @@ fn prepare_setup_ixs(
                 program_id: ctx.program_id,
                 payer: ctx.payer.pubkey(),
                 // The CLI only resolves tokens on the legacy program for now.
-                token_program: TokenProgram::SplToken.address(),
+                token_program: TokenProgram::SplToken,
                 mints: &mint_buffers_to_create.into_iter().collect::<Vec<_>>(),
             }
             .into(),

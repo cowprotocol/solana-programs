@@ -1,5 +1,6 @@
 use cow_settlement_client::instructions::ReclaimBuffer;
 use cow_settlement_interface::Instruction;
+use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::{
     instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
     pda::state::find_state_pda, SettlementError,
@@ -15,7 +16,6 @@ use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
 use crate::common::{
     assert_instruction_error, to_instruction_error, unique_pubkey, InitializedParams,
-    SPL_TOKEN_PROGRAM_ID,
 };
 
 mod common;
@@ -47,7 +47,7 @@ fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -95,7 +95,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -135,7 +135,7 @@ fn funded_buffer_is_skipped() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -181,7 +181,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -230,7 +230,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint_a, mint_b],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -267,7 +267,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -297,7 +297,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         program_id,
         reclaim_authority: impostor.pubkey(),
         reclaim_recipient: impostor.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
@@ -329,7 +329,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     });
 
@@ -369,7 +369,7 @@ fn max_buffers_reclaim_via_lookup_table(
             state_pda,
             reclaim_authority: reclaim_authority.pubkey(),
             reclaim_recipient: reclaim_authority.pubkey(),
-            token_program: SPL_TOKEN_PROGRAM_ID,
+            token_program: TokenProgram::SplToken.address(),
             buffers: &buffers,
         };
         common::lookup_table::lookup_table_tx(svm, reclaim_authority, ix)
@@ -448,7 +448,7 @@ fn max_buffers_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &reclaim_authority, ix);

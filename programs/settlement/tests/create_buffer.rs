@@ -6,6 +6,7 @@ use cow_settlement_client::cow_settlement_interface::{
     },
 };
 use cow_settlement_client::instructions::CreateBuffers;
+use cow_settlement_interface::token_program::TokenProgram;
 use litesvm::LiteSVM;
 use litesvm_token::{
     get_spl_account,
@@ -28,7 +29,7 @@ use solana_sdk::{
 
 use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
-    unique_keypair, unique_pubkey, SPL_TOKEN_PROGRAM_ID,
+    unique_keypair, unique_pubkey,
 };
 
 mod common;
@@ -43,7 +44,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -54,7 +55,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
         .get_account(&buffer_pda)
         .expect("buffer PDA should exist after create_buffer");
     assert_eq!(
-        account.owner, SPL_TOKEN_PROGRAM_ID,
+        account.owner, TokenProgram::SplToken.address(),
         "buffer must be owned by the SPL Token program"
     );
     assert_eq!(
@@ -111,7 +112,7 @@ fn buffer_can_receive_tokens() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -144,13 +145,12 @@ fn happy_path_creates_native_token_buffer() {
     // and the buffer is initialized as a wrapped-SOL account. Since we fund
     // exactly the rent-exempt minimum, the wrapped balance starts at zero.
     let (mut svm, program_id, payer) = common::setup();
-    common::token::create_native_mint(&mut svm);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &native_mint::ID);
 
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[native_mint::ID],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -186,7 +186,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &mints,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -199,7 +199,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
             .get_account(&buffer_pda)
             .expect("each buffer PDA should exist after create_buffers");
         assert_eq!(
-            account.owner, SPL_TOKEN_PROGRAM_ID,
+            account.owner, TokenProgram::SplToken.address(),
             "each buffer must be owned by the SPL Token program"
         );
         assert_eq!(
@@ -231,7 +231,7 @@ fn rejects_no_buffers() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -260,7 +260,7 @@ fn rejects_arbitrary_wrong_buffer_pda() {
     let ix = CreateBuffersRaw {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken.address(),
         buffers: &[(wrong_pda, mint)],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -281,7 +281,7 @@ fn rejects_non_canonical_bump_pda() {
     let ix = CreateBuffersRaw {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken.address(),
         buffers: &[(non_canonical_pda, mint)],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -298,13 +298,13 @@ fn rejects_non_spl_token_program() {
     let mut ix: Instruction = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     }
     .into();
     let token_program_index = 2;
     assert_eq!(
-        ix.accounts[token_program_index].pubkey, SPL_TOKEN_PROGRAM_ID,
+        ix.accounts[token_program_index].pubkey, TokenProgram::SplToken.address(),
         "sanity: should replace token program"
     );
     ix.accounts[token_program_index].pubkey = unique_pubkey();
@@ -342,7 +342,7 @@ fn rejects_invalid_mint() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[not_a_mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -376,7 +376,7 @@ fn creates_buffer_when_address_is_prefunded() {
         let ix = CreateBuffers {
             program_id,
             payer: payer.pubkey(),
-            token_program: SPL_TOKEN_PROGRAM_ID,
+            token_program: TokenProgram::SplToken,
             mints: &[mint],
         };
         common::signed_tx(svm, &payer, &payer, ix)
@@ -393,7 +393,7 @@ fn recreating_same_buffer_is_idempotent() {
         let ix = CreateBuffers {
             program_id,
             payer: payer.pubkey(),
-            token_program: SPL_TOKEN_PROGRAM_ID,
+            token_program: TokenProgram::SplToken,
             mints: &[mint],
         };
         common::signed_tx(svm, &payer, &payer, ix)
@@ -411,7 +411,7 @@ fn batch_with_existing_buffer_passes_with_no_changes() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[existing],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -426,7 +426,7 @@ fn batch_with_existing_buffer_passes_with_no_changes() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[fresh, existing],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -462,7 +462,7 @@ fn one_failing_buffer_reverts_the_whole_batch() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[fresh, not_a_mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -497,7 +497,7 @@ fn same_mint_twice_in_one_instruction_is_idempotent() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -523,7 +523,7 @@ fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &
         let ix = CreateBuffersRaw {
             program_id: *program_id,
             payer: payer.pubkey(),
-            token_program: SPL_TOKEN_PROGRAM_ID,
+            token_program: TokenProgram::SplToken.address(),
             buffers: &buffers,
         };
         common::lookup_table::lookup_table_tx(svm, payer, ix)
@@ -591,7 +591,7 @@ fn max_buffers_in_one_instruction() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: SPL_TOKEN_PROGRAM_ID,
+        token_program: TokenProgram::SplToken,
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);

@@ -77,13 +77,10 @@ mod tests {
         InitializedIntent,
     };
     use cow_settlement_interface::{
-        data::intent::fixtures::sample_intent,
-        fixtures::pubkey_from_seed,
-        instruction::{
+        Instruction, Role, data::intent::fixtures::sample_intent, fixtures::pubkey_from_seed, instruction::{
             fixtures::fake_account_from_array, reclaim_buffer::ReclaimBuffer,
             reclaim_order::ReclaimOrder, transfer_authority::TransferAuthority,
-        },
-        Instruction, Role,
+        }, token_program::TokenProgram,
     };
 
     /// One buildable instruction per discriminator. The exhaustive match makes
@@ -110,7 +107,7 @@ mod tests {
             SettlementInstruction::CreateBuffer => CreateBuffers {
                 program_id,
                 payer,
-                token_program: pubkey_from_seed("token program"),
+                token_program: TokenProgram::SplToken,
                 mints: &[pubkey_from_seed("mint")],
             }
             .into(),
