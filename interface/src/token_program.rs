@@ -44,16 +44,11 @@ mod tests {
     use super::*;
     use crate::fixtures::pubkey_from_seed;
 
-    /// Adding a variant breaks this match, which is the reminder to add it to
-    /// [`TokenProgram::ALL`] as well
-    #[test]
-    fn all_lists_every_variant() {
-        for program in TokenProgram::ALL {
-            match program {
-                TokenProgram::SplToken | TokenProgram::Token2022 => {}
-            }
-        }
-    }
+    /// Adding a variant makes this match non-exhaustive, the compile-time reminder
+    /// to add it to [`TokenProgram::ALL`] as well.
+    const _: () = match TokenProgram::SplToken {
+        TokenProgram::SplToken | TokenProgram::Token2022 => (),
+    };
 
     #[test]
     fn every_program_resolves_from_its_own_address() {
