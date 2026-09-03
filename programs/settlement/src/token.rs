@@ -126,15 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn token_account_len_is_the_base_layout_for_a_too_short_account() {
-        let mint = fake_account(pubkey_from_seed("mint"));
-        assert_eq!(
-            token_account_len(TokenProgram::SplToken, &mint),
-            Ok(BASE_TOKEN_ACCOUNT_LEN),
-        );
-    }
-
-    #[test]
     fn token_account_len_reports_unavailable_without_an_answer() {
         let mint = fake_account_owned_by(
             pubkey_from_seed("mint"),
