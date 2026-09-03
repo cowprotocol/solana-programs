@@ -49,11 +49,6 @@ pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
 }
 
 /// Seed the wrapped-SOL mint account, which `LiteSVM` does not create.
-///
-/// On chain the native mint is a real, token-program-owned mint account, and
-/// the program queries it with `GetAccountDataSize` to size a buffer. That
-/// query rejects an account the token program does not own, so a test touching
-/// the native mint has to put the account there first.
 pub fn create_native_mint(svm: &mut LiteSVM) {
     /// The native mint's fixed decimals, matching `spl_token::native_mint`.
     const DECIMALS: u8 = 9;
