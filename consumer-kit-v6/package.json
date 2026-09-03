@@ -1,0 +1,18 @@
+{
+  "name": "consumer-kit-v6",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Consumer that obeys the client's declared peer range (@solana/kit ^6.10.0). The install succeeds with no warning — and then the code doesn't work, because the client is really a v8 package.",
+  "dependencies": {
+    "cow-solana-settlement-client": "file:../programs/settlement/idl/client/js",
+    "@solana/kit": "^6.10.0"
+  },
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "typescript": "^5.7.0"
+  }
+}

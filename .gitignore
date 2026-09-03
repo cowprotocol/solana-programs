@@ -8,3 +8,4 @@ generated/
 *.json
 !bench-report.json
 !programs/settlement/idl/**/*.json
+!consumer-kit-v*/**/*.json
