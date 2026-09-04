@@ -93,7 +93,6 @@ mod tests {
     const AUTHORITY: Address = Address::new_from_array([101; 32]);
     const MANAGER: Address = Address::new_from_array([102; 32]);
     const UNRELATED: Address = Address::new_from_array([254; 32]);
-    /// The token program these fixtures build their buffers under.
     const SPL_TOKEN_PROGRAM_ID: Address = TokenProgram::SplToken.address();
 
     /// Number of accounts in a one-buffer reclaim: the shared ones plus a
