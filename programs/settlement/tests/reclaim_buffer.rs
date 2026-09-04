@@ -514,12 +514,11 @@ fn max_buffers_reclaim_via_lookup_table(
     })
 }
 
-// Legacy-only: the pinned ceiling below is measured against the legacy program.
+common::also_under_token_2022!(bench_assert_known_max_buffer_count);
 /// This isn't really a test, it's a way to make it visible that a code change
 /// has changed the amount of buffer accounts that can be reclaimed in the same
 /// transaction. If the number increases, great, bump it up! If it decreases and
 /// you're ok with the performance hit, then you can bump it down.
-common::also_under_token_2022!(bench_assert_known_max_buffer_count);
 #[test]
 fn bench_assert_known_max_buffer_count() {
     let (
