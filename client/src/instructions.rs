@@ -8,6 +8,7 @@
 use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
+    token_program::TokenProgram,
     Instruction, Pubkey, Role,
 };
 
@@ -148,6 +149,7 @@ impl From<CreateOrder<'_>> for Instruction {
 pub struct CreateBuffers<'a> {
     pub program_id: Pubkey,
     pub payer: Pubkey,
+    pub token_program: TokenProgram,
     pub mints: &'a [Pubkey],
 }
 
@@ -161,6 +163,7 @@ impl From<CreateBuffers<'_>> for Instruction {
         cow_settlement_interface::instruction::create_buffer::CreateBuffers {
             program_id: builder.program_id,
             payer: builder.payer,
+            token_program: builder.token_program.address(),
             buffers: &buffers,
         }
         .into()
@@ -199,6 +202,7 @@ pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub reclaim_authority: Pubkey,
     pub reclaim_recipient: Pubkey,
+    pub token_program: TokenProgram,
     pub mints: &'a [Pubkey],
 }
 
@@ -218,6 +222,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
             state_pda,
             reclaim_authority: builder.reclaim_authority,
             reclaim_recipient: builder.reclaim_recipient,
+            token_program: builder.token_program.address(),
             buffers: &buffers,
         }
         .into()

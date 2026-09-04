@@ -21,6 +21,7 @@ crate-type = ["cdylib", "lib"]
 pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
 pinocchio-system.workspace = true
 pinocchio-token.workspace = true
+pinocchio-token-2022.workspace = true
 cow-settlement-interface.workspace = true
 solana-instruction = { workspace = true, features = ["syscalls"] }
 
@@ -41,6 +42,7 @@ solana-program-pack.workspace = true
 solana-sdk.workspace = true
 solana-sha256-hasher.workspace = true
 solana-system-interface.workspace = true
+spl-token-2022-interface.workspace = true
 syn.workspace = true
 
 [lints]

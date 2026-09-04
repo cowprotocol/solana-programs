@@ -88,6 +88,7 @@ mod tests {
             fixtures::fake_account_from_array, reclaim_buffer::ReclaimBuffer,
             reclaim_order::ReclaimOrder, transfer_authority::TransferAuthority,
         },
+        token_program::TokenProgram,
         Instruction, Role,
     };
 
@@ -115,6 +116,7 @@ mod tests {
             SettlementInstruction::CreateBuffer => CreateBuffers {
                 program_id,
                 payer,
+                token_program: TokenProgram::SplToken,
                 mints: &[pubkey_from_seed("mint")],
             }
             .into(),
@@ -146,6 +148,7 @@ mod tests {
                 state_pda: pubkey_from_seed("state pda"),
                 reclaim_authority: payer,
                 reclaim_recipient: payer,
+                token_program: pubkey_from_seed("token program"),
                 buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"))],
             }
             .into(),

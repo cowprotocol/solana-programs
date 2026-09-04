@@ -3,7 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
-    spl_token::{instruction::initialize_mint2, state::Mint},
+    spl_token::{instruction::initialize_mint2, native_mint, state::Mint},
     Approve, CreateAccount, CreateAssociatedTokenAccount, MintTo, Transfer, TOKEN_ID,
 };
 use solana_program_pack::Pack;
@@ -24,10 +24,16 @@ use super::unique_keypair;
 /// buffer PDA, so a random one makes buffer bumps — and the compute cost of
 /// deriving them — vary between runs. See [`super::unique_pubkey`].
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
+    create_mint_at(svm, payer, &unique_keypair())
+}
+
+/// [`create_mint`] at `mint`'s address rather than a fresh one. Lets a test
+/// reclaim an address a Token-2022 mint was just closed at, which is the only
+/// way a legacy mint can end up where a Token-2022 one used to be.
+pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pubkey {
     /// `litesvm_token::CreateMint`'s default, kept so the two agree.
     const DECIMALS: u8 = 8;
 
-    let mint = unique_keypair();
     let create = system_create_account(
         &payer.pubkey(),
         &mint.pubkey(),
@@ -40,12 +46,30 @@ pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
     let tx = Transaction::new_signed_with_payer(
         &[create, initialize],
         Some(&payer.pubkey()),
-        &[payer, &mint],
+        &[payer, mint],
         svm.latest_blockhash(),
     );
     svm.send_transaction(tx)
         .expect("mint creation should succeed");
     mint.pubkey()
+}
+
+/// Seed the wrapped-SOL mint account, which `LiteSVM` does not create.
+pub fn create_native_mint(svm: &mut LiteSVM) {
+    /// The native mint's fixed decimals, matching `spl_token::native_mint`.
+    const DECIMALS: u8 = 9;
+
+    let mut data = vec![0u8; Mint::LEN];
+    Mint {
+        mint_authority: None.into(),
+        supply: 0,
+        decimals: DECIMALS,
+        is_initialized: true,
+        freeze_authority: None.into(),
+    }
+    .pack_into_slice(&mut data);
+    let token_program = Pubkey::new_from_array(TOKEN_ID.to_bytes());
+    super::create_account_at(svm, native_mint::ID, &token_program, &data);
 }
 
 /// Create an initialized SPL token account for `mint` whose SPL owner is

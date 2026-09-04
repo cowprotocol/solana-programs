@@ -1,4 +1,5 @@
 use cow_settlement_client::instructions::ReclaimBuffer;
+use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::{
     instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
@@ -13,6 +14,7 @@ use solana_sdk::{
 
 use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
+use crate::common::token_2022::Extensions;
 use crate::common::{
     assert_instruction_error, to_instruction_error, unique_pubkey, InitializedParams,
 };
@@ -46,6 +48,7 @@ fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -93,6 +96,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -132,6 +136,7 @@ fn funded_buffer_is_skipped() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -177,6 +182,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -225,6 +231,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::SplToken,
         mints: &[mint_a, mint_b],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -261,6 +268,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
+        token_program: TokenProgram::SplToken,
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -290,6 +298,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         program_id,
         reclaim_authority: impostor.pubkey(),
         reclaim_recipient: impostor.pubkey(),
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
@@ -321,6 +330,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
+        token_program: TokenProgram::SplToken,
         mints: &[mint],
     });
 
@@ -346,6 +356,141 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
     );
 }
 
+/// Set up a Token-2022 mint with a close authority and its buffer, then close
+/// the mint so `reopen` can claim the address. Returns the mint and its buffer.
+fn buffer_whose_mint_was_reopened(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    reopen: impl FnOnce(&mut LiteSVM, &Keypair, &Keypair),
+) -> (Pubkey, Pubkey) {
+    let mint_keypair = common::unique_keypair();
+    let mint =
+        common::token_2022::create_mint(svm, payer, &mint_keypair, Extensions::CloseAuthorityOnly);
+    let buffer_pda = common::buffer::ensure_buffer_exists_for(
+        svm,
+        program_id,
+        payer,
+        &mint,
+        TokenProgram::Token2022,
+    );
+
+    common::token_2022::close_mint(svm, payer, &mint);
+    reopen(svm, payer, &mint_keypair);
+
+    (mint, buffer_pda)
+}
+
+#[test]
+fn reclaims_a_buffer_whose_mint_was_reopened_with_another_extension() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let (mint, buffer_pda) = buffer_whose_mint_was_reopened(
+        &mut svm,
+        &program_id,
+        &payer,
+        |svm, payer, mint_keypair| {
+            common::token_2022::create_mint(
+                svm,
+                payer,
+                mint_keypair,
+                Extensions::WithNonTransferable,
+            );
+        },
+    );
+
+    let buffer_lamports_before = svm
+        .get_account(&buffer_pda)
+        .expect("buffer must exist before reclaim")
+        .lamports;
+    let recipient_before = common::lamports(&svm, &reclaim_authority.pubkey());
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::Token2022,
+        mints: &[mint],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    svm.send_transaction(tx)
+        .expect("reclaim_buffer should succeed for a reopened mint");
+
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed after reclaim"
+    );
+    assert_eq!(
+        common::lamports(&svm, &reclaim_authority.pubkey()) - recipient_before,
+        buffer_lamports_before,
+        "the rent of a buffer stranded by a reopened mint must still be recoverable"
+    );
+}
+
+#[test]
+fn reclaims_a_buffer_whose_mint_was_reopened_as_a_legacy_mint() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let (mint, buffer_pda) = buffer_whose_mint_was_reopened(
+        &mut svm,
+        &program_id,
+        &payer,
+        |svm, payer, mint_keypair| {
+            common::token::create_mint_at(svm, payer, mint_keypair);
+        },
+    );
+    assert_eq!(
+        svm.get_account(&mint)
+            .expect("the reopened mint should exist")
+            .owner,
+        common::SPL_TOKEN_PROGRAM_ID,
+        "sanity: the mint must now belong to the legacy program"
+    );
+
+    let buffer_lamports_before = svm
+        .get_account(&buffer_pda)
+        .expect("buffer must exist before reclaim")
+        .lamports;
+    let recipient_before = common::lamports(&svm, &reclaim_authority.pubkey());
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::Token2022,
+        mints: &[mint],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    svm.send_transaction(tx)
+        .expect("reclaim_buffer should succeed for a mint reopened as legacy");
+
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed after reclaim"
+    );
+    assert_eq!(
+        common::lamports(&svm, &reclaim_authority.pubkey()) - recipient_before,
+        buffer_lamports_before,
+        "the rent of a buffer whose mint turned legacy must still be recoverable"
+    );
+}
+
 fn max_buffers_reclaim_via_lookup_table(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
@@ -360,6 +505,7 @@ fn max_buffers_reclaim_via_lookup_table(
             state_pda,
             reclaim_authority: reclaim_authority.pubkey(),
             reclaim_recipient: reclaim_authority.pubkey(),
+            token_program: TokenProgram::SplToken.address(),
             buffers: &buffers,
         };
         common::lookup_table::lookup_table_tx(svm, reclaim_authority, ix)
@@ -438,6 +584,7 @@ fn max_buffers_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::SplToken,
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &reclaim_authority, ix);

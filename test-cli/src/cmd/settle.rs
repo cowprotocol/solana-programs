@@ -4,6 +4,7 @@ use cow_settlement_client::{
     cow_settlement_interface::{
         data::{intent::OrderIntent, order::OrderAccount},
         pda::buffer::find_buffer_pda,
+        token_program::TokenProgram,
         Pubkey,
     },
     instructions::{
@@ -301,6 +302,8 @@ fn prepare_setup_ixs(
             CreateBuffers {
                 program_id: ctx.program_id,
                 payer: ctx.payer.pubkey(),
+                // The CLI only resolves tokens on the legacy program for now.
+                token_program: TokenProgram::SplToken,
                 mints: &mint_buffers_to_create.into_iter().collect::<Vec<_>>(),
             }
             .into(),

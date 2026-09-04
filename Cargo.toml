@@ -33,7 +33,8 @@ litesvm-token = "0.15"
 num_enum = "0.7"
 pinocchio = "0.11"
 pinocchio-system = "0.6"
-pinocchio-token = "0.6"
+pinocchio-token = "0.7"
+pinocchio-token-2022 = "0.4"
 proptest = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 cow-settlement-client = { path = "client", version = "0.3.0" }
@@ -58,6 +59,7 @@ solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
 spl-associated-token-account-interface = "2"
 spl-token = "9"
+spl-token-2022-interface = "3"
 spl-token-interface = "3"
 syn = { version = "2", features = ["full"] }
 
