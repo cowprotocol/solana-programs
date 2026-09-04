@@ -300,10 +300,8 @@ fn rejects_non_canonical_bump_pda() {
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &non_canonical_pda);
 }
 
-// Legacy-only: this replaces the token program with an unrelated key, so a
-// Token-2022 run would submit the very same transaction.
 #[test]
-fn rejects_non_spl_token_program() {
+fn rejects_unsupported_token_program() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);

@@ -180,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn process_reclaim_buffer_rejects_wrong_token_program() {
+    fn process_reclaim_buffer_rejects_unsupported_token_program() {
         let mut accounts = base_accounts();
         accounts[TOKEN_PROGRAM] = fake_account(UNRELATED);
         assert_rejects(accounts, ProgramError::IncorrectProgramId);

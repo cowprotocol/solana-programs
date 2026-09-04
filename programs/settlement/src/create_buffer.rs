@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn process_create_buffer_rejects_wrong_token_program() {
+    fn process_create_buffer_rejects_unsupported_token_program() {
         let data = create_buffer_data();
         // The three shared accounts plus one (buffer_pda, mint) pair so parsing
         // succeeds and reaches the token-program check. The third account (token

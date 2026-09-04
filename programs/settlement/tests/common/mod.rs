@@ -336,11 +336,6 @@ fn aim_at_active_token_program(instructions: &mut [Instruction]) {
 /// [`payer_signed_tx`] follow the active program on their own. Naming the test
 /// rather than wrapping it keeps the body's indentation, and a stale name is a
 /// compile error rather than a test that quietly stopped being generated.
-///
-/// A test that can only hold under one program — one pinned to the legacy native
-/// mint, say — goes without, and says why. Instructions that never name a token
-/// program at all (`Initialize`, `CreateOrder`, `ReclaimOrder`,
-/// `TransferAuthority`) have nothing to vary, so their suites don't use this.
 #[allow(
     unused_macros,
     reason = "only the suites whose instructions name a token program generate the pair"
