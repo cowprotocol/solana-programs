@@ -24,10 +24,16 @@ use super::unique_keypair;
 /// buffer PDA, so a random one makes buffer bumps — and the compute cost of
 /// deriving them — vary between runs. See [`super::unique_pubkey`].
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
+    create_mint_at(svm, payer, &unique_keypair())
+}
+
+/// [`create_mint`] at `mint`'s address rather than a fresh one. Lets a test
+/// reclaim an address a Token-2022 mint was just closed at, which is the only
+/// way a legacy mint can end up where a Token-2022 one used to be.
+pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pubkey {
     /// `litesvm_token::CreateMint`'s default, kept so the two agree.
     const DECIMALS: u8 = 8;
 
-    let mint = unique_keypair();
     let create = system_create_account(
         &payer.pubkey(),
         &mint.pubkey(),
@@ -40,7 +46,7 @@ pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
     let tx = Transaction::new_signed_with_payer(
         &[create, initialize],
         Some(&payer.pubkey()),
-        &[payer, &mint],
+        &[payer, mint],
         svm.latest_blockhash(),
     );
     svm.send_transaction(tx)

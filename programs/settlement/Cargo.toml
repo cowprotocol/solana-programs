@@ -42,6 +42,7 @@ solana-program-pack.workspace = true
 solana-sdk.workspace = true
 solana-sha256-hasher.workspace = true
 solana-system-interface.workspace = true
+spl-token-2022-interface.workspace = true
 syn.workspace = true
 
 [lints]

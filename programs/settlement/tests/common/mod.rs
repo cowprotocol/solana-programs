@@ -13,6 +13,7 @@ pub mod pda;
 pub mod settlement;
 pub mod state;
 pub mod token;
+pub mod token_2022;
 
 use cow_settlement_client::instructions::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;

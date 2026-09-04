@@ -14,6 +14,7 @@ use solana_sdk::{
 
 use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
+use crate::common::token_2022::Extensions;
 use crate::common::{
     assert_instruction_error, to_instruction_error, unique_pubkey, InitializedParams,
 };
@@ -352,6 +353,141 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
     assert!(
         svm.get_account(&buffer_pda).is_some(),
         "buffer PDA must survive a reclaim the authority never signed"
+    );
+}
+
+/// Set up a Token-2022 mint with a close authority and its buffer, then close
+/// the mint so `reopen` can claim the address. Returns the mint and its buffer.
+fn buffer_whose_mint_was_reopened(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    reopen: impl FnOnce(&mut LiteSVM, &Keypair, &Keypair),
+) -> (Pubkey, Pubkey) {
+    let mint_keypair = common::unique_keypair();
+    let mint =
+        common::token_2022::create_mint(svm, payer, &mint_keypair, Extensions::CloseAuthorityOnly);
+    let buffer_pda = common::buffer::ensure_buffer_exists_for(
+        svm,
+        program_id,
+        payer,
+        &mint,
+        TokenProgram::Token2022,
+    );
+
+    common::token_2022::close_mint(svm, payer, &mint);
+    reopen(svm, payer, &mint_keypair);
+
+    (mint, buffer_pda)
+}
+
+#[test]
+fn reclaims_a_buffer_whose_mint_was_reopened_with_another_extension() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let (mint, buffer_pda) = buffer_whose_mint_was_reopened(
+        &mut svm,
+        &program_id,
+        &payer,
+        |svm, payer, mint_keypair| {
+            common::token_2022::create_mint(
+                svm,
+                payer,
+                mint_keypair,
+                Extensions::WithNonTransferable,
+            );
+        },
+    );
+
+    let buffer_lamports_before = svm
+        .get_account(&buffer_pda)
+        .expect("buffer must exist before reclaim")
+        .lamports;
+    let recipient_before = common::lamports(&svm, &reclaim_authority.pubkey());
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::Token2022,
+        mints: &[mint],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    svm.send_transaction(tx)
+        .expect("reclaim_buffer should succeed for a reopened mint");
+
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed after reclaim"
+    );
+    assert_eq!(
+        common::lamports(&svm, &reclaim_authority.pubkey()) - recipient_before,
+        buffer_lamports_before,
+        "the rent of a buffer stranded by a reopened mint must still be recoverable"
+    );
+}
+
+#[test]
+fn reclaims_a_buffer_whose_mint_was_reopened_as_a_legacy_mint() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let (mint, buffer_pda) = buffer_whose_mint_was_reopened(
+        &mut svm,
+        &program_id,
+        &payer,
+        |svm, payer, mint_keypair| {
+            common::token::create_mint_at(svm, payer, mint_keypair);
+        },
+    );
+    assert_eq!(
+        svm.get_account(&mint)
+            .expect("the reopened mint should exist")
+            .owner,
+        common::SPL_TOKEN_PROGRAM_ID,
+        "sanity: the mint must now belong to the legacy program"
+    );
+
+    let buffer_lamports_before = svm
+        .get_account(&buffer_pda)
+        .expect("buffer must exist before reclaim")
+        .lamports;
+    let recipient_before = common::lamports(&svm, &reclaim_authority.pubkey());
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::Token2022,
+        mints: &[mint],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    svm.send_transaction(tx)
+        .expect("reclaim_buffer should succeed for a mint reopened as legacy");
+
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed after reclaim"
+    );
+    assert_eq!(
+        common::lamports(&svm, &reclaim_authority.pubkey()) - recipient_before,
+        buffer_lamports_before,
+        "the rent of a buffer whose mint turned legacy must still be recoverable"
     );
 }
 

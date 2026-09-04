@@ -29,6 +29,7 @@ use solana_sdk::{
 
 use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
+    token_2022::Extensions,
     unique_keypair, unique_pubkey,
 };
 
@@ -511,6 +512,49 @@ fn same_mint_twice_in_one_instruction_is_idempotent() {
         svm.get_account(&buffer_pda).is_some(),
         "the buffer must be created once when its mint is listed twice"
     );
+}
+
+#[test]
+fn sizes_a_token_2022_buffer_to_the_extensions_its_mint_forces() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    for extensions in [
+        Extensions::CloseAuthorityOnly,
+        Extensions::WithNonTransferable,
+        Extensions::WithTransferFee,
+    ] {
+        let mint = common::token_2022::create_mint(&mut svm, &payer, &unique_keypair(), extensions);
+        let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
+
+        let ix = CreateBuffers {
+            program_id,
+            payer: payer.pubkey(),
+            token_program: TokenProgram::Token2022,
+            mints: &[mint],
+        };
+        let tx = common::signed_tx(&svm, &payer, &payer, ix);
+        svm.send_transaction(tx).unwrap_or_else(|err| {
+            panic!(
+                "create_buffer should succeed for {extensions:?}: {:?}",
+                err.err
+            )
+        });
+
+        let account = svm
+            .get_account(&buffer_pda)
+            .expect("buffer PDA should exist after create_buffer");
+        assert_eq!(
+            account.owner,
+            TokenProgram::Token2022.address(),
+            "a {extensions:?} buffer must be owned by the Token-2022 program"
+        );
+        assert_eq!(
+            account.data.len(),
+            extensions.token_account_len(),
+            "a {extensions:?} buffer must be allocated at the length its extensions imply"
+        );
+        common::assert_rent_exempt(&svm, &account);
+    }
 }
 
 /// Largest number of buffers a single ALT-backed `create_buffers` transaction
