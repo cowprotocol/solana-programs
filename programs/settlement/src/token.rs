@@ -1,8 +1,11 @@
 //! Token-program validation and token-account reads
 
-use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
+use cow_settlement_interface::{
+    token_program::TokenProgram::{self, SplToken},
+    SettlementError,
+};
 use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView};
-use pinocchio_token::{instructions::GetAccountDataSize, state::Mint};
+use pinocchio_token::instructions::GetAccountDataSize;
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
@@ -22,8 +25,8 @@ pub fn token_account_len(
     token_program: TokenProgram,
     mint: &AccountView,
 ) -> Result<u64, ProgramError> {
-    // If the mint is of base SPL Mint length, the token accounts must be of base length accordingly.
-    if mint.data_len() <= Mint::LEN {
+    // Early return for SPL token (saves the GetAccountDataSize CPI call)
+    if token_program == SplToken {
         return Ok(BASE_TOKEN_ACCOUNT_LEN);
     }
 
@@ -77,6 +80,7 @@ mod tests {
     };
     use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use pinocchio::Address;
+    use pinocchio_token::state::Mint;
     use pinocchio_token_2022::state::AccountType;
     use solana_program_pack::Pack;
 
@@ -123,19 +127,17 @@ mod tests {
     }
 
     #[test]
-    fn token_account_len_is_the_base_layout_for_a_plain_mint() {
-        for program in TokenProgram::ALL {
-            let mint = fake_account_owned_by(
-                pubkey_from_seed("mint"),
-                program.address(),
-                &[0u8; Mint::LEN],
-            );
-            assert_eq!(
-                token_account_len(program, &mint),
-                Ok(BASE_TOKEN_ACCOUNT_LEN),
-                "a base-layout mint should need a base-layout account under {program:?}",
-            );
-        }
+    fn token_account_len_is_base_length_for_spl_program() {
+        let mint = fake_account_owned_by(
+            pubkey_from_seed("mint"),
+            SplToken.address(),
+            &[0u8; Mint::LEN],
+        );
+        assert_eq!(
+            token_account_len(SplToken, &mint),
+            Ok(BASE_TOKEN_ACCOUNT_LEN),
+            "SPL owned mint should yield ase length",
+        );
     }
 
     #[test]
