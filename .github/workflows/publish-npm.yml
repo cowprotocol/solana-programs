@@ -1,0 +1,201 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Release tag to publish (e.g. v0.4.0). Set automatically when
+          auto-release.yml dispatches this workflow (GITHUB_TOKEN-created
+          releases don't fire the `release` event, so it can't rely on that
+          trigger — see https://docs.github.com/en/actions/concepts/security/github_token).
+          Leave empty for a manual build-only dry run (skips the tag/version check).
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # to look up releases in the "Version must match the release tag" step
+    outputs:
+      package-name: ${{ steps.pkg.outputs.name }}
+      package-version: ${{ steps.pkg.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # A manual dispatch could pass --ref main while also supplying an
+          # unrelated existing release's tag as input; without this, the tag
+          # would pass the version check below while the build actually ran
+          # against whatever `main` happens to be, not the released commit.
+          # Pinning to the tag input (when present) makes that impossible.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-solana
+      - uses: ./.github/actions/setup-just
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # Matches ci.yml's test-js-client job: Node ships corepack, which
+          # `just build-js-client`/`test-js-client` use to run the pnpm version
+          # the packages pin, so pnpm needs no separate setup step here.
+          node-version: "24"
+
+      - name: Build JS client
+        # Corepack otherwise asks for confirmation before fetching pnpm, which
+        # would hang the job.
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: just build-js-client
+      - name: Test JS client
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: just test-js-client
+
+      - name: Read package metadata
+        id: pkg
+        working-directory: programs/settlement/idl/client/js
+        run: |
+          echo "name=$(node -p 'require("./package.json").name')" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Version must match the release tag
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '')
+        working-directory: programs/settlement/idl/client/js
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Real `release` events carry the tag as the ref; a dispatch from
+          # auto-release.yml (see its comment on why it can't use the `release`
+          # trigger) passes it as an explicit input instead. That input is
+          # free text from whoever ran the dispatch, so unlike the `release`
+          # case it isn't proof a real release exists — confirm one does,
+          # rather than only checking it's self-consistent with package.json.
+          if [ "${{ github.event_name }}" = "release" ]; then
+            raw_tag="$GITHUB_REF_NAME"
+          else
+            raw_tag="${{ github.event.inputs.tag }}"
+            if ! gh release view "$raw_tag" >/dev/null 2>&1; then
+              echo "::error::No release named $raw_tag exists. Refusing to publish against a tag that wasn't actually released." >&2
+              exit 1
+            fi
+          fi
+          # Existing tags (v0.2, v0.3) are major.minor only, while npm/Cargo need
+          # full semver (0.3.0), so pad any missing patch component before comparing.
+          tag="${raw_tag#v}"
+          IFS='.' read -r major minor patch <<< "$tag"
+          normalized_tag="${major}.${minor:-0}.${patch:-0}"
+          pkg_version="${{ steps.pkg.outputs.version }}"
+          if [ "$normalized_tag" != "$pkg_version" ]; then
+            echo "::error::Release tag $raw_tag (normalized: $normalized_tag) does not match package.json version $pkg_version. Bump programs/settlement/idl/client/js/package.json's version as part of the release PR before publishing." >&2
+            exit 1
+          fi
+
+      - name: Write publish summary
+        working-directory: programs/settlement/idl/client/js
+        run: |
+          {
+            echo "## npm publish review"
+            echo
+            echo "Before approving, confirm:"
+            echo "1. The tarball contents below only include expected files (no stray secrets, keys, or debug output)."
+            echo "2. The dependency diff below has no unexpected new/changed packages."
+            echo "3. Package \`${{ steps.pkg.outputs.name }}\` is being published at version \`${{ steps.pkg.outputs.version }}\`, matching release \`${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}\`."
+            echo
+            echo "### Tarball contents (\`npm pack --dry-run --ignore-scripts\`)"
+            echo '```'
+            npm pack --dry-run --ignore-scripts 2>&1
+            echo '```'
+            echo
+            echo "### Dependency diff vs. previously published version"
+            name="${{ steps.pkg.outputs.name }}"
+            view_err=$(mktemp)
+            if ! npm view "$name" version >/dev/null 2>"$view_err"; then
+              if grep -q "code E404" "$view_err"; then
+                echo "_First publish of this package — nothing to diff against._"
+              else
+                echo "::error::Failed to look up $name on the npm registry (not a 404 — could be auth, network, or an outage). Refusing to treat this as a first publish." >&2
+                cat "$view_err" >&2
+                exit 1
+              fi
+            else
+              prev_deps_json=$(npm view "$name" dependencies --json 2>/dev/null); [ -z "$prev_deps_json" ] && prev_deps_json='null'
+              prev_peer_json=$(npm view "$name" peerDependencies --json 2>/dev/null); [ -z "$prev_peer_json" ] && prev_peer_json='null'
+              node -e '
+                const fs = require("fs");
+                const [prevDeps, prevPeer] = process.argv.slice(1).map((s) => JSON.parse(s));
+                const curr = require("./package.json");
+                fs.writeFileSync("/tmp/prev-deps.json", JSON.stringify({dependencies: prevDeps, peerDependencies: prevPeer}, null, 2) + "\n");
+                fs.writeFileSync("/tmp/curr-deps.json", JSON.stringify({dependencies: curr.dependencies ?? null, peerDependencies: curr.peerDependencies ?? null}, null, 2) + "\n");
+              ' "$prev_deps_json" "$prev_peer_json"
+              echo '```diff'
+              diff -u /tmp/prev-deps.json /tmp/curr-deps.json || true
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: |
+            programs/settlement/idl/client/js/dist
+            programs/settlement/idl/client/js/package.json
+
+  publish:
+    needs: build
+    # A workflow_dispatch with an empty `tag` is documented as a build-only dry
+    # run (skips the version check above) — it must not be able to reach an
+    # actual `npm publish` just because someone approves the environment gate.
+    if: github.event_name == 'release' || github.event.inputs.tag != ''
+    runs-on: ubuntu-latest
+    # Configure this environment in repo Settings > Environments with required
+    # reviewers: whoever approves is confirming the checklist in the `build`
+    # job's step summary, not just that CI is green.
+    environment: npm-publish
+    permissions:
+      id-token: write # for npm provenance
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+          path: package
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; the default bundled
+      # with actions/setup-node's Node 22 build can be older.
+      # https://docs.npmjs.com/trusted-publishers
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@~11.10.0 # pinned like cow-sdk's release workflow, see https://github.com/npm/cli/issues/9151
+
+      - name: Publish ${{ needs.build.outputs.package-name }}@${{ needs.build.outputs.package-version }}
+        working-directory: package
+        # No NODE_AUTH_TOKEN here on purpose: with `id-token: write` above and
+        # this package's npmjs.com Trusted Publisher configured for this repo +
+        # workflow + environment, npm authenticates via OIDC, no stored secret
+        # needed. NPM_TOKEN is a bootstrap-only fallback for the very first
+        # publish, before a Trusted Publisher can be configured (that requires
+        # the package to already exist on the registry) — once that's set up,
+        # delete the NPM_TOKEN secret; this step needs no other change.
+        #
+        # Safe either way, including once NPM_TOKEN is deleted and this
+        # resolves to an empty string: npm's `publish` command always attempts
+        # OIDC first and unconditionally, before checking for any configured
+        # token, overwriting it on success (npm/cli lib/commands/publish.js
+        # calls oidc() right before reading getCredentialsByURI; lib/utils/oidc.js
+        # does config.set(authTokenKey, ...) when the exchange succeeds). The
+        # pre-configured token is only ever a fallback for when OIDC isn't
+        # available or the exchange fails — exactly the bootstrap-publish case,
+        # before this package has a Trusted Publisher configured.
+        # --ignore-scripts: the artifact was already built and reviewed in the
+        # `build` job; no lifecycle script should run at this point with a
+        # chance to alter dist after it's been reviewed.
+        run: npm publish --provenance --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

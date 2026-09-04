@@ -3,6 +3,8 @@ proptest-regressions/
 .cargo-root/
 node_modules/
 generated/
+dist/
+.idea/
 
 # Make sure no Solana key is uploaded by accident.
 *.json

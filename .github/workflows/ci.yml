@@ -59,9 +59,13 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Test JS client
+      - name: Build JS client
         # Corepack otherwise asks for confirmation before fetching pnpm, which
         # would hang the job.
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: just build-js-client
+      - name: Test JS client
         env:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
         run: just test-js-client
