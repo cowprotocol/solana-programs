@@ -61,11 +61,14 @@ describe("createOrder", () => {
     expect(account.exists).toBe(true);
     assertAccountExists(account);
 
-    const decoded = getOrderAccountDecoder().decode(account.data);
-    expect(decoded.cancelled).toBe(false);
-    expect(decoded.amountWithdrawn).toBe(0n);
-    expect(decoded.amountReceived).toBe(0n);
-    expect(decoded.createdBy).toBe(owner.address);
-    expect(decoded.intent).toEqual(intent);
+    const { cancelled, amountWithdrawn, amountReceived, createdBy, intent: decodedIntent, ...rest } = getOrderAccountDecoder().decode(account.data);
+    // Compile error the day someone adds a field to OrderAccount and doesn't list it above:
+    const _: Record<string, never> = rest;
+
+    expect(cancelled).toBe(false);
+    expect(amountWithdrawn).toBe(0n);
+    expect(amountReceived).toBe(0n);
+    expect(createdBy).toBe(owner.address);
+    expect(decodedIntent).toEqual(intent);
   });
 });
