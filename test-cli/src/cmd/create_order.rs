@@ -11,7 +11,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
-use crate::utils::{output::print_summary, token::ResolvedToken};
+use crate::utils::{self, output::print_summary, token::ResolvedToken};
 
 #[derive(ClapArgs)]
 struct CommonArgs {
@@ -103,8 +103,8 @@ fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<Par
         OrderKind::Buy => (b_tok, b_amount, *a_tok, *a_amount),
     };
 
-    let sell = crate::utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
-    let buy = crate::utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
+    let sell = utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
+    let buy = utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
 
     let sell_amount =
         spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell.mint_data.decimals)
@@ -139,7 +139,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
 
     if sell_is_sol {
         let (wsol_ata, wrap_ixs) =
-            crate::utils::spl_instructions::wrap_sol(&ctx.rpc, &ctx.payer.pubkey(), sell_amount)?;
+            utils::spl_instructions::wrap_sol(&ctx.rpc, &ctx.payer.pubkey(), sell_amount)?;
         assert_eq!(wsol_ata, sell.ta, "resolved WSOL ATA mismatch");
         ixs.extend(wrap_ixs);
     }
@@ -148,7 +148,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     ixs.extend(buy.create_ata_ix(&ctx.payer.pubkey()));
 
     // Approve the settlement state PDA to pull sell tokens on the user's behalf.
-    ixs.push(crate::utils::spl_instructions::approve(
+    ixs.push(utils::spl_instructions::approve(
         &ctx.program_id,
         &sell.ta,
         &ctx.payer.pubkey(),
