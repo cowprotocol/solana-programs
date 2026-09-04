@@ -24,17 +24,20 @@ use spl_token_2022_interface::{
     state::{Account, Mint},
 };
 
-/// The Token-2022 program, the counterpart of [`super::SPL_TOKEN_PROGRAM_ID`].
+/// The Token-2022 program, spelled once so the builders below can take it.
 const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
 
 /// Decimals every test mint carries, matching [`super::token::create_mint`] so
 /// a legacy and a Token-2022 mint differ only in their program.
 const DECIMALS: u8 = 8;
 
-/// Transfer-fee parameters for [`Extensions::WithTransferFee`]. Arbitrary;
-/// nothing reads them back, but `InitializeTransferFeeConfig` demands values.
-const FEE_BASIS_POINTS: u16 = 50;
-const MAXIMUM_FEE: u64 = 1_000;
+/// Transfer-fee parameters for [`Extensions::WithTransferFee`]. Zero, because
+/// [`Extensions::DEFAULT`] puts this extension on every Token-2022 test mint and
+/// a fee would take a cut of the amounts those tests assert. What the extension
+/// is here for is the `TransferFeeAmount` it forces onto token accounts, which
+/// costs nothing at a zero rate.
+const FEE_BASIS_POINTS: u16 = 0;
+const MAXIMUM_FEE: u64 = 0;
 
 /// The extension set a test mint is created with.
 #[derive(Clone, Copy, Debug)]
@@ -45,6 +48,10 @@ pub enum Extensions {
 }
 
 impl Extensions {
+    /// Include WithTransferFee instruction since it makes it mandatory for its token accounts to include an extension
+    /// for better test coverage.
+    pub const DEFAULT: Self = Self::WithTransferFee;
+
     /// The extensions the mint itself is initialized with.
     fn mint(self) -> &'static [ExtensionType] {
         match self {
