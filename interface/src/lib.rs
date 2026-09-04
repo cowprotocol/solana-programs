@@ -43,6 +43,7 @@ pub enum SettlementInstruction {
     ReclaimBuffer = 6,
     TransferAuthority = 7,
     AddSolver = 8,
+    RemoveSolver = 9,
 }
 
 impl SettlementInstruction {
@@ -239,17 +240,20 @@ pub enum SettlementError {
     /// `TransferAuthority`'s signer is neither the manager nor the current
     /// holder of the role being transferred, so it may not transfer it.
     UnauthorizedAuthorityTransfer = 34,
-    /// `AddSolver`'s manager account isn't a signer, or doesn't match the
-    /// `manager` recorded in the settlement state PDA.
+    /// `AddSolver`/`RemoveSolver`'s manager account isn't a signer, or doesn't
+    /// match the `manager` recorded in the settlement state PDA, so it may not
+    /// change the solver list.
     UnauthorizedSolverManagement = 35,
     /// `AddSolver`'s solver is already in the state PDA's solver list.
     SolverAlreadyExists = 36,
-    /// `BeginSettle`/`FinalizeSettle`'s solver account isn't a signer or isn't
-    /// in the state PDA's solver list, so it may not settle.
+    /// `BeginSettle`'s solver account isn't a signer or isn't in the state PDA's
+    /// solver list, so it may not settle.
     UnauthorizedSolver = 37,
-    /// A created order's intent isn't set with the `created_on_chain` flag corresponding
-    /// to the behavior of the invoked order creation instruction.
-    OrderCreatedOnChainMismatch = 38,
+    /// `RemoveSolver`'s solver isn't in the state PDA's solver list.
+    SolverNotFound = 38,
+    /// A created order's intent isn't set with the `created_on_chain` flag
+    /// corresponding to the behavior of the invoked order creation instruction.
+    OrderCreatedOnChainMismatch = 39,
 }
 
 impl From<SettlementError> for u32 {
@@ -269,6 +273,8 @@ impl From<SettlementError> for solana_program_error::ProgramError {
 /// for this crate's own `cargo test`) so other crates can reuse them.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
+    use std::sync::LazyLock;
+
     use crate::Pubkey;
 
     /// Deterministically generate a [`Pubkey`] by hashing a seed string, for
@@ -276,6 +282,11 @@ pub mod fixtures {
     pub fn pubkey_from_seed(seed: &str) -> Pubkey {
         Pubkey::new_from_array(solana_sha256_hasher::hash(seed.as_bytes()).to_bytes())
     }
+
+    /// A deterministic stand-in program id shared by handler tests, so each
+    /// doesn't define its own. This is an arbitrary placeholder, not the
+    /// declared on-chain id.
+    pub static PROGRAM_ID: LazyLock<Pubkey> = LazyLock::new(|| pubkey_from_seed("program id"));
 }
 
 #[cfg(test)]

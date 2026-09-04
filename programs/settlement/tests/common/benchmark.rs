@@ -25,6 +25,7 @@ pub enum BenchLabel {
     Settle,
     TransferAuthority,
     AddSolver,
+    RemoveSolver,
 }
 
 impl fmt::Display for BenchLabel {
@@ -40,6 +41,7 @@ impl fmt::Display for BenchLabel {
             Self::Settle => "settle",
             Self::TransferAuthority => "transfer_authority",
             Self::AddSolver => "add_solver",
+            Self::RemoveSolver => "remove_solver",
         })
     }
 }
