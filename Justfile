@@ -14,9 +14,23 @@ build-test-programs:
 build: build-program
     cargo build
 
+# Runs all the generated code jobs
+generate: generate-js-client
+
+# Builds the JS/TS client from IDL.
+generate-js-client:
+    cd programs/settlement/idl && corepack pnpm install --frozen-lockfile && node generate.mjs
+
 # Run the test suite (builds the program first so the .so exists).
 test: build-program build-test-programs
     cargo test
+
+# Run tests from the generated clients from the IDL
+test-idl-generated: test-js-client
+
+# Run the JS client's tests
+test-js-client: build-program generate-js-client
+    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec vitest run
 
 # Each test outputs its consumption during test execution to a series of target/bench-report/*.jsonl files.
 # Assembles into a single `bench-report.json`
@@ -85,4 +99,4 @@ deploy programid keypair: build-verified
         initialize \
         || echo "warning: \`initialize\` failed, the state PDA may already exist" >&2
 
-all: build bench lint fmt-check doc-dev
+all: build bench test-js-client lint fmt-check doc-dev
