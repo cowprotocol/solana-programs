@@ -57,9 +57,6 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Bump to upgrade. Releases: https://github.com/nodejs/node/releases
-          # Node ships corepack, which `just test-js-client` uses to run the pnpm
-          # version the packages pin — so pnpm needs no separate setup step here.
           node-version: "24"
 
       - name: Test JS client
