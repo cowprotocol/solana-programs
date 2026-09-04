@@ -40,10 +40,8 @@ const MAXIMUM_FEE: u64 = 1_000;
 #[derive(Clone, Copy, Debug)]
 pub enum Extensions {
     CloseAuthorityOnly,
-    /// Non-transferable + CloseAuthority
-    WithNonTransferable,
-    /// Transfer Fee + CloseAuthority
-    WithTransferFee,
+    CloseAuthorityAndNonTransferable,
+    CloseAuthorityAndTransferFee,
 }
 
 impl Extensions {
