@@ -14,6 +14,7 @@ pub mod create_order;
 pub mod initialize;
 pub mod reclaim_buffer;
 pub mod reclaim_order;
+pub mod remove_solver;
 pub mod settle;
 pub mod transfer_authority;
 

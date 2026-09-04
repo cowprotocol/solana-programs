@@ -48,12 +48,11 @@ pub fn process_transfer_authority(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
     use cow_settlement_interface::instruction::transfer_authority::fixtures::{
         transfer_authority_data, NUM_ACCOUNTS,
     };
-
-    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_transfer_authority_propagates_parse_error() {
