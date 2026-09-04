@@ -1049,7 +1049,7 @@
       "msg": "A created order's intent isn't set with the created_on_chain flag corresponding to the behavior of the invoked order creation instruction."
     },
     {
-      "code": 39,
+      "code": 40,
       "name": "BufferSizeUnavailable",
       "msg": "CreateBuffer asked the token program how long a token account for a mint has to be and couldn't read the answer, so it can't size the buffer."
     }
