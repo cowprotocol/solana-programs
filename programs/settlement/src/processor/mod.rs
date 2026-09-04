@@ -8,6 +8,7 @@ mod finalize_settle;
 mod initialize;
 mod reclaim_buffer;
 mod reclaim_order;
+mod remove_solver;
 mod transfer_authority;
 pub mod utils;
 
@@ -19,6 +20,7 @@ use finalize_settle::process_finalize_settle;
 use initialize::process_initialize;
 use reclaim_buffer::process_reclaim_buffer;
 use reclaim_order::process_reclaim_order;
+use remove_solver::process_remove_solver;
 use transfer_authority::process_transfer_authority;
 
 use cow_settlement_interface::{recover_discriminator, SettlementInstruction};
@@ -57,6 +59,9 @@ pub fn process_instruction(
         }
         SettlementInstruction::AddSolver => {
             process_add_solver(program_id, accounts, instruction_data)
+        }
+        SettlementInstruction::RemoveSolver => {
+            process_remove_solver(program_id, accounts, instruction_data)
         }
     }
 }

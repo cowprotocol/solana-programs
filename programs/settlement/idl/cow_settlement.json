@@ -596,6 +596,76 @@
           ]
         }
       ]
+    },
+    {
+      "name": "remove_solver",
+      "docs": [
+        "Removes a solver, deleting it from the sorted solver list stored in the state PDA. Only the current holder of the Manager role may authorize this, and a solver that isn't registered is rejected.",
+        "The state PDA shrinks by one address, and the freed rent is paid to rent_recipient by a direct debit from the program-owned PDA, so no system program is involved."
+      ],
+      "discriminator": [
+        9
+      ],
+      "accounts": [
+        {
+          "name": "manager",
+          "signer": true,
+          "docs": [
+            "Must match the manager address recorded in the state PDA. Authorizes the change but doesn't receive anything."
+          ]
+        },
+        {
+          "name": "rent_recipient",
+          "writable": true,
+          "docs": [
+            "Receives the rent freed by shrinking the state PDA."
+          ]
+        },
+        {
+          "name": "state_pda",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  51,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              }
+            ]
+          },
+          "docs": [
+            "Holds the manager the signer is checked against and the solver list the removed solver is taken from; shrunk by one address. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "solver",
+          "type": "pubkey",
+          "docs": [
+            "The solver to remove."
+          ]
+        }
+      ]
     }
   ],
   "accounts": [
@@ -950,7 +1020,7 @@
     {
       "code": 35,
       "name": "UnauthorizedSolverManagement",
-      "msg": "AddSolver's manager account isn't a signer, or doesn't match the manager recorded in the settlement state PDA."
+      "msg": "AddSolver/RemoveSolver's manager account isn't a signer, or doesn't match the manager recorded in the settlement state PDA, so it may not change the solver list."
     },
     {
       "code": 36,
@@ -960,10 +1030,15 @@
     {
       "code": 37,
       "name": "UnauthorizedSolver",
-      "msg": "BeginSettle/FinalizeSettle's solver account isn't a signer or isn't in the state PDA's solver list, so it may not settle."
+      "msg": "BeginSettle's solver account isn't a signer or isn't in the state PDA's solver list, so it may not settle."
     },
     {
       "code": 38,
+      "name": "SolverNotFound",
+      "msg": "RemoveSolver's solver isn't in the state PDA's solver list."
+    },
+    {
+      "code": 39,
       "name": "OrderCreatedOnChainMismatch",
       "msg": "A created order's intent isn't set with the created_on_chain flag corresponding to the behavior of the invoked order creation instruction."
     }

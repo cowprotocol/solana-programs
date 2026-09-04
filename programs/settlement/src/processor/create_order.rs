@@ -78,6 +78,7 @@ pub fn process_create_order(
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
     };
@@ -88,11 +89,6 @@ mod tests {
     use pinocchio::account::RuntimeAccount;
 
     use super::*;
-
-    /// Arbitrary placeholder program id for handler-level tests. The
-    /// failure paths exercised below return before the program id is used
-    /// for any syscall, so any 32-byte value works.
-    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_create_order_propagates_parse_error() {

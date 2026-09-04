@@ -3,7 +3,7 @@
 //! gate on adding them.
 
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::{StateAccount, WIDTH_HEADER, WIDTH_PUBKEY},
+    data::state::{WIDTH_HEADER, WIDTH_PUBKEY},
     Instruction, SettlementError,
 };
 use cow_settlement_client::instruction::AddSolver;
@@ -19,42 +19,12 @@ use solana_system_interface::MAX_PERMITTED_DATA_LENGTH;
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    create_account_at, lamports, setup_init, to_instruction_error, unique_keypair,
-    InitializedParams,
+    create_account_at, lamports, setup_init,
+    state::solvers,
+    to_instruction_error, unique_keypair, InitializedParams,
 };
 
 mod common;
-
-/// Assert the solver list's storage invariant: solvers are stored strictly
-/// ascending by address (sorted, with no duplicates). This is what lets the
-/// program binary-search the list, so every read below re-checks it.
-#[track_caller]
-fn assert_solver_invariant(solvers: &[Pubkey]) {
-    assert!(
-        // We use `is_sorted_by` here instead of `is_sorted` because that
-        // doesn't catch duplicates.
-        solvers.is_sorted_by(|a, b| a < b),
-        "invariant violated: solver list must be strictly ascending by address: {solvers:?}",
-    );
-}
-
-/// The solver list currently stored in the state PDA, in stored order. Reading it
-/// also re-checks the storage invariant (see [`assert_solver_invariant`]), so
-/// every test that inspects the list enforces it, not just the ones that compare
-/// against a sorted expectation.
-#[track_caller]
-fn solvers(svm: &LiteSVM, state_pda: &Pubkey) -> Vec<Pubkey> {
-    let data = svm
-        .get_account(state_pda)
-        .expect("state PDA should exist")
-        .data;
-    let solvers: Vec<Pubkey> = StateAccount::attach(&data[..])
-        .expect("state PDA should be a valid state account")
-        .solvers()
-        .collect();
-    assert_solver_invariant(&solvers);
-    solvers
-}
 
 /// Build an `AddSolver` transaction authorized by the manager and paid by the
 /// payer, both of which sign. Split from [`add_solver`] so the happy-path test

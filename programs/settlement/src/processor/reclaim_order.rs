@@ -61,6 +61,7 @@ mod tests {
     use cow_settlement_interface::data::intent::Flags;
     use cow_settlement_interface::data::intent::{fixtures::sample_intent, OrderIntent, OrderKind};
     use cow_settlement_interface::data::order::EncodedOrderAccount;
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
@@ -70,8 +71,6 @@ mod tests {
     use pinocchio::Address;
 
     use super::*;
-
-    const PROGRAM_ID: pinocchio::Address = pinocchio::Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_reclaim_order_propagates_parse_error() {

@@ -21,6 +21,8 @@ pub use role::Role;
 /// for this crate's own `cargo test`) so other crates can reuse them.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
+    use std::sync::LazyLock;
+
     use crate::Pubkey;
 
     /// Deterministically generate a [`Pubkey`] by hashing a seed string, for
@@ -28,4 +30,9 @@ pub mod fixtures {
     pub fn pubkey_from_seed(seed: &str) -> Pubkey {
         Pubkey::new_from_array(solana_sha256_hasher::hash(seed.as_bytes()).to_bytes())
     }
+
+    /// A deterministic stand-in program id shared by handler tests, so each
+    /// doesn't define its own. This is an arbitrary placeholder, not the
+    /// declared on-chain id.
+    pub static PROGRAM_ID: LazyLock<Pubkey> = LazyLock::new(|| pubkey_from_seed("program id"));
 }

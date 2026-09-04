@@ -95,6 +95,11 @@ pub const ADD_SOLVER_RS: Source = Source {
     text: include_str!("../../../../interface/src/instruction/add_solver.rs"),
 };
 
+pub const REMOVE_SOLVER_RS: Source = Source {
+    display: "interface/src/instruction/remove_solver.rs",
+    text: include_str!("../../../../interface/src/instruction/remove_solver.rs"),
+};
+
 impl Source {
     fn parse(&self) -> syn::File {
         syn::parse_file(self.text)

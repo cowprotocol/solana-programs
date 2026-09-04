@@ -12,6 +12,7 @@ pub mod create_order;
 pub mod finalize_settle;
 pub mod initialize;
 pub mod reclaim_buffer;
+pub mod remove_solver;
 pub mod transfer_authority;
 
 pub use add_solver::AddSolver;
@@ -21,4 +22,5 @@ pub use create_order::CreateOrder;
 pub use finalize_settle::{FinalizeSettle, FinalizedIntent};
 pub use initialize::Initialize;
 pub use reclaim_buffer::ReclaimBuffer;
+pub use remove_solver::RemoveSolver;
 pub use transfer_authority::TransferAuthority;

@@ -12,6 +12,7 @@ pub mod create_order;
 pub mod initialize;
 pub mod reclaim_buffer;
 pub mod reclaim_order;
+pub mod remove_solver;
 pub mod settle;
 pub mod transfer_authority;
 
@@ -48,6 +49,7 @@ pub enum SettlementInstruction {
     ReclaimBuffer = 6,
     TransferAuthority = 7,
     AddSolver = 8,
+    RemoveSolver = 9,
 }
 
 impl SettlementInstruction {
