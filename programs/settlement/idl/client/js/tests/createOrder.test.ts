@@ -66,10 +66,6 @@ describe("createOrder", () => {
     expect(decoded.amountWithdrawn).toBe(0n);
     expect(decoded.amountReceived).toBe(0n);
     expect(decoded.createdBy).toBe(owner.address);
-    expect(decoded.intent).toEqual({
-      ...intent,
-      sellAmount: BigInt(intent.sellAmount),
-      buyAmount: BigInt(intent.buyAmount),
-    });
+    expect(decoded.intent).toEqual(intent);
   });
 });
