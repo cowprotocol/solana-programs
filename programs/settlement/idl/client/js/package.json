@@ -15,7 +15,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@solana/kit": "^6.10.0"
+    "@solana/kit": "^8.0.0"
   },
   "dependencies": {
     "@solana/program-client-core": "^8.x"
