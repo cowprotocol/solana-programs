@@ -29,11 +29,12 @@ use pinocchio::{
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 
-use crate::processor::{
-    check_state_pda, is_cpi_call, require_solver, with_state_pda_signer_from_bump,
+use crate::processor::utils::{
+    auth::{check_state_pda, require_solver, with_state_pda_signer_from_bump},
+    cpi::is_cpi_call,
+    settle::validate_counterpart,
+    token::validate_token_program_account,
 };
-
-use super::{validate_counterpart, validate_token_program_account};
 
 pub fn process_begin_settle(
     program_id: &Address,

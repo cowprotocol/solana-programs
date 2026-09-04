@@ -7,7 +7,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::state::{WIDTH_HEADER, WIDTH_PUBKEY},
     Instruction, SettlementError,
 };
-use cow_settlement_client::instructions::RemoveSolver;
+use cow_settlement_client::instruction::RemoveSolver;
 use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::InstructionError,

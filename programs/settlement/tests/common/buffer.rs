@@ -2,7 +2,7 @@
 
 use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
 use cow_settlement_client::cow_settlement_interface::Instruction;
-use cow_settlement_client::instructions::CreateBuffers;
+use cow_settlement_client::instruction::CreateBuffers;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,

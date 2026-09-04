@@ -1,6 +1,6 @@
 //! Scaffolding for building `[BeginSettle, FinalizeSettle]` settlement pairs.
 
-use cow_settlement_client::instructions::{
+use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
 };
 use cow_settlement_interface::{data::intent::OrderIntent, Instruction};

@@ -15,9 +15,24 @@ pub struct Source {
     text: &'static str,
 }
 
-pub const INTERFACE_LIB_RS: Source = Source {
-    display: "interface/src/lib.rs",
-    text: include_str!("../../../../interface/src/lib.rs"),
+pub const PDA_MOD_RS: Source = Source {
+    display: "interface/src/pda/mod.rs",
+    text: include_str!("../../../../interface/src/pda/mod.rs"),
+};
+
+pub const ERROR_RS: Source = Source {
+    display: "interface/src/error.rs",
+    text: include_str!("../../../../interface/src/error.rs"),
+};
+
+pub const ROLE_RS: Source = Source {
+    display: "interface/src/role.rs",
+    text: include_str!("../../../../interface/src/role.rs"),
+};
+
+pub const INSTRUCTION_MOD_RS: Source = Source {
+    display: "interface/src/instruction/mod.rs",
+    text: include_str!("../../../../interface/src/instruction/mod.rs"),
 };
 
 pub const INTENT_RS: Source = Source {

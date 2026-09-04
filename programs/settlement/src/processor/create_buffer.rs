@@ -7,10 +7,10 @@ use cow_settlement_interface::{
     },
     pda::{buffer::buffer_pda_seeds, state::state_pda_seeds},
 };
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{AccountView, Address, ProgramResult};
 use pinocchio_token::{instructions::InitializeAccount3, state::Account as TokenAccount};
 
-use crate::processor::CanonicalPda;
+use crate::processor::utils::{pda::CanonicalPda, token::validate_token_program_account};
 
 pub fn process_create_buffer(
     program_id: &Address,
@@ -22,9 +22,7 @@ pub fn process_create_buffer(
     // Only the legacy SPL Token program is supported. The InitializeAccount3
     // CPI targets that program unconditionally; reject a mismatching account
     // up front so the caller gets a clear error.
-    if input.token_program.address() != &SPL_TOKEN_PROGRAM_ID {
-        return Err(ProgramError::IncorrectProgramId);
-    }
+    validate_token_program_account(input.token_program)?;
 
     // The buffers' token authority is the settlement state PDA, the single
     // authority over every buffer. Derive it once for all buffers.
@@ -69,6 +67,7 @@ mod tests {
         create_buffer_data, NUM_SHARED_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use pinocchio::error::ProgramError;
 
     #[test]
     fn process_create_buffer_propagates_error() {

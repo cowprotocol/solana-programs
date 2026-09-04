@@ -17,7 +17,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult, Resize,
 };
 
-use crate::processor::{check_state_pda, move_lamports};
+use crate::processor::utils::{auth::check_state_pda, lamports::move_lamports};
 
 pub fn process_remove_solver(
     program_id: &Address,

@@ -77,7 +77,7 @@ pub fn parse_instruction<'a, A>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instructions::{
+    use crate::instruction::{
         AddSolver, BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize,
         InitializedIntent, RemoveSolver,
     };

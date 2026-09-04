@@ -2,6 +2,6 @@
 
 pub use cow_settlement_interface;
 
-pub mod instructions;
+pub mod instruction;
 pub mod parse;
 pub mod pda;

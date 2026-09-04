@@ -4,7 +4,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::state::StateAccount, instruction::transfer_authority::fixtures::ROLE_OFFSET, Instruction,
     Role, SettlementError,
 };
-use cow_settlement_client::instructions::TransferAuthority;
+use cow_settlement_client::instruction::TransferAuthority;
 use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::InstructionError,

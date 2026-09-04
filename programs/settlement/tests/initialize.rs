@@ -2,7 +2,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::state::WIDTH_HEADER, instruction::initialize::Initialize as InitializeRaw,
     pda::state::find_state_pda,
 };
-use cow_settlement_client::instructions::Initialize;
+use cow_settlement_client::instruction::Initialize;
 use cow_settlement_client::pda::state::DecodedStateAccount;
 use solana_sdk::signature::Signer;
 

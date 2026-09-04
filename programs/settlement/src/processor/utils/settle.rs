@@ -1,27 +1,20 @@
-//! `BeginSettle`/`FinalizeSettle` instruction handlers.
+//! Counterpart validation shared across the `BeginSettle`/`FinalizeSettle`
+//! handlers.
 
 use std::ops::Deref;
 
 use cow_settlement_interface::{
-    instruction::{create_buffer::SPL_TOKEN_PROGRAM_ID, settle::recover_counterpart},
-    recover_discriminator, SettlementError, SettlementInstruction,
+    instruction::settle::recover_counterpart, recover_discriminator, SettlementError,
+    SettlementInstruction,
 };
-use pinocchio::{
-    error::ProgramError, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
-};
-
-mod begin;
-mod finalize;
-
-pub use begin::process_begin_settle;
-pub use finalize::process_finalize_settle;
+use pinocchio::{sysvars::instructions::Instructions, Address, ProgramResult};
 
 /// Load the counterpart instruction at `counterpart_index` and verify it
 /// belongs to `program_id`, carries `expected_discriminator`, and points
 /// back at the current instruction. Ordering (before/after) is the caller's
 /// responsibility.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn validate_counterpart<T: Deref<Target = [u8]>>(
+pub fn validate_counterpart<T: Deref<Target = [u8]>>(
     program_id: &Address,
     instructions: &Instructions<T>,
     current_index: u16,
@@ -41,16 +34,6 @@ fn validate_counterpart<T: Deref<Target = [u8]>>(
         .map_err(|_| SettlementError::InvalidCounterpartCounterpart)?;
     if their_discriminator != expected_discriminator || their_counterpart_ix != current_index {
         return Err(SettlementError::MismatchedCounterpartDiscriminator.into());
-    }
-    Ok(())
-}
-
-/// Validate that `token_program_account` is the legacy SPL Token program, which
-/// every settlement transfer is issued against.
-#[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn validate_token_program_account(token_program_account: &AccountView) -> ProgramResult {
-    if token_program_account.address() != &SPL_TOKEN_PROGRAM_ID {
-        return Err(ProgramError::IncorrectProgramId);
     }
     Ok(())
 }

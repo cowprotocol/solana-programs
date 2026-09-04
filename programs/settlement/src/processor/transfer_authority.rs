@@ -10,7 +10,7 @@ use cow_settlement_interface::{
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
-use crate::processor::check_state_pda;
+use crate::processor::utils::auth::check_state_pda;
 
 pub fn process_transfer_authority(
     program_id: &Address,

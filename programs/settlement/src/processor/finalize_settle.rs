@@ -12,9 +12,10 @@ use pinocchio::{
 };
 use pinocchio_token::instructions::Transfer;
 
-use crate::processor::{is_cpi_call, with_state_pda_signer};
-
-use super::{validate_counterpart, validate_token_program_account};
+use crate::processor::utils::{
+    auth::with_state_pda_signer, cpi::is_cpi_call, settle::validate_counterpart,
+    token::validate_token_program_account,
+};
 
 pub fn process_finalize_settle(
     program_id: &Address,
