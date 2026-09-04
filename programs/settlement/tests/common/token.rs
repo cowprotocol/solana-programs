@@ -18,7 +18,7 @@ use litesvm_token::{
     spl_token::{
         instruction::{
             approve, initialize_account3, initialize_mint2, mint_to as mint_to_ix,
-            transfer as transfer_ix,
+            transfer_checked as transfer_checked_ix,
         },
         native_mint,
         state::{Account, Mint},
@@ -33,26 +33,22 @@ use solana_sdk::{
 };
 use solana_system_interface::instruction::create_account as system_create_account;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
-use spl_token_2022_interface::{
-    extension::{transfer_fee::instruction::initialize_transfer_fee_config, ExtensionType},
-    instruction::initialize_mint2 as initialize_mint2_2022,
-    state::{Account as Account2022, Mint as Mint2022},
-};
+use spl_token_2022_interface::{extension::StateWithExtensions, state::Mint as Mint2022};
 use std::cell::Cell;
 
-use super::{unique_keypair, SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID};
+use super::{token_2022::Extensions, unique_keypair};
 
 thread_local! {
     /// The token program [`active`] reports, scoped to one test by
     /// [`under_token_program`]. Thread local because the test harness runs each
     /// test on its own thread, so a per-thread value is a per-test value.
-    static ACTIVE: Cell<Pubkey> = const { Cell::new(SPL_TOKEN_PROGRAM_ID) };
+    static ACTIVE: Cell<TokenProgram> = const { Cell::new(TokenProgram::SplToken) };
 }
 
 /// The token program the running test exercises, which is what [`create_mint`]
 /// creates under and what [`super::token_programs`] tells a settlement to
 /// carry.
-pub fn active() -> Pubkey {
+pub fn active() -> TokenProgram {
     ACTIVE.with(Cell::get)
 }
 
@@ -60,7 +56,7 @@ pub fn active() -> Pubkey {
 ///
 /// [`super::also_under_token_2022`] is the way tests reach this; call it
 /// directly only to nest a differently-programmed section inside a test.
-pub fn under_token_program(token_program: Pubkey, test: impl FnOnce()) {
+pub fn under_token_program(token_program: TokenProgram, test: impl FnOnce()) {
     ACTIVE.replace(token_program);
     test();
 }
@@ -112,14 +108,35 @@ fn send_token_tx(
 /// Create a fresh mint under [`active`], whose mint authority is `payer`, and
 /// return its address.
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
-    create_mint_at_under(svm, payer, &unique_keypair(), &active())
+    create_mint_at(svm, payer, &unique_keypair())
 }
 
 /// [`create_mint`] at `mint`'s address rather than a fresh one. Lets a test
 /// reclaim an address a Token-2022 mint was just closed at, which is the only
 /// way a legacy mint can end up where a Token-2022 one used to be.
+///
+/// Under Token-2022 the mint carries [`Extensions::DEFAULT`] rather than being
+/// bare, so every generated test exercises the longer accounts its extensions
+/// force. [`create_mint_under`] is the way to a bare one.
 pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pubkey {
-    create_mint_at_under(svm, payer, mint, &active())
+    match active() {
+        TokenProgram::SplToken => {
+            create_mint_at_under(svm, payer, mint, &TokenProgram::SplToken.address())
+        }
+        TokenProgram::Token2022 => {
+            super::token_2022::create_mint(svm, payer, mint, Extensions::DEFAULT)
+        }
+    }
+}
+
+/// The length a buffer for a [`create_mint`] mint is allocated at under
+/// [`active`]: the base layout under the legacy program, and whatever
+/// [`Extensions::DEFAULT`] forces under Token-2022.
+pub fn buffer_len() -> usize {
+    match active() {
+        TokenProgram::SplToken => Account::LEN,
+        TokenProgram::Token2022 => Extensions::DEFAULT.token_account_len(),
+    }
 }
 
 /// [`create_mint`] under `token_program` rather than under [`active`], for the
@@ -149,8 +166,7 @@ fn create_mint_at_under(
     );
     // A mint with no extension data, which is every legacy mint and the shape a
     // Token-2022 mint takes when nothing asks for more. That is what keeps a
-    // buffer for it at the base layout under either program; see
-    // [`create_transfer_fee_mint`] for the other shape.
+    // buffer for it at the base layout under either program.
     let initialize = under(
         initialize_mint2(&TOKEN_ID, &mint.pubkey(), &payer.pubkey(), None, DECIMALS)
             .expect("initialize_mint2 should build"),
@@ -176,78 +192,6 @@ pub fn create_native_mint(svm: &mut LiteSVM) {
     .pack_into_slice(&mut data);
     let token_program = Pubkey::new_from_array(TOKEN_ID.to_bytes());
     super::create_account_at(svm, native_mint::ID, &token_program, &data);
-}
-
-/// Create a Token-2022 mint carrying a transfer-fee config and return its
-/// address.
-///
-/// This is the shape of mint that motivates mint-dependent buffer sizing: a
-/// `TransferFeeConfig` on the mint requires a `TransferFeeAmount` on every
-/// account holding it, so its token accounts must be longer than the base
-/// layout. Not parameterized over the extension — one such mint is enough to
-/// exercise the longer-than-base path.
-///
-/// Unlike [`create_mint_under`], this needs no retargeting: the Token-2022
-/// interface crate's builders accept the Token-2022 program id directly.
-pub fn create_transfer_fee_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
-    /// Matches [`create_mint_under`], so the two kinds of mint differ only in
-    /// their extensions.
-    const DECIMALS: u8 = 8;
-
-    let length = mint_len_with_transfer_fee();
-    let mint = unique_keypair();
-    let create = system_create_account(
-        &payer.pubkey(),
-        &mint.pubkey(),
-        svm.minimum_balance_for_rent_exemption(length),
-        length as u64,
-        &TOKEN_2022_PROGRAM_ID,
-    );
-    // The fee config has to be initialized before the mint itself, while the
-    // account is still uninitialized.
-    let configure = initialize_transfer_fee_config(
-        &TOKEN_2022_PROGRAM_ID,
-        &mint.pubkey(),
-        Some(&payer.pubkey()),
-        Some(&payer.pubkey()),
-        // Arbitrary: no test here transfers a fee-bearing token, it only needs
-        // the extension to be present.
-        50,
-        1_000,
-    )
-    .expect("initialize_transfer_fee_config should build");
-    let initialize = initialize_mint2_2022(
-        &TOKEN_2022_PROGRAM_ID,
-        &mint.pubkey(),
-        &payer.pubkey(),
-        None,
-        DECIMALS,
-    )
-    .expect("initialize_mint2 should build");
-    send_token_tx(
-        svm,
-        payer,
-        &[&mint],
-        &[create, configure, initialize],
-        "transfer-fee mint creation",
-    );
-    mint.pubkey()
-}
-
-/// The data length of a mint carrying a transfer-fee config.
-pub fn mint_len_with_transfer_fee() -> usize {
-    ExtensionType::try_calculate_account_len::<Mint2022>(&[ExtensionType::TransferFeeConfig])
-        .expect("a transfer-fee mint length should compute")
-}
-
-/// The data length a token account for [`create_transfer_fee_mint`]'s mint has
-/// to be: the base layout plus the `TransferFeeAmount` the mint requires.
-///
-/// Computed from the Token-2022 interface rather than written as a literal, so
-/// the expectation can't drift from what the token program actually wants.
-pub fn token_account_len_with_transfer_fee() -> usize {
-    ExtensionType::try_calculate_account_len::<Account2022>(&[ExtensionType::TransferFeeAmount])
-        .expect("a transfer-fee token account length should compute")
 }
 
 /// Create an initialized token account for `mint` whose token owner is `owner`,
@@ -324,6 +268,20 @@ pub fn mint_to(
     send_token_tx(svm, payer, &[], &[instruction], "mint_to");
 }
 
+/// The decimals `mint` was created with.
+///
+/// Read through the extension layout, which covers a mint that has extensions
+/// and one that doesn't alike, so this answers under either program.
+fn decimals_of(svm: &LiteSVM, mint: &Pubkey) -> u8 {
+    let account = svm
+        .get_account(mint)
+        .unwrap_or_else(|| panic!("{mint} should exist on-chain"));
+    StateWithExtensions::<Mint2022>::unpack(&account.data)
+        .expect("the mint should be a valid mint account")
+        .base
+        .decimals
+}
+
 /// Transfer `amount` of `mint` from `owner`'s associated token account into
 /// `destination`, signed by `owner` as the source authority.
 pub fn transfer(
@@ -336,14 +294,19 @@ pub fn transfer(
     let token_program = program_of(svm, mint);
     let source =
         get_associated_token_address_with_program_id(&owner.pubkey(), mint, &token_program);
+    // Checked rather than plain `Transfer`: Token-2022 refuses the unchecked one
+    // for a mint carrying a transfer fee, which [`Extensions::DEFAULT`] does, and
+    // the legacy program accepts it just the same.
     let instruction = under(
-        transfer_ix(
+        transfer_checked_ix(
             &TOKEN_ID,
             &source,
+            mint,
             destination,
             &owner.pubkey(),
             &[],
             amount,
+            decimals_of(svm, mint),
         )
         .expect("transfer should build"),
         &token_program,

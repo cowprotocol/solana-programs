@@ -6,7 +6,6 @@ use cow_settlement_interface::{
     pda::state::find_state_pda, SettlementError,
 };
 use litesvm::LiteSVM;
-use solana_program_pack::Pack;
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,
@@ -462,7 +461,7 @@ fn reclaims_a_buffer_whose_mint_was_reopened_as_a_legacy_mint() {
         svm.get_account(&mint)
             .expect("the reopened mint should exist")
             .owner,
-        common::SPL_TOKEN_PROGRAM_ID,
+        TokenProgram::SplToken.address(),
         "sanity: the mint must now belong to the legacy program"
     );
 
@@ -508,7 +507,7 @@ fn max_buffers_reclaim_via_lookup_table(
             state_pda,
             reclaim_authority: reclaim_authority.pubkey(),
             reclaim_recipient: reclaim_authority.pubkey(),
-            token_program: TokenProgram::SplToken.address(),
+            token_program: common::token::active().address(),
             buffers: &buffers,
         };
         common::lookup_table::lookup_table_tx(svm, reclaim_authority, ix)
@@ -520,6 +519,7 @@ fn max_buffers_reclaim_via_lookup_table(
 /// has changed the amount of buffer accounts that can be reclaimed in the same
 /// transaction. If the number increases, great, bump it up! If it decreases and
 /// you're ok with the performance hit, then you can bump it down.
+common::also_under_token_2022!(bench_assert_known_max_buffer_count);
 #[test]
 fn bench_assert_known_max_buffer_count() {
     let (
@@ -534,13 +534,16 @@ fn bench_assert_known_max_buffer_count() {
         .expect("airdrop should succeed");
     let max_buffers =
         max_buffers_reclaim_via_lookup_table(&mut svm, &program_id, &reclaim_authority);
+
     assert_eq!(
-        max_buffers, 30,
-        "Max buffers that can be reclaimed has changed"
+        max_buffers,
+        30,
+        "Max buffers that can be reclaimed has changed under {:?}",
+        common::token::active(),
     );
 }
 
-// Legacy-only: see `bench_assert_known_max_buffer_count`.
+common::also_under_token_2022!(max_buffers_in_one_instruction);
 /// Pack a single `reclaim_buffer` instruction with as many buffers as a
 /// transaction can have, all of them empty and therefore closable. Use an
 /// Address Lookup Table to reach the real account-lock ceiling. This is a
@@ -589,7 +592,7 @@ fn max_buffers_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: TokenProgram::SplToken,
+        token_program: common::token::active(),
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &reclaim_authority, ix);
@@ -608,60 +611,4 @@ fn max_buffers_in_one_instruction() {
         reclaimable_rent,
         "the recipient must receive the rent of every closed buffer"
     );
-}
-
-/// Token-2022 only: a buffer longer than the base layout only exists for a mint
-/// with extensions, so this runs under that program directly.
-#[test]
-fn reclaims_a_buffer_sized_for_an_extension_mint() {
-    common::token::under_token_program(common::TOKEN_2022_PROGRAM_ID, || {
-        let (
-            mut svm,
-            InitializedParams {
-                program_id,
-                payer,
-                reclaim: reclaim_authority,
-                ..
-            },
-        ) = common::setup_init();
-        let recipient = common::unique_keypair().pubkey();
-
-        let mint = common::token::create_transfer_fee_mint(&mut svm, &payer);
-        let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
-
-        let buffer = svm
-            .get_account(&buffer_pda)
-            .expect("buffer must exist before reclaim");
-        // The whole point of the larger buffer: it holds more rent than a
-        // base-layout one, and reclaim has to return all of it.
-        assert!(
-            buffer.lamports
-                > svm.minimum_balance_for_rent_exemption(
-                    litesvm_token::spl_token::state::Account::LEN
-                ),
-            "an extension buffer must be rented above the base layout",
-        );
-        let recipient_lamports_before = common::lamports(&svm, &recipient);
-
-        let ix = ReclaimBuffer {
-            program_id,
-            reclaim_authority: reclaim_authority.pubkey(),
-            reclaim_recipient: recipient,
-            token_program: TokenProgram::Token2022,
-            mints: &[mint],
-        };
-        let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-        svm.send_transaction(tx)
-            .expect("reclaim_buffer should close an extension buffer");
-
-        assert!(
-            svm.get_account(&buffer_pda).is_none(),
-            "buffer PDA must be closed after reclaim"
-        );
-        assert_eq!(
-            common::lamports(&svm, &recipient) - recipient_lamports_before,
-            buffer.lamports,
-            "the recipient must receive the whole of the larger buffer's rent"
-        );
-    });
 }

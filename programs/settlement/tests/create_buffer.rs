@@ -58,13 +58,13 @@ fn happy_path_creates_initialized_buffer_token_account() {
         .expect("buffer PDA should exist after create_buffer");
     assert_eq!(
         account.owner,
-        common::token::active(),
+        common::token::active().address(),
         "buffer must be owned by the token program it was created under"
     );
     assert_eq!(
         account.data.len(),
-        TokenAccount::LEN,
-        "buffer must be sized to a token account",
+        common::token::buffer_len(),
+        "buffer must be sized to a token account for its mint",
     );
 
     common::assert_rent_exempt(&svm, &account);
@@ -207,13 +207,13 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
             .expect("each buffer PDA should exist after create_buffers");
         assert_eq!(
             account.owner,
-            common::token::active(),
+            common::token::active().address(),
             "each buffer must be owned by the token program it was created under"
         );
         assert_eq!(
             account.data.len(),
-            TokenAccount::LEN,
-            "each buffer must be sized to a token account",
+            common::token::buffer_len(),
+            "each buffer must be sized to a token account for its mint",
         );
         common::assert_rent_exempt(&svm, &account);
 
@@ -576,6 +576,13 @@ fn sizes_a_token_2022_buffer_to_the_extensions_its_mint_forces() {
     }
 }
 
+fn known_max_buffer_count() -> usize {
+    match common::token::active() {
+        TokenProgram::SplToken => 30,  // Limited by account limit
+        TokenProgram::Token2022 => 21, // Limited by CPI call limit
+    }
+}
+
 /// Largest number of buffers a single ALT-backed `create_buffers` transaction
 /// can carry, bounded by the transaction account-lock limit (litesvm and current
 /// mainnet both cap this at 64).
@@ -589,14 +596,14 @@ fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &
         let ix = CreateBuffersRaw {
             program_id: *program_id,
             payer: payer.pubkey(),
-            token_program: TokenProgram::SplToken.address(),
+            token_program: common::token::active().address(),
             buffers: &buffers,
         };
         common::lookup_table::lookup_table_tx(svm, payer, ix)
     })
 }
 
-// Legacy-only: the pinned ceiling below is measured against the legacy program.
+common::also_under_token_2022!(bench_assert_known_max_buffer_count);
 /// This isn't really a test, it's a way to make it visible that a code change
 /// has changed the amount of buffer accounts that can be created in the same
 /// transaction. If the number increases, great, bump it up! If it decreases and
@@ -604,14 +611,16 @@ fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &
 #[test]
 fn bench_assert_known_max_buffer_count() {
     let (mut svm, program_id, payer) = common::setup();
-    let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
+    let probe = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
     assert_eq!(
-        max_buffers, 30,
-        "Max buffers that can be created has changed"
+        probe,
+        30,
+        "the account-lock ceiling has changed under {:?}",
+        common::token::active(),
     );
 }
 
-// Legacy-only: see `bench_assert_known_max_buffer_count`.
+common::also_under_token_2022!(max_buffers_in_one_instruction);
 /// Pack a single `create_buffers` instruction with as many buffers as a
 /// transaction can have. Use Address Lookup Table to reach the real
 /// account-lock ceiling. This is a ceiling on how many buffers one transaction
@@ -643,14 +652,15 @@ fn max_buffers_in_one_instruction() {
     });
     let (state_pda, _) = find_state_pda(&program_id);
 
-    let max_buffers = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
+    let probe = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
     // A legacy transaction tops out around 15 buffers (32-byte keys inlined into
     // a 1232-byte packet). The whole point of the lookup table is to beat that;
     // guard against a counterproductive use of lookup tables.
     assert!(
-        max_buffers > 15,
-        "a lookup-table transaction must exceed the legacy packet limit, got {max_buffers}"
+        probe > 15,
+        "a lookup-table transaction must exceed the legacy packet limit, got {probe}"
     );
+    let max_buffers = known_max_buffer_count();
 
     let mints: Vec<Pubkey> = (0..max_buffers)
         .map(|_| common::token::create_mint(&mut svm, &payer))
@@ -659,7 +669,7 @@ fn max_buffers_in_one_instruction() {
     let ix = CreateBuffers {
         program_id,
         payer: payer.pubkey(),
-        token_program: TokenProgram::SplToken,
+        token_program: common::token::active(),
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
@@ -681,84 +691,4 @@ fn max_buffers_in_one_instruction() {
             "each buffer must be an initialized token account"
         );
     }
-}
-
-// Token-2022 only: a mint carrying extensions is a Token-2022 concept, so these
-// two run under that program directly rather than being generated for both.
-
-#[test]
-fn creates_buffer_sized_for_a_mint_with_extensions() {
-    common::token::under_token_program(common::TOKEN_2022_PROGRAM_ID, || {
-        let (mut svm, program_id, payer) = common::setup();
-        let mint = common::token::create_transfer_fee_mint(&mut svm, &payer);
-        let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
-        let (state_pda, _) = find_state_pda(&program_id);
-
-        let ix = CreateBuffers {
-            program_id,
-            payer: payer.pubkey(),
-            token_program: TokenProgram::Token2022,
-            mints: &[mint],
-        };
-        let tx = common::signed_tx(&svm, &payer, &payer, ix);
-        svm.send_transaction(tx)
-            .expect("create_buffer for a mint with extensions should succeed");
-
-        let account = svm
-            .get_account(&buffer_pda)
-            .expect("buffer PDA should exist after create_buffer");
-        assert_eq!(
-            account.owner,
-            common::token::active(),
-            "buffer must be owned by the token program it was created under"
-        );
-
-        // The mint requires a `TransferFeeAmount` on its accounts, so the buffer
-        // has to be longer than the base layout every other buffer gets.
-        let expected = common::token::token_account_len_with_transfer_fee();
-        assert!(
-            expected > TokenAccount::LEN,
-            "test setup error: a transfer-fee account must exceed the base layout",
-        );
-        assert_eq!(
-            account.data.len(),
-            expected,
-            "buffer must be sized for the extensions its mint requires",
-        );
-        common::assert_rent_exempt(&svm, &account);
-
-        // The base fields still read back through the longer layout.
-        let parsed = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
-            .expect("buffer must be an initialized token account");
-        assert_eq!(parsed.mint, mint, "buffer must track the given mint");
-        assert_eq!(
-            parsed.owner, state_pda,
-            "buffer authority must be the settlement state PDA"
-        );
-        assert_eq!(parsed.amount, 0, "a fresh buffer must hold no tokens");
-        assert_eq!(
-            parsed.state,
-            AccountState::Initialized,
-            "buffer must be an initialized token account"
-        );
-    });
-}
-
-#[test]
-fn recreating_an_extension_mint_buffer_is_idempotent() {
-    common::token::under_token_program(common::TOKEN_2022_PROGRAM_ID, || {
-        let (mut svm, program_id, payer) = common::setup();
-        let mint = common::token::create_transfer_fee_mint(&mut svm, &payer);
-        let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
-
-        common::pda::assert_recreate_is_noop(&mut svm, &buffer_pda, |svm| {
-            let ix = CreateBuffers {
-                program_id,
-                payer: payer.pubkey(),
-                token_program: TokenProgram::Token2022,
-                mints: &[mint],
-            };
-            common::signed_tx(svm, &payer, &payer, ix)
-        });
-    });
 }

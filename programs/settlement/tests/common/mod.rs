@@ -2,8 +2,6 @@
 
 #![allow(
     dead_code,
-    unused_imports,
-    unused_macros,
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
@@ -37,13 +35,6 @@ pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/deploy/cow_settlement.so"
 );
-
-/// The legacy SPL Token program, which the tests create their buffers and
-/// token accounts under unless they exercise Token-2022 specifically.
-pub const SPL_TOKEN_PROGRAM_ID: Pubkey = TokenProgram::SplToken.address();
-
-/// The Token-2022 program, the other one the settlement program supports.
-pub const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
 
 pub const CPI_CALLER_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -314,29 +305,17 @@ pub fn payer_signed_tx(
 /// Repoint every legacy-SPL-Token account of `instructions` at
 /// [`token::active`], so a test written against the legacy program submits the
 /// same transaction aimed at whichever program it is being run under.
-///
-/// This is a no-op for the legacy program itself, which is what a test runs
-/// under unless [`also_under_token_2022`] generated it. It only rewrites the
-/// legacy address, so an instruction a test deliberately pointed somewhere else
-/// (at an unrelated program, say, to be rejected) is left alone.
-///
-/// It reaches `CreateBuffer` and `ReclaimBuffer`, which name their token
-/// program as an account.
-///
-/// The buffer builders do take a token program, but the tests using them name
-/// the legacy one; this is what saves every such test from having to ask
-/// [`token::active`] itself.
 fn aim_at_active_token_program(instructions: &mut [Instruction]) {
     let active = token::active();
-    if active == SPL_TOKEN_PROGRAM_ID {
+    if active == TokenProgram::SplToken {
         return;
     }
     for account in instructions
         .iter_mut()
         .flat_map(|instruction| &mut instruction.accounts)
     {
-        if account.pubkey == SPL_TOKEN_PROGRAM_ID {
-            account.pubkey = active;
+        if account.pubkey == TokenProgram::SplToken.address() {
+            account.pubkey = active.address();
         }
     }
 }
@@ -362,6 +341,10 @@ fn aim_at_active_token_program(instructions: &mut [Instruction]) {
 /// mint, say — goes without, and says why. Instructions that never name a token
 /// program at all (`Initialize`, `CreateOrder`, `ReclaimOrder`,
 /// `TransferAuthority`) have nothing to vary, so their suites don't use this.
+#[allow(
+    unused_macros,
+    reason = "only the suites whose instructions name a token program generate the pair"
+)]
 macro_rules! also_under_token_2022 {
     ($($test:ident),+ $(,)?) => {
         $(
@@ -369,7 +352,7 @@ macro_rules! also_under_token_2022 {
                 #[test]
                 fn [<$test _token_2022>]() {
                     $crate::common::token::under_token_program(
-                        $crate::common::TOKEN_2022_PROGRAM_ID,
+                        cow_settlement_interface::token_program::TokenProgram::Token2022,
                         $test,
                     );
                 }
@@ -377,6 +360,10 @@ macro_rules! also_under_token_2022 {
         )+
     };
 }
+#[allow(
+    unused_imports,
+    reason = "re-exported for the suites that use the macro; the others never name it"
+)]
 pub(crate) use also_under_token_2022;
 
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
