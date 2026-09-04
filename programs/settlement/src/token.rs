@@ -75,8 +75,10 @@ mod tests {
         fixtures::pubkey_from_seed,
         instruction::fixtures::{fake_account, fake_account_owned_by},
     };
+    use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use pinocchio::Address;
     use pinocchio_token_2022::state::AccountType;
+    use solana_program_pack::Pack;
 
     /// The length of a token account holding nothing but the base layout. Both
     /// programs share it: it is Token-2022's `BASE_LEN` and the whole of a
@@ -84,12 +86,18 @@ mod tests {
     const BASE_LEN: usize = pinocchio_token::state::Account::LEN;
 
     /// The base layout of a token account holding `amount` of `mint` for
-    /// `owner`, with every other field left zeroed.
-    fn base_layout(mint: Address, owner: Address, amount: u64) -> Vec<u8> {
+    /// `owner`, encoded by the SPL token program's own packer so the fixture
+    /// cannot drift from the layout the readers parse.
+    fn base_account_layout(mint: Address, owner: Address, amount: u64) -> Vec<u8> {
         let mut data = vec![0u8; BASE_LEN];
-        data[..32].copy_from_slice(mint.as_array());
-        data[32..64].copy_from_slice(owner.as_array());
-        data[64..72].copy_from_slice(&amount.to_le_bytes());
+        SplTokenAccount {
+            mint,
+            owner,
+            amount,
+            state: AccountState::Initialized,
+            ..Default::default()
+        }
+        .pack_into_slice(&mut data);
         data
     }
 
@@ -168,7 +176,7 @@ mod tests {
             let account = fake_account_owned_by(
                 pubkey_from_seed("token account"),
                 program.address(),
-                &base_layout(mint, owner, 4_200),
+                &base_account_layout(mint, owner, 4_200),
             );
             let read = read_token_account(program, &account)
                 .unwrap_or_else(|error| panic!("{program:?} account should read: {error:?}"));
@@ -180,7 +188,7 @@ mod tests {
     fn read_token_account_reads_past_token_2022_extensions() {
         let mint = pubkey_from_seed("extended mint");
         let owner = pubkey_from_seed("extended owner");
-        let mut data = base_layout(mint, owner, 7);
+        let mut data = base_account_layout(mint, owner, 7);
         // Extensions are preceded by the account-type marker, which is what
         // distinguishes a longer account from a mint of the same size.
         data.push(AccountType::Account as u8);
@@ -198,7 +206,7 @@ mod tests {
 
     #[test]
     fn read_token_account_rejects_an_extended_mint() {
-        let mut data = base_layout(pubkey_from_seed("mint"), pubkey_from_seed("owner"), 7);
+        let mut data = base_account_layout(pubkey_from_seed("mint"), pubkey_from_seed("owner"), 7);
         data.push(AccountType::Mint as u8);
 
         let account = fake_account_owned_by(
@@ -221,7 +229,7 @@ mod tests {
             let account = fake_account_owned_by(
                 pubkey_from_seed("token account"),
                 other.address(),
-                &base_layout(pubkey_from_seed("mint"), pubkey_from_seed("owner"), 0),
+                &base_account_layout(pubkey_from_seed("mint"), pubkey_from_seed("owner"), 0),
             );
             assert_eq!(
                 read_token_account(program, &account).err(),
