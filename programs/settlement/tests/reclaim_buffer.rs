@@ -6,6 +6,7 @@ use cow_settlement_interface::{
     pda::state::find_state_pda, SettlementError,
 };
 use litesvm::LiteSVM;
+use solana_program_pack::Pack;
 use solana_sdk::{
     instruction::InstructionError,
     pubkey::Pubkey,
@@ -21,6 +22,7 @@ use crate::common::{
 
 mod common;
 
+common::also_under_token_2022!(happy_path_reclaims_to_a_recipient_chosen_by_the_authority);
 #[test]
 fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
     let (
@@ -71,6 +73,7 @@ fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
     );
 }
 
+common::also_under_token_2022!(happy_path_reclaims_empty_buffer_to_the_authority_itself);
 #[test]
 fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
     let (
@@ -114,6 +117,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
     );
 }
 
+common::also_under_token_2022!(funded_buffer_is_skipped);
 #[test]
 fn funded_buffer_is_skipped() {
     let (
@@ -149,6 +153,7 @@ fn funded_buffer_is_skipped() {
     );
 }
 
+common::also_under_token_2022!(reclaims_to_the_settlements_own_state_pda);
 /// The recipient isn't required to be a system account: closing only moves
 /// lamports, so a program-owned data account is credited just the same. The
 /// settlement's own state PDA is the sharpest case, since it also occupies the
@@ -207,6 +212,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
     );
 }
 
+common::also_under_token_2022!(reclaims_multiple_buffers_skipping_funded);
 #[test]
 fn reclaims_multiple_buffers_skipping_funded() {
     let (
@@ -248,6 +254,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
     );
 }
 
+common::also_under_token_2022!(rejects_the_same_buffer_twice_in_one_instruction);
 #[test]
 fn rejects_the_same_buffer_twice_in_one_instruction() {
     let (
@@ -278,6 +285,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
     );
 }
 
+common::also_under_token_2022!(rejects_when_signer_is_not_the_configured_reclaim_authority);
 #[test]
 fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     let (
@@ -308,6 +316,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     );
 }
 
+common::also_under_token_2022!(rejects_when_the_reclaim_authority_does_not_sign);
 /// Naming the configured authority isn't enough: it has to sign. The builder
 /// always marks it as a signer, so this test strips the flag by hand.
 #[test]
@@ -367,13 +376,7 @@ fn buffer_whose_mint_was_reopened(
     let mint_keypair = common::unique_keypair();
     let mint =
         common::token_2022::create_mint(svm, payer, &mint_keypair, Extensions::CloseAuthorityOnly);
-    let buffer_pda = common::buffer::ensure_buffer_exists_for(
-        svm,
-        program_id,
-        payer,
-        &mint,
-        TokenProgram::Token2022,
-    );
+    let buffer_pda = common::buffer::ensure_buffer_exists(svm, program_id, payer, &mint);
 
     common::token_2022::close_mint(svm, payer, &mint);
     reopen(svm, payer, &mint_keypair);
@@ -512,6 +515,7 @@ fn max_buffers_reclaim_via_lookup_table(
     })
 }
 
+// Legacy-only: the pinned ceiling below is measured against the legacy program.
 /// This isn't really a test, it's a way to make it visible that a code change
 /// has changed the amount of buffer accounts that can be reclaimed in the same
 /// transaction. If the number increases, great, bump it up! If it decreases and
@@ -536,6 +540,7 @@ fn bench_assert_known_max_buffer_count() {
     );
 }
 
+// Legacy-only: see `bench_assert_known_max_buffer_count`.
 /// Pack a single `reclaim_buffer` instruction with as many buffers as a
 /// transaction can have, all of them empty and therefore closable. Use an
 /// Address Lookup Table to reach the real account-lock ceiling. This is a
@@ -603,4 +608,60 @@ fn max_buffers_in_one_instruction() {
         reclaimable_rent,
         "the recipient must receive the rent of every closed buffer"
     );
+}
+
+/// Token-2022 only: a buffer longer than the base layout only exists for a mint
+/// with extensions, so this runs under that program directly.
+#[test]
+fn reclaims_a_buffer_sized_for_an_extension_mint() {
+    common::token::under_token_program(common::TOKEN_2022_PROGRAM_ID, || {
+        let (
+            mut svm,
+            InitializedParams {
+                program_id,
+                payer,
+                reclaim: reclaim_authority,
+                ..
+            },
+        ) = common::setup_init();
+        let recipient = common::unique_keypair().pubkey();
+
+        let mint = common::token::create_transfer_fee_mint(&mut svm, &payer);
+        let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
+
+        let buffer = svm
+            .get_account(&buffer_pda)
+            .expect("buffer must exist before reclaim");
+        // The whole point of the larger buffer: it holds more rent than a
+        // base-layout one, and reclaim has to return all of it.
+        assert!(
+            buffer.lamports
+                > svm.minimum_balance_for_rent_exemption(
+                    litesvm_token::spl_token::state::Account::LEN
+                ),
+            "an extension buffer must be rented above the base layout",
+        );
+        let recipient_lamports_before = common::lamports(&svm, &recipient);
+
+        let ix = ReclaimBuffer {
+            program_id,
+            reclaim_authority: reclaim_authority.pubkey(),
+            reclaim_recipient: recipient,
+            token_program: TokenProgram::Token2022,
+            mints: &[mint],
+        };
+        let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+        svm.send_transaction(tx)
+            .expect("reclaim_buffer should close an extension buffer");
+
+        assert!(
+            svm.get_account(&buffer_pda).is_none(),
+            "buffer PDA must be closed after reclaim"
+        );
+        assert_eq!(
+            common::lamports(&svm, &recipient) - recipient_lamports_before,
+            buffer.lamports,
+            "the recipient must receive the whole of the larger buffer's rent"
+        );
+    });
 }

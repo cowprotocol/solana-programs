@@ -2,6 +2,8 @@
 
 #![allow(
     dead_code,
+    unused_imports,
+    unused_macros,
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 
@@ -39,6 +41,9 @@ pub const PROGRAM_SO: &str = concat!(
 /// The legacy SPL Token program, which the tests create their buffers and
 /// token accounts under unless they exercise Token-2022 specifically.
 pub const SPL_TOKEN_PROGRAM_ID: Pubkey = TokenProgram::SplToken.address();
+
+/// The Token-2022 program, the other one the settlement program supports.
+pub const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
 
 pub const CPI_CALLER_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -265,8 +270,10 @@ pub fn signed_tx(
     owner: &Keypair,
     ix: impl Into<Instruction>,
 ) -> Transaction {
+    let mut instructions = [ix.into()];
+    aim_at_active_token_program(&mut instructions);
     Transaction::new_signed_with_payer(
-        &[ix.into()],
+        &instructions,
         Some(&fee_payer.pubkey()),
         &[fee_payer, owner],
         svm.latest_blockhash(),
@@ -293,8 +300,9 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
 pub fn payer_signed_tx(
     svm: &LiteSVM,
     payer: &Keypair,
-    instructions: Vec<Instruction>,
+    mut instructions: Vec<Instruction>,
 ) -> Transaction {
+    aim_at_active_token_program(&mut instructions);
     Transaction::new_signed_with_payer(
         &instructions,
         Some(&payer.pubkey()),
@@ -302,6 +310,74 @@ pub fn payer_signed_tx(
         svm.latest_blockhash(),
     )
 }
+
+/// Repoint every legacy-SPL-Token account of `instructions` at
+/// [`token::active`], so a test written against the legacy program submits the
+/// same transaction aimed at whichever program it is being run under.
+///
+/// This is a no-op for the legacy program itself, which is what a test runs
+/// under unless [`also_under_token_2022`] generated it. It only rewrites the
+/// legacy address, so an instruction a test deliberately pointed somewhere else
+/// (at an unrelated program, say, to be rejected) is left alone.
+///
+/// It reaches `CreateBuffer` and `ReclaimBuffer`, which name their token
+/// program as an account.
+///
+/// The buffer builders do take a token program, but the tests using them name
+/// the legacy one; this is what saves every such test from having to ask
+/// [`token::active`] itself.
+fn aim_at_active_token_program(instructions: &mut [Instruction]) {
+    let active = token::active();
+    if active == SPL_TOKEN_PROGRAM_ID {
+        return;
+    }
+    for account in instructions
+        .iter_mut()
+        .flat_map(|instruction| &mut instruction.accounts)
+    {
+        if account.pubkey == SPL_TOKEN_PROGRAM_ID {
+            account.pubkey = active;
+        }
+    }
+}
+
+/// Also run `$test` against Token-2022, as `<test>_token_2022`.
+///
+/// Written in front of the test it applies to:
+///
+/// ```ignore
+/// common::also_under_token_2022!(settles_a_single_order);
+/// #[test]
+/// fn settles_a_single_order() { .. }
+/// ```
+///
+/// The test keeps its own `#[test]`, so it runs twice: once under the legacy SPL
+/// Token program, which is what [`token::active`] reports by default, and once
+/// under Token-2022. Nothing in the body changes — the token helpers and
+/// [`payer_signed_tx`] follow the active program on their own. Naming the test
+/// rather than wrapping it keeps the body's indentation, and a stale name is a
+/// compile error rather than a test that quietly stopped being generated.
+///
+/// A test that can only hold under one program — one pinned to the legacy native
+/// mint, say — goes without, and says why. Instructions that never name a token
+/// program at all (`Initialize`, `CreateOrder`, `ReclaimOrder`,
+/// `TransferAuthority`) have nothing to vary, so their suites don't use this.
+macro_rules! also_under_token_2022 {
+    ($($test:ident),+ $(,)?) => {
+        $(
+            pastey::paste! {
+                #[test]
+                fn [<$test _token_2022>]() {
+                    $crate::common::token::under_token_program(
+                        $crate::common::TOKEN_2022_PROGRAM_ID,
+                        $test,
+                    );
+                }
+            }
+        )+
+    };
+}
+pub(crate) use also_under_token_2022;
 
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
 /// surfacing only the transaction-level error on failure (dropping the success

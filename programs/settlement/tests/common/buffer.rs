@@ -27,22 +27,16 @@ pub fn ensure_buffer_exists(
     payer: &Keypair,
     mint: &Pubkey,
 ) -> Pubkey {
-    ensure_buffer_exists_for(svm, program_id, payer, mint, TokenProgram::SplToken)
-}
-
-/// [`ensure_buffer_exists`] under a token program of the caller's choosing, for
-/// the tests that need a buffer belonging to Token-2022.
-pub fn ensure_buffer_exists_for(
-    svm: &mut LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    mint: &Pubkey,
-    token_program: TokenProgram,
-) -> Pubkey {
     let pda = buffer_pda(program_id, mint);
     if svm.get_account(&pda).is_some() {
         return pda;
     }
+    // A buffer is a token account of its mint, so it has to be created under the
+    // mint's own program. Read off the mint rather than left to
+    // `super::aim_at_active_token_program`, because a test may build buffers
+    // under both programs at once.
+    let token_program = TokenProgram::try_from(&token::program_of(svm, mint))
+        .expect("the mint lives under a supported token program");
     let ix = Instruction::from(CreateBuffers {
         program_id: *program_id,
         payer: payer.pubkey(),
