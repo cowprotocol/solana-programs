@@ -125,13 +125,13 @@ Then, all packages can published in one go:
 cargo publish
 ```
 
-### Publishing the npm package
+### Publishing the Node.js client
 
 The TS/JS client (`@cowprotocol/solana-settlement-client`, generated from `programs/settlement/idl/cow_settlement.json` via Codama) is published automatically by [`publish-npm.yml`](.github/workflows/publish-npm.yml) whenever a GitHub release is cut — its version must already match the release tag (see [Bumping the crate version](#bumping-the-crate-version), which bumps it alongside the crates). The release itself is also created automatically, by [`auto-release.yml`](.github/workflows/auto-release.yml), as soon as a version-bump PR merges into `main` — see the [Breaking change](#breaking-change) and [Patch update](#patch-update) flows above. Merging the bump PR is the only manual step left before a release goes out; npm publishing still needs manual approval (below).
 
-Publishing itself requires a manual approval in the `npm-publish` GitHub Environment. Before approving, check the job summary the workflow posts: it lists the exact tarball contents about to be published and a dependency diff against the previously published version. Approve only if both look as expected for the changes in this release.
+Publishing requires manual approval: `publish-npm.yml`'s publish step runs under a [GitHub Environment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment) named `npm-publish`, configured in repo Settings → Environments with required reviewers. Before approving, check the job summary the workflow posts: it lists the exact tarball contents about to be published and a dependency diff against the previously published version. Approve only if both look as expected for the changes in this release.
 
-Authentication to npm uses [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) — no long-lived npm token is stored. This requires a one-time setup on npmjs.com *after* the package's first publish (a Trusted Publisher is configured on the package's own settings page, so it can't be set up before the package exists): add a Trusted Publisher for this exact repo, `publish-npm.yml`, and the `npm-publish` environment, then delete the `NPM_TOKEN` secret — it's a bootstrap-only fallback for that first publish.
+Authentication to npm uses [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) — no stored npm token. One-time setup after the package's *first* publish (it can't be configured before the package exists): on npmjs.com, add a Trusted Publisher for this repo, `publish-npm.yml`, and the `npm-publish` environment, then delete the `NPM_TOKEN` secret.
 
 ### Devnet example
 

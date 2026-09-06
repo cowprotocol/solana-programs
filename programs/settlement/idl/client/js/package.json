@@ -7,7 +7,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "license": "(MIT OR Apache-2.0)",
-  "author": "CoW Protocol",
+  "author": "CoW Foundation <help@cow.fi>",
   "repository": {
     "type": "git",
     "url": "https://github.com/cowprotocol/solana-programs.git",
@@ -17,7 +17,8 @@
     "access": "public"
   },
   "files": [
-    "dist/**"
+    "dist/**",
+    "README.md"
   ],
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --out-dir dist",
