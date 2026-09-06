@@ -31,7 +31,7 @@ if ! npm view "$name" version >/dev/null 2>"$view_err"; then
   if grep -q "code E404" "$view_err"; then
     echo "_First publish of this package — nothing to diff against._"
   else
-    echo "::error::Failed to look up $name on the npm registry (not a 404 — could be auth, network, or an outage). Refusing to treat this as a first publish." >&2
+    echo "::error::Failed to look up $name on the npm registry (not a 404, could be auth, network, or an outage)." >&2
     cat "$view_err" >&2
     exit 1
   fi
