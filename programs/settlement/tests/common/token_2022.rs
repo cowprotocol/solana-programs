@@ -45,6 +45,25 @@ pub enum Extensions {
     CloseAuthorityAndTransferFee,
 }
 
+pub struct RequiredInitAccountExtensionType(ExtensionType);
+
+impl RequiredInitAccountExtensionType {
+    /// Copied from the unnecessarily private function in spl_token_2022_interface
+    /// https://docs.rs/spl-token-2022-interface/latest/src/spl_token_2022_interface/extension/mod.rs.html#1296
+    pub fn required_init_account_extensions(&self) -> &'static [ExtensionType] {
+        match self.0 {
+            ExtensionType::TransferFeeConfig => &[ExtensionType::TransferFeeAmount],
+            ExtensionType::NonTransferable => &[
+                ExtensionType::NonTransferableAccount,
+                ExtensionType::ImmutableOwner,
+            ],
+            ExtensionType::TransferHook => &[ExtensionType::TransferHookAccount],
+            ExtensionType::Pausable => &[ExtensionType::PausableAccount],
+            _ => &[],
+        }
+    }
+}
+
 impl Extensions {
     /// The extensions which should be configured on the mint
     fn mint(self) -> &'static [ExtensionType] {
@@ -63,24 +82,33 @@ impl Extensions {
     }
 
     /// The extensions which should be configured on the token account
-    /// Since we are currently only interested in testing the accounts required
-    /// by the mint, we only use 
-    fn token_account(self) -> &'static [ExtensionType] {
-        match self {
-            Self::None => &[],
-            Self::CloseAuthorityOnly => &[],
-            Self::CloseAuthorityAndNonTransferable => &[
-                ExtensionType::NonTransferableAccount,
-                ExtensionType::ImmutableOwner,
-            ],
-            Self::CloseAuthorityAndTransferFee => &[ExtensionType::TransferFeeAmount],
+    /// Includes the required mint accounts by default, plus any additionally
+    /// specified optional token account extensions
+    fn token_account(self) -> Vec<ExtensionType> {
+        let mut extensions = vec![];
+
+        // required extensions by mint
+        for mint_extension in self.mint() {
+            extensions.extend_from_slice(
+                RequiredInitAccountExtensionType(*mint_extension)
+                    .required_init_account_extensions(),
+            );
         }
+
+        // additional extensions for this configuration
+        // more will be added in the future
+        #[allow(clippy::match_single_binding)]
+        extensions.extend_from_slice(match self {
+            _ => &[],
+        });
+
+        extensions
     }
 
     /// The data length a token account holding the mint has to be allocated at,
     /// which is what `create_buffer` asks the token program for.
     pub fn token_account_len(self) -> usize {
-        ExtensionType::try_calculate_account_len::<Account>(self.token_account())
+        ExtensionType::try_calculate_account_len::<Account>(&self.token_account())
             .expect("every account extension used here has a fixed length")
     }
 
