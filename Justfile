@@ -14,9 +14,30 @@ build-test-programs:
 build: build-program
     cargo build
 
+# Runs all the generated code jobs
+generate: generate-js-client
+
+# Builds the JS/TS client from IDL.
+[working-directory: 'programs/settlement/idl']
+@generate-js-client:
+    corepack pnpm install --frozen-lockfile
+    node generate.mjs
+
 # Run the test suite (builds the program first so the .so exists).
 test: build-program build-test-programs
     cargo test
+
+# Run tests from the generated clients from the IDL
+test-idl-generated: test-js-client
+
+# Run the JS client's tests
+[working-directory: 'programs/settlement/idl/client/js']
+@test-js-client: build-program generate-js-client
+    corepack pnpm install --frozen-lockfile
+    corepack pnpm exec vitest run
+
+    # Needed because some tests rely on typescript generating errors if a type changes
+    corepack pnpm run typecheck
 
 # Each test outputs its consumption during test execution to a series of target/bench-report/*.jsonl files.
 # Assembles into a single `bench-report.json`
@@ -48,6 +69,16 @@ fmt:
 # Check that the source code is formatted.
 fmt-check:
     cargo fmt -- --check
+
+# Format the JS client with prettier.
+[working-directory: 'programs/settlement/idl/client/js']
+fmt-js-client:
+    corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --write .
+
+# Check that the JS client is formatted.
+[working-directory: 'programs/settlement/idl/client/js']
+fmt-check-js-client:
+    corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --check .
 
 # Lint the source code with clippy.
 lint:
@@ -85,4 +116,4 @@ deploy programid keypair: build-verified
         initialize \
         || echo "warning: \`initialize\` failed, the state PDA may already exist" >&2
 
-all: build bench lint fmt-check doc-dev
+all: build bench test-js-client lint fmt-check fmt-check-js-client doc-dev
