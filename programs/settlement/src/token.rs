@@ -1,7 +1,7 @@
 //! Token-program validation and token-account reads
 
 use cow_settlement_interface::{
-    token_program::TokenProgram::{self, SplToken},
+    token_program::TokenProgram,
     SettlementError,
 };
 use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView};
