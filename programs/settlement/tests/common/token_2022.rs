@@ -36,18 +36,20 @@ const DECIMALS: u8 = 8;
 const FEE_BASIS_POINTS: u16 = 50;
 const MAXIMUM_FEE: u64 = 1_000;
 
-/// The extension set a test mint is created with.
+/// Defines a set of token account/mint configurations we are interested in testing
 #[derive(Clone, Copy, Debug)]
 pub enum Extensions {
+    None,
     CloseAuthorityOnly,
     CloseAuthorityAndNonTransferable,
     CloseAuthorityAndTransferFee,
 }
 
 impl Extensions {
-    /// The extensions the mint itself is initialized with.
+    /// The extensions which should be configured on the mint
     fn mint(self) -> &'static [ExtensionType] {
         match self {
+            Self::None => &[],
             Self::CloseAuthorityOnly => &[ExtensionType::MintCloseAuthority],
             Self::CloseAuthorityAndNonTransferable => &[
                 ExtensionType::MintCloseAuthority,
@@ -60,11 +62,12 @@ impl Extensions {
         }
     }
 
-    /// The extensions Token-2022 requires of a token account holding the mint.
-    /// Spelled out rather than derived from [`Self::mint`], so the length a test
-    /// expects is stated independently of the program's own bookkeeping.
+    /// The extensions which should be configured on the token account
+    /// Since we are currently only interested in testing the accounts required
+    /// by the mint, we only use 
     fn token_account(self) -> &'static [ExtensionType] {
         match self {
+            Self::None => &[],
             Self::CloseAuthorityOnly => &[],
             Self::CloseAuthorityAndNonTransferable => &[
                 ExtensionType::NonTransferableAccount,

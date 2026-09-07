@@ -3,7 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
-    spl_token::{instruction::initialize_mint2, native_mint, state::Mint},
+    spl_token::{instruction::initialize_mint2, state::Mint},
     Approve, CreateAccount, CreateAssociatedTokenAccount, MintTo, Transfer, TOKEN_ID,
 };
 use solana_program_pack::Pack;
