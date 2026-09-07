@@ -23,4 +23,10 @@ describe("flags", () => {
   it.each(CASES)("decodes %j from %d", (flags, byte) => {
     expect(decodeFlags(byte)).toEqual(flags);
   });
+
+  // Bytes outside the three defined bits carry no meaning to this version of
+  // the program, so decoding has to reject them rather than ignore them.
+  it.each([0b1000, 0b1111, 0xff, 2 ** 32, -1])("rejects %d as reserved", (byte) => {
+    expect(() => decodeFlags(byte)).toThrow(/reserved/);
+  });
 });

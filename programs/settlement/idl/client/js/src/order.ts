@@ -10,6 +10,9 @@ const CREATED_ON_CHAIN = 1 << 0;
 const KIND = 1 << 1;
 const PARTIALLY_FILLABLE = 1 << 2;
 
+// Every bit the encoding defines; the others are reserved.
+const DEFINED = CREATED_ON_CHAIN | KIND | PARTIALLY_FILLABLE;
+
 /** The settings an `OrderIntent`'s `flags` byte packs. */
 export type Flags = {
   /**
@@ -44,9 +47,12 @@ export function encodeFlags({ createdOnChain, kind, partiallyFillable }: Flags):
 }
 
 /**
- * Unpacks a flags byte
+ * Unpacks a flags byte. Throws if a reserved bit is set.
  */
 export function decodeFlags(byte: number): Flags {
+  if (byte < 0 || byte > DEFINED) {
+    throw new Error(`flags byte ${byte} sets a reserved bit`);
+  }
   return {
     createdOnChain: (byte & CREATED_ON_CHAIN) !== 0,
     kind: (byte & KIND) === 0 ? OrderKind.Sell : OrderKind.Buy,
