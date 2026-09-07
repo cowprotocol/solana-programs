@@ -36,9 +36,32 @@ jobs:
         env:
           PROPTEST_RNG_SEED: "0"
         run: just bench
+
+      # Hand the freshly generated report to the separate `bench` job, which
+      # checks it for drift.
+      - name: Upload bench report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-report
+          path: bench-report.json
+          retention-days: 1
+
+  bench:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: bench-report
+          path: generated
+
       - name: Bench does not drift
         run: |
-          git diff --exit-code -- bench-report.json || {
+          diff bench-report.json generated/bench-report.json || {
             echo "bench-report.json is different from committed to CI. run 'just bench' and commit the result" >&2
             exit 1
           }
