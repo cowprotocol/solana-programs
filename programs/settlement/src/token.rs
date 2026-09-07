@@ -122,7 +122,7 @@ mod tests {
     /// The base layout is the same under both programs, so one reader's idea of
     /// its length is the other's too.
     #[test]
-    fn both_programs_share_the_base_layout_length() {
+    fn sanity_check_both_programs_share_the_base_layout_length() {
         assert_eq!(BASE_LEN, pinocchio_token_2022::state::Account::BASE_LEN);
     }
 
