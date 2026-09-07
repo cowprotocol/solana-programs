@@ -24,16 +24,16 @@ use spl_token_2022_interface::{
     state::{Account, Mint},
 };
 
-/// The Token-2022 program, the counterpart of [`super::SPL_TOKEN_PROGRAM_ID`].
+/// The Token-2022 program, spelled once so the builders below can take it.
 const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
 
 /// Decimals every test mint carries, matching [`super::token::create_mint`] so
 /// a legacy and a Token-2022 mint differ only in their program.
 const DECIMALS: u8 = 8;
 
-/// Transfer-fee parameters for [`Extensions::CloseAuthorityAndTransferFee`]. Arbitrary;
-/// nothing reads them back, but `InitializeTransferFeeConfig` demands values.
-const FEE_BASIS_POINTS: u16 = 50;
+/// Transfer-fee parameters for [`Extensions::CloseAuthorityAndTransferFee`].
+/// Default the fee to 0 so that most tests perform the same as if its a regular SPL transfer.
+const FEE_BASIS_POINTS: u16 = 0;
 const MAXIMUM_FEE: u64 = 1_000;
 
 /// Defines a set of token account/mint configurations we are interested in testing
@@ -65,6 +65,10 @@ impl RequiredInitAccountExtensionType {
 }
 
 impl Extensions {
+    /// Include CloseAuthorityAndTransferFee since it makes it mandatory for its token accounts to include an extension
+    /// for better test coverage.
+    pub const DEFAULT: Self = Self::CloseAuthorityAndTransferFee;
+
     /// The extensions which should be configured on the mint
     fn mint(self) -> &'static [ExtensionType] {
         match self {

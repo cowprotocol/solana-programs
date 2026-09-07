@@ -36,10 +36,6 @@ pub const PROGRAM_SO: &str = concat!(
     "/../../target/deploy/cow_settlement.so"
 );
 
-/// The legacy SPL Token program, which the tests create their buffers and
-/// token accounts under unless they exercise Token-2022 specifically.
-pub const SPL_TOKEN_PROGRAM_ID: Pubkey = TokenProgram::SplToken.address();
-
 pub const CPI_CALLER_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/deploy/test_cpi_caller.so"
@@ -265,8 +261,10 @@ pub fn signed_tx(
     owner: &Keypair,
     ix: impl Into<Instruction>,
 ) -> Transaction {
+    let mut instructions = [ix.into()];
+    aim_at_active_token_program(&mut instructions);
     Transaction::new_signed_with_payer(
-        &[ix.into()],
+        &instructions,
         Some(&fee_payer.pubkey()),
         &[fee_payer, owner],
         svm.latest_blockhash(),
@@ -293,8 +291,9 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
 pub fn payer_signed_tx(
     svm: &LiteSVM,
     payer: &Keypair,
-    instructions: Vec<Instruction>,
+    mut instructions: Vec<Instruction>,
 ) -> Transaction {
+    aim_at_active_token_program(&mut instructions);
     Transaction::new_signed_with_payer(
         &instructions,
         Some(&payer.pubkey()),
@@ -302,6 +301,65 @@ pub fn payer_signed_tx(
         svm.latest_blockhash(),
     )
 }
+
+/// Repoint every legacy-SPL-Token account of `instructions` at
+/// [`token::active`], so a test written against the legacy program submits the
+/// same transaction aimed at whichever program it is being run under.
+fn aim_at_active_token_program(instructions: &mut [Instruction]) {
+    let active = token::active();
+    if active == TokenProgram::SplToken {
+        return;
+    }
+    for account in instructions
+        .iter_mut()
+        .flat_map(|instruction| &mut instruction.accounts)
+    {
+        if account.pubkey == TokenProgram::SplToken.address() {
+            account.pubkey = active.address();
+        }
+    }
+}
+
+/// Also run `$test` against Token-2022, as `<test>_token_2022`.
+///
+/// Written in front of the test it applies to:
+///
+/// ```ignore
+/// common::also_under_token_2022!(settles_a_single_order);
+/// #[test]
+/// fn settles_a_single_order() { .. }
+/// ```
+///
+/// The test keeps its own `#[test]`, so it runs twice: once under the legacy SPL
+/// Token program, which is what [`token::active`] reports by default, and once
+/// under Token-2022. Nothing in the body changes — the token helpers and
+/// [`payer_signed_tx`] follow the active program on their own. Naming the test
+/// rather than wrapping it keeps the body's indentation, and a stale name is a
+/// compile error rather than a test that quietly stopped being generated.
+#[allow(
+    unused_macros,
+    reason = "only the suites whose instructions name a token program generate the pair"
+)]
+macro_rules! also_under_token_2022 {
+    ($($test:ident),+ $(,)?) => {
+        $(
+            pastey::paste! {
+                #[test]
+                fn [<$test _token_2022>]() {
+                    $crate::common::token::under_token_program(
+                        cow_settlement_interface::token_program::TokenProgram::Token2022,
+                        $test,
+                    );
+                }
+            }
+        )+
+    };
+}
+#[allow(
+    unused_imports,
+    reason = "re-exported for the suites that use the macro; the others never name it"
+)]
+pub(crate) use also_under_token_2022;
 
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
 /// surfacing only the transaction-level error on failure (dropping the success
