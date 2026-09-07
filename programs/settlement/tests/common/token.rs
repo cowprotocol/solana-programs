@@ -54,24 +54,6 @@ pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pub
     mint.pubkey()
 }
 
-/// Seed the wrapped-SOL mint account, which `LiteSVM` does not create.
-pub fn create_native_mint(svm: &mut LiteSVM) {
-    /// The native mint's fixed decimals, matching `spl_token::native_mint`.
-    const DECIMALS: u8 = 9;
-
-    let mut data = vec![0u8; Mint::LEN];
-    Mint {
-        mint_authority: None.into(),
-        supply: 0,
-        decimals: DECIMALS,
-        is_initialized: true,
-        freeze_authority: None.into(),
-    }
-    .pack_into_slice(&mut data);
-    let token_program = Pubkey::new_from_array(TOKEN_ID.to_bytes());
-    super::create_account_at(svm, native_mint::ID, &token_program, &data);
-}
-
 /// Create an initialized SPL token account for `mint` whose SPL owner is
 /// `owner`, funded by `payer`, and return its address. Each call produces a
 /// fresh account, so the same `owner` can hold several accounts for one `mint`.
