@@ -402,7 +402,7 @@ fn reclaims_a_buffer_whose_mint_was_reopened_with_another_extension() {
                 svm,
                 payer,
                 mint_keypair,
-                Extensions::WithNonTransferable,
+                Extensions::CloseAuthorityAndNonTransferable,
             );
         },
     );

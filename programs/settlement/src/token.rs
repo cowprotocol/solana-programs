@@ -1,9 +1,6 @@
 //! Token-program validation and token-account reads
 
-use cow_settlement_interface::{
-    token_program::TokenProgram,
-    SettlementError,
-};
+use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
 use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView};
 use pinocchio_token::instructions::GetAccountDataSize;
 
@@ -86,6 +83,13 @@ mod tests {
     use pinocchio_token::state::Mint;
     use pinocchio_token_2022::state::AccountType;
     use solana_program_pack::Pack;
+    use spl_token_2022_interface::{
+        extension::{
+            transfer_fee::TransferFeeAmount, BaseStateWithExtensionsMut, ExtensionType,
+            StateWithExtensionsMut,
+        },
+        state::{Account as Token2022TokenAccount, AccountState as Token2022AccountState},
+    };
 
     /// The length of a token account holding nothing but the base layout. Both
     /// programs share it: it is Token-2022's `BASE_LEN` and the whole of a
@@ -105,6 +109,37 @@ mod tests {
             ..Default::default()
         }
         .pack_into_slice(&mut data);
+        data
+    }
+
+    /// A Token-2022 account holding `amount` of `mint` for `owner`, extended
+    /// with the `TransferFeeAmount` extension. Built through the token program's own TLV
+    /// writers.
+    fn extended_token_2022_account_layout(mint: Address, owner: Address, amount: u64) -> Vec<u8> {
+        let len = ExtensionType::try_calculate_account_len::<Token2022TokenAccount>(&[
+            ExtensionType::TransferFeeAmount,
+        ])
+        .expect("TransferFeeAmount has a fixed length");
+        let mut data = vec![0u8; len];
+
+        let mut state =
+            StateWithExtensionsMut::<Token2022TokenAccount>::unpack_uninitialized(&mut data)
+                .expect("a zeroed buffer of the right length is an uninitialized account");
+        state
+            .init_extension::<TransferFeeAmount>(true)
+            .expect("the buffer is sized for the extension");
+        state.base = Token2022TokenAccount {
+            mint,
+            owner,
+            amount,
+            state: Token2022AccountState::Initialized,
+            ..Default::default()
+        };
+        state.pack_base();
+        state
+            .init_account_type()
+            .expect("the extension belongs to a token account");
+
         data
     }
 
@@ -133,11 +168,11 @@ mod tests {
     fn token_account_len_is_base_length_for_spl_program() {
         let mint = fake_account_owned_by(
             pubkey_from_seed("mint"),
-            SplToken.address(),
+            TokenProgram::SplToken.address(),
             &[0u8; Mint::LEN],
         );
         assert_eq!(
-            token_account_len(SplToken, &mint),
+            token_account_len(TokenProgram::SplToken, &mint),
             Ok(BASE_TOKEN_ACCOUNT_LEN),
             "SPL owned mint should yield ase length",
         );
@@ -193,16 +228,10 @@ mod tests {
     fn read_token_account_reads_past_token_2022_extensions() {
         let mint = pubkey_from_seed("extended mint");
         let owner = pubkey_from_seed("extended owner");
-        let mut data = base_account_layout(mint, owner, 7);
-        // Extensions are preceded by the account-type marker, which is what
-        // distinguishes a longer account from a mint of the same size.
-        data.push(AccountType::Account as u8);
-        data.extend_from_slice(&[0xab; 16]);
-
         let account = fake_account_owned_by(
             pubkey_from_seed("token account"),
             TokenProgram::Token2022.address(),
-            &data,
+            &extended_token_2022_account_layout(mint, owner, 7),
         );
         let read = read_token_account(TokenProgram::Token2022, &account)
             .expect("an extended Token-2022 account should read");

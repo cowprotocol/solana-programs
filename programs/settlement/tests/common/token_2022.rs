@@ -31,7 +31,7 @@ const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
 /// a legacy and a Token-2022 mint differ only in their program.
 const DECIMALS: u8 = 8;
 
-/// Transfer-fee parameters for [`Extensions::WithTransferFee`]. Arbitrary;
+/// Transfer-fee parameters for [`Extensions::CloseAuthorityAndTransferFee`]. Arbitrary;
 /// nothing reads them back, but `InitializeTransferFeeConfig` demands values.
 const FEE_BASIS_POINTS: u16 = 50;
 const MAXIMUM_FEE: u64 = 1_000;
@@ -49,11 +49,11 @@ impl Extensions {
     fn mint(self) -> &'static [ExtensionType] {
         match self {
             Self::CloseAuthorityOnly => &[ExtensionType::MintCloseAuthority],
-            Self::WithNonTransferable => &[
+            Self::CloseAuthorityAndNonTransferable => &[
                 ExtensionType::MintCloseAuthority,
                 ExtensionType::NonTransferable,
             ],
-            Self::WithTransferFee => &[
+            Self::CloseAuthorityAndTransferFee => &[
                 ExtensionType::MintCloseAuthority,
                 ExtensionType::TransferFeeConfig,
             ],
@@ -66,11 +66,11 @@ impl Extensions {
     fn token_account(self) -> &'static [ExtensionType] {
         match self {
             Self::CloseAuthorityOnly => &[],
-            Self::WithNonTransferable => &[
+            Self::CloseAuthorityAndNonTransferable => &[
                 ExtensionType::NonTransferableAccount,
                 ExtensionType::ImmutableOwner,
             ],
-            Self::WithTransferFee => &[ExtensionType::TransferFeeAmount],
+            Self::CloseAuthorityAndTransferFee => &[ExtensionType::TransferFeeAmount],
         }
     }
 

@@ -520,8 +520,8 @@ fn sizes_a_token_2022_buffer_to_the_extensions_its_mint_forces() {
 
     for extensions in [
         Extensions::CloseAuthorityOnly,
-        Extensions::WithNonTransferable,
-        Extensions::WithTransferFee,
+        Extensions::CloseAuthorityAndNonTransferable,
+        Extensions::CloseAuthorityAndTransferFee,
     ] {
         let mint = common::token_2022::create_mint(&mut svm, &payer, &unique_keypair(), extensions);
         let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
