@@ -18,10 +18,10 @@
     "format:check": "prettier --check ."
   },
   "peerDependencies": {
-    "@solana/kit": "^8.0.0"
+    "@solana/kit": "^8"
   },
   "dependencies": {
-    "@solana/program-client-core": "^8.x"
+    "@solana/program-client-core": "^8"
   },
   "devDependencies": {
     "@solana/kit": "^8.0.0",
