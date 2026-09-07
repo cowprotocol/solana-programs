@@ -72,13 +72,12 @@ pub fn process_add_solver(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::add_solver::fixtures::{
         add_solver_data, NUM_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
     use pinocchio::error::ProgramError;
-
-    const PROGRAM_ID: Address = Address::new_from_array([0xc0; 32]);
 
     #[test]
     fn process_add_solver_propagates_parse_error() {
@@ -93,8 +92,8 @@ mod tests {
 
     #[test]
     fn process_add_solver_rejects_non_canonical_state_pda() {
-        // `fake_sequential_accounts` puts the state PDA at `[3; 32]`, which is
-        // not the canonical state PDA for this program.
+        // `fake_sequential_accounts` puts the state PDA at some arbitrary
+        // address, which is not the canonical state PDA for this program.
         let data = add_solver_data();
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(

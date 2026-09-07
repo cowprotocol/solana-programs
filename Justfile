@@ -18,8 +18,10 @@ build: build-program
 generate: generate-js-client
 
 # Builds the JS/TS client from IDL.
-generate-js-client:
-    cd programs/settlement/idl && corepack pnpm install --frozen-lockfile && node generate.mjs
+[working-directory: 'programs/settlement/idl']
+@generate-js-client:
+    corepack pnpm install --frozen-lockfile
+    node generate.mjs
 
 # Run the test suite (builds the program first so the .so exists).
 test: build-program build-test-programs
@@ -29,8 +31,13 @@ test: build-program build-test-programs
 test-idl-generated: test-js-client
 
 # Run the JS client's tests
-test-js-client: build-program generate-js-client
-    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec vitest run
+[working-directory: 'programs/settlement/idl/client/js']
+@test-js-client: build-program generate-js-client
+    corepack pnpm install --frozen-lockfile
+    corepack pnpm exec vitest run
+
+    # Needed because some tests rely on typescript generating errors if a type changes
+    corepack pnpm run typecheck
 
 # Each test outputs its consumption during test execution to a series of target/bench-report/*.jsonl files.
 # Assembles into a single `bench-report.json`
@@ -63,6 +70,16 @@ fmt:
 fmt-check:
     cargo fmt -- --check
 
+# Format the JS client with prettier.
+[working-directory: 'programs/settlement/idl/client/js']
+fmt-js-client:
+    corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --write .
+
+# Check that the JS client is formatted.
+[working-directory: 'programs/settlement/idl/client/js']
+fmt-check-js-client:
+    corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --check .
+
 # Lint the source code with clippy.
 lint:
     cargo clippy --workspace --all-targets --all-features -- --deny=warnings
@@ -76,8 +93,10 @@ doc-dev *args:
     cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]' {{ args }}
 
 # Build the publishable TS/JS client package (bundles the Codama-generated code plus hand-written wrappers).
-build-js-client: generate-js-client
-    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm run build
+[working-directory: 'programs/settlement/idl/client/js']
+@build-js-client: generate-js-client
+    corepack pnpm install --frozen-lockfile
+    corepack pnpm run build
 
 # Build the settlement program using solana-verify's reproducible Docker build.
 # Installs solana-verify via cargo if not already present (same as CI).
@@ -103,4 +122,4 @@ deploy programid keypair: build-verified
         initialize \
         || echo "warning: \`initialize\` failed, the state PDA may already exist" >&2
 
-all: build bench test-js-client lint fmt-check doc-dev
+all: build bench test-js-client lint fmt-check fmt-check-js-client doc-dev

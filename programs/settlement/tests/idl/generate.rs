@@ -109,6 +109,11 @@ const INSTRUCTIONS: &[Instruction] = &[
         input: &parse_rust::ADD_SOLVER_RS,
         pda_accounts: &[("state_pda", STATE_PDA)],
     },
+    Instruction {
+        variant: SettlementInstruction::RemoveSolver,
+        input: &parse_rust::REMOVE_SOLVER_RS,
+        pda_accounts: &[("state_pda", STATE_PDA)],
+    },
 ];
 
 /// The struct types the IDL defines, as `(source, Rust name, IDL name)`. The

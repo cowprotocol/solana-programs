@@ -13,13 +13,12 @@ export async function buildOrderIntent(
 ): Promise<OrderIntentArgs> {
   // create_order doesn't actually check the token accounts or mints the intent names, so
   // they only have to be distinct addresses.
-  const [buyTokenAccount, buyMint, sellTokenAccount, sellMint] =
-    await Promise.all([
-      generateKeyPairSigner(),
-      generateKeyPairSigner(),
-      generateKeyPairSigner(),
-      generateKeyPairSigner(),
-    ]);
+  const [buyTokenAccount, buyMint, sellTokenAccount, sellMint] = await Promise.all([
+    generateKeyPairSigner(),
+    generateKeyPairSigner(),
+    generateKeyPairSigner(),
+    generateKeyPairSigner(),
+  ]);
   return {
     buyTokenAccount: buyTokenAccount.address,
     buyMint: buyMint.address,

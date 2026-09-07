@@ -47,29 +47,37 @@ describe("createOrder", () => {
 
     const result = svm.sendTransaction(tx);
     if ("err" in result) {
-      throw new Error(
-        `createOrder failed: ${result.toString()}\n${result.meta().prettyLogs()}`,
-      );
+      throw new Error(`createOrder failed: ${result.toString()}\n${result.meta().prettyLogs()}`);
     }
 
     const { value: orderPda } = await resolveOrderPda({
       programAddress: COW_SETTLEMENT_PROGRAM_ADDRESS,
       args: { intent },
     });
-    
+
     const account = svm.getAccount(orderPda);
     expect(account.exists).toBe(true);
     assertAccountExists(account);
 
-    const decoded = getOrderAccountDecoder().decode(account.data);
-    expect(decoded.cancelled).toBe(false);
-    expect(decoded.amountWithdrawn).toBe(0n);
-    expect(decoded.amountReceived).toBe(0n);
-    expect(decoded.createdBy).toBe(owner.address);
-    expect(decoded.intent).toEqual({
-      ...intent,
-      sellAmount: BigInt(intent.sellAmount),
-      buyAmount: BigInt(intent.buyAmount),
-    });
+    const {
+      discriminator,
+      bump,
+      cancelled,
+      amountWithdrawn,
+      amountReceived,
+      createdBy,
+      intent: decodedIntent,
+      ...rest
+    } = getOrderAccountDecoder().decode(account.data);
+    // Compile error the day someone adds a field to OrderAccount and doesn't list it above:
+    const _: Record<string, never> = rest;
+
+    expect(typeof discriminator).toBe("object");
+    expect(typeof bump).toBe("number");
+    expect(cancelled).toBe(false);
+    expect(amountWithdrawn).toBe(0n);
+    expect(amountReceived).toBe(0n);
+    expect(createdBy).toBe(owner.address);
+    expect(decodedIntent).toEqual(intent);
   });
 });
