@@ -12,6 +12,7 @@
     "./src/"
   ],
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

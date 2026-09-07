@@ -60,6 +60,8 @@ describe("createOrder", () => {
     assertAccountExists(account);
 
     const {
+      discriminator,
+      bump,
       cancelled,
       amountWithdrawn,
       amountReceived,
@@ -70,6 +72,8 @@ describe("createOrder", () => {
     // Compile error the day someone adds a field to OrderAccount and doesn't list it above:
     const _: Record<string, never> = rest;
 
+    expect(typeof discriminator).toBe("object");
+    expect(typeof bump).toBe("number");
     expect(cancelled).toBe(false);
     expect(amountWithdrawn).toBe(0n);
     expect(amountReceived).toBe(0n);

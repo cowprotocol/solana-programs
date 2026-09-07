@@ -18,8 +18,10 @@ build: build-program
 generate: generate-js-client
 
 # Builds the JS/TS client from IDL.
-generate-js-client:
-    cd programs/settlement/idl && corepack pnpm install --frozen-lockfile && node generate.mjs
+[working-directory: 'programs/settlement/idl']
+@generate-js-client:
+    corepack pnpm install --frozen-lockfile
+    node generate.mjs
 
 # Run the test suite (builds the program first so the .so exists).
 test: build-program build-test-programs
@@ -29,8 +31,13 @@ test: build-program build-test-programs
 test-idl-generated: test-js-client
 
 # Run the JS client's tests
-test-js-client: build-program generate-js-client
-    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec vitest run
+[working-directory: 'programs/settlement/idl/client/js']
+@test-js-client: build-program generate-js-client
+    corepack pnpm install --frozen-lockfile
+    corepack pnpm exec vitest run
+
+    # Needed because some tests rely on typescript generating errors if a type changes
+    corepack pnpm run typecheck
 
 # Each test outputs its consumption during test execution to a series of target/bench-report/*.jsonl files.
 # Assembles into a single `bench-report.json`
