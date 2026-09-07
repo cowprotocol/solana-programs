@@ -12,9 +12,12 @@ use pinocchio::{
 };
 use pinocchio_token::instructions::Transfer;
 
-use crate::processor::{is_cpi_call, with_state_pda_signer};
+use crate::{
+    processor::{is_cpi_call, with_state_pda_signer},
+    token::validate_token_program,
+};
 
-use super::{validate_counterpart, validate_token_program_account};
+use super::validate_counterpart;
 
 pub fn process_finalize_settle(
     program_id: &Address,
@@ -44,7 +47,7 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    validate_token_program_account(input.token_program_account)?;
+    validate_token_program(input.token_program_account)?;
 
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
         push_funds(input.state_pda_account, state_pda_signer, input.pushes)

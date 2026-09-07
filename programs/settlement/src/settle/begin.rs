@@ -29,11 +29,12 @@ use pinocchio::{
 };
 use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
 
-use crate::processor::{
-    check_state_pda, is_cpi_call, require_solver, with_state_pda_signer_from_bump,
+use crate::{
+    processor::{check_state_pda, is_cpi_call, require_solver, with_state_pda_signer_from_bump},
+    token::validate_token_program,
 };
 
-use super::{validate_counterpart, validate_token_program_account};
+use super::validate_counterpart;
 
 pub fn process_begin_settle(
     program_id: &Address,
@@ -75,7 +76,7 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    validate_token_program_account(input.token_program_account)?;
+    validate_token_program(input.token_program_account)?;
 
     with_state_pda_signer_from_bump(state_bump, |signer| {
         settle_orders(

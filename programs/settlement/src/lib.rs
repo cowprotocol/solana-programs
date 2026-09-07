@@ -12,6 +12,7 @@ mod reclaim_buffer;
 mod reclaim_order;
 mod remove_solver;
 mod settle;
+mod token;
 mod transfer_authority;
 
 use add_solver::process_add_solver;
