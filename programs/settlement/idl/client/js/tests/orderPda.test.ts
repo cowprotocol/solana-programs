@@ -1,14 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { getAddressDecoder } from "@solana/kit";
-import {
-  getOrderIntentEncoder,
-  OrderKind,
-  type OrderIntentArgs,
-} from "../src/generated";
+import { getOrderIntentEncoder, OrderKind, type OrderIntentArgs } from "../src/generated";
 import { encodeFlags } from "../src/order";
 
-const address = (byte: number) =>
-  getAddressDecoder().decode(new Uint8Array(32).fill(byte));
+const address = (byte: number) => getAddressDecoder().decode(new Uint8Array(32).fill(byte));
 
 // Same as used in Rust (interface/src/data/intent.rs)
 const SAMPLE_INTENT: OrderIntentArgs = {
@@ -29,8 +24,7 @@ const SAMPLE_INTENT: OrderIntentArgs = {
 };
 
 // `uid_digest_regression` in interface/src/data/intent.rs.
-const SAMPLE_UID =
-  "de4096c6c100056f1e4636ea4fafefad40fc1d0b37692fe3ca1e0db3644b86bd";
+const SAMPLE_UID = "de4096c6c100056f1e4636ea4fafefad40fc1d0b37692fe3ca1e0db3644b86bd";
 
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");

@@ -35,11 +35,7 @@ export type Flags = {
 };
 
 /** Packs the settings into a valid canonical flags byte. */
-export function encodeFlags({
-  createdOnChain,
-  kind,
-  partiallyFillable,
-}: Flags): number {
+export function encodeFlags({ createdOnChain, kind, partiallyFillable }: Flags): number {
   return (
     (createdOnChain ? CREATED_ON_CHAIN : 0) |
     (kind === OrderKind.Buy ? KIND : 0) |

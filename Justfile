@@ -63,6 +63,14 @@ fmt:
 fmt-check:
     cargo fmt -- --check
 
+# Format the JS client with prettier.
+fmt-js-client:
+    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --write .
+
+# Check that the JS client is formatted.
+fmt-check-js-client:
+    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --check .
+
 # Lint the source code with clippy.
 lint:
     cargo clippy --workspace --all-targets --all-features -- --deny=warnings
@@ -99,4 +107,4 @@ deploy programid keypair: build-verified
         initialize \
         || echo "warning: \`initialize\` failed, the state PDA may already exist" >&2
 
-all: build bench test-js-client lint fmt-check doc-dev
+all: build bench test-js-client lint fmt-check fmt-check-js-client doc-dev

@@ -47,21 +47,26 @@ describe("createOrder", () => {
 
     const result = svm.sendTransaction(tx);
     if ("err" in result) {
-      throw new Error(
-        `createOrder failed: ${result.toString()}\n${result.meta().prettyLogs()}`,
-      );
+      throw new Error(`createOrder failed: ${result.toString()}\n${result.meta().prettyLogs()}`);
     }
 
     const { value: orderPda } = await resolveOrderPda({
       programAddress: COW_SETTLEMENT_PROGRAM_ADDRESS,
       args: { intent },
     });
-    
+
     const account = svm.getAccount(orderPda);
     expect(account.exists).toBe(true);
     assertAccountExists(account);
 
-    const { cancelled, amountWithdrawn, amountReceived, createdBy, intent: decodedIntent, ...rest } = getOrderAccountDecoder().decode(account.data);
+    const {
+      cancelled,
+      amountWithdrawn,
+      amountReceived,
+      createdBy,
+      intent: decodedIntent,
+      ...rest
+    } = getOrderAccountDecoder().decode(account.data);
     // Compile error the day someone adds a field to OrderAccount and doesn't list it above:
     const _: Record<string, never> = rest;
 
