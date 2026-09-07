@@ -9,26 +9,26 @@ importers:
   .:
     dependencies:
       '@solana/program-client-core':
-        specifier: ^8.x
+        specifier: ^8
         version: 8.2.0(typescript@5.9.3)
     devDependencies:
       '@solana/kit':
-        specifier: ^8.0.0
+        specifier: ^8
         version: 8.2.0(typescript@5.9.3)
       '@types/node':
-        specifier: ^24.0.0
+        specifier: ^24
         version: 24.13.3
       litesvm:
-        specifier: ^1.0.0
+        specifier: ^1
         version: 1.4.1(typescript@5.9.3)
       prettier:
-        specifier: ^3.0.0
+        specifier: ^3
         version: 3.9.6
       typescript:
-        specifier: ^5.0.0
+        specifier: ^5
         version: 5.9.3
       vitest:
-        specifier: ^3.0.0
+        specifier: ^3
         version: 3.2.7(@types/node@24.13.3)
 
 packages:

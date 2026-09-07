@@ -24,11 +24,11 @@
     "@solana/program-client-core": "^8"
   },
   "devDependencies": {
-    "@solana/kit": "^8.0.0",
-    "@types/node": "^24.0.0",
-    "litesvm": "^1.0.0",
-    "prettier": "^3.0.0",
-    "typescript": "^5.0.0",
-    "vitest": "^3.0.0"
+    "@solana/kit": "^8",
+    "@types/node": "^24",
+    "litesvm": "^1",
+    "prettier": "^3",
+    "typescript": "^5",
+    "vitest": "^3"
   }
 }
