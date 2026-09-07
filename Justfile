@@ -71,12 +71,14 @@ fmt-check:
     cargo fmt -- --check
 
 # Format the JS client with prettier.
+[working-directory: 'programs/settlement/idl/client/js']
 fmt-js-client:
-    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --write .
+    corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --write .
 
 # Check that the JS client is formatted.
+[working-directory: 'programs/settlement/idl/client/js']
 fmt-check-js-client:
-    cd programs/settlement/idl/client/js && corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --check .
+    corepack pnpm install --frozen-lockfile && corepack pnpm exec prettier --check .
 
 # Lint the source code with clippy.
 lint:
