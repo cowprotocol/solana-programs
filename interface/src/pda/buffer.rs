@@ -16,8 +16,8 @@
 //! contents are stranded.
 //!
 //! Unlike the order PDA, which stores its own bump (see
-//! [`crate::data::order::OrderAccount`]), a buffer is a fixed-size SPL token
-//! account with no room for one.
+//! [`crate::data::order::OrderAccount`]), a buffer's layout belongs entirely to
+//! the token program, leaving no room for one.
 
 use solana_address::Address;
 use solana_program_error::ProgramError;

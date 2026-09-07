@@ -13,9 +13,11 @@ pub mod pda;
 pub mod settlement;
 pub mod state;
 pub mod token;
+pub mod token_2022;
 
 use cow_settlement_client::instructions::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
+use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::SettlementError;
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -33,6 +35,10 @@ pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/deploy/cow_settlement.so"
 );
+
+/// The legacy SPL Token program, which the tests create their buffers and
+/// token accounts under unless they exercise Token-2022 specifically.
+pub const SPL_TOKEN_PROGRAM_ID: Pubkey = TokenProgram::SplToken.address();
 
 pub const CPI_CALLER_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
