@@ -25,26 +25,29 @@ pub fn token_account_len(
     token_program: TokenProgram,
     mint: &AccountView,
 ) -> Result<u64, ProgramError> {
-    // Early return for SPL token (saves the GetAccountDataSize CPI call)
-    if token_program == SplToken {
-        return Ok(BASE_TOKEN_ACCOUNT_LEN);
+    match token_program {
+        // SPL token accounts are always the base length, so skip the CPI.
+        TokenProgram::SplToken => Ok(BASE_TOKEN_ACCOUNT_LEN),
+        // Token-2022 accounts vary with the mint's extensions. This mirrors the
+        // SPL Associated Token Account program's `get_account_len`:
+        // https://github.com/solana-program/associated-token-account/blob/2dc55ee1009d787eea7e1c401b8f27e6892bff4b/program/src/tools/account.rs#L72-L97
+        TokenProgram::Token2022 => {
+            GetAccountDataSize::new(mint)
+                .invoke_with_unverified_program(&TokenProgram::Token2022.address())?;
+            get_return_data()
+                .ok_or(SettlementError::BufferSizeUnavailable.into())
+                .and_then(|reported| {
+                    if reported.program_id() != &TokenProgram::Token2022.address() {
+                        return Err(SettlementError::BufferSizeUnavailable.into());
+                    }
+                    reported
+                        .as_slice()
+                        .try_into()
+                        .map(u64::from_le_bytes)
+                        .map_err(|_| SettlementError::BufferSizeUnavailable.into())
+                })
+        }
     }
-
-    let token_program = token_program.address();
-    // SPL token provides a function to get the actual required account data size
-    GetAccountDataSize::new(mint).invoke_with_unverified_program(&token_program)?;
-
-    let reported = get_return_data().ok_or(SettlementError::BufferSizeUnavailable)?;
-    if reported.program_id() != &token_program {
-        return Err(SettlementError::BufferSizeUnavailable.into());
-    }
-    let length: [u8; 8] = reported
-        .as_slice()
-        .try_into()
-        .map_err(|_| SettlementError::BufferSizeUnavailable)?;
-    let length = u64::from_le_bytes(length);
-
-    Ok(length)
 }
 
 /// The base-layout fields of a token account, as read by
