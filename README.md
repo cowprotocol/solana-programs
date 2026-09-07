@@ -173,7 +173,7 @@ Block explorers will then use the IDL to show decoded transactions to the user.
 
 ```sh
 settlement_program_address="the IDL will be registered for the program at the address specified in this string"
-npx @solana-program/program-metadata@latest write idl "$settlement_program_address" ./programs/settlement/idl/cow_settlement.json --keypair ./deployer-keypair.json
+npx @solana-program/program-metadata@v0.9.3 write idl "$settlement_program_address" ./programs/settlement/idl/cow_settlement.json --keypair ./deployer-keypair.json
 ```
 
 ## License
