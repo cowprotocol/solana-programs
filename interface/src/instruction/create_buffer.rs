@@ -76,7 +76,6 @@ pub struct BufferAccounts<'a, A> {
 /// Parsed inputs of a `CreateBuffer` instruction.
 pub struct CreateBufferInput<'a, A> {
     pub payer: &'a A,
-    pub token_program: &'a A,
     buffer_pairs: &'a [[A; 2]],
 }
 
@@ -98,10 +97,11 @@ impl<'a, A> InstructionInputParsing<'a, A> for CreateBufferInput<'a, A> {
         }
         // Accounts: [payer (W,S), system_program (R), token_program (R),
         // (buffer_pda (W), mint (R))...]. The three shared accounts come first;
-        // the per-buffer pairs follow, one pair per buffer. The system program
-        // needs to be present for the `CreateAccount` CPI but isn't dereferenced
-        // here.
-        let [payer, _system, token_program, rest @ ..] = accounts else {
+        // the per-buffer pairs follow, one pair per buffer. Neither program is
+        // dereferenced here: they need to be present for the `CreateAccount`
+        // and `InitializeAccount3` CPIs to dispatch, and each buffer's program
+        // is the one that owns its mint.
+        let [payer, _system, _token_program, rest @ ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
         // Group the trailing accounts into `[buffer_pda, mint]` pairs. Each
@@ -116,7 +116,6 @@ impl<'a, A> InstructionInputParsing<'a, A> for CreateBufferInput<'a, A> {
 
         Ok(Self {
             payer,
-            token_program,
             buffer_pairs: buffers,
         })
     }
@@ -186,7 +185,6 @@ mod tests {
         let input = CreateBufferInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(*input.payer.address(), payer);
-        assert_eq!(*input.token_program.address(), token_program);
         let buffers: Vec<_> = input.buffers().collect();
         assert_eq!(buffers.len(), 1, "one buffer is one (pda, mint) pair");
         assert_eq!(*buffers[0].buffer_pda.address(), buffer_pda);

@@ -14,7 +14,7 @@ use pinocchio_token::instructions::Transfer;
 
 use crate::{
     processor::{is_cpi_call, with_state_pda_signer},
-    token::TokenPrograms,
+    token::owning_token_program,
 };
 
 use super::validate_counterpart;
@@ -47,18 +47,8 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    let token_programs = TokenPrograms::validate(
-        input.spl_token_program_account,
-        input.token_2022_program_account,
-    )?;
-
     with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
-        push_funds(
-            input.state_pda_account,
-            state_pda_signer,
-            input.pushes,
-            &token_programs,
-        )
+        push_funds(input.state_pda_account, state_pda_signer, input.pushes)
     })
 }
 
@@ -77,16 +67,13 @@ fn push_funds<'a>(
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
     pushes: Pushes<'a, AccountView>,
-    token_programs: &TokenPrograms,
 ) -> ProgramResult {
     for push in pushes.iter() {
         // The push moves this destination's tokens, so it is issued against the
-        // token program that owns it — the one this settlement has to be
-        // carrying. An account under neither program isn't a token account at
-        // all.
-        let token_program = token_programs
-            .program_for(push.destination)?
-            .ok_or(SettlementError::PushDestinationInvalid)?;
+        // token program that owns it. An account under neither program isn't a
+        // token account at all.
+        let token_program = owning_token_program(push.destination)
+            .map_err(|_| SettlementError::PushDestinationInvalid)?;
         Transfer::new(
             push.source_buffer,
             push.destination,

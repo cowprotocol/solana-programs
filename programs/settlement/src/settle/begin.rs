@@ -31,7 +31,7 @@ use pinocchio_token::instructions::Transfer;
 
 use crate::{
     processor::{check_state_pda, is_cpi_call, require_solver, with_state_pda_signer_from_bump},
-    token::{read_token_account, TokenPrograms},
+    token::{owning_token_program, read_token_account},
 };
 
 use super::validate_counterpart;
@@ -76,11 +76,6 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    let token_programs = TokenPrograms::validate(
-        input.spl_token_program_account,
-        input.token_2022_program_account,
-    )?;
-
     with_state_pda_signer_from_bump(state_bump, |signer| {
         settle_orders(
             program_id,
@@ -88,7 +83,6 @@ pub fn process_begin_settle(
             signer,
             &input.orders,
             &finalize_ix,
-            &token_programs,
         )
     })
 }
@@ -209,7 +203,6 @@ fn settle_orders(
     state_pda_signer: &Signer,
     orders: &SettledOrders<'_, AccountView>,
     finalize_ix: &IntrospectedInstruction,
-    token_programs: &TokenPrograms,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
@@ -240,7 +233,6 @@ fn settle_orders(
             now,
             state_pda_account,
             state_pda_signer,
-            token_programs,
         )?;
     }
 
@@ -264,7 +256,6 @@ fn process_order(
     now: i64,
     state_account: &AccountView,
     state_pda_signer: &Signer,
-    token_programs: &TokenPrograms,
 ) -> ProgramResult {
     let SettledOrder {
         order_pda,
@@ -303,11 +294,10 @@ fn process_order(
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
     // The pulls below move this account's tokens, so they are issued against
-    // the token program that owns it — the one this settlement has to be
-    // carrying. An account under neither program isn't a token account at all.
-    let token_program = token_programs
-        .program_for(sell_token_account)?
-        .ok_or(SettlementError::SellTokenAccountInvalid)?;
+    // the token program that owns it. An account under neither program isn't a
+    // token account at all.
+    let token_program = owning_token_program(sell_token_account)
+        .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
     // Assert the order intent owner and sell mint match those of the sell token
     // account.
     // `read_token_account` confirms this is a real token account of that token

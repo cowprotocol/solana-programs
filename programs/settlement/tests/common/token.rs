@@ -11,6 +11,7 @@ use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
     spl_token::{
         instruction::{approve, initialize_account3, initialize_mint2, mint_to as mint_to_ix},
+        native_mint,
         state::{Account, Mint},
     },
     CreateAssociatedTokenAccount, Transfer, TOKEN_ID,
@@ -66,6 +67,23 @@ fn send_token_tx(
     );
     svm.send_transaction(tx)
         .unwrap_or_else(|error| panic!("{what} should succeed: {error:?}"));
+}
+
+/// Plant the native mint (wrapped SOL) at its well-known address, owned by the
+/// legacy SPL Token program.
+///
+/// Every cluster carries this mint already; LiteSVM starts without it, so a
+/// test that works with wrapped SOL has to put it there. Its body is what a
+/// real one holds: no authorities, no supply, and the native decimals.
+pub fn create_native_mint(svm: &mut LiteSVM) {
+    let mut data = vec![0u8; Mint::LEN];
+    Mint {
+        decimals: native_mint::DECIMALS,
+        is_initialized: true,
+        ..Default::default()
+    }
+    .pack_into_slice(&mut data);
+    super::create_account_at(svm, native_mint::ID, &TOKEN_ID, &data);
 }
 
 /// Create a fresh mint under the legacy SPL Token program, owned by `payer`,
