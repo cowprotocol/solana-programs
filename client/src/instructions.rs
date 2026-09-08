@@ -318,12 +318,12 @@ mod tests {
         instruction::{
             fixtures::fake_account_from_array,
             settle::{
-                BeginSettleInput, FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID,
-                SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID,
+                BeginSettleInput, FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
             },
             InstructionInputParsing,
         },
         pda::order::find_order_pda,
+        token_program::SYSTEM_PROGRAM_ID,
     };
 
     proptest! {

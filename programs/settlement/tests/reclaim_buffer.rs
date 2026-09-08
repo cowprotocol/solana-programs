@@ -459,7 +459,7 @@ fn reclaims_a_buffer_whose_mint_was_reopened_as_a_legacy_mint() {
         svm.get_account(&mint)
             .expect("the reopened mint should exist")
             .owner,
-        common::SPL_TOKEN_PROGRAM_ID,
+        TokenProgram::SplToken.address(),
         "sanity: the mint must now belong to the legacy program"
     );
 

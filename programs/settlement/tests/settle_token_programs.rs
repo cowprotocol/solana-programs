@@ -12,12 +12,10 @@ use crate::common::{
     assert_settlement_error, buffer,
     order::OrderBuilder,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
-    setup, token, unique_pubkey,
+    setup_settle_ready, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::OrderIntent,
-    token_program::{SPL_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID},
-    Instruction, SettlementError,
+    data::intent::OrderIntent, token_program::TokenProgram, Instruction, SettlementError,
 };
 use cow_settlement_client::instructions::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenPrograms,
@@ -49,6 +47,7 @@ fn settle_with(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
+    solver: &Keypair,
     orders: &[Settled],
     begin_programs: TokenPrograms,
     finalize_programs: TokenPrograms,
@@ -79,13 +78,13 @@ fn settle_with(
         buffer::ensure_funded(svm, program_id, payer, &buy_mint, order.amount_out);
         finalized.push(FinalizedIntent {
             intent,
-            mint: buy_mint,
             amount: order.amount_out,
         });
     }
 
     let begin = BeginSettle {
         program_id: *program_id,
+        solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
         token_programs: begin_programs,
@@ -100,7 +99,7 @@ fn settle_with(
     let tx = Transaction::new_signed_with_payer(
         &[begin.into(), finalize.into()],
         Some(&payer.pubkey()),
-        &[payer],
+        &[payer, solver],
         svm.latest_blockhash(),
     );
     svm.send_transaction(tx)
@@ -144,29 +143,30 @@ fn order_across(
 /// programs, each transfer issued against the program that owns the account.
 #[test]
 fn settles_orders_under_both_token_programs() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let legacy = order_across(
         &mut svm,
         &program_id,
         &payer,
         0,
-        &SPL_TOKEN_PROGRAM_ID,
-        &SPL_TOKEN_PROGRAM_ID,
+        &TokenProgram::SplToken.address(),
+        &TokenProgram::SplToken.address(),
     );
     let token_2022 = order_across(
         &mut svm,
         &program_id,
         &payer,
         1,
-        &TOKEN_2022_PROGRAM_ID,
-        &TOKEN_2022_PROGRAM_ID,
+        &TokenProgram::Token2022.address(),
+        &TokenProgram::Token2022.address(),
     );
 
     settle_with(
         &mut svm,
         &program_id,
         &payer,
+        &solver,
         &[
             Settled {
                 intent: &legacy,
@@ -195,21 +195,22 @@ fn settles_orders_under_both_token_programs() {
 /// sell account's owner and the push the buy account's, independently.
 #[test]
 fn settles_an_order_that_crosses_token_programs() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = order_across(
         &mut svm,
         &program_id,
         &payer,
         0,
-        &SPL_TOKEN_PROGRAM_ID,
-        &TOKEN_2022_PROGRAM_ID,
+        &TokenProgram::SplToken.address(),
+        &TokenProgram::Token2022.address(),
     );
 
     settle_with(
         &mut svm,
         &program_id,
         &payer,
+        &solver,
         &[Settled {
             intent: &intent,
             amount_in: 250,
@@ -228,21 +229,22 @@ fn settles_an_order_that_crosses_token_programs() {
 /// the legacy slot holding the placeholder costs it nothing it needs.
 #[test]
 fn settles_token_2022_orders_without_carrying_the_legacy_program() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = order_across(
         &mut svm,
         &program_id,
         &payer,
         0,
-        &TOKEN_2022_PROGRAM_ID,
-        &TOKEN_2022_PROGRAM_ID,
+        &TokenProgram::Token2022.address(),
+        &TokenProgram::Token2022.address(),
     );
 
     settle_with(
         &mut svm,
         &program_id,
         &payer,
+        &solver,
         &[Settled {
             intent: &intent,
             amount_in: 300,
@@ -260,15 +262,15 @@ fn settles_token_2022_orders_without_carrying_the_legacy_program() {
 /// out is what it refuses — by name, rather than as a malformed account.
 #[test]
 fn rejects_a_sell_account_under_a_left_out_program() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = order_across(
         &mut svm,
         &program_id,
         &payer,
         0,
-        &TOKEN_2022_PROGRAM_ID,
-        &SPL_TOKEN_PROGRAM_ID,
+        &TokenProgram::Token2022.address(),
+        &TokenProgram::SplToken.address(),
     );
 
     assert_settlement_error(
@@ -277,6 +279,7 @@ fn rejects_a_sell_account_under_a_left_out_program() {
             &mut svm,
             &program_id,
             &payer,
+            &solver,
             &[Settled {
                 intent: &intent,
                 amount_in: 100,
@@ -294,15 +297,15 @@ fn rejects_a_sell_account_under_a_left_out_program() {
 /// runs first and passes: it only pulls, and this order's sell side is legacy.
 #[test]
 fn rejects_a_buy_account_under_a_left_out_program() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = order_across(
         &mut svm,
         &program_id,
         &payer,
         0,
-        &SPL_TOKEN_PROGRAM_ID,
-        &TOKEN_2022_PROGRAM_ID,
+        &TokenProgram::SplToken.address(),
+        &TokenProgram::Token2022.address(),
     );
 
     assert_settlement_error(
@@ -311,6 +314,7 @@ fn rejects_a_buy_account_under_a_left_out_program() {
             &mut svm,
             &program_id,
             &payer,
+            &solver,
             &[Settled {
                 intent: &intent,
                 amount_in: 100,
@@ -328,15 +332,15 @@ fn rejects_a_buy_account_under_a_left_out_program() {
 /// else.
 #[test]
 fn rejects_swapped_token_program_slots() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = order_across(
         &mut svm,
         &program_id,
         &payer,
         0,
-        &SPL_TOKEN_PROGRAM_ID,
-        &SPL_TOKEN_PROGRAM_ID,
+        &TokenProgram::SplToken.address(),
+        &TokenProgram::SplToken.address(),
     );
     token::fund_and_delegate(
         &mut svm,
@@ -356,6 +360,7 @@ fn rejects_swapped_token_program_slots() {
     }];
     let mut begin = Instruction::from(BeginSettle {
         program_id,
+        solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
         token_programs: TokenPrograms::BOTH,
@@ -364,17 +369,16 @@ fn rejects_swapped_token_program_slots() {
             pulls: &pulls,
         }],
     });
-    // `BeginSettle`'s accounts are `[sysvar, state, spl_token, token_2022, ...]`,
-    // so exchanging the two slots leaves both programs present but each in the
-    // other's position.
-    begin.accounts.swap(2, 3);
+    // `BeginSettle`'s accounts are `[solver, sysvar, state, spl_token,
+    // token_2022, ...]`, so exchanging the two slots leaves both programs
+    // present but each in the other's position.
+    begin.accounts.swap(3, 4);
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         token_programs: TokenPrograms::BOTH,
         orders: &[FinalizedIntent {
             intent: &intent,
-            mint: buy_mint,
             amount: 100,
         }],
     };
@@ -382,7 +386,7 @@ fn rejects_swapped_token_program_slots() {
     let tx = Transaction::new_signed_with_payer(
         &[begin, finalize.into()],
         Some(&payer.pubkey()),
-        &[&payer],
+        &[&payer, &solver],
         svm.latest_blockhash(),
     );
     let error = svm
@@ -400,21 +404,22 @@ fn rejects_swapped_token_program_slots() {
 /// only the accounts under the left-out program that become unsettleable.
 #[test]
 fn accepts_the_placeholder_for_a_legacy_only_settlement() {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = order_across(
         &mut svm,
         &program_id,
         &payer,
         0,
-        &SPL_TOKEN_PROGRAM_ID,
-        &SPL_TOKEN_PROGRAM_ID,
+        &TokenProgram::SplToken.address(),
+        &TokenProgram::SplToken.address(),
     );
 
     settle_with(
         &mut svm,
         &program_id,
         &payer,
+        &solver,
         &[Settled {
             intent: &intent,
             amount_in: 500,
