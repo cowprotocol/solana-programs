@@ -2,6 +2,7 @@
 
 use cow_settlement_interface::{
     pda::{buffer::find_buffer_pda, state::find_state_pda},
+    token_program::TokenProgram,
     Instruction, Pubkey,
 };
 
@@ -16,6 +17,7 @@ pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub reclaim_authority: Pubkey,
     pub reclaim_recipient: Pubkey,
+    pub token_program: TokenProgram,
     pub mints: &'a [Pubkey],
 }
 
@@ -35,6 +37,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
             state_pda,
             reclaim_authority: builder.reclaim_authority,
             reclaim_recipient: builder.reclaim_recipient,
+            token_program: builder.token_program.address(),
             buffers: &buffers,
         }
         .into()

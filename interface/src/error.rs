@@ -128,6 +128,10 @@ pub enum SettlementError {
     /// A created order's intent isn't set with the `created_on_chain` flag
     /// corresponding to the behavior of the invoked order creation instruction.
     OrderCreatedOnChainMismatch = 39,
+    /// `CreateBuffer` asked the token program how long a token account for a
+    /// mint has to be and couldn't read the answer, so it can't size the
+    /// buffer.
+    BufferSizeUnavailable = 40,
 }
 
 impl From<SettlementError> for u32 {

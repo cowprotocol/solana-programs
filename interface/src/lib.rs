@@ -10,6 +10,7 @@ pub mod error;
 pub mod instruction;
 pub mod pda;
 pub mod role;
+pub mod token_program;
 
 pub use error::SettlementError;
 pub use instruction::{recover_discriminator, SettlementInstruction};

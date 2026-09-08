@@ -11,10 +11,13 @@ use cow_settlement_interface::{
     pda::buffer::find_buffer_pda,
     Pubkey, Role, SettlementError,
 };
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use pinocchio_token::{instructions::CloseAccount, state::Account as TokenAccount};
+use pinocchio::{AccountView, Address, ProgramResult};
+use pinocchio_token::instructions::CloseAccount;
 
-use crate::processor::utils::{auth::with_state_pda_signer, token::validate_token_program_account};
+use crate::processor::utils::{
+    auth::with_state_pda_signer,
+    token::{read_token_account, validate_token_program},
+};
 
 pub fn process_reclaim_buffer(
     program_id: &Address,
@@ -29,7 +32,8 @@ pub fn process_reclaim_buffer(
         buffers,
     } = ReclaimBufferInput::parse(instruction_data, accounts)?;
 
-    validate_token_program_account(token_program)?;
+    let token_program = validate_token_program(token_program)?;
+    let token_program_id = token_program.address();
 
     with_state_pda_signer(program_id, state_pda, |state_signer| {
         let reclaim_authority_pubkey: Pubkey =
@@ -47,9 +51,7 @@ pub fn process_reclaim_buffer(
                 return Err(SettlementError::ReclaimBufferNotCanonical.into());
             }
 
-            let amount = TokenAccount::from_account_view(buffer_pda)
-                .map_err(|_| ProgramError::InvalidAccountData)?
-                .amount();
+            let amount = read_token_account(token_program, buffer_pda)?.amount;
 
             // A token account can't be closed while it still holds a balance, and this
             // instruction has no mandate to move those tokens elsewhere or destroy them.
@@ -59,7 +61,10 @@ pub fn process_reclaim_buffer(
             }
 
             CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
-                .invoke_signed(core::slice::from_ref(state_signer))?;
+                .invoke_signed_with_unverified_program(
+                    core::slice::from_ref(state_signer),
+                    &token_program_id,
+                )?;
         }
 
         Ok(())
@@ -70,7 +75,6 @@ pub fn process_reclaim_buffer(
 mod tests {
     use cow_settlement_interface::data::state::{StateAccount, StateInitArgs, WIDTH_HEADER};
     use cow_settlement_interface::fixtures::PROGRAM_ID;
-    use cow_settlement_interface::instruction::create_buffer::SPL_TOKEN_PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
@@ -79,13 +83,16 @@ mod tests {
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
     use cow_settlement_interface::pda::state::state_pda_seeds;
+    use cow_settlement_interface::token_program::TokenProgram;
     use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
+    use pinocchio::error::ProgramError;
     use solana_program_pack::Pack;
 
     use super::*;
     const AUTHORITY: Address = Address::new_from_array([101; 32]);
     const MANAGER: Address = Address::new_from_array([102; 32]);
     const UNRELATED: Address = Address::new_from_array([254; 32]);
+    const SPL_TOKEN_PROGRAM_ID: Address = TokenProgram::SplToken.address();
 
     /// Number of accounts in a one-buffer reclaim: the shared ones plus a
     /// single `(buffer_pda, mint)` pair.
