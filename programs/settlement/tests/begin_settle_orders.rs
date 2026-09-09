@@ -35,7 +35,7 @@ use cow_settlement_client::cow_settlement_interface::{
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     Instruction, SettlementError, SettlementInstruction,
 };
-use cow_settlement_client::instructions::{
+use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
 };
 use cow_settlement_interface::data::intent::OrderIntent;

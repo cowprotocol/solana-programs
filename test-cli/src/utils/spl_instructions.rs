@@ -1,6 +1,6 @@
-//! Instruction builders for operations the CLI needs to compose.
+//! Builders for the SPL token instructions the CLI needs in a settlement.
 
-use crate::token;
+use super::token;
 use anyhow::Context as _;
 use cow_settlement_client::cow_settlement_interface::{pda::state::find_state_pda, Pubkey};
 use solana_instruction::Instruction;

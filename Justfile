@@ -1,6 +1,20 @@
+# Directory for locally-installed cargo packages.
+cargo_root := justfile_directory() / ".cargo-root"
+# The solana-verify binary that `install-solana-verify` produces.
+solana_verify := cargo_root / "bin" / "solana-verify"
+# The settlement program's cargo library name (the on-chain artifact is `<settlement_program>.so`).
+settlement_program := "cow_settlement"
+# The public repository URL.
+repo_url := "https://github.com/cowprotocol/solana-programs"
+
 [private]
 default:
     @{{ just_executable() }} --list
+
+# Install the pinned solana-verify on the current machine.
+[private]
+install-solana-verify:
+    cargo install solana-verify --version "$(cat .solana-verify-version.txt)" --root {{cargo_root}}
 
 # Build the on-chain settlement program (.so) for Solana.
 build-program:
@@ -99,16 +113,14 @@ doc-dev *args:
     corepack pnpm run build
 
 # Build the settlement program using solana-verify's reproducible Docker build.
-# Installs solana-verify via cargo if not already present (same as CI).
-build-verified:
-    cargo install solana-verify --version $(cat .solana-verify-version.txt) --root .cargo-root/
-    ./.cargo-root/bin/solana-verify build --library-name cow_settlement
+build-verified: install-solana-verify
+    {{solana_verify}} build --library-name {{settlement_program}}
 
 # Deploy the settlement program, then create its state PDA.
 deploy programid keypair: build-verified
     #!/usr/bin/env bash
     set -euo pipefail
-    solana program deploy ./target/deploy/cow_settlement.so --program-id {{programid}} --keypair {{keypair}}
+    solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}
 
     # `programid` is a keypair file on a first deploy and an address on an upgrade,
     # but the CLI only takes the address.
@@ -116,10 +128,29 @@ deploy programid keypair: build-verified
     # A failure here is expected when upgrading a program whose state PDA already
     # exists, so don't fail the deploy over it.
     cargo run -p cow-test-cli -- \
-        --rpc-url "$(solana config get json_rpc_url | awk '{print $NF}')" \
         --program-id "$program_id" \
         --keypair "{{keypair}}" \
         initialize \
         || echo "warning: \`initialize\` failed, the state PDA may already exist" >&2
+
+# Register the on-chain verification for an already-deployed program.
+verify programid keypair commit_hash="": install-solana-verify
+    #!/usr/bin/env bash
+    set -euo pipefail
+    commit_args=()
+    if [ -n "{{commit_hash}}" ]; then
+        commit_args=(--commit-hash "{{commit_hash}}")
+    fi
+    # Step 1: write the otter-verify PDA, signed by the upgrade authority.
+    {{solana_verify}} verify-from-repo \
+        --keypair "{{keypair}}" \
+        --program-id "{{programid}}" \
+        --library-name {{settlement_program}} \
+        "${commit_args[@]}" \
+        {{repo_url}}
+    # Step 2: queue remote worker to rebuild from the PDA.
+    {{solana_verify}} remote submit-job \
+        --program-id "{{programid}}" \
+        --uploader "$(solana address --keypair "{{keypair}}")"
 
 all: build bench test-js-client lint fmt-check fmt-check-js-client doc-dev

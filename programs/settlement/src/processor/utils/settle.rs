@@ -1,4 +1,5 @@
-//! `BeginSettle`/`FinalizeSettle` instruction handlers.
+//! Counterpart validation shared across the `BeginSettle`/`FinalizeSettle`
+//! handlers.
 
 use std::ops::Deref;
 
@@ -8,18 +9,12 @@ use cow_settlement_interface::{
 };
 use pinocchio::{sysvars::instructions::Instructions, Address, ProgramResult};
 
-mod begin;
-mod finalize;
-
-pub use begin::process_begin_settle;
-pub use finalize::process_finalize_settle;
-
 /// Load the counterpart instruction at `counterpart_index` and verify it
 /// belongs to `program_id`, carries `expected_discriminator`, and points
 /// back at the current instruction. Ordering (before/after) is the caller's
 /// responsibility.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn validate_counterpart<T: Deref<Target = [u8]>>(
+pub fn validate_counterpart<T: Deref<Target = [u8]>>(
     program_id: &Address,
     instructions: &Instructions<T>,
     current_index: u16,
