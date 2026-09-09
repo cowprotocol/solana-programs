@@ -156,6 +156,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Commit the code changes resulting from the steps above (excluding the key of the generated account).
 - Switch your network to mainnet (`solana config set --url mainnet-beta`). You should try out the next steps before the PR on devnet first, but switch to mainnet for the actual release.
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
+- [Publish the IDL](#publishing-the-idl).
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --help`).
 - Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval, then merge it. Merging automatically creates a GitHub release (tag `v$VERSION`, e.g. `v0.42.0`) and [publishes the npm package](#publishing-the-nodejs-client).
@@ -183,6 +184,16 @@ perl -i -pe '
 ' ./Cargo.toml
 perl -i -pe 's/^(\s*"version": )".*"/$1"$ENV{VERSION}"/' ./programs/settlement/idl/client/js/package.json
 just build
+```
+
+### Publishing the IDL
+
+Use the following command to publish the IDL.
+Block explorers will then use the IDL to show decoded transactions to the user.
+
+```sh
+settlement_program_address="the IDL will be registered for the program at the address specified in this string"
+npx @solana-program/program-metadata@v0.9.3 write idl "$settlement_program_address" ./programs/settlement/idl/cow_settlement.json --keypair ./deployer-keypair.json
 ```
 
 ## License

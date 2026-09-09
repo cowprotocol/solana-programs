@@ -9,6 +9,7 @@ solana_pubkey::declare_id!("FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb");
 pub mod data;
 pub mod instruction;
 pub mod pda;
+pub mod token_program;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
@@ -27,7 +28,7 @@ pub enum SettlementInstruction {
     CreateOrder = 2,
     /// Creates the singleton settlement state PDA. Succeeds only once.
     Initialize = 3,
-    /// Creates one or more per-token buffer PDAs (SPL token accounts) in a
+    /// Creates one or more per-token buffer PDAs (token accounts) in a
     /// single instruction.
     ///
     /// Each buffer_pda_i must be the canonical PDA for seeds
@@ -254,6 +255,10 @@ pub enum SettlementError {
     /// A created order's intent isn't set with the `created_on_chain` flag
     /// corresponding to the behavior of the invoked order creation instruction.
     OrderCreatedOnChainMismatch = 39,
+    /// `CreateBuffer` asked the token program how long a token account for a
+    /// mint has to be and couldn't read the answer, so it can't size the
+    /// buffer.
+    BufferSizeUnavailable = 40,
 }
 
 impl From<SettlementError> for u32 {
