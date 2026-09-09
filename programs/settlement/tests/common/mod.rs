@@ -15,7 +15,7 @@ pub mod state;
 pub mod token;
 pub mod token_2022;
 
-use cow_settlement_client::instructions::{AddSolver, Initialize};
+use cow_settlement_client::instruction::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::Instruction;

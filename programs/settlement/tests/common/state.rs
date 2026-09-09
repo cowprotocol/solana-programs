@@ -1,5 +1,5 @@
 use cow_settlement_client::cow_settlement_interface::data::state::StateAccount;
-use cow_settlement_client::instructions::Initialize;
+use cow_settlement_client::instruction::Initialize;
 use litesvm::LiteSVM;
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Keypair;

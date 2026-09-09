@@ -4,7 +4,7 @@
 //! unauthorized caller is rejected before any settlement work happens.
 
 use cow_settlement_client::cow_settlement_interface::{Instruction, SettlementError};
-use cow_settlement_client::instructions::{BeginSettle, FinalizeSettle};
+use cow_settlement_client::instruction::{BeginSettle, FinalizeSettle};
 use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 
 use crate::common::{

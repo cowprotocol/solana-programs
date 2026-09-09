@@ -7,7 +7,7 @@ use cow_settlement_interface::{
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 
-use crate::processor::CanonicalPda;
+use crate::processor::utils::pda::CanonicalPda;
 
 pub fn process_initialize(
     program_id: &Address,

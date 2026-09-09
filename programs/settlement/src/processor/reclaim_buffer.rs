@@ -14,8 +14,8 @@ use cow_settlement_interface::{
 use pinocchio::{AccountView, Address, ProgramResult};
 use pinocchio_token::instructions::CloseAccount;
 
-use crate::{
-    processor::with_state_pda_signer,
+use crate::processor::utils::{
+    auth::with_state_pda_signer,
     token::{read_token_account, validate_token_program},
 };
 

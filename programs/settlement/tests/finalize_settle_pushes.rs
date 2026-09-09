@@ -21,7 +21,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::intent::OrderIntent, instruction::settle::SPL_TOKEN_PROGRAM_ID,
     pda::state::find_state_pda, Instruction, SettlementError,
 };
-use cow_settlement_client::instructions::{FinalizeSettle, FinalizedIntent};
+use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
 use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
     instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signer::Signer,

@@ -3,7 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Flags, OrderIntent, OrderKind,
 };
-use cow_settlement_client::instructions::CreateOrder;
+use cow_settlement_client::instruction::CreateOrder;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,

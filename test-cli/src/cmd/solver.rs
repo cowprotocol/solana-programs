@@ -2,14 +2,14 @@ use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser, Subcommand};
 use cow_settlement_client::{
     cow_settlement_interface::{pda::state::find_state_pda, Pubkey},
-    instructions::AddSolver,
+    instruction::AddSolver,
 };
 use solana_sdk::{
     signature::{read_keypair_file, Signer},
     transaction::Transaction,
 };
 
-use crate::helpers::print_summary;
+use crate::utils::output::print_summary;
 
 use super::Context;
 
