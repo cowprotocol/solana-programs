@@ -1,7 +1,4 @@
 name: Publish npm package
-#
-# Three flows: a tagged dispatch from auto-release.yml, a manual `release`
-# event, and a dry run (dispatch with an empty tag) that never publishes.
 
 on:
   release:
@@ -21,6 +18,7 @@ jobs:
     outputs:
       package-name: ${{ steps.pkg.outputs.name }}
       package-version: ${{ steps.pkg.outputs.version }}
+      flow: ${{ steps.tag.outputs.flow }}
       tag: ${{ steps.tag.outputs.tag }}
       sha: ${{ steps.sha.outputs.sha }}
     steps:
@@ -39,21 +37,24 @@ jobs:
 
       - name: Resolve release tag
         id: tag
-        # Empty on a dry run: there's no release to publish.
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = release ]; then
+            flow=manual-release
             tag="$GITHUB_REF_NAME"
           elif [ -n "$INPUT_TAG" ]; then
-            # A dispatch input is free text, unlike a `release` event, so
+            flow=tagged-dispatch
+            # The input is free text, unlike a `release` event's ref, so
             # check the release actually exists.
             tag="$INPUT_TAG"
             gh release view "$tag" >/dev/null
           else
+            flow=dry-run
             tag=""
           fi
+          echo "flow=$flow" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - uses: ./.github/actions/check-versions
@@ -86,8 +87,7 @@ jobs:
 
   publish:
     needs: build
-    # Everything but the dry run.
-    if: needs.build.outputs.tag != ''
+    if: needs.build.outputs.flow != 'dry-run'
     runs-on: ubuntu-latest
     # Holds the publish for manual approval; see the repo's Environments
     # settings for who can approve. The `build` job's step summary is what an
