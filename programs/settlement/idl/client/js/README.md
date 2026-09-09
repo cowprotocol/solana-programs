@@ -36,10 +36,7 @@ const intent = {
   appData: new Uint8Array(32),
 };
 
-// getCreateOrderInstructionAsync resolves the order PDA internally; call
-// resolveOrderPda yourself only if you need the address separately, e.g. to
-// fetch the resulting account after sending this instruction. It can't be
-// derived with a generic PDA lookup, its seed hashes the whole intent.
+// The order account's address, for fetching it once the instruction lands.
 const { value: orderPda } = await resolveOrderPda({
   programAddress: COW_SETTLEMENT_PROGRAM_ADDRESS,
   args: { intent },

@@ -1,4 +1,18 @@
 name: Publish npm package
+#
+# Builds the Node.js client and publishes it to npm, gated behind a manual
+# approval. Three flows reach this workflow: (1) a tagged dispatch from
+# auto-release.yml, (2) a manual release via the `release` event, and (3) a
+# dry run — workflow_dispatch with an empty tag, which builds and tests only.
+# GitHub suppresses `release` events for releases created with GITHUB_TOKEN,
+# which is why auto-release.yml needs flow 1:
+# https://docs.github.com/en/actions/concepts/security/github_token
+#
+# Authentication uses npm Trusted Publishing (OIDC), so no npm token is stored.
+# It needs one-time setup on npmjs.com after this package's first publish (it
+# can't be configured for a package that doesn't exist yet): add a Trusted
+# Publisher for this repo, this workflow file, and the `npm-publish`
+# environment, then delete the NPM_TOKEN secret it bootstrapped with.
 
 on:
   release:
@@ -7,33 +21,23 @@ on:
     inputs:
       tag:
         description: >-
-          Release tag to publish (e.g. v0.4.0). Set automatically when
-          auto-release.yml dispatches this workflow (GITHUB_TOKEN-created
-          releases don't fire the `release` event, so it can't rely on that
-          trigger — see https://docs.github.com/en/actions/concepts/security/github_token).
-          Leave empty for a manual build-only dry run (skips the tag/version check).
+          Release tag to publish (e.g. v0.4.0). Leave empty for a dry run.
         required: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read # to look up releases in the "Cargo and npm versions must match" step
-    # Corepack otherwise asks for confirmation before fetching pnpm, which
-    # would hang the job.
-    env:
-      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      contents: read # to look up releases in the version check step
     outputs:
       package-name: ${{ steps.pkg.outputs.name }}
       package-version: ${{ steps.pkg.outputs.version }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          # A manual dispatch could pass --ref main while also supplying an
-          # unrelated existing release's tag as input; without this, the tag
-          # would pass the version check below while the build actually ran
-          # against whatever `main` happens to be, not the released commit.
-          # Pinning to the tag input (when present) makes that impossible.
+          # We release the code from the input tag. We don't care where the
+          # workflow was triggered from except in the dry run.
           ref: ${{ github.event.inputs.tag || github.ref }}
           persist-credentials: false
 
@@ -41,9 +45,30 @@ jobs:
       - uses: ./.github/actions/setup-just
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Resolve release tag
+        id: tag
+        # Empty on a dry run: there's no release to publish.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = release ]; then
+            tag="$GITHUB_REF_NAME"
+          elif [ -n "$INPUT_TAG" ]; then
+            # A dispatch input is free text, unlike a `release` event, so
+            # check the release actually exists.
+            tag="$INPUT_TAG"
+            gh release view "$tag" >/dev/null
+          else
+            tag=""
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/check-versions
         with:
-          node-version: "24" # matches ci.yml's test-js-client job
+          tag: ${{ steps.tag.outputs.tag }}
+
+      - uses: ./.github/actions/setup-node
 
       - name: Build JS client
         run: just build-js-client
@@ -54,47 +79,12 @@ jobs:
         id: pkg
         working-directory: programs/settlement/idl/client/js
         run: |
-          echo "name=$(node -p 'require("./package.json").name')" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
-
-      - name: Release tag, Cargo.toml, and package.json versions must all match
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '')
-        working-directory: programs/settlement/idl/client/js
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Real `release` events carry the tag as the ref; a dispatch from
-          # auto-release.yml passes it as an explicit input instead. That
-          # input is free text from whoever ran the dispatch, so unlike the
-          # `release` case it isn't proof a real release exists — confirm one
-          # does, rather than only checking it's self-consistent otherwise.
-          if [ "${{ github.event_name }}" = "release" ]; then
-            raw_tag="$GITHUB_REF_NAME"
-          else
-            raw_tag="${{ github.event.inputs.tag }}"
-            if ! gh release view "$raw_tag" >/dev/null 2>&1; then
-              echo "::error::No release named $raw_tag exists." >&2
-              exit 1
-            fi
-          fi
-
-          # Existing tags (v0.2, v0.3) are major.minor only, while npm/Cargo
-          # need full semver (0.3.0), so pad any missing patch component.
-          tag="${raw_tag#v}"
-          IFS='.' read -r major minor patch <<< "$tag"
-          normalized_tag="${major}.${minor:-0}.${patch:-0}"
-
-          cargo_version=$(grep -m1 '^version = ' ../../../../../Cargo.toml | sed -E 's/version = "(.*)"/\1/')
-          pkg_version="${{ steps.pkg.outputs.version }}"
-
-          if [ "$normalized_tag" != "$cargo_version" ] || [ "$cargo_version" != "$pkg_version" ]; then
-            echo "::error::Version mismatch — release tag $raw_tag (normalized $normalized_tag), Cargo.toml $cargo_version, package.json $pkg_version must all match." >&2
-            exit 1
-          fi
+          echo "name=$(jq -r .name package.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
 
       - name: Write publish summary
         working-directory: programs/settlement/idl/client/js
-        run: ./scripts/publish-summary.sh "${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+        run: ./scripts/publish-summary.sh "${{ steps.tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -106,39 +96,45 @@ jobs:
 
   publish:
     needs: build
-    # A workflow_dispatch with an empty `tag` is documented as a build-only dry
-    # run (skips the version check above) — it must not be able to reach an
-    # actual `npm publish` just because someone approves the environment gate.
-    if: github.event_name == 'release' || github.event.inputs.tag != ''
+    # Everything but the dry run.
+    if: needs.build.outputs.tag != ''
     runs-on: ubuntu-latest
-    # See README.md's "Publishing the Node.js client" section for what an
-    # approver here should check.
+    # Holds the publish for manual approval; see the repo's Environments
+    # settings for who can approve. The `build` job's step summary is what an
+    # approver reviews.
     environment: npm-publish
     permissions:
-      id-token: write # for npm provenance
+      id-token: write # for Trusted Publishing and npm provenance
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: npm-package
           path: package
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/setup-node
         with:
-          node-version: "24"
+          # Makes setup-node write an .npmrc binding NODE_AUTH_TOKEN to this
+          # registry, which only the bootstrap first publish uses.
           registry-url: https://registry.npmjs.org
 
-      # Trusted Publishing (OIDC) needs npm >= 11.5.1; pinned since the bundled
-      # version can be older even on Node 24.
-      - name: Upgrade npm for Trusted Publishing
-        run: npm install -g npm@~11.10.0 # pinned like cow-sdk's release workflow, see https://github.com/npm/cli/issues/9151
+      - name: Trusted Publishing needs npm >= 11.5.1
+        run: |
+          installed=$(npm --version)
+          if [ "$(printf '%s\n11.5.1\n' "$installed" | sort -V | head -1)" != "11.5.1" ]; then
+            echo "::error::npm $installed is too old for Trusted Publishing, need >= 11.5.1." >&2
+            exit 1
+          fi
 
       - name: Publish ${{ needs.build.outputs.package-name }}@${{ needs.build.outputs.package-version }}
         working-directory: package
-        # NODE_AUTH_TOKEN is only a bootstrap fallback for this package's very
-        # first publish, before a Trusted Publisher can be configured for it
-        # (see README.md's "Publishing the Node.js client"). `npm publish`
-        # always tries OIDC first regardless, so this is safe to leave set
-        # even after NPM_TOKEN is deleted (it just resolves to an empty string).
+        # NODE_AUTH_TOKEN only matters for the first publish, before Trusted
+        # Publishing can be set up; npm tries OIDC first regardless, so this is
+        # harmless once NPM_TOKEN is deleted and it resolves to an empty string.
         # --ignore-scripts: publish exactly the artifact reviewed in `build`,
         # with no lifecycle script able to run and alter it at this point.
         run: npm publish --provenance --access public --ignore-scripts

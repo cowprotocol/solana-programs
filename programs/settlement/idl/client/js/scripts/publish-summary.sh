@@ -6,9 +6,16 @@
 #   ./scripts/publish-summary.sh [release-label]
 set -euo pipefail
 
-name=$(node -p 'require("./package.json").name')
-version=$(node -p 'require("./package.json").version')
-release_label="${1:-$version (local run, no release)}"
+name=$(jq -r .name package.json)
+version=$(jq -r .version package.json)
+release_label="${1:-}"
+release_label="${release_label:-$version (no release)}"
+
+# Only the fields a reviewer cares about, pretty-printed so `diff` output below
+# is one dependency per line rather than a single unreadable JSON blob.
+dependency_fields() {
+  jq -S '{dependencies, peerDependencies}'
+}
 
 cat <<EOF
 ## npm publish review
@@ -27,25 +34,16 @@ $(npm pack --dry-run --ignore-scripts 2>&1)
 EOF
 
 view_err=$(mktemp)
-if ! npm view "$name" version >/dev/null 2>"$view_err"; then
-  if grep -q "code E404" "$view_err"; then
-    echo "_First publish of this package — nothing to diff against._"
-  else
-    echo "::error::Failed to look up $name on the npm registry (not a 404, could be auth, network, or an outage)." >&2
-    cat "$view_err" >&2
-    exit 1
-  fi
-else
-  prev_deps_json=$(npm view "$name" dependencies --json 2>/dev/null); [ -z "$prev_deps_json" ] && prev_deps_json='null'
-  prev_peer_json=$(npm view "$name" peerDependencies --json 2>/dev/null); [ -z "$prev_peer_json" ] && prev_peer_json='null'
-  node -e '
-    const fs = require("fs");
-    const [prevDeps, prevPeer] = process.argv.slice(1).map((s) => JSON.parse(s));
-    const curr = require("./package.json");
-    fs.writeFileSync("/tmp/prev-deps.json", JSON.stringify({dependencies: prevDeps, peerDependencies: prevPeer}, null, 2) + "\n");
-    fs.writeFileSync("/tmp/curr-deps.json", JSON.stringify({dependencies: curr.dependencies ?? null, peerDependencies: curr.peerDependencies ?? null}, null, 2) + "\n");
-  ' "$prev_deps_json" "$prev_peer_json"
+if npm view "$name" --json >/dev/null 2>"$view_err"; then
+  npm view "$name" --json | dependency_fields > /tmp/prev-deps.json
+  dependency_fields < package.json > /tmp/curr-deps.json
   echo '```diff'
   diff -u /tmp/prev-deps.json /tmp/curr-deps.json || true
   echo '```'
+elif grep -q "code E404" "$view_err"; then
+  echo "_First publish of this package — nothing to diff against._"
+else
+  echo "::error::Failed to look up $name on the npm registry (not a 404, could be auth, network, or an outage)." >&2
+  cat "$view_err" >&2
+  exit 1
 fi
