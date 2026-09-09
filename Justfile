@@ -4,6 +4,8 @@ cargo_root := justfile_directory() / ".cargo-root"
 solana_verify := cargo_root / "bin" / "solana-verify"
 # The settlement program's cargo library name (the on-chain artifact is `<settlement_program>.so`).
 settlement_program := "cow_settlement"
+# The public repository URL.
+repo_url := "https://github.com/cowprotocol/solana-programs"
 
 [private]
 default:
@@ -139,7 +141,7 @@ verify programid keypair commit_hash="": install-solana-verify
         --program-id "{{programid}}" \
         --library-name {{settlement_program}} \
         "${commit_args[@]}" \
-        https://github.com/cowprotocol/solana-programs
+        {{repo_url}}
     # Step 2: queue remote worker to rebuild from the PDA.
     {{solana_verify}} remote submit-job \
         --program-id "{{programid}}" \
