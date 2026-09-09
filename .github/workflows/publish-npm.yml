@@ -1,18 +1,7 @@
 name: Publish npm package
 #
-# Builds the Node.js client and publishes it to npm, gated behind a manual
-# approval. Three flows reach this workflow: (1) a tagged dispatch from
-# auto-release.yml, (2) a manual release via the `release` event, and (3) a
-# dry run — workflow_dispatch with an empty tag, which builds and tests only.
-# GitHub suppresses `release` events for releases created with GITHUB_TOKEN,
-# which is why auto-release.yml needs flow 1:
-# https://docs.github.com/en/actions/concepts/security/github_token
-#
-# Authentication uses npm Trusted Publishing (OIDC), so no npm token is stored.
-# It needs one-time setup on npmjs.com after this package's first publish (it
-# can't be configured for a package that doesn't exist yet): add a Trusted
-# Publisher for this repo, this workflow file, and the `npm-publish`
-# environment, then delete the NPM_TOKEN secret it bootstrapped with.
+# Three flows: a tagged dispatch from auto-release.yml, a manual `release`
+# event, and a dry run (dispatch with an empty tag) that never publishes.
 
 on:
   release:
@@ -132,9 +121,12 @@ jobs:
 
       - name: Publish ${{ needs.build.outputs.package-name }}@${{ needs.build.outputs.package-version }}
         working-directory: package
-        # NODE_AUTH_TOKEN only matters for the first publish, before Trusted
-        # Publishing can be set up; npm tries OIDC first regardless, so this is
-        # harmless once NPM_TOKEN is deleted and it resolves to an empty string.
+        # Authenticates via Trusted Publishing (OIDC), no stored token. That
+        # can only be configured once a package exists, so NODE_AUTH_TOKEN
+        # covers the first publish; afterwards add a Trusted Publisher on
+        # npmjs.com for this repo, workflow and environment, then delete the
+        # NPM_TOKEN secret. npm tries OIDC first either way, so leaving the
+        # env var resolving to an empty string is harmless.
         # --ignore-scripts: publish exactly the artifact reviewed in `build`,
         # with no lifecycle script able to run and alter it at this point.
         run: npm publish --provenance --access public --ignore-scripts
