@@ -1,5 +1,5 @@
 # Directory for locally-installed cargo packages.
-cargo_root := ".cargo-root"
+cargo_root := justfile_directory() / ".cargo-root"
 # The solana-verify binary that `install-solana-verify` produces.
 solana_verify := cargo_root / "bin" / "solana-verify"
 # The settlement program's cargo library name (the on-chain artifact is `<settlement_program>.so`).
