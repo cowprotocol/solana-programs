@@ -75,11 +75,14 @@ pub fn program_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
 
 /// Re-target a token instruction at `token_program`.
 ///
-/// The SPL Token builders refuse to emit an instruction for any program but
-/// their own, so the helpers below build against the legacy program and re-point
-/// the result. Token-2022 encodes each of these instructions exactly as the
-/// legacy program does — the same fact that lets the settlement program issue
-/// one transfer against either — so only the program id needs replacing.
+/// The legacy `initialize_mint2` builder refuses to emit an instruction for any
+/// program but the legacy SPL Token program, so [`create_mint_at_under`] builds
+/// against it and re-points the result. Token-2022 encodes `InitializeMint2`
+/// exactly as the legacy program does — the same fact that lets the settlement
+/// program issue one transfer against either — so only the program id needs
+/// replacing. The account-moving builders below come from the Token-2022
+/// interface, which accepts either program id, so they target the active program
+/// directly without this.
 fn under(mut instruction: Instruction, token_program: &Pubkey) -> Instruction {
     instruction.program_id = *token_program;
     instruction
@@ -194,11 +197,8 @@ pub fn create_token_account(
         Account::LEN as u64,
         &token_program,
     );
-    let initialize = under(
-        initialize_account3(&TOKEN_ID, &account.pubkey(), mint, owner)
-            .expect("initialize_account3 should build"),
-        &token_program,
-    );
+    let initialize = initialize_account3(&token_program, &account.pubkey(), mint, owner)
+        .expect("initialize_account3 should build");
     send_token_tx(
         svm,
         payer,
@@ -237,11 +237,8 @@ pub fn mint_to(
     amount: u64,
 ) {
     let token_program = program_of(svm, mint);
-    let instruction = under(
-        mint_to_ix(&TOKEN_ID, mint, destination, &payer.pubkey(), &[], amount)
-            .expect("mint_to should build"),
-        &token_program,
-    );
+    let instruction = mint_to_ix(&token_program, mint, destination, &payer.pubkey(), &[], amount)
+        .expect("mint_to should build");
     send_token_tx(svm, payer, &[], &[instruction], "mint_to");
 }
 
@@ -274,20 +271,17 @@ pub fn transfer(
     // Checked rather than plain `Transfer`: Token-2022 refuses the unchecked one
     // for a mint carrying a transfer fee, which [`Extensions::DEFAULT`] does, and
     // the legacy program accepts it just the same.
-    let instruction = under(
-        transfer_checked_ix(
-            &TOKEN_ID,
-            &source,
-            mint,
-            destination,
-            &owner.pubkey(),
-            &[],
-            amount,
-            decimals_of(svm, mint),
-        )
-        .expect("transfer should build"),
+    let instruction = transfer_checked_ix(
         &token_program,
-    );
+        &source,
+        mint,
+        destination,
+        &owner.pubkey(),
+        &[],
+        amount,
+        decimals_of(svm, mint),
+    )
+    .expect("transfer should build");
     send_token_tx(svm, owner, &[], &[instruction], "transfer");
 }
 
@@ -301,11 +295,8 @@ pub fn delegate(
     amount: u64,
 ) {
     let token_program = program_of(svm, source);
-    let instruction = under(
-        approve(&TOKEN_ID, source, delegate, &owner.pubkey(), &[], amount)
-            .expect("approve should build"),
-        &token_program,
-    );
+    let instruction = approve(&token_program, source, delegate, &owner.pubkey(), &[], amount)
+        .expect("approve should build");
     send_token_tx(svm, owner, &[], &[instruction], "approving a delegate");
 }
 
