@@ -763,19 +763,19 @@
             "type": "pubkey"
           },
           {
-            "name": "buy_token_account",
-            "type": "pubkey"
-          },
-          {
-            "name": "buy_mint",
-            "type": "pubkey"
-          },
-          {
             "name": "sell_token_account",
             "type": "pubkey"
           },
           {
             "name": "sell_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "buy_token_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "buy_mint",
             "type": "pubkey"
           },
           {
