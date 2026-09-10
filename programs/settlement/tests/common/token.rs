@@ -14,10 +14,7 @@ use cow_settlement_client::cow_settlement_interface::{
     pda::state::find_state_pda, token_program::TokenProgram, Instruction,
 };
 use litesvm::{types::TransactionMetadata, LiteSVM};
-use litesvm_token::{
-    spl_token::{instruction::initialize_mint2, state::Mint},
-    CreateAssociatedTokenAccount, TOKEN_ID,
-};
+use litesvm_token::{spl_token::state::Mint, CreateAssociatedTokenAccount};
 use solana_program_pack::Pack;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -29,7 +26,7 @@ use spl_associated_token_account_interface::address::get_associated_token_addres
 use spl_token_2022_interface::{
     extension::StateWithExtensions,
     instruction::{
-        approve, initialize_account3, mint_to as mint_to_ix,
+        approve, initialize_account3, initialize_mint2, mint_to as mint_to_ix,
         transfer_checked as transfer_checked_ix,
     },
     state::{Account, Mint as Mint2022},
@@ -71,21 +68,6 @@ pub fn program_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
     svm.get_account(account)
         .unwrap_or_else(|| panic!("{account} should exist on-chain"))
         .owner
-}
-
-/// Re-target a token instruction at `token_program`.
-///
-/// The legacy `initialize_mint2` builder refuses to emit an instruction for any
-/// program but the legacy SPL Token program, so [`create_mint_at_under`] builds
-/// against it and re-points the result. Token-2022 encodes `InitializeMint2`
-/// exactly as the legacy program does — the same fact that lets the settlement
-/// program issue one transfer against either — so only the program id needs
-/// replacing. The account-moving builders below come from the Token-2022
-/// interface, which accepts either program id, so they target the active program
-/// directly without this.
-fn under(mut instruction: Instruction, token_program: &Pubkey) -> Instruction {
-    instruction.program_id = *token_program;
-    instruction
 }
 
 /// Submit `instructions` as one transaction signed by `payer` and `extra`.
@@ -170,11 +152,14 @@ fn create_mint_at_under(
     // A mint with no extension data, which is every legacy mint and the shape a
     // Token-2022 mint takes when nothing asks for more. That is what keeps a
     // buffer for it at the base layout under either program.
-    let initialize = under(
-        initialize_mint2(&TOKEN_ID, &mint.pubkey(), &payer.pubkey(), None, DECIMALS)
-            .expect("initialize_mint2 should build"),
+    let initialize = initialize_mint2(
         token_program,
-    );
+        &mint.pubkey(),
+        &payer.pubkey(),
+        None,
+        DECIMALS,
+    )
+    .expect("initialize_mint2 should build");
     send_token_tx(svm, payer, &[mint], &[create, initialize], "mint creation");
     mint.pubkey()
 }
@@ -237,8 +222,15 @@ pub fn mint_to(
     amount: u64,
 ) {
     let token_program = program_of(svm, mint);
-    let instruction = mint_to_ix(&token_program, mint, destination, &payer.pubkey(), &[], amount)
-        .expect("mint_to should build");
+    let instruction = mint_to_ix(
+        &token_program,
+        mint,
+        destination,
+        &payer.pubkey(),
+        &[],
+        amount,
+    )
+    .expect("mint_to should build");
     send_token_tx(svm, payer, &[], &[instruction], "mint_to");
 }
 
@@ -295,8 +287,15 @@ pub fn delegate(
     amount: u64,
 ) {
     let token_program = program_of(svm, source);
-    let instruction = approve(&token_program, source, delegate, &owner.pubkey(), &[], amount)
-        .expect("approve should build");
+    let instruction = approve(
+        &token_program,
+        source,
+        delegate,
+        &owner.pubkey(),
+        &[],
+        amount,
+    )
+    .expect("approve should build");
     send_token_tx(svm, owner, &[], &[instruction], "approving a delegate");
 }
 
