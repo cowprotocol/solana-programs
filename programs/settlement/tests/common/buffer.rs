@@ -32,9 +32,7 @@ pub fn ensure_buffer_exists(
         return pda;
     }
     // A buffer is a token account of its mint, so it has to be created under the
-    // mint's own program. Read off the mint rather than left to
-    // `super::aim_at_active_token_program`, because a test may build buffers
-    // under both programs at once.
+    // mint's own program.
     let token_program = TokenProgram::try_from(&token::program_of(svm, mint))
         .expect("the mint lives under a supported token program");
     let ix = Instruction::from(CreateBuffers {

@@ -49,7 +49,7 @@ thread_local! {
 /// creates under and what [`super::token_programs`] tells a settlement to
 /// carry.
 pub fn active() -> TokenProgram {
-    ACTIVE.with(Cell::get)
+    ACTIVE.get()
 }
 
 /// Run `test` with `token_program` as the [`active`] one.
@@ -62,11 +62,6 @@ pub fn under_token_program(token_program: TokenProgram, test: impl FnOnce()) {
 }
 
 /// The token program that owns `account`.
-///
-/// A token account always lives under its mint's program, so this answers for a
-/// mint and for the accounts holding it alike — which is what lets the helpers
-/// below take the program from the tokens a test already built, rather than
-/// from [`active`].
 pub fn program_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
     svm.get_account(account)
         .unwrap_or_else(|| panic!("{account} should exist on-chain"))
@@ -146,8 +141,7 @@ pub fn create_mint_under(svm: &mut LiteSVM, payer: &Keypair, token_program: &Pub
 }
 
 /// Create a mint at `mint`'s address under `token_program`, whose mint authority
-/// is `payer`, and return its address. Every later helper reads the program back
-/// off the mint, so the wrappers above are the only place a test names it.
+/// is `payer`, and return its address.
 fn create_mint_at_under(
     svm: &mut LiteSVM,
     payer: &Keypair,
