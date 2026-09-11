@@ -21,7 +21,7 @@ use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
     lamports, setup_init,
     state::solvers,
-    to_instruction_error, unique_keypair, unique_pubkey, InitializedParams,
+    unique_keypair, unique_pubkey, InitializedParams,
 };
 
 mod common;
@@ -103,7 +103,7 @@ fn rejects_removing_absent_solver() {
 
     assert_instruction_error(
         remove_solver(&mut svm, &params, &rent_recipient, &absent),
-        to_instruction_error(SettlementError::SolverNotFound),
+        SettlementError::SolverNotFound.into(),
     );
 }
 
@@ -123,7 +123,7 @@ fn rejects_removing_solver_by_non_manager() {
     let tx = common::signed_tx(&svm, &params.payer, &stranger, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        to_instruction_error(SettlementError::UnauthorizedSolverManagement),
+        SettlementError::UnauthorizedSolverManagement.into(),
     );
 }
 
@@ -153,10 +153,7 @@ fn rejects_removing_solver_if_manager_is_not_signer() {
     ix.accounts[MANAGER_INDEX].is_signer = false;
 
     let res = common::send(&mut svm, &params.payer, &[ix]);
-    assert_instruction_error(
-        res,
-        to_instruction_error(SettlementError::UnauthorizedSolverManagement),
-    );
+    assert_instruction_error(res, SettlementError::UnauthorizedSolverManagement.into());
 }
 
 /// A state PDA holding less than its shrunk rent minimum is rejected with

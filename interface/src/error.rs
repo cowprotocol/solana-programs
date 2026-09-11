@@ -145,3 +145,9 @@ impl From<SettlementError> for solana_program_error::ProgramError {
         Self::Custom(e.into())
     }
 }
+
+impl From<SettlementError> for solana_instruction_error::InstructionError {
+    fn from(e: SettlementError) -> Self {
+        Self::Custom(e.into())
+    }
+}

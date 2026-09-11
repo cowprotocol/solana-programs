@@ -15,7 +15,7 @@ use crate::common::{
     order::{create_order_pda, settlable_intent, OrderBuilder},
     replace_first_matching_account, send, send_metered,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
-    setup_settle_ready, to_instruction_error, token, unique_pubkey,
+    setup_settle_ready, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::OrderIntent, instruction::settle::SPL_TOKEN_PROGRAM_ID,
@@ -236,7 +236,7 @@ fn rejects_wrong_state_pda() {
 
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        to_instruction_error(SettlementError::StateAccountMismatch),
+        SettlementError::StateAccountMismatch.into(),
     );
 }
 
@@ -266,7 +266,7 @@ fn rejects_push_account_count_mismatch() {
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
+        SettlementError::AccountCountNotMatchingPushCount.into(),
     );
 }
 
@@ -385,7 +385,7 @@ fn rejects_two_too_few_accounts() {
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        to_instruction_error(SettlementError::AccountCountNotMatchingPushCount),
+        SettlementError::AccountCountNotMatchingPushCount.into(),
     );
 }
 

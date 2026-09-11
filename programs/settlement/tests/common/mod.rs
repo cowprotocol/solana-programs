@@ -24,7 +24,6 @@ pub(crate) use active_token::also_under_token_2022;
 use cow_settlement_client::instruction::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_interface::Instruction;
-use cow_settlement_interface::SettlementError;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{
     account::Account,
@@ -172,17 +171,6 @@ pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
     svm.add_program_from_file(cpi_caller_id, CPI_CALLER_SO)
         .expect("test-cpi-caller .so not found, run `just build-program` first");
     cpi_caller_id
-}
-
-/// Wrap a `SettlementError` in the runtime-side `InstructionError::Custom`
-/// shape that the validator records and `TransactionError::InstructionError`
-/// carries. The cross-crate conversion isn't provided by the interface, so
-/// tests asserting on a failed instruction's error code use this helper.
-///
-/// This is mostly here to make the one-way relationship between the two more
-/// explicit.
-pub fn to_instruction_error(e: SettlementError) -> InstructionError {
-    InstructionError::Custom(e.into())
 }
 
 /// Assert that the transaction failed with `expected` on its first

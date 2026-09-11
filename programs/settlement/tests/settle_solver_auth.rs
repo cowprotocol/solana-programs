@@ -10,7 +10,7 @@ use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 use crate::common::{
     assert_instruction_error_at, register_solver,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
-    setup_init, to_instruction_error, unique_keypair,
+    setup_init, unique_keypair,
 };
 
 mod common;
@@ -84,7 +84,7 @@ fn unregistered_solver_may_not_settle() {
     assert_instruction_error_at(
         BEGIN_INDEX,
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        to_instruction_error(SettlementError::UnauthorizedSolver),
+        SettlementError::UnauthorizedSolver.into(),
     );
 }
 
@@ -119,6 +119,6 @@ fn non_signing_solver_may_not_settle() {
     assert_instruction_error_at(
         BEGIN_INDEX,
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        to_instruction_error(SettlementError::UnauthorizedSolver),
+        SettlementError::UnauthorizedSolver.into(),
     );
 }
