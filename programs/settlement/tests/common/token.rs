@@ -14,7 +14,10 @@ use cow_settlement_client::cow_settlement_interface::{
     pda::state::find_state_pda, token_program::TokenProgram,
 };
 use litesvm::{types::TransactionMetadata, LiteSVM};
-use litesvm_token::{spl_token::state::Mint, CreateAssociatedTokenAccount};
+use litesvm_token::{
+    spl_token::{native_mint, state::Mint},
+    CreateAssociatedTokenAccount,
+};
 use solana_program_pack::Pack;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -36,6 +39,29 @@ pub fn program_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
     svm.get_account(account)
         .unwrap_or_else(|| panic!("{account} should exist on-chain"))
         .owner
+}
+
+/// Plant the native mint (wrapped SOL) at its well-known address, owned by the
+/// legacy SPL Token program.
+///
+/// Every cluster carries this mint already; LiteSVM starts without it, so a test
+/// that works with wrapped SOL has to put it there — a buffer is created under
+/// the program that owns its mint, so the mint has to be readable. Its body is
+/// what a real one holds: no authorities, no supply, and the native decimals.
+pub fn create_native_mint(svm: &mut LiteSVM) {
+    let mut data = vec![0u8; Mint::LEN];
+    Mint {
+        decimals: native_mint::DECIMALS,
+        is_initialized: true,
+        ..Default::default()
+    }
+    .pack_into_slice(&mut data);
+    super::create_account_at(
+        svm,
+        native_mint::ID,
+        &TokenProgram::SplToken.address(),
+        &data,
+    );
 }
 
 /// Create a fresh mint under [`active_token::program`], whose mint authority is

@@ -27,13 +27,13 @@ use pinocchio::{
     },
     AccountView, Address, ProgramResult,
 };
-use pinocchio_token::{instructions::Transfer, state::Account as TokenAccount};
+use pinocchio_token::instructions::Transfer;
 
 use crate::processor::utils::{
     auth::{check_state_pda, require_solver, with_state_pda_signer_from_bump},
     cpi::is_cpi_call,
     settle::validate_counterpart,
-    token::validate_token_program,
+    token::{owning_token_program, read_token_account},
 };
 
 pub fn process_begin_settle(
@@ -75,8 +75,6 @@ pub fn process_begin_settle(
     )?;
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
-
-    validate_token_program(input.token_program_account)?;
 
     with_state_pda_signer_from_bump(state_bump, |signer| {
         settle_orders(
@@ -295,23 +293,25 @@ fn process_order(
     if sell_token_account.address() != &intent.sell_token_account {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
+    // The pulls below move this account's tokens, so they are issued against
+    // the token program that owns it. An account under neither program isn't a
+    // token account at all.
+    let token_program = owning_token_program(sell_token_account)
+        .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
     // Assert the order intent owner and sell mint match those of the sell token
     // account.
-    {
-        // `from_account_view` confirms this is a real SPL token account
-        // (right length, owned by the token program) before we read its
-        // owner and mint. The borrow it holds is released at the end of this
-        // block, before the transfers below touch the same account.
-        let token_account = TokenAccount::from_account_view(sell_token_account)
-            .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
-        if token_account.owner() != &intent.owner {
-            return Err(SettlementError::SellTokenOwnerMismatch.into());
-        }
-        // Like the buy side, the account could have been recreated for another
-        // mint after the order was created.
-        if token_account.mint() != &intent.sell_mint {
-            return Err(SettlementError::SellMintMismatch.into());
-        }
+    // `read_token_account` confirms this is a real token account of that token
+    // program before we read its owner and mint, and reads by value, so nothing
+    // is left borrowing the account when the transfers below touch it.
+    let sell_token = read_token_account(token_program, sell_token_account)
+        .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
+    if sell_token.owner != intent.owner {
+        return Err(SettlementError::SellTokenOwnerMismatch.into());
+    }
+    // Like the buy side, the account could have been recreated for another
+    // mint after the order was created.
+    if sell_token.mint != intent.sell_mint {
+        return Err(SettlementError::SellMintMismatch.into());
     }
 
     // Pull the configured amounts out of the sell token account, summing them
@@ -324,7 +324,10 @@ fn process_order(
             .checked_add(amount)
             .ok_or(SettlementError::PullAmountOverflow)?;
         Transfer::new(sell_token_account, destination, state_account, amount)
-            .invoke_signed(core::slice::from_ref(state_pda_signer))?;
+            .invoke_signed_with_unverified_program(
+                core::slice::from_ref(state_pda_signer),
+                &token_program.address(),
+            )?;
     }
 
     validate_limit_price(intent, amount_in, push.amount)?;
@@ -417,7 +420,9 @@ mod tests {
     use cow_settlement_interface::data::intent::Flags;
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
+    use cow_settlement_interface::instruction::settle::{
+        FinalizeSettle, FinalizeSettleInput, TokenPrograms,
+    };
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
@@ -1022,6 +1027,7 @@ mod tests {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
                 begin_ix_index,
+                token_programs: TokenPrograms::BOTH,
                 source_buffers: &source_buffers,
                 destinations: &destinations,
                 bumps: &bumps,

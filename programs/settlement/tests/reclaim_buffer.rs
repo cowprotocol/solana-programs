@@ -255,6 +255,9 @@ fn reclaims_multiple_buffers_skipping_funded() {
 }
 
 common::also_under_token_2022!(rejects_the_same_buffer_twice_in_one_instruction);
+/// The first pass closes the buffer, which hands it back to the system program.
+/// The second pass then finds an account no token program owns and refuses to
+/// close it.
 #[test]
 fn rejects_the_same_buffer_twice_in_one_instruction() {
     let (
@@ -281,7 +284,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        InstructionError::InvalidAccountData,
+        InstructionError::IncorrectProgramId,
     );
 }
 

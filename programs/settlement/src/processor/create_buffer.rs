@@ -12,7 +12,7 @@ use pinocchio_token::instructions::InitializeAccount3;
 
 use crate::processor::utils::{
     pda::CanonicalPda,
-    token::{token_account_len, validate_token_program},
+    token::{owning_token_program, token_account_len},
 };
 
 pub fn process_create_buffer(
@@ -21,12 +21,6 @@ pub fn process_create_buffer(
     instruction_data: &[u8],
 ) -> ProgramResult {
     let input = CreateBufferInput::parse(instruction_data, accounts)?;
-
-    // Every buffer this instruction creates belongs to the one token program
-    // it was handed, so reject an unsupported one up front rather than at the
-    // first CPI.
-    let token_program = validate_token_program(input.token_program)?;
-    let token_program_id = token_program.address();
 
     // The buffers' token authority is the settlement state PDA, the single
     // authority over every buffer. Derive it once for all buffers.
@@ -39,9 +33,15 @@ pub fn process_create_buffer(
         // is a token account, so it's assigned to the token program rather than
         // to the settlement program.
         //
-        // We don't validate `mint` here. `InitializeAccount3` requires a real,
-        // token-program-owned mint (and special-cases the native mint), so a
-        // check of our own would be redundant.
+        // A buffer belongs to the same program as the mint it holds, so the
+        // mint's owner is what says which program to allocate it to and
+        // initialize it with. That is also the only check `mint` needs here:
+        // `InitializeAccount3` requires a real mint of that program (and
+        // special-cases the native mint), so a check of our own would be
+        // redundant.
+        let token_program = owning_token_program(mint)?;
+        let token_program_id = token_program.address();
+
         let mint_key = mint.address().as_array();
         let (created, _) = CanonicalPda {
             program_id,
@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn process_create_buffer_rejects_unsupported_token_program() {
+    fn process_create_buffer_rejects_wrong_token_program() {
         let data = create_buffer_data();
         // The three shared accounts plus one (buffer_pda, mint) pair so parsing
         // succeeds and reaches the token-program check. The third account (token

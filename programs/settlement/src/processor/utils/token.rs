@@ -1,20 +1,28 @@
-//! Token-program validation and token-account reads
+//! Token-program dispatch and token-account reads
 
 use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
-use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView};
+use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView, Address};
 use pinocchio_token::instructions::GetAccountDataSize;
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
 const BASE_TOKEN_ACCOUNT_LEN: u64 = pinocchio_token::state::Account::LEN as u64;
 
-/// Validate that `token_program_account` is a token program this program may
-/// issue CPIs against, returning the program for the instruction to target.
-#[must_use = "not consuming skips validation"]
-pub fn validate_token_program(
-    token_program_account: &AccountView,
-) -> Result<TokenProgram, ProgramError> {
-    TokenProgram::try_from(token_program_account.address())
+/// The token program that owns `account`, and so the one every transfer of its
+/// tokens has to be issued against.
+///
+/// Reading the owner is what lets one instruction move tokens under either
+/// program without being told which: the account itself says. An account under
+/// anything else is no token account at all, and there is nothing to issue a
+/// transfer against.
+///
+/// The program the answer names still has to be one of the calling
+/// instruction's own accounts, or the CPI issued against it has nothing to
+/// dispatch to. Naming it is the caller's job, and the runtime is what enforces
+/// it.
+#[must_use = "not consuming skips the owner check"]
+pub fn owning_token_program(account: &AccountView) -> Result<TokenProgram, ProgramError> {
+    TokenProgram::try_from(account.owner())
 }
 
 /// The data length a token account holding `mint` has to be allocated at.
@@ -51,6 +59,8 @@ pub fn token_account_len(
 /// [`read_token_account`].
 /// For our purposes, we only need the `amount`.
 pub struct TokenAccount {
+    pub mint: Address,
+    pub owner: Address,
     pub amount: u64,
 }
 
@@ -60,15 +70,24 @@ pub fn read_token_account(
     token_program: TokenProgram,
     account: &AccountView,
 ) -> Result<TokenAccount, ProgramError> {
-    let amount = match token_program {
+    Ok(match token_program {
         TokenProgram::SplToken => {
-            pinocchio_token::state::Account::from_account_view(account)?.amount()
+            let decoded = pinocchio_token::state::Account::from_account_view(account)?;
+            TokenAccount {
+                amount: decoded.amount(),
+                mint: *decoded.mint(),
+                owner: *decoded.owner(),
+            }
         }
         TokenProgram::Token2022 => {
-            pinocchio_token_2022::state::Account::from_account_view(account)?.amount()
+            let decoded = pinocchio_token_2022::state::Account::from_account_view(account)?;
+            TokenAccount {
+                amount: decoded.amount(),
+                mint: *decoded.mint(),
+                owner: *decoded.owner(),
+            }
         }
-    };
-    Ok(TokenAccount { amount })
+    })
 }
 
 #[cfg(test)]
@@ -191,19 +210,48 @@ mod tests {
         );
     }
 
+    /// A token account of `program`, well-formed but empty of interest: only
+    /// its owner decides which program its transfers go to.
+    fn token_account_of(program: Address) -> AccountView {
+        fake_account_owned_by(
+            pubkey_from_seed("token account"),
+            program,
+            &base_account_layout(pubkey_from_seed("mint"), pubkey_from_seed("owner"), 0),
+        )
+    }
+
+    /// Every token account dispatches to the program that owns it. This is what
+    /// one instruction moving tokens under both programs rests on: nothing has
+    /// to tell it which, each account already says.
     #[test]
-    fn validate_token_program_accepts_every_supported_program() {
+    fn owning_token_program_dispatches_on_the_accounts_owner() {
         for program in TokenProgram::ALL {
-            let account = fake_account(program.address());
-            assert_eq!(validate_token_program(&account), Ok(program));
+            assert_eq!(
+                owning_token_program(&token_account_of(program.address())),
+                Ok(program),
+                "an account owned by {program:?} should be settled against it",
+            );
         }
     }
 
+    /// An account under neither program is no token account at all, which the
+    /// caller reports as whatever the account failed to be.
     #[test]
-    fn validate_token_program_rejects_unrelated_program() {
-        let account = fake_account(pubkey_from_seed("not a token program"));
+    fn owning_token_program_rejects_an_account_under_an_unrelated_program() {
+        let unrelated = pubkey_from_seed("not a token program");
         assert_eq!(
-            validate_token_program(&account),
+            owning_token_program(&token_account_of(unrelated)),
+            Err(ProgramError::IncorrectProgramId),
+        );
+    }
+
+    /// An account that was never allocated is owned by the system program, so
+    /// it is refused like any other non-token account rather than read as one.
+    #[test]
+    fn owning_token_program_rejects_an_unallocated_account() {
+        let account = fake_account(pubkey_from_seed("never allocated"));
+        assert_eq!(
+            owning_token_program(&account),
             Err(ProgramError::IncorrectProgramId),
         );
     }
@@ -235,6 +283,8 @@ mod tests {
         );
         let read = read_token_account(TokenProgram::Token2022, &account)
             .expect("an extended Token-2022 account should read");
+        assert_eq!(read.mint, mint);
+        assert_eq!(read.owner, owner);
         assert_eq!(read.amount, 7);
     }
 

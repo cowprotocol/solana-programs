@@ -21,7 +21,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::intent::OrderIntent, instruction::settle::SPL_TOKEN_PROGRAM_ID,
     pda::state::find_state_pda, Instruction, SettlementError,
 };
-use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
+use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent, TokenPrograms};
 use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
     instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signer::Signer,
@@ -45,6 +45,7 @@ fn finalize(program_id: &Pubkey, solver: &Pubkey, orders: &[FinalizedIntent]) ->
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders,
     };
     build_settlement(program_id, solver, orders, finalize)
@@ -195,8 +196,11 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
     );
 }
 
+/// The token-program account isn't read: every push is issued against the
+/// program that owns its destination. The account is what names that program to
+/// the runtime, and a CPI can only dispatch to a program its instruction names.
 #[test]
-fn rejects_wrong_token_program() {
+fn rejects_a_token_program_the_instruction_doesnt_name() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let orders = [FinalizedIntent {
@@ -213,7 +217,7 @@ fn rejects_wrong_token_program() {
 
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        InstructionError::IncorrectProgramId,
+        InstructionError::MissingAccount,
     );
 }
 
@@ -253,6 +257,7 @@ fn rejects_push_account_count_mismatch() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // ...with another push's worth of data bytes appended but no matching
@@ -278,9 +283,10 @@ fn rejects_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &[],
     });
-    // ...with one of its three fixed accounts popped. `BeginSettle` runs first
+    // ...with one of its fixed accounts popped. `BeginSettle` runs first
     // but only reads push destinations off the accounts (finding none, matching
     // its zero orders) so it passes. The finalize then can't even destructure
     // its fixed accounts and raises `NotEnoughAccountKeys`.
@@ -301,6 +307,9 @@ fn rejects_too_few_accounts() {
     );
 }
 
+/// An account that isn't a token account at all is owned by no token program,
+/// so the push has nothing to be issued against and `FinalizeSettle` says so
+/// itself rather than handing the transfer to a token program.
 #[test]
 fn rejects_invalid_buy_token_account() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -319,7 +328,7 @@ fn rejects_invalid_buy_token_account() {
     let instructions = finalize(&program_id, &solver.pubkey(), &orders);
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        InstructionError::InvalidAccountData,
+        to_instruction_error(SettlementError::PushDestinationInvalid),
     );
 }
 
@@ -334,9 +343,9 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
         .data;
     let impostor = create_account(&mut svm, &unique_pubkey(), &token_shaped);
 
-    // As above, the impostor passes both instructions' checks (the push pays
-    // `intent.buy_token_account` from `intent.buy_mint`'s buffer) and is left
-    // for the SPL token program, which rejects a destination it doesn't own.
+    // As above, the impostor passes both instructions' push checks (the push
+    // pays `intent.buy_token_account` from `intent.buy_mint`'s buffer), but its
+    // owner is no token program, so there is nothing to issue the push against.
     let intent = OrderIntent {
         buy_token_account: impostor,
         ..settlable
@@ -351,7 +360,7 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
     let instructions = finalize(&program_id, &solver.pubkey(), &orders);
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        InstructionError::IncorrectProgramId,
+        to_instruction_error(SettlementError::PushDestinationInvalid),
     );
 }
 
@@ -372,6 +381,7 @@ fn rejects_two_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // ...with that push's whole (source, destination) pair popped, so the data
@@ -401,6 +411,7 @@ fn rejects_partial_push_amount() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        token_programs: TokenPrograms::SPL_TOKEN,
         orders: &orders,
     });
     // Drop one byte so the trailing amount is no longer a whole `u64`.

@@ -6,6 +6,8 @@ use cow_settlement_interface::{
     Instruction, Pubkey,
 };
 
+use super::begin_settle::TokenPrograms;
+
 /// A settled order whose proceeds are pushed to it: `intent` identifies the
 /// order (its `buy_token_account` is the push destination and its `buy_mint`
 /// selects the canonical source buffer) and `amount` is the quantity to push.
@@ -27,6 +29,10 @@ pub struct FinalizedIntent<'a> {
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub begin_ix_index: u16,
+    /// The token programs owning the buffers and buy token accounts this
+    /// settlement pushes between, filled the same way as
+    /// [`BeginSettle`](super::begin_settle::BeginSettle)'s.
+    pub token_programs: TokenPrograms,
     pub orders: &'a [FinalizedIntent<'a>],
 }
 
@@ -60,6 +66,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             program_id: builder.program_id,
             state_pda,
             begin_ix_index: builder.begin_ix_index,
+            token_programs: builder.token_programs,
             source_buffers: &source_buffers,
             destinations: &destinations,
             bumps: &bumps,
@@ -81,6 +88,7 @@ mod tests {
             settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID},
             InstructionInputParsing,
         },
+        token_program::SYSTEM_PROGRAM_ID,
     };
 
     proptest! {
@@ -107,6 +115,7 @@ mod tests {
             let ix = Instruction::from(FinalizeSettle {
                 program_id,
                 begin_ix_index,
+                token_programs: TokenPrograms::SPL_TOKEN,
                 orders: &orders,
             });
 
@@ -151,10 +160,12 @@ mod tests {
             );
             let (state_pda, _bump) = find_state_pda(&program_id);
             prop_assert_eq!(parsed.state_pda_account.address(), &state_pda);
-            prop_assert_eq!(
-                parsed.token_program_account.address(),
-                &SPL_TOKEN_PROGRAM_ID,
-            );
+            // The token-program slots aren't parsed, so the instruction's own
+            // account list is where they are checked: the legacy program in its
+            // own slot, and — these settlements being legacy-only — the
+            // placeholder in Token-2022's.
+            prop_assert_eq!(ix.accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
+            prop_assert_eq!(ix.accounts[3].pubkey, SYSTEM_PROGRAM_ID);
 
             let parsed_pushes: Vec<_> = parsed.pushes.iter().collect();
             prop_assert_eq!(parsed_pushes.len(), expected.len());

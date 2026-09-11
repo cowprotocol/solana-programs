@@ -16,7 +16,7 @@ use pinocchio_token::instructions::CloseAccount;
 
 use crate::processor::utils::{
     auth::with_state_pda_signer,
-    token::{read_token_account, validate_token_program},
+    token::{owning_token_program, read_token_account},
 };
 
 pub fn process_reclaim_buffer(
@@ -28,12 +28,8 @@ pub fn process_reclaim_buffer(
         state_pda,
         reclaim_authority,
         reclaim_recipient,
-        token_program,
         buffers,
     } = ReclaimBufferInput::parse(instruction_data, accounts)?;
-
-    let token_program = validate_token_program(token_program)?;
-    let token_program_id = token_program.address();
 
     with_state_pda_signer(program_id, state_pda, |state_signer| {
         let reclaim_authority_pubkey: Pubkey =
@@ -51,6 +47,9 @@ pub fn process_reclaim_buffer(
                 return Err(SettlementError::ReclaimBufferNotCanonical.into());
             }
 
+            // A buffer is closed by the program that owns it, which is the one
+            // that created it in the first place.
+            let token_program = owning_token_program(buffer_pda)?;
             let amount = read_token_account(token_program, buffer_pda)?.amount;
 
             // A token account can't be closed while it still holds a balance, and this
@@ -63,7 +62,7 @@ pub fn process_reclaim_buffer(
             CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
                 .invoke_signed_with_unverified_program(
                     core::slice::from_ref(state_signer),
-                    &token_program_id,
+                    &token_program.address(),
                 )?;
         }
 
@@ -101,7 +100,6 @@ mod tests {
     // Positions within [`base_accounts`], for the tests that swap one entry.
     const STATE_PDA: usize = 0;
     const RECLAIM_AUTHORITY: usize = 1;
-    const TOKEN_PROGRAM: usize = 3;
     const BUFFER_PDA: usize = 4;
 
     /// State account bytes for planting a well-formed state PDA in tests.
@@ -179,10 +177,14 @@ mod tests {
             .unwrap_or_else(|err| panic!("reclaim buffer happy path should succeed: {err}"));
     }
 
+    /// The buffer's own owner is what says which program closes it, so one
+    /// owned by neither token program is refused: there is nothing to close it
+    /// with.
     #[test]
-    fn process_reclaim_buffer_rejects_unsupported_token_program() {
+    fn process_reclaim_buffer_rejects_a_buffer_under_an_unrelated_program() {
         let mut accounts = base_accounts();
-        accounts[TOKEN_PROGRAM] = fake_account(UNRELATED);
+        let buffer_pda = *accounts[BUFFER_PDA].address();
+        accounts[BUFFER_PDA] = fake_account_owned_by(buffer_pda, UNRELATED, &[]);
         assert_rejects(accounts, ProgramError::IncorrectProgramId);
     }
 
@@ -243,6 +245,9 @@ mod tests {
         assert_rejects(accounts, SettlementError::ReclaimBufferNotCanonical.into());
     }
 
+    /// A buffer that was never created is owned by the system program, so it
+    /// is refused as an account no token program can close rather than read as
+    /// a malformed token account.
     #[test]
     fn process_reclaim_buffer_rejects_uninitialized_buffer_pda() {
         let mut accounts = base_accounts();
@@ -250,6 +255,6 @@ mod tests {
         let buffer_pda = *accounts[BUFFER_PDA].address();
         accounts[BUFFER_PDA] = fake_account(buffer_pda);
 
-        assert_rejects(accounts, ProgramError::InvalidAccountData);
+        assert_rejects(accounts, ProgramError::IncorrectProgramId);
     }
 }

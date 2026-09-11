@@ -132,6 +132,12 @@ pub enum SettlementError {
     /// mint has to be and couldn't read the answer, so it can't size the
     /// buffer.
     BufferSizeUnavailable = 40,
+    /// `FinalizeSettle`: a push's destination isn't owned by a supported token
+    /// program, so it is no token account at all and there is nothing to issue
+    /// its transfer against.
+    PushDestinationInvalid = 41,
+    /// The token program for a given token or mint is not supported.
+    InvalidTokenProgram = 42,
 }
 
 impl From<SettlementError> for u32 {

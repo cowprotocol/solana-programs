@@ -72,7 +72,6 @@ pub struct ReclaimBufferInput<'a, A> {
     pub state_pda: &'a A,
     pub reclaim_authority: &'a A,
     pub reclaim_recipient: &'a A,
-    pub token_program: &'a A,
     /// One `[buffer_pda, mint]` pair per buffer to close.
     pub buffers: &'a [[A; 2]],
 }
@@ -87,8 +86,10 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
         // Accounts: [state_pda (R), reclaim_authority (R,S), reclaim_recipient
         // (W), token_program (R), (buffer_pda (W), mint (R))...]. The four
         // shared accounts come first; the per-buffer pairs follow, one pair per
-        // buffer.
-        let [state_pda, reclaim_authority, reclaim_recipient, token_program, rest @ ..] = accounts
+        // buffer. The token program is skipped rather than read: each buffer is
+        // closed by the program that owns it, so the account is only there to
+        // put that program in the transaction.
+        let [state_pda, reclaim_authority, reclaim_recipient, _token_program, rest @ ..] = accounts
         else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
@@ -105,7 +106,6 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
             state_pda,
             reclaim_authority,
             reclaim_recipient,
-            token_program,
             buffers,
         })
     }
@@ -183,14 +183,12 @@ mod tests {
             state_pda: parsed_state_pda,
             reclaim_authority: parsed_reclaim_authority,
             reclaim_recipient: parsed_reclaim_recipient,
-            token_program: parsed_token_program,
             buffers,
         } = ReclaimBufferInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(*parsed_state_pda.address(), state_pda);
         assert_eq!(*parsed_reclaim_authority.address(), reclaim_authority);
         assert_eq!(*parsed_reclaim_recipient.address(), reclaim_recipient);
-        assert_eq!(*parsed_token_program.address(), token_program);
         assert_eq!(buffers.len(), 1, "one buffer is one pair");
         assert_eq!(*buffers[0][0].address(), buffer_pda);
         assert_eq!(*buffers[0][1].address(), mint);
