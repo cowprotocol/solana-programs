@@ -7,7 +7,6 @@ use cow_settlement_client::cow_settlement_interface::{
 };
 use cow_settlement_client::instruction::CreateBuffers;
 use cow_settlement_interface::token_program::TokenProgram;
-use litesvm::LiteSVM;
 use litesvm_token::{
     get_spl_account,
     spl_token::{
@@ -22,7 +21,7 @@ use solana_sdk::{
     instruction::{Instruction, InstructionError},
     program_error::ProgramError,
     pubkey::Pubkey,
-    signature::{Keypair, Signer},
+    signature::Signer,
     transaction::TransactionError,
 };
 
@@ -586,54 +585,50 @@ fn sizes_a_token_2022_buffer_to_the_extensions_its_mint_forces() {
     }
 }
 
-fn known_max_buffer_count() -> usize {
-    match active_token::program() {
-        TokenProgram::SplToken => 30,  // Limited by account limit
-        TokenProgram::Token2022 => 21, // Limited by CPI call limit
+/// The largest number of buffers a single `create_buffers` transaction can
+/// create under `token`. The ceiling depends on the token program:
+///
+/// - Under legacy SPL Token creating a buffer is the maximum number of account
+///   in a transaction.
+/// - Under Token-2022 each buffer costs an extra CPI, so the buffer count is
+///   bounded by the CPI limit in a single instruction.
+///
+/// These constants explicitly shows the current maximum for each flow and are
+/// tested below.
+///
+/// If a corresponding test fails (`bench_assert_known_max_*buffer_count`) it's
+/// fine to change these values to match. This exists to show in a review that
+/// the limit changed.
+fn known_max_buffer_count(token: TokenProgram) -> usize {
+    match token {
+        TokenProgram::SplToken => 30,
+        TokenProgram::Token2022 => 21,
     }
 }
 
-/// Largest number of buffers a single ALT-backed `create_buffers` transaction
-/// can carry, bounded by the transaction account-lock limit (litesvm and current
-/// mainnet both cap this at 64).
-///
-/// Nothing is created because the sent buffers are non-canonical and the
-/// transaction errors out, so the probe leaves no state behind.
-fn max_buffers_via_lookup_table(svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> usize {
-    common::lookup_table::max_items_via_lookup_table(svm, |svm, n| {
-        let buffers: Vec<(Pubkey, Pubkey)> =
-            (0..n).map(|_| (unique_pubkey(), unique_pubkey())).collect();
-        let ix = CreateBuffersRaw {
-            program_id: *program_id,
-            payer: payer.pubkey(),
-            token_program: active_token::address(),
-            buffers: &buffers,
-        };
-        common::lookup_table::lookup_table_tx(svm, payer, ix)
-    })
-}
-
-common::also_under_token_2022!(bench_assert_known_max_buffer_count);
-/// This isn't really a test, it's a way to make it visible that a code change
-/// has changed the amount of buffer accounts that can be created in the same
-/// transaction. If the number increases, great, bump it up! If it decreases and
-/// you're ok with the performance hit, then you can bump it down.
+/// See [`known_max_buffer_count`] for context. This is the legacy SPL token.
 #[test]
 fn bench_assert_known_max_buffer_count() {
     let (mut svm, program_id, payer) = common::setup();
-    let probe = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
+    let probe = common::lookup_table::max_items_via_lookup_table(&mut svm, |svm, n| {
+        let buffers: Vec<(Pubkey, Pubkey)> =
+            (0..n).map(|_| (unique_pubkey(), unique_pubkey())).collect();
+        let ix = CreateBuffersRaw {
+            program_id,
+            payer: payer.pubkey(),
+            token_program: TokenProgram::SplToken.address(),
+            buffers: &buffers,
+        };
+        common::lookup_table::lookup_table_tx(svm, &payer, ix)
+    });
     assert_eq!(
         probe,
-        30,
-        "the account-lock ceiling has changed under {:?}",
-        active_token::program(),
+        known_max_buffer_count(TokenProgram::SplToken),
+        "the account-lock ceiling has changed under legacy SPL Token",
     );
 }
 
-/// The Token-2022 counterpart of [`bench_assert_known_max_buffer_count`]. We
-/// don't use the macro here because the failure mode is completely different (runtime vs.
-/// tx assembly), so its easier to write a new test.
-/// [`known_max_buffer_count`].
+/// See [`known_max_buffer_count`] for context. This is for token 2022.
 #[test]
 fn bench_assert_known_max_token_2022_buffer_count() {
     let (mut svm, program_id, payer) = common::setup();
@@ -686,7 +681,8 @@ fn bench_assert_known_max_token_2022_buffer_count() {
     };
 
     assert_eq!(
-        probe, 21,
+        probe,
+        known_max_buffer_count(TokenProgram::Token2022),
         "the instruction-trace ceiling has changed under Token-2022"
     );
 }
@@ -723,15 +719,16 @@ fn max_buffers_in_one_instruction() {
     });
     let (state_pda, _) = find_state_pda(&program_id);
 
-    let probe = max_buffers_via_lookup_table(&mut svm, &program_id, &payer);
+    let max_buffers = known_max_buffer_count(active_token::program());
     // A legacy transaction tops out around 15 buffers (32-byte keys inlined into
     // a 1232-byte packet). The whole point of the lookup table is to beat that;
     // guard against a counterproductive use of lookup tables.
+    // Both paths use an ALT, so a failure here in any of the two flows means
+    // that we should change that test not to use ALTs.
     assert!(
-        probe > 15,
-        "a lookup-table transaction must exceed the legacy packet limit, got {probe}"
+        max_buffers > 15,
+        "a lookup-table transaction must exceed the legacy packet limit, got {max_buffers}"
     );
-    let max_buffers = known_max_buffer_count();
 
     let mints: Vec<Pubkey> = (0..max_buffers)
         .map(|_| common::token::create_mint(&mut svm, &payer))
