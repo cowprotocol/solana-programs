@@ -633,7 +633,6 @@ fn bench_assert_known_max_buffer_count() {
 /// The Token-2022 counterpart of [`bench_assert_known_max_buffer_count`]. We
 /// don't use the macro here because the failure mode is completely different (runtime vs.
 /// tx assembly), so its easier to write a new test.
-/// [`known_max_buffer_count`].
 #[test]
 fn bench_assert_known_max_token_2022_buffer_count() {
     let (mut svm, program_id, payer) = common::setup();
