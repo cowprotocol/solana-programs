@@ -1,7 +1,8 @@
 //! Shared scaffolding for the settlement integration tests.
 
 #![allow(
-    dead_code, unused_macros,
+    dead_code,
+    unused_macros,
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 pub mod benchmark;
@@ -306,9 +307,6 @@ pub fn payer_signed_tx(
 /// same transaction aimed at whichever program it is being run under.
 fn aim_at_active_token_program(instructions: &mut [Instruction]) {
     let active = token::active();
-    if active == TokenProgram::SplToken {
-        return;
-    }
     for account in instructions
         .iter_mut()
         .flat_map(|instruction| &mut instruction.accounts)
