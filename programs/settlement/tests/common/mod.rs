@@ -4,7 +4,10 @@
     dead_code,
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
-
+#[allow(
+    unused_macros,
+    reason = "integration tests compile as separate crates, so macros only used by a subset of the test binaries look unused to the others"
+)]
 pub mod benchmark;
 pub mod buffer;
 pub mod lookup_table;
@@ -333,10 +336,6 @@ fn aim_at_active_token_program(instructions: &mut [Instruction]) {
 /// The test keeps its own `#[test]`, so it runs twice: once under the legacy SPL
 /// Token program, which is what [`token::active`] reports by default, and once
 /// under Token-2022.
-#[allow(
-    unused_macros,
-    reason = "only the suites whose instructions name a token program generate the pair"
-)]
 macro_rules! also_under_token_2022 {
     ($($test:ident),+ $(,)?) => {
         $(
