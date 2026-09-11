@@ -152,7 +152,7 @@ fn rejects_removing_solver_if_manager_is_not_signer() {
     );
     ix.accounts[MANAGER_INDEX].is_signer = false;
 
-    let res = common::send(&mut svm, &params.payer, &mut [ix]);
+    let res = common::send(&mut svm, &params.payer, &[ix]);
     assert_instruction_error(
         res,
         to_instruction_error(SettlementError::UnauthorizedSolverManagement),

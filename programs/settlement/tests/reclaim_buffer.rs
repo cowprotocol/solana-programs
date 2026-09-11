@@ -356,7 +356,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
     authority_meta.is_signer = false;
 
     assert_instruction_error(
-        common::send(&mut svm, &payer, &mut [ix]),
+        common::send(&mut svm, &payer, &[ix]),
         to_instruction_error(SettlementError::ReclaimAuthorityMismatch),
     );
     assert!(

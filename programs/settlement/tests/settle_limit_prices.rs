@@ -87,11 +87,11 @@ fn settle_all(
             stage_order(svm, program_id, payer, intent, pulls, amount_out)
         })
         .collect();
-    let mut instructions = build_staged_settlement(program_id, &solver.pubkey(), &staged, vec![]);
+    let instructions = build_staged_settlement(program_id, &solver.pubkey(), &staged, vec![]);
     // The solver settles and pays: it's the fee payer and the only signer the
     // pair needs (`BeginSettle` names it as its solver-signer). `payer` above
     // only funds the order/buffer setup.
-    send(svm, solver, &mut instructions).map(|_| ())
+    send(svm, solver, &instructions).map(|_| ())
 }
 
 // --- Limit price ---------------------------------------------------------
@@ -626,7 +626,7 @@ fn partially_fillable_order_cannot_be_settled_twice_in_one_settlement() {
         .build();
 
     let staged = stage_order(&mut svm, &program_id, &payer, &intent, &[1], 1_337);
-    let mut instructions = build_staged_settlement(
+    let instructions = build_staged_settlement(
         &program_id,
         &solver.pubkey(),
         &[staged.clone(), staged],
@@ -635,7 +635,7 @@ fn partially_fillable_order_cannot_be_settled_twice_in_one_settlement() {
 
     assert_settlement_error(
         BEGIN_INDEX,
-        send(&mut svm, &solver, &mut instructions).map(|_| ()),
+        send(&mut svm, &solver, &instructions).map(|_| ()),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
 }

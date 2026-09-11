@@ -300,13 +300,14 @@ fn assemble_tx(
     svm: &LiteSVM,
     payer: &Keypair,
     additional_signers: &[&Keypair],
-    instructions: &mut [Instruction],
+    instructions: &[Instruction],
 ) -> Transaction {
+    let mut instructions = Vec::from(instructions);
     let mut signers = vec![payer];
     signers.extend_from_slice(additional_signers);
-    active_token::retarget(instructions);
+    active_token::retarget(&mut instructions);
     Transaction::new_signed_with_payer(
-        instructions,
+        &instructions,
         Some(&payer.pubkey()),
         &signers,
         svm.latest_blockhash(),
@@ -316,10 +317,11 @@ fn assemble_tx(
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
 /// surfacing only the transaction-level error on failure (dropping the success
 /// metadata's error wrapper).
+#[track_caller]
 pub fn send(
     svm: &mut LiteSVM,
     payer: &Keypair,
-    instructions: &mut [Instruction],
+    instructions: &[Instruction],
 ) -> Result<TransactionMetadata, TransactionError> {
     send_with_signers(svm, payer, &[], instructions)
 }
@@ -327,11 +329,12 @@ pub fn send(
 /// [`send`], with `additional_signers` signing alongside `payer`, for the
 /// instructions that need a signature from an account other than the payer (a
 /// freshly created mint or token account signing for its own allocation).
+#[track_caller]
 pub fn send_with_signers(
     svm: &mut LiteSVM,
     payer: &Keypair,
     additional_signers: &[&Keypair],
-    instructions: &mut [Instruction],
+    instructions: &[Instruction],
 ) -> Result<TransactionMetadata, TransactionError> {
     let tx = assemble_tx(svm, payer, additional_signers, instructions);
     svm.send_transaction(tx).map_err(|failed| failed.err)
@@ -345,7 +348,7 @@ pub fn send_with_signers(
 pub fn send_metered(
     svm: &mut LiteSVM,
     payer: &Keypair,
-    instructions: &mut [Instruction],
+    instructions: &[Instruction],
     label: benchmark::BenchLabel,
 ) -> Result<TransactionMetadata, TransactionError> {
     let tx = assemble_tx(svm, payer, &[], instructions);

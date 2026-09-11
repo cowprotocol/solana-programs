@@ -160,7 +160,7 @@ fn signer_must_sign_the_transaction() {
     );
     ix.accounts[SIGNER_INDEX].is_signer = false;
 
-    let res = common::send(&mut svm, &payer, &mut [ix]);
+    let res = common::send(&mut svm, &payer, &[ix]);
     assert_instruction_error(res, InstructionError::MissingRequiredSignature);
 }
 

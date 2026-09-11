@@ -98,7 +98,7 @@ fn create_mint_at_under(
         DECIMALS,
     )
     .expect("initialize_mint2 should build");
-    send_with_signers(svm, payer, &[mint], &mut [create, initialize])
+    send_with_signers(svm, payer, &[mint], &[create, initialize])
         .unwrap_or_else(|error| panic!("mint creation should succeed: {error:?}"));
     mint.pubkey()
 }
@@ -123,7 +123,7 @@ pub fn create_token_account(
     );
     let initialize = initialize_account3(&token_program, &account.pubkey(), mint, owner)
         .expect("initialize_account3 should build");
-    send_with_signers(svm, payer, &[&account], &mut [create, initialize])
+    send_with_signers(svm, payer, &[&account], &[create, initialize])
         .unwrap_or_else(|error| panic!("token account creation should succeed: {error:?}"));
     account.pubkey()
 }
@@ -165,7 +165,7 @@ pub fn mint_to(
         amount,
     )
     .expect("mint_to should build");
-    send_with_signers(svm, payer, &[], &mut [instruction])
+    send_with_signers(svm, payer, &[], &[instruction])
         .unwrap_or_else(|error| panic!("mint_to should succeed: {error:?}"));
 }
 
@@ -209,7 +209,7 @@ pub fn transfer(
         decimals_of(svm, mint),
     )
     .expect("transfer should build");
-    send_with_signers(svm, owner, &[], &mut [instruction])
+    send_with_signers(svm, owner, &[], &[instruction])
         .unwrap_or_else(|error| panic!("transfer should succeed: {error:?}"));
 }
 
@@ -232,7 +232,7 @@ pub fn delegate(
         amount,
     )
     .expect("approve should build");
-    send_with_signers(svm, owner, &[], &mut [instruction])
+    send_with_signers(svm, owner, &[], &[instruction])
         .unwrap_or_else(|error| panic!("approving a delegate should succeed: {error:?}"));
 }
 
