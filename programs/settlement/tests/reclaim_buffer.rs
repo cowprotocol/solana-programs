@@ -16,7 +16,7 @@ use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
 use crate::common::token_2022::Extensions;
 use crate::common::{
-    assert_instruction_error, to_instruction_error, unique_pubkey, InitializedParams,
+    assert_instruction_error, unique_pubkey, InitializedParams,
 };
 
 mod common;
@@ -304,7 +304,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        to_instruction_error(SettlementError::ReclaimAuthorityMismatch),
+        SettlementError::ReclaimAuthorityMismatch.into(),
     );
 }
 
@@ -348,7 +348,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
 
     assert_instruction_error(
         common::send(&mut svm, &payer, vec![ix]),
-        to_instruction_error(SettlementError::ReclaimAuthorityMismatch),
+        SettlementError::ReclaimAuthorityMismatch.into(),
     );
     assert!(
         svm.get_account(&buffer_pda).is_some(),

@@ -24,7 +24,7 @@ use crate::common::{
     order::{create_order_pda, sample_intent, settlable_intent, OrderBuilder},
     replace_first_matching_account, send, set_unix_timestamp,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
-    setup_settle_ready, to_instruction_error, token, unique_pubkey,
+    setup_settle_ready, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::order::{EncodedOrderAccount, OrderAccount},
@@ -57,7 +57,7 @@ fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: Settleme
         result.err(),
         Some(TransactionError::InstructionError(
             BEGIN_INDEX,
-            to_instruction_error(expected),
+            expected.into(),
         )),
     );
 }

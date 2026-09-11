@@ -11,7 +11,7 @@ use crate::common::{
     order::OrderBuilder,
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX},
-    setup_settle_ready, to_instruction_error, token,
+    setup_settle_ready, token,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
@@ -38,7 +38,7 @@ fn assert_settlement_error<T>(
     result: Result<T, TransactionError>,
     expected: SettlementError,
 ) {
-    assert_instruction_error_at(ix_idx, result, to_instruction_error(expected));
+    assert_instruction_error_at(ix_idx, result, expected.into());
 }
 
 /// Read `intent`'s order PDA and return its persisted `(amount_withdrawn,
@@ -292,7 +292,7 @@ fn assert_locality_rejected(generous_kind: OrderKind, violating_kind: OrderKind)
         result.err(),
         Some(TransactionError::InstructionError(
             BEGIN_INDEX,
-            to_instruction_error(SettlementError::LimitPriceViolated),
+            SettlementError::LimitPriceViolated.into(),
         )),
         "generous={generous_kind:?} violating={violating_kind:?}",
     );

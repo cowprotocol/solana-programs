@@ -21,7 +21,7 @@ use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
     create_account_at, lamports, setup_init,
     state::solvers,
-    to_instruction_error, unique_keypair, InitializedParams,
+    unique_keypair, InitializedParams,
 };
 
 mod common;
@@ -136,7 +136,7 @@ fn rejects_adding_an_existing_solver() {
     svm.expire_blockhash();
     assert_instruction_error(
         add_solver(&mut svm, &params, &solver),
-        to_instruction_error(SettlementError::SolverAlreadyExists),
+        SettlementError::SolverAlreadyExists.into(),
     );
 }
 
@@ -161,7 +161,7 @@ fn rejects_adding_solver_if_manager_is_not_signer() {
     let res = common::send(&mut svm, &params.payer, vec![ix]);
     assert_instruction_error(
         res,
-        to_instruction_error(SettlementError::UnauthorizedSolverManagement),
+        SettlementError::UnauthorizedSolverManagement.into(),
     );
 }
 
@@ -180,7 +180,7 @@ fn rejects_adding_solver_by_non_manager() {
     let tx = common::signed_tx(&svm, &params.payer, &stranger, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        to_instruction_error(SettlementError::UnauthorizedSolverManagement),
+        SettlementError::UnauthorizedSolverManagement.into(),
     );
 }
 

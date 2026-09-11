@@ -25,6 +25,7 @@ solana-account-view = { workspace = true, features = ["copy"] }
 solana-address.workspace = true
 solana-hash.workspace = true
 solana-instruction.workspace = true
+solana-instruction-error.workspace = true
 solana-program-error.workspace = true
 solana-pubkey = { workspace = true, features = ["curve25519"] }
 solana-sdk-ids.workspace = true

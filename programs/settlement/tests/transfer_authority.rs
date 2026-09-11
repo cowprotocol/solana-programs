@@ -15,7 +15,7 @@ use solana_sdk::{
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    setup_init, signed_tx, to_instruction_error, InitializedParams,
+    setup_init, signed_tx, InitializedParams,
 };
 
 mod common;
@@ -75,7 +75,7 @@ fn assert_transfer_rejected(
     };
     let tx = signed_tx(svm, &params.payer, signer, transfer);
     let res = svm.send_transaction(tx).map_err(|e| e.err);
-    assert_instruction_error(res, to_instruction_error(expected));
+    assert_instruction_error(res, expected.into());
 }
 
 /// Asserts that `signer` may transfer *only* `allowed`: every other role (see
