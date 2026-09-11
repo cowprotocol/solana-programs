@@ -630,6 +630,67 @@ fn bench_assert_known_max_buffer_count() {
     );
 }
 
+/// The Token-2022 counterpart of [`bench_assert_known_max_buffer_count`]. We
+/// don't use the macro here because the failure mode is completely different (runtime vs.
+/// tx assembly), so its easier to write a new test.
+/// [`known_max_buffer_count`].
+#[test]
+fn bench_assert_known_max_token_2022_buffer_count() {
+    let (mut svm, program_id, payer) = common::setup();
+    // A maxed-out batch costs close to the 200k default; see
+    // `max_buffers_in_one_instruction` for why the limit is raised this way.
+    svm = svm.with_compute_budget(ComputeBudget {
+        compute_unit_limit: u64::from(MAX_COMPUTE_UNIT_LIMIT),
+        ..ComputeBudget::new_with_defaults(false)
+    });
+
+    svm.airdrop(&payer.pubkey(), 20_000_000_000)
+        .expect("airdrop should succeed");
+
+    // Grow the batch until it stops fitting.
+    let mut n: usize = 1;
+    let probe = loop {
+        let mints: Vec<Pubkey> = (0..n)
+            .map(|_| {
+                common::token_2022::create_mint(
+                    &mut svm,
+                    &payer,
+                    &unique_keypair(),
+                    Extensions::default(),
+                )
+            })
+            .collect();
+        let ix = CreateBuffers {
+            program_id,
+            payer: payer.pubkey(),
+            token_program: TokenProgram::Token2022,
+            mints: &mints,
+        };
+        let tx = common::lookup_table::lookup_table_tx(&mut svm, &payer, ix);
+        match svm.send_transaction(tx) {
+            Ok(_) => n = n.strict_add(1),
+            Err(failed)
+                if failed.err
+                    == TransactionError::InstructionError(
+                        0,
+                        InstructionError::MaxInstructionTraceLengthExceeded,
+                    ) =>
+            {
+                break n.strict_sub(1)
+            }
+            // Anything else (running out of compute units or of lamports, say)
+            // could indicate this test's own setup breaking, so fail
+            // to ensure the investigation happens.
+            other => panic!("unexpected result creating {n} buffers: {other:?}"),
+        }
+    };
+
+    assert_eq!(
+        probe, 21,
+        "the instruction-trace ceiling has changed under Token-2022"
+    );
+}
+
 common::also_under_token_2022!(max_buffers_in_one_instruction);
 /// Pack a single `create_buffers` instruction with as many buffers as a
 /// transaction can have. Use Address Lookup Table to reach the real
