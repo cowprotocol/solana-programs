@@ -123,11 +123,14 @@ macro_rules! transfer_authority_test {
 // holder may transfer it to a replacement.
 transfer_authority_test!(manager_can_transfer_manager: manager transfers Role::Manager);
 transfer_authority_test!(manager_can_transfer_reclaim_authority: manager transfers Role::ReclaimAuthority);
+transfer_authority_test!(manager_can_transfer_fee_withdrawal_authority: manager transfers Role::FeeWithdrawalAuthority);
 transfer_authority_test!(reclaim_authority_can_transfer_itself: reclaim transfers Role::ReclaimAuthority);
+transfer_authority_test!(fee_withdrawal_authority_can_transfer_itself: fee_withdrawal transfers Role::FeeWithdrawalAuthority);
 
 // A non-manager authority may transfer only its own role; every other role is
 // rejected.
 transfer_authority_test!(reclaim_authority_cannot_transfer_other_roles: reclaim transfers only Role::ReclaimAuthority, error SettlementError::UnauthorizedAuthorityTransfer);
+transfer_authority_test!(fee_withdrawal_authority_cannot_transfer_other_roles: fee_withdrawal transfers only Role::FeeWithdrawalAuthority, error SettlementError::UnauthorizedAuthorityTransfer);
 
 /// Index of the signer account in a `TransferAuthority` instruction.
 const SIGNER_INDEX: usize = 0;
