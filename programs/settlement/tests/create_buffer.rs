@@ -363,9 +363,7 @@ fn rejects_invalid_mint() {
     // buffer PDA from it and delegates mint validation to InitializeAccount3,
     // which rejects it: a non-mint account isn't owned by the token program, so
     // the CPI fails with IncorrectProgramId after the buffer was allocated,
-    // reverting the whole instruction. Sizing doesn't get in the way first: an
-    // account this short can't be a mint with extensions, so it's sized at the
-    // base layout without the token program being consulted.
+    // reverting the whole instruction.
     let not_a_mint = unique_pubkey();
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &not_a_mint);
 
