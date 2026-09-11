@@ -37,8 +37,10 @@ pub struct Pull {
 /// spl_token_program (R), token_2022_program (R)]` followed, per order, by
 /// `[order_pda (W), sell_token_account (W), destination (W)...]`. The two token
 /// programs are the slots [`TokenPrograms`] describes: each transfer is issued
-/// against the program that owns the account it moves, and a program this
-/// settlement doesn't touch is left out with the system program.
+/// against the program that owns the account it moves, so the slots are there
+/// to name those programs — a CPI can only dispatch to a program the
+/// instruction names. A program this settlement doesn't touch is left out with
+/// the system program.
 ///
 /// `solver` must sign, and the solver must be registered in the state pda.
 ///
@@ -214,11 +216,6 @@ pub struct BeginSettleInput<'a, A> {
     pub solver_account: &'a A,
     pub instructions_sysvar_account: &'a A,
     pub state_pda_account: &'a A,
-    /// The legacy SPL Token program's slot: the program itself, or the
-    /// placeholder where this settlement moves no token under it.
-    pub spl_token_program_account: &'a A,
-    /// Token-2022's slot, filled the same way.
-    pub token_2022_program_account: &'a A,
     pub orders: SettledOrders<'a, A>,
 }
 
@@ -231,7 +228,11 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (finalize_ix_index, body) = recover_counterpart(instruction_data)?;
 
-        let [solver_account, instructions_sysvar_account, state_pda_account, spl_token_program_account, token_2022_program_account, order_accounts @ ..] =
+        // The two token-program slots are skipped rather than read: every
+        // transfer is issued against the program that owns the account it
+        // moves, so naming the programs is all the slots do. They still take up
+        // their positions, which is what the order accounts are counted from.
+        let [solver_account, instructions_sysvar_account, state_pda_account, _spl_token_program_account, _token_2022_program_account, order_accounts @ ..] =
             accounts
         else {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -285,8 +286,6 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
             auction_id,
             instructions_sysvar_account,
             state_pda_account,
-            spl_token_program_account,
-            token_2022_program_account,
             solver_account,
             orders: SettledOrders {
                 order_accounts,
@@ -577,16 +576,12 @@ mod tests {
             solver_account,
             instructions_sysvar_account,
             orders,
-            spl_token_program_account,
-            token_2022_program_account,
             state_pda_account,
         } = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(auction_id, 0x0102_0304_0506_0708);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(orders.iter().count(), 0);
-        assert_eq!(spl_token_program_account.address(), &spl_token_program);
-        assert_eq!(token_2022_program_account.address(), &token_2022_program);
         assert_eq!(state_pda_account.address(), &state);
         assert_eq!(solver_account.address(), &solver);
     }
@@ -665,14 +660,10 @@ mod tests {
             instructions_sysvar_account,
             orders,
             state_pda_account,
-            spl_token_program_account,
-            token_2022_program_account,
         } = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(auction_id, AUCTION_ID);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
-        assert_eq!(spl_token_program_account.address(), &spl_token_program);
-        assert_eq!(token_2022_program_account.address(), &token_2022_program);
         assert_eq!(state_pda_account.address(), &state);
         assert_eq!(solver_account.address(), &solver);
 

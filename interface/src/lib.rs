@@ -259,16 +259,12 @@ pub enum SettlementError {
     /// mint has to be and couldn't read the answer, so it can't size the
     /// buffer.
     BufferSizeUnavailable = 40,
-    /// `BeginSettle`/`FinalizeSettle`: a token account it has to move is owned
-    /// by a supported token program whose slot carries the system-program
-    /// placeholder, so there is no program to issue that transfer against. The
-    /// settlement has to carry every token program its accounts live under; see
-    /// [`token_program::TokenPrograms`].
-    TokenProgramNotProvided = 41,
     /// `FinalizeSettle`: a push's destination isn't owned by a supported token
     /// program, so it is no token account at all and there is nothing to issue
     /// its transfer against.
-    PushDestinationInvalid = 42,
+    PushDestinationInvalid = 41,
+    /// The token program for a given token or mint is not supported.
+    InvalidTokenProgram = 42,
 }
 
 impl From<SettlementError> for u32 {

@@ -83,7 +83,8 @@ pub fn finalize_push_data(
 /// `[instructions_sysvar (R), state_pda (R), spl_token_program (R),
 /// token_2022_program (R)]` followed, per push, by `[source_buffer (W),
 /// destination (W)]`. The two token programs are the slots [`TokenPrograms`]
-/// describes; the matching `BeginSettle` carries the same ones.
+/// describes, there to name the programs this instruction's pushes are issued
+/// against; the matching `BeginSettle` carries the ones its pulls need.
 ///
 /// `FinalizeSettle` only executes the transfers. Every push is validated by
 /// `BeginSettle`, which reads this instruction through introspection.
@@ -208,11 +209,6 @@ pub struct FinalizeSettleInput<'a, A> {
     pub begin_ix_index: u16,
     pub instructions_sysvar_account: &'a A,
     pub state_pda_account: &'a A,
-    /// The legacy SPL Token program's slot: the program itself, or the
-    /// placeholder where this settlement moves no token under it.
-    pub spl_token_program_account: &'a A,
-    /// Token-2022's slot, filled the same way.
-    pub token_2022_program_account: &'a A,
     pub pushes: Pushes<'a, A>,
 }
 
@@ -225,7 +221,11 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (begin_ix_index, body) = recover_counterpart(instruction_data)?;
 
-        let [instructions_sysvar_account, state_pda_account, spl_token_program_account, token_2022_program_account, push_accounts @ ..] =
+        // The two token-program slots are skipped rather than read: every push
+        // is issued against the program that owns its destination, so naming
+        // the programs is all the slots do. They still take up their positions,
+        // which is what the push accounts are counted from.
+        let [instructions_sysvar_account, state_pda_account, _spl_token_program_account, _token_2022_program_account, push_accounts @ ..] =
             accounts
         else {
             return Err(ProgramError::NotEnoughAccountKeys);
@@ -247,8 +247,6 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
             begin_ix_index,
             instructions_sysvar_account,
             state_pda_account,
-            spl_token_program_account,
-            token_2022_program_account,
             pushes: Pushes {
                 push_accounts,
                 bumps,
@@ -437,15 +435,11 @@ mod tests {
             begin_ix_index,
             instructions_sysvar_account,
             state_pda_account,
-            spl_token_program_account,
-            token_2022_program_account,
             pushes,
         } = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(begin_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(state_pda_account.address(), &state);
-        assert_eq!(spl_token_program_account.address(), &spl_token_program);
-        assert_eq!(token_2022_program_account.address(), &token_2022_program);
         assert_eq!(pushes.iter().count(), 0);
     }
 

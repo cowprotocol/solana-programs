@@ -3,19 +3,21 @@
 //!
 //! Both instructions take one account per supported token program and issue
 //! each transfer against the program that owns the account it moves, so a
-//! single pair can settle legacy SPL Token and Token-2022 orders together. A
-//! program the settlement doesn't need is left out by putting the system
-//! program in its slot; a token account under a left-out program then has
-//! nothing to be settled against.
+//! single pair can settle legacy SPL Token and Token-2022 orders together. The
+//! slots are never read: all they do is name those programs, and a CPI can only
+//! dispatch to a program its instruction names. A program the settlement
+//! doesn't need is left out by putting the system program in its slot; a
+//! transfer of a token account under a left-out program then has nothing to
+//! dispatch to, and the runtime refuses it.
 
 use crate::common::{
-    assert_settlement_error, buffer,
+    buffer,
     order::OrderBuilder,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::OrderIntent, token_program::TokenProgram, Instruction, SettlementError,
+    data::intent::OrderIntent, token_program::TokenProgram, Instruction,
 };
 use cow_settlement_client::instructions::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenPrograms,
@@ -258,8 +260,11 @@ fn settles_token_2022_orders_without_carrying_the_legacy_program() {
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 300);
 }
 
-/// `BeginSettle` pulls from the sell account, so leaving that account's program
-/// out is what it refuses — by name, rather than as a malformed account.
+/// `BeginSettle` pulls from the sell account against the program that owns it,
+/// so leaving that program out of the settlement leaves the pull's CPI with
+/// nothing to dispatch to. The runtime is what refuses it: the program was
+/// never told which programs the settlement carries, only which one owns the
+/// account in front of it.
 #[test]
 fn rejects_a_sell_account_under_a_left_out_program() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -273,8 +278,7 @@ fn rejects_a_sell_account_under_a_left_out_program() {
         &TokenProgram::SplToken.address(),
     );
 
-    assert_settlement_error(
-        BEGIN_INDEX,
+    assert_eq!(
         settle_with(
             &mut svm,
             &program_id,
@@ -288,13 +292,17 @@ fn rejects_a_sell_account_under_a_left_out_program() {
             TokenPrograms::SPL_TOKEN,
             TokenPrograms::SPL_TOKEN,
         ),
-        SettlementError::TokenProgramNotProvided,
+        Err(TransactionError::InstructionError(
+            BEGIN_INDEX,
+            InstructionError::MissingAccount,
+        )),
     );
 }
 
-/// `FinalizeSettle` pushes into the buy account, so it is the one that refuses
-/// a settlement whose slots leave that account's program out. `BeginSettle`
-/// runs first and passes: it only pulls, and this order's sell side is legacy.
+/// `FinalizeSettle` pushes into the buy account, so it is the instruction whose
+/// CPI has nothing to dispatch to when that account's program is left out.
+/// `BeginSettle` runs first and passes: it only pulls, and this order's sell
+/// side is legacy.
 #[test]
 fn rejects_a_buy_account_under_a_left_out_program() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -308,8 +316,7 @@ fn rejects_a_buy_account_under_a_left_out_program() {
         &TokenProgram::Token2022.address(),
     );
 
-    assert_settlement_error(
-        FINALIZE_INDEX,
+    assert_eq!(
         settle_with(
             &mut svm,
             &program_id,
@@ -323,15 +330,18 @@ fn rejects_a_buy_account_under_a_left_out_program() {
             TokenPrograms::BOTH,
             TokenPrograms::SPL_TOKEN,
         ),
-        SettlementError::TokenProgramNotProvided,
+        Err(TransactionError::InstructionError(
+            FINALIZE_INDEX,
+            InstructionError::MissingAccount,
+        )),
     );
 }
 
-/// The slots are positional. Handing each one the other's program isn't a way
-/// to carry both: each slot takes its own program or the placeholder, nothing
-/// else.
+/// The slots aren't positional: nothing reads them, so a settlement naming both
+/// programs settles either way round. All the slots decide is which programs
+/// the instruction names.
 #[test]
-fn rejects_swapped_token_program_slots() {
+fn settles_with_the_token_program_slots_swapped() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = order_across(
@@ -389,14 +399,10 @@ fn rejects_swapped_token_program_slots() {
         &[&payer, &solver],
         svm.latest_blockhash(),
     );
-    let error = svm
-        .send_transaction(tx)
-        .expect_err("swapped slots should be rejected")
-        .err;
-    assert_eq!(
-        error,
-        TransactionError::InstructionError(BEGIN_INDEX, InstructionError::IncorrectProgramId),
-    );
+    svm.send_transaction(tx)
+        .expect("the slots only name the programs, in either order");
+
+    assert_eq!(token::balance(&svm, &intent.buy_token_account), 100);
 }
 
 /// Every settlement in the rest of the suite leaves Token-2022's slot empty, so

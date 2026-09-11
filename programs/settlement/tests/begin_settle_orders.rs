@@ -12,8 +12,7 @@
 //! fully-working settlement, so every test here builds one with it and either
 //! sends it unmodified (when the rejection is already baked into the orders or
 //! accounts passed in) or mutates its `BeginSettle` instruction in place
-//! afterwards (a wrong account, a wrong token program, a wrong state PDA, an
-//! extra account). A few tests are the exception and build the raw instruction
+//! afterwards (a wrong account, a wrong state PDA, an extra account). A few tests are the exception and build the raw instruction
 //! directly, because what they exercise can't come out of the client builder,
 //! whose output is a properly built instruction.
 
@@ -30,7 +29,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::order::{EncodedOrderAccount, OrderAccount},
     instruction::settle::{
         BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw,
-        FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
+        FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID,
     },
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     Instruction, SettlementError, SettlementInstruction,
@@ -934,36 +933,6 @@ fn rejects_wrong_state_pda() {
     assert_begin_error(
         send(&mut svm, &solver, instructions),
         SettlementError::StateAccountMismatch,
-    );
-}
-
-#[test]
-fn rejects_wrong_token_program() {
-    let (mut svm, program_id, payer, solver) = setup_settle_ready();
-
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    let mut instructions = settle_and_pay(
-        &mut svm,
-        &program_id,
-        &payer,
-        &solver,
-        &[InitializedIntent {
-            intent: &intent,
-            pulls: &[],
-        }],
-    );
-
-    // Swap the SPL Token program account `BeginSettle` references for a bogus
-    // one.
-    replace_first_matching_account(
-        &mut instructions[usize::from(BEGIN_INDEX)],
-        &SPL_TOKEN_PROGRAM_ID,
-        unique_pubkey(),
-    );
-
-    assert_instruction_error(
-        send(&mut svm, &solver, instructions),
-        InstructionError::IncorrectProgramId,
     );
 }
 
