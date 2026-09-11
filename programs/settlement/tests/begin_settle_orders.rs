@@ -1186,11 +1186,8 @@ fn rejects_partial_push_amount_in_finalize_settle() {
     finalize.data.pop();
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
-    assert_eq!(
-        send(&mut svm, &solver, &instructions).err(),
-        Some(TransactionError::InstructionError(
-            BEGIN_INDEX,
-            InstructionError::InvalidInstructionData,
-        )),
+    assert_begin_error(
+        send(&mut svm, &solver, &instructions),
+        InstructionError::InvalidInstructionData,
     );
 }
