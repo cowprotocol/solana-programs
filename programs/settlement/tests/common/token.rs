@@ -62,11 +62,6 @@ pub fn under_token_program(token_program: TokenProgram, test: impl FnOnce()) {
 }
 
 /// The token program that owns `account`.
-///
-/// A token account always lives under its mint's program, so this answers for a
-/// mint and for the accounts holding it alike — which is what lets the helpers
-/// below take the program from the tokens a test already built, rather than
-/// from [`active`].
 pub fn program_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
     svm.get_account(account)
         .unwrap_or_else(|| panic!("{account} should exist on-chain"))
