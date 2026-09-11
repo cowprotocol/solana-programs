@@ -8,11 +8,13 @@
 //! with nothing to read it from: creating a mint, sizing a buffer, and aiming a
 //! hardcoded-legacy instruction at the program under test.
 
-use cow_settlement_interface::{token_program::TokenProgram, Instruction};
+use cow_settlement_interface::{token_program::TokenProgram, AccountMeta, Instruction};
 use solana_program_pack::Pack;
 use solana_sdk::pubkey::Pubkey;
 use spl_token_2022_interface::state::Account;
 use std::cell::Cell;
+
+use crate::common::assemble_tx;
 
 use super::token_2022::Extensions;
 
@@ -101,3 +103,43 @@ macro_rules! also_under_token_2022 {
     reason = "re-exported for the suites that use the macro; the others never name it"
 )]
 pub(crate) use also_under_token_2022;
+
+also_under_token_2022!(verify_active_token_macro_effectiveness);
+/// Guards the two pieces the suite's Token-2022 coverage rests on: that
+/// [`also_under_token_2022`] actually swaps the active program, and that the
+/// transaction [`assemble_tx`] builds out of an instruction written against the
+/// legacy program comes out aimed at the active one.
+///
+/// Deliberately has no `#[test]` of its own since we just want to test the circumstances of the macro being enabled.
+fn verify_active_token_macro_effectiveness() {
+    assert_ne!(program(), TokenProgram::SplToken);
+
+    let (svm, _program_id, payer) = crate::common::setup();
+    let untouched = crate::common::unique_pubkey();
+    let instructions = [Instruction {
+        program_id: crate::common::unique_pubkey(),
+        accounts: vec![
+            AccountMeta::new_readonly(TokenProgram::SplToken.address(), false),
+            AccountMeta::new_readonly(untouched, false),
+        ],
+        data: Vec::new(),
+    }];
+
+    let tx = assemble_tx(&svm, &payer, &[], &instructions);
+    let message = &tx.message;
+    let compiled = &message.instructions[0];
+    let accounts: Vec<Pubkey> = compiled
+        .accounts
+        .iter()
+        .map(|&index| message.account_keys[usize::from(index)])
+        .collect();
+
+    // The token program slot is the active program, and only that slot moved.
+    assert_eq!(accounts, [address(), untouched]);
+    assert!(
+        !message
+            .account_keys
+            .contains(&TokenProgram::SplToken.address()),
+        "no trace of the legacy program should survive in the compiled message",
+    );
+}
