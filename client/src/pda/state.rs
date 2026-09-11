@@ -9,6 +9,7 @@ use solana_program_error::ProgramError;
 pub struct DecodedStateAccount {
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
+    pub fee_withdrawal_authority: Pubkey,
 }
 
 impl TryFrom<&[u8]> for DecodedStateAccount {
@@ -19,6 +20,7 @@ impl TryFrom<&[u8]> for DecodedStateAccount {
         Ok(Self {
             manager: state.authority(Role::Manager),
             reclaim_authority: state.authority(Role::ReclaimAuthority),
+            fee_withdrawal_authority: state.authority(Role::FeeWithdrawalAuthority),
         })
     }
 }
@@ -29,16 +31,9 @@ mod tests {
     use cow_settlement_interface::data::state::{StateInitArgs, WIDTH_HEADER};
     use cow_settlement_interface::fixtures::pubkey_from_seed;
 
-    fn state_bytes(manager: &Pubkey, reclaim_authority: &Pubkey) -> [u8; WIDTH_HEADER] {
+    fn state_bytes(init_args: &StateInitArgs) -> [u8; WIDTH_HEADER] {
         let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(
-            &mut bytes[..],
-            &StateInitArgs {
-                manager: *manager,
-                reclaim_authority: *reclaim_authority,
-            },
-        )
-        .expect("header fits");
+        StateAccount::initialize(&mut bytes[..], init_args).expect("header fits");
         bytes
     }
 
@@ -46,7 +41,12 @@ mod tests {
     fn decodes_the_header() {
         let manager = pubkey_from_seed("manager");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
-        let bytes = state_bytes(&manager, &reclaim_authority);
+        let fee_withdrawal_authority = pubkey_from_seed("fee withdrawal authority");
+        let bytes = state_bytes(&StateInitArgs {
+            manager,
+            reclaim_authority,
+            fee_withdrawal_authority,
+        });
 
         let decoded = DecodedStateAccount::try_from(&bytes[..]).expect("valid state account");
         assert_eq!(
@@ -54,6 +54,7 @@ mod tests {
             DecodedStateAccount {
                 manager,
                 reclaim_authority,
+                fee_withdrawal_authority,
             },
         );
     }
@@ -68,9 +69,11 @@ mod tests {
 
     #[test]
     fn rejects_too_short_account() {
-        let manager = pubkey_from_seed("manager");
-        let reclaim_authority = pubkey_from_seed("reclaim authority");
-        let bytes = state_bytes(&manager, &reclaim_authority);
+        let bytes = state_bytes(&StateInitArgs {
+            manager: pubkey_from_seed("manager"),
+            reclaim_authority: pubkey_from_seed("reclaim authority"),
+            fee_withdrawal_authority: pubkey_from_seed("fee withdrawal authority"),
+        });
         assert!(DecodedStateAccount::try_from(&bytes[..WIDTH_HEADER - 1]).is_err());
     }
 }

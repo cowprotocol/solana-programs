@@ -87,26 +87,28 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     (svm, program_id, payer)
 }
 
-/// A settlement initialized by [`setup_init`], with the manager and
-/// reclaim authority held as keypairs the test can sign transfers with.
+/// A settlement initialized by [`setup_init`], with all authorities held as
+/// keypairs the test can sign transfers with.
 pub struct InitializedParams {
     pub program_id: Pubkey,
     pub payer: Keypair,
     pub state_pda: Pubkey,
     pub manager: Keypair,
     pub reclaim: Keypair,
+    pub fee_withdrawal: Keypair,
 }
 
-/// [`setup`] followed by a successful `Initialize` whose manager and reclaim
-/// authority are keypairs the test controls, so it can sign on their behalf.
+/// [`setup`] followed by a successful `Initialize` whose authorities are
+/// keypairs the test controls, so it can sign on their behalf.
 ///
 /// Returns the SVM and an [`InitializedParams`] bundling the program id, the
-/// fee payer, the state PDA, and the manager and reclaim authority keypairs.
+/// fee payer, the state PDA, and all authority keypairs.
 pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let (mut svm, program_id, payer) = setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_keypair();
     let reclaim = unique_keypair();
+    let fee_withdrawal = unique_keypair();
     state::initialize(
         &mut svm,
         &payer,
@@ -115,6 +117,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             payer: payer.pubkey(),
             manager: manager.pubkey(),
             reclaim_authority: reclaim.pubkey(),
+            fee_withdrawal_authority: fee_withdrawal.pubkey(),
         },
     );
 
@@ -126,6 +129,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             state_pda,
             manager,
             reclaim,
+            fee_withdrawal,
         },
     )
 }

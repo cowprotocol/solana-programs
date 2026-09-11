@@ -16,11 +16,19 @@ pub enum Role {
     /// The account authorized to close buffer accounts and reclaim their rent,
     /// choosing where that rent goes.
     ReclaimAuthority,
+    /// The account authorized to place orders that sell the protocol's own
+    /// buffer balances (fee withdrawals). It chooses the destination, the
+    /// bought token, and the price of those orders.
+    FeeWithdrawalAuthority,
 }
 
 impl Role {
     /// Every [`Role`] variant, in discriminant order.
-    pub const ALL: [Self; 2] = [Role::Manager, Role::ReclaimAuthority];
+    pub const ALL: [Self; 3] = [
+        Role::Manager,
+        Role::ReclaimAuthority,
+        Role::FeeWithdrawalAuthority,
+    ];
 
     /// The single wire byte that selects this role in the authority-transfer
     /// instruction.

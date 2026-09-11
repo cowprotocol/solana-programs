@@ -63,7 +63,6 @@ fn assert_transfer_rejected(
     params: &InitializedParams,
     role: Role,
     signer: &Keypair,
-    expected: SettlementError,
 ) {
     let new_authority = common::unique_keypair();
 
@@ -75,7 +74,7 @@ fn assert_transfer_rejected(
     };
     let tx = signed_tx(svm, &params.payer, signer, transfer);
     let res = svm.send_transaction(tx).map_err(|e| e.err);
-    assert_instruction_error(res, expected);
+    assert_instruction_error(res, SettlementError::UnauthorizedAuthorityTransfer);
 }
 
 /// Asserts that `signer` may transfer *only* `allowed`: every other role (see
@@ -86,48 +85,78 @@ fn assert_transfers_only(
     params: &InitializedParams,
     signer: &Keypair,
     allowed: Role,
-    expected: SettlementError,
 ) {
     for role in Role::ALL.into_iter().filter(|&role| role != allowed) {
-        assert_transfer_rejected(svm, params, role, signer, expected);
+        assert_transfer_rejected(svm, params, role, signer);
     }
 }
 
-/// Generates one integration test. Two forms:
-///
-/// - "Entry transfers Role" — asserts that transfer succeeds.
-/// - "Entry transfers only Role, error Error" — asserts every *other* role is
-///   rejected with Error.
-///
-/// "Entry" names a keypair field of [`InitializedParams`]; "Error" is the
-/// expected [`SettlementError`].
-macro_rules! transfer_authority_test {
-    ($name:ident: $signer:ident transfers $role:expr) => {
-        #[test]
-        fn $name() {
-            let (mut svm, params) = setup_init();
-            assert_transfers_authority(&mut svm, &params, $role, &params.$signer);
-        }
+/// Expands the callback macro `$macro!` over every [`Role`] variant, in
+/// the same order as [`Role::ALL`].
+macro_rules! for_each_role {
+    ($macro:ident) => {
+        $macro! { Manager, ReclaimAuthority, FeeWithdrawalAuthority }
     };
+}
 
-    ($name:ident: $signer:ident transfers only $allowed:expr, error $err:expr) => {
+#[test]
+fn sanity_check_for_each_role_lists_exactly_all_roles() {
+    macro_rules! as_array {
+        ($($role:ident),+ $(,)?) => { [$(Role::$role),+] };
+    }
+    assert_eq!(for_each_role!(as_array), Role::ALL);
+}
+
+/// Emits one `#[test]` named `$name`: `$signer` (a keypair field of
+/// [`InitializedParams`]) may transfer `$role`.
+macro_rules! transfers_authority_test {
+    ($name:ident, $signer:ident, $role:ident) => {
         #[test]
         fn $name() {
             let (mut svm, params) = setup_init();
-            assert_transfers_only(&mut svm, &params, &params.$signer, $allowed, $err);
+            assert_transfers_authority(&mut svm, &params, Role::$role, &params.$signer);
         }
     };
 }
 
-// The manager (the highest authority) may transfer any role; a role's current
-// holder may transfer it to a replacement.
-transfer_authority_test!(manager_can_transfer_manager: manager transfers Role::Manager);
-transfer_authority_test!(manager_can_transfer_reclaim_authority: manager transfers Role::ReclaimAuthority);
-transfer_authority_test!(reclaim_authority_can_transfer_itself: reclaim transfers Role::ReclaimAuthority);
+/// Generates the pair of transfer tests for a non-manager holder, deriving each
+/// test's name from the [`Role`] variant. The holder may transfer its own role
+/// but no other.
+///
+/// "Entry" names a keypair field of [`InitializedParams`]; "Role" is a [`Role`]
+/// variant, snake-cased into the test name.
+macro_rules! transfer_authority_tests {
+    ($signer:ident holds $role:ident) => {
+        pastey::paste! {
+            transfers_authority_test!([< $role:snake _can_transfer_itself >], $signer, $role);
+
+            #[test]
+            fn [< $role:snake _cannot_transfer_other_roles >]() {
+                let (mut svm, params) = setup_init();
+                assert_transfers_only(&mut svm, &params, &params.$signer, Role::$role);
+            }
+        }
+    };
+}
+
+/// Generates test `manager_can_transfer_<role>`: the manager (the highest
+/// authority) may transfer every role, including its own.
+macro_rules! manager_transfer_tests {
+    ($($role:ident),+ $(,)?) => {
+        pastey::paste! { $(
+            transfers_authority_test!([< manager_can_transfer_ $role:snake >], manager, $role);
+        )+ }
+    };
+}
+
+// Generate one test for each role, showing that the manager can transfer each
+// of them.
+for_each_role!(manager_transfer_tests);
 
 // A non-manager authority may transfer only its own role; every other role is
 // rejected.
-transfer_authority_test!(reclaim_authority_cannot_transfer_other_roles: reclaim transfers only Role::ReclaimAuthority, error SettlementError::UnauthorizedAuthorityTransfer);
+transfer_authority_tests!(reclaim holds ReclaimAuthority);
+transfer_authority_tests!(fee_withdrawal holds FeeWithdrawalAuthority);
 
 /// Index of the signer account in a `TransferAuthority` instruction.
 const SIGNER_INDEX: usize = 0;

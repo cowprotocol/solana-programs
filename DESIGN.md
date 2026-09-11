@@ -6,8 +6,8 @@ The settlement program stores funds through dedicated token accounts (_buffer ac
 
 It uses a dedicated state account to:
 
-- Store the account that can reclaim buffer rent.
-- Manage solver authentication (including fee access by the protocol).
+- Store the [authorities](#authorities) of the protocol.
+- Store the accounts that can execute a settlement (the _solvers_).
 - Act as a token delegate to manage user funds.
 
 Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement    v0.1"]`.
@@ -35,6 +35,7 @@ The program grant privileged roles to specific accounts (_authorities_). They ar
 
 - Manager: the account that can add and remove solvers. It can also update the address of all other roles.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
+- Fee Withdrawal Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (fee withdrawals).
 
 ### Updating authorities
 
