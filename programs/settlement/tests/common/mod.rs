@@ -179,7 +179,7 @@ pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
 #[track_caller]
 pub fn assert_instruction_error<T>(
     result: Result<T, TransactionError>,
-    expected: InstructionError,
+    expected: impl Into<InstructionError>,
 ) {
     assert_instruction_error_at(0, result, expected);
 }
@@ -188,11 +188,11 @@ pub fn assert_instruction_error<T>(
 pub fn assert_instruction_error_at<T>(
     ix_idx: u8,
     result: Result<T, TransactionError>,
-    expected: InstructionError,
+    expected: impl Into<InstructionError>,
 ) {
     assert_eq!(
         result.err(),
-        Some(TransactionError::InstructionError(ix_idx, expected))
+        Some(TransactionError::InstructionError(ix_idx, expected.into()))
     );
 }
 

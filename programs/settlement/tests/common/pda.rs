@@ -35,16 +35,9 @@ pub fn find_noncanonical_pda<const N: usize>(
 /// fails the CPI with `PrivilegeEscalation` and leaves `pda` uncreated.
 #[track_caller]
 pub fn assert_rejected_as_noncanonical(svm: &mut LiteSVM, tx: Transaction, pda: &Pubkey) {
-    let err = svm
-        .send_transaction(tx)
-        .expect_err("non-canonical PDA must be rejected");
-    assert!(
-        matches!(
-            err.err,
-            TransactionError::InstructionError(0, InstructionError::PrivilegeEscalation)
-        ),
-        "expected instruction 0 to fail, got {:?}",
-        err.err,
+    super::assert_instruction_error(
+        svm.send_transaction(tx).map_err(|meta| meta.err),
+        InstructionError::PrivilegeEscalation,
     );
     assert!(
         svm.get_account(pda).is_none(),

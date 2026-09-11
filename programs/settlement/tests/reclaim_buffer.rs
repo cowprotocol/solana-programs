@@ -310,7 +310,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        SettlementError::ReclaimAuthorityMismatch.into(),
+        SettlementError::ReclaimAuthorityMismatch,
     );
 }
 
@@ -355,7 +355,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
 
     assert_instruction_error(
         common::send(&mut svm, &payer, &[ix]),
-        SettlementError::ReclaimAuthorityMismatch.into(),
+        SettlementError::ReclaimAuthorityMismatch,
     );
     assert!(
         svm.get_account(&buffer_pda).is_some(),

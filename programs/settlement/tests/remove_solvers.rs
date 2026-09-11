@@ -103,7 +103,7 @@ fn rejects_removing_absent_solver() {
 
     assert_instruction_error(
         remove_solver(&mut svm, &params, &rent_recipient, &absent),
-        SettlementError::SolverNotFound.into(),
+        SettlementError::SolverNotFound,
     );
 }
 
@@ -123,7 +123,7 @@ fn rejects_removing_solver_by_non_manager() {
     let tx = common::signed_tx(&svm, &params.payer, &stranger, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        SettlementError::UnauthorizedSolverManagement.into(),
+        SettlementError::UnauthorizedSolverManagement,
     );
 }
 
@@ -153,7 +153,7 @@ fn rejects_removing_solver_if_manager_is_not_signer() {
     ix.accounts[MANAGER_INDEX].is_signer = false;
 
     let res = common::send(&mut svm, &params.payer, &[ix]);
-    assert_instruction_error(res, SettlementError::UnauthorizedSolverManagement.into());
+    assert_instruction_error(res, SettlementError::UnauthorizedSolverManagement);
 }
 
 /// A state PDA holding less than its shrunk rent minimum is rejected with
