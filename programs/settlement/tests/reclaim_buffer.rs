@@ -1,4 +1,4 @@
-use cow_settlement_client::instructions::ReclaimBuffer;
+use cow_settlement_client::instruction::ReclaimBuffer;
 use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::{

@@ -3,7 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Flags, OrderIntent, OrderKind,
 };
-use cow_settlement_client::instructions::CreateOrder;
+use cow_settlement_client::instruction::CreateOrder;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -19,10 +19,10 @@ use super::{signed_tx, token};
 pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
     OrderIntent {
         owner,
-        buy_token_account: Pubkey::new_from_array([0x22; 32]),
-        buy_mint: Pubkey::new_from_array([0x33; 32]),
-        sell_token_account: Pubkey::new_from_array([0x44; 32]),
-        sell_mint: Pubkey::new_from_array([0x55; 32]),
+        sell_token_account: Pubkey::new_from_array([0x22; 32]),
+        sell_mint: Pubkey::new_from_array([0x33; 32]),
+        buy_token_account: Pubkey::new_from_array([0x44; 32]),
+        buy_mint: Pubkey::new_from_array([0x55; 32]),
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,

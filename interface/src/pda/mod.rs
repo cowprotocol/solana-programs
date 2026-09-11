@@ -5,6 +5,7 @@
 //! derivation helper for one kind of PDA.
 
 use solana_address::Address;
+use solana_program_error::ProgramError;
 
 pub mod buffer;
 pub mod order;
@@ -69,6 +70,30 @@ pub fn is_pda_with_signer_seeds<const N: usize>(
         .is_ok_and(|derived| account == &derived)
 }
 
+/// Identifies the account type a given account's data belongs to, via the
+/// single discriminator byte stored at its front. Starts at 128 to keep
+/// account discriminators visually distinct from instruction discriminators.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
+#[repr(u8)]
+#[num_enum(error_type(
+    name = ProgramError,
+    constructor = SettlementAccount::unknown_discriminator,
+))]
+pub enum SettlementAccount {
+    OrderAccount = 128,
+    SettlementState = 129,
+}
+
+impl SettlementAccount {
+    pub const fn discriminator(self) -> u8 {
+        self as u8
+    }
+
+    fn unknown_discriminator(_: u8) -> ProgramError {
+        ProgramError::InvalidAccountData
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -76,9 +101,10 @@ mod tests {
     use solana_pubkey::Pubkey;
 
     use super::{
-        build_padded_settlement_seed, SETTLEMENT_SEED, SETTLEMENT_SEED_LEN,
+        build_padded_settlement_seed, SettlementAccount, SETTLEMENT_SEED, SETTLEMENT_SEED_LEN,
         SETTLEMENT_SEED_VERSION_LEN,
     };
+    use solana_program_error::ProgramError;
 
     pub(crate) const SAMPLE_VERSIONS: &[&str] = &[
         "0.0", "0.1", "0.2", "0.10", "0.11", "0.12", "0.13", "0.14", "0.15", "0.16", "0.17",
@@ -197,5 +223,23 @@ mod tests {
             let (other_pda, _) = Pubkey::find_program_address(&seeds, &crate::ID);
             assert!(seen_pdas.insert(other_pda));
         }
+    }
+
+    #[test]
+    fn settlement_account_try_from_partitions_all_bytes() {
+        for i in u8::MIN..=u8::MAX {
+            match SettlementAccount::try_from(i) {
+                Ok(account) => assert_eq!(account as u8, i),
+                Err(err) => assert_eq!(err, ProgramError::InvalidAccountData),
+            }
+        }
+    }
+
+    #[test]
+    fn settlement_account_discriminators_are_distinct() {
+        assert_ne!(
+            SettlementAccount::OrderAccount.discriminator(),
+            SettlementAccount::SettlementState.discriminator(),
+        );
     }
 }
