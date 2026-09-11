@@ -332,10 +332,7 @@ fn aim_at_active_token_program(instructions: &mut [Instruction]) {
 ///
 /// The test keeps its own `#[test]`, so it runs twice: once under the legacy SPL
 /// Token program, which is what [`token::active`] reports by default, and once
-/// under Token-2022. Nothing in the body changes — the token helpers and
-/// [`payer_signed_tx`] follow the active program on their own. Naming the test
-/// rather than wrapping it keeps the body's indentation, and a stale name is a
-/// compile error rather than a test that quietly stopped being generated.
+/// under Token-2022.
 #[allow(
     unused_macros,
     reason = "only the suites whose instructions name a token program generate the pair"
