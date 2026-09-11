@@ -3,6 +3,7 @@ proptest-regressions/
 .cargo-root/
 node_modules/
 generated/
+/programs/settlement/idl/client/js/dist/
 
 # Make sure no Solana key is uploaded by accident.
 *.json

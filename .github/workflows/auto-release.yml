@@ -1,0 +1,85 @@
+name: Auto-create release on version bump
+
+# Watches pushes to main for a version bump in Cargo.toml (the dedicated
+# "bump version" PR from README.md's release flow) and cuts the GitHub
+# Release that publish-npm.yml listens for.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  auto-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release
+      actions: write # dispatch publish-npm.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # `git show <before>` below needs the pre-push commit, which the
+          # default shallow clone doesn't have.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect version bump
+        id: detect
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          version() { grep -m1 '^version = ' | sed -E 's/version = "(.*)"/\1/'; }
+
+          old_version=$(git show "$BEFORE:Cargo.toml" | version) || true
+          new_version=$(version < Cargo.toml)
+
+          if [ "$old_version" = "$new_version" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$new_version" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: ./.github/actions/check-versions
+        if: steps.detect.outputs.changed == 'true'
+
+      - name: Check for existing release
+        id: check
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        if: steps.detect.outputs.changed == 'true' && steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          # --target pins the release to the exact commit this run is for, not
+          # whatever main's tip happens to be when this step runs — otherwise a
+          # commit landing on main mid-run could get tagged/published instead.
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "Alpha release, $tag" \
+            --generate-notes
+
+      # Retries the dispatch on rerun even if the release already exists, in
+      # case a previous run created it but failed before dispatching.
+      - name: Dispatch publish workflow
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.detect.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          # GITHUB_TOKEN-created releases don't trigger the `release` event, so
+          # dispatch explicitly: https://docs.github.com/en/actions/concepts/security/github_token
+          # Dispatch against the tag, not `main`, since the tag is immutable.
+          gh workflow run publish-npm.yml --ref "$tag" -f tag="$tag"
