@@ -6,8 +6,6 @@
 //! helpers drive that lifecycle: create a mint under a chosen extension set,
 //! close it, and put a different mint at the same address.
 
-use std::default;
-
 use cow_settlement_interface::token_program::TokenProgram;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -34,12 +32,12 @@ const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
 const DECIMALS: u8 = 8;
 
 /// Transfer-fee parameters for [`Extensions::CloseAuthorityAndTransferFee`].
-/// Default the fee to 0 so that most tests perform the same as if its a regular SPL transfer.
-const FEE_BASIS_POINTS: u16 = 0;
-const MAXIMUM_FEE: u64 = 1_000;
+/// nothing reads them back, but `InitializeTransferFeeConfig` demands values.
+pub const FEE_BASIS_POINTS: u64 = 50;
+pub const MAXIMUM_FEE: u64 = 1_000;
 
 /// Defines a set of token account/mint configurations we are interested in testing
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum Extensions {
     None,
     CloseAuthorityOnly,
@@ -137,7 +135,7 @@ impl Extensions {
                         mint,
                         Some(authority),
                         Some(authority),
-                        FEE_BASIS_POINTS,
+                        FEE_BASIS_POINTS.try_into().unwrap(),
                         MAXIMUM_FEE,
                     ),
                     other => panic!("no initializer is wired up for {other:?}"),

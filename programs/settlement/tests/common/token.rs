@@ -104,7 +104,7 @@ pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pub
             create_mint_at_under(svm, payer, mint, &TokenProgram::SplToken.address())
         }
         TokenProgram::Token2022 => {
-            super::token_2022::create_mint(svm, payer, mint, Extensins::default())
+            super::token_2022::create_mint(svm, payer, mint, Extensions::default())
         }
     }
 }

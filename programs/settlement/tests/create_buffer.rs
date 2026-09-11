@@ -28,7 +28,8 @@ use solana_sdk::{
 
 use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
-    token_2022::Extensions,
+    token::active,
+    token_2022::{Extensions, FEE_BASIS_POINTS},
     unique_keypair, unique_pubkey,
 };
 
@@ -130,14 +131,29 @@ fn buffer_can_receive_tokens() {
     let sender_account =
         common::token::create_associated_token_account(&mut svm, &sender, &mint, &sender.pubkey());
 
-    let amount = 1_000;
+    let amount: u64 = 1_000;
+
+    // Token2022 variant of this test charges a fee on transfer so the amount received would be less.
+    let received_amount = if active() == TokenProgram::Token2022 {
+        amount
+            .checked_mul(
+                10000u64
+                    .checked_sub(FEE_BASIS_POINTS)
+                    .expect("fee basis points should be less than 100%"),
+            )
+            .expect("should be able to scale small numbers")
+            / 10000
+    } else {
+        amount
+    };
+
     common::token::mint_to(&mut svm, &payer, &mint, &sender_account, amount);
     common::token::transfer(&mut svm, &sender, &mint, &buffer_pda, amount);
 
     let token_account = get_spl_account::<TokenAccount>(&svm, &buffer_pda)
         .expect("buffer must be an initialized token account");
     assert_eq!(
-        token_account.amount, amount,
+        token_account.amount, received_amount,
         "buffer must hold the tokens transferred to it"
     );
 }
