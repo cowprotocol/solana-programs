@@ -247,8 +247,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
     }
 }
 
-// Legacy-only: this fails while parsing, before the instruction so much as
-// looks at its token program.
+common::also_under_token_2022!(rejects_no_buffers);
 #[test]
 fn rejects_no_buffers() {
     let (mut svm, program_id, payer) = common::setup();

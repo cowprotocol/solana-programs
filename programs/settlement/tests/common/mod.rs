@@ -1,12 +1,8 @@
 //! Shared scaffolding for the settlement integration tests.
 
 #![allow(
-    dead_code,
+    dead_code, unused_macros,
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
-)]
-#[allow(
-    unused_macros,
-    reason = "integration tests compile as separate crates, so macros only used by a subset of the test binaries look unused to the others"
 )]
 pub mod benchmark;
 pub mod buffer;
