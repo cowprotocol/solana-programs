@@ -141,8 +141,7 @@ pub fn create_mint_under(svm: &mut LiteSVM, payer: &Keypair, token_program: &Pub
 }
 
 /// Create a mint at `mint`'s address under `token_program`, whose mint authority
-/// is `payer`, and return its address. Every later helper reads the program back
-/// off the mint, so the wrappers above are the only place a test names it.
+/// is `payer`, and return its address.
 fn create_mint_at_under(
     svm: &mut LiteSVM,
     payer: &Keypair,
