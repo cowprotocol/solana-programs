@@ -1,15 +1,7 @@
 //! Compute-unit benchmarking helpers for the settlement integration tests.
 
-use cow_settlement_interface::Instruction;
-use litesvm::{
-    types::{TransactionMetadata, TransactionResult},
-    LiteSVM,
-};
-use solana_sdk::{
-    message::v0::MessageAddressTableLookup,
-    signature::Keypair,
-    transaction::{TransactionError, VersionedTransaction},
-};
+use litesvm::{types::TransactionResult, LiteSVM};
+use solana_sdk::{message::v0::MessageAddressTableLookup, transaction::VersionedTransaction};
 use std::{env, fmt, fs, io::Write, thread};
 
 /// The kind of transaction a metered test measures. Naming a measurement with a
@@ -98,21 +90,6 @@ pub fn send_transaction_metered(
     }
 
     result
-}
-
-/// [`super::send`], metered: submits the very same transaction and records it
-/// under `label`. Lets a test that assembles a multi-instruction transaction
-/// (a `[BeginSettle, FinalizeSettle]` pair) be benchmarked without restating
-/// how that transaction is built.
-#[track_caller]
-pub fn send_metered(
-    svm: &mut LiteSVM,
-    payer: &Keypair,
-    instructions: Vec<Instruction>,
-    label: BenchLabel,
-) -> Result<TransactionMetadata, TransactionError> {
-    let tx = super::payer_signed_tx(svm, payer, instructions);
-    send_transaction_metered(svm, tx, label).map_err(|failed| failed.err)
 }
 
 fn shard_path(dir: &str, label: &str) -> String {

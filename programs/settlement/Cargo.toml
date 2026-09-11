@@ -31,6 +31,7 @@ jsonschema.workspace = true
 bincode.workspace = true
 litesvm.workspace = true
 litesvm-token.workspace = true
+pastey.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 cow-settlement-client.workspace = true
@@ -42,6 +43,7 @@ solana-program-pack.workspace = true
 solana-sdk.workspace = true
 solana-sha256-hasher.workspace = true
 solana-system-interface.workspace = true
+spl-associated-token-account-interface.workspace = true
 spl-token-2022-interface.workspace = true
 syn.workspace = true
 
