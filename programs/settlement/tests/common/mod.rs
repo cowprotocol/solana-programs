@@ -2,7 +2,6 @@
 
 #![allow(
     dead_code,
-    unused_macros,
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
 pub mod active_token;
