@@ -1,4 +1,4 @@
-use cow_settlement_client::instructions::ReclaimBuffer;
+use cow_settlement_client::instruction::ReclaimBuffer;
 use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::{
@@ -12,6 +12,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 
+use crate::common::active_token;
 use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
 use crate::common::token_2022::Extensions;
@@ -21,6 +22,7 @@ use crate::common::{
 
 mod common;
 
+common::also_under_token_2022!(happy_path_reclaims_to_a_recipient_chosen_by_the_authority);
 #[test]
 fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
     let (
@@ -48,7 +50,7 @@ fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -71,6 +73,7 @@ fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
     );
 }
 
+common::also_under_token_2022!(happy_path_reclaims_empty_buffer_to_the_authority_itself);
 #[test]
 fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
     let (
@@ -96,7 +99,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -114,6 +117,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
     );
 }
 
+common::also_under_token_2022!(funded_buffer_is_skipped);
 #[test]
 fn funded_buffer_is_skipped() {
     let (
@@ -136,7 +140,7 @@ fn funded_buffer_is_skipped() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -149,6 +153,7 @@ fn funded_buffer_is_skipped() {
     );
 }
 
+common::also_under_token_2022!(reclaims_to_the_settlements_own_state_pda);
 /// The recipient isn't required to be a system account: closing only moves
 /// lamports, so a program-owned data account is credited just the same. The
 /// settlement's own state PDA is the sharpest case, since it also occupies the
@@ -182,7 +187,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -207,6 +212,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
     );
 }
 
+common::also_under_token_2022!(reclaims_multiple_buffers_skipping_funded);
 #[test]
 fn reclaims_multiple_buffers_skipping_funded() {
     let (
@@ -231,7 +237,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &[mint_a, mint_b],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -248,6 +254,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
     );
 }
 
+common::also_under_token_2022!(rejects_the_same_buffer_twice_in_one_instruction);
 /// The first pass closes the buffer, which hands it back to the system program.
 /// The second pass then finds an account no token program owns and refuses to
 /// close it.
@@ -271,7 +278,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -281,6 +288,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
     );
 }
 
+common::also_under_token_2022!(rejects_when_signer_is_not_the_configured_reclaim_authority);
 #[test]
 fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     let (
@@ -301,7 +309,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         program_id,
         reclaim_authority: impostor.pubkey(),
         reclaim_recipient: impostor.pubkey(),
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
@@ -311,6 +319,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
     );
 }
 
+common::also_under_token_2022!(rejects_when_the_reclaim_authority_does_not_sign);
 /// Naming the configured authority isn't enough: it has to sign. The builder
 /// always marks it as a signer, so this test strips the flag by hand.
 #[test]
@@ -333,7 +342,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &[mint],
     });
 
@@ -350,7 +359,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
     authority_meta.is_signer = false;
 
     assert_instruction_error(
-        common::send(&mut svm, &payer, vec![ix]),
+        common::send(&mut svm, &payer, &[ix]),
         to_instruction_error(SettlementError::ReclaimAuthorityMismatch),
     );
     assert!(
@@ -370,13 +379,7 @@ fn buffer_whose_mint_was_reopened(
     let mint_keypair = common::unique_keypair();
     let mint =
         common::token_2022::create_mint(svm, payer, &mint_keypair, Extensions::CloseAuthorityOnly);
-    let buffer_pda = common::buffer::ensure_buffer_exists_for(
-        svm,
-        program_id,
-        payer,
-        &mint,
-        TokenProgram::Token2022,
-    );
+    let buffer_pda = common::buffer::ensure_buffer_exists(svm, program_id, payer, &mint);
 
     common::token_2022::close_mint(svm, payer, &mint);
     reopen(svm, payer, &mint_keypair);
@@ -462,7 +465,7 @@ fn reclaims_a_buffer_whose_mint_was_reopened_as_a_legacy_mint() {
         svm.get_account(&mint)
             .expect("the reopened mint should exist")
             .owner,
-        TokenProgram::SplToken.address(),
+        active_token::address(),
         "sanity: the mint must now belong to the legacy program"
     );
 
@@ -508,13 +511,14 @@ fn max_buffers_reclaim_via_lookup_table(
             state_pda,
             reclaim_authority: reclaim_authority.pubkey(),
             reclaim_recipient: reclaim_authority.pubkey(),
-            token_program: TokenProgram::SplToken.address(),
+            token_program: active_token::address(),
             buffers: &buffers,
         };
         common::lookup_table::lookup_table_tx(svm, reclaim_authority, ix)
     })
 }
 
+common::also_under_token_2022!(bench_assert_known_max_buffer_count);
 /// This isn't really a test, it's a way to make it visible that a code change
 /// has changed the amount of buffer accounts that can be reclaimed in the same
 /// transaction. If the number increases, great, bump it up! If it decreases and
@@ -533,12 +537,16 @@ fn bench_assert_known_max_buffer_count() {
         .expect("airdrop should succeed");
     let max_buffers =
         max_buffers_reclaim_via_lookup_table(&mut svm, &program_id, &reclaim_authority);
+
     assert_eq!(
-        max_buffers, 30,
-        "Max buffers that can be reclaimed has changed"
+        max_buffers,
+        30,
+        "Max buffers that can be reclaimed has changed under {:?}",
+        active_token::program(),
     );
 }
 
+common::also_under_token_2022!(max_buffers_in_one_instruction);
 /// Pack a single `reclaim_buffer` instruction with as many buffers as a
 /// transaction can have, all of them empty and therefore closable. Use an
 /// Address Lookup Table to reach the real account-lock ceiling. This is a
@@ -587,7 +595,7 @@ fn max_buffers_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: TokenProgram::SplToken,
+        token_program: active_token::program(),
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &reclaim_authority, ix);

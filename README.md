@@ -35,7 +35,7 @@ The repository is a Cargo workspace following the program / client / interface s
 
 ### How to build
 
-Build the on-chain program (produces `target/deploy/settlement.so`):
+Build the on-chain program (produces `target/deploy/cow_settlement.so`):
 
 ```sh
 just build-program
@@ -96,7 +96,7 @@ There are two distinct flows depending on whether this is a first-time deploy or
 Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
 
 ```sh
-just deploy ./program-keypair.json ./deployer-keypair.json
+just deploy ../program-keypair.json ../deployer-keypair.json
 ```
 
 ### Upgrading an existing program
@@ -107,13 +107,25 @@ just deploy ./program-keypair.json ./deployer-keypair.json
 Pass the **program's public key (address)** as the first argument. The deployer wallet must already be the upgrade authority:
 
 ```sh
-just deploy FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb ./deployer-keypair.json
+just deploy FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb ../deployer-keypair.json
 ```
 
 `just deploy` finishes by running `initialize` to create the program's state PDA.
 
 If the deployment upgrades an existing program without bumping the major or minor cargo package version, 
 then this latter step fails and prints a warning that can be safely ignored.
+
+### Verifying the deployment on-chain
+
+Since we use verified builds, we can have our program marked as verified on various block explorers. This is only possible on mainnet, not on testnets.
+
+To do so, run this once the program is deployed and the matching source is pushed to the public repository:
+
+```sh
+just verify FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb ../deployer-keypair.json <optional-commit-hash>
+```
+
+The first argument is the program address, the second is the upgrade authority keypair (it signs the on-chain verification PDA) and the third is an optional `<commit-hash>` for the verification, and it uses the current `HEAD` otherwise.
 
 ### Publishing the cargo packages
 
@@ -156,6 +168,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --help`).
 - Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
+- Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 - Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
 
@@ -166,6 +179,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Commit the code changes resulting from the changes above.
 - Create a PR with the changes and wait for approval.
 - [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
+- Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
 ### Bumping the crate version

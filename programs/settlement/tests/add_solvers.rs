@@ -6,7 +6,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::state::{WIDTH_HEADER, WIDTH_PUBKEY},
     Instruction, SettlementError,
 };
-use cow_settlement_client::instructions::AddSolver;
+use cow_settlement_client::instruction::AddSolver;
 use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::InstructionError,
@@ -158,7 +158,7 @@ fn rejects_adding_solver_if_manager_is_not_signer() {
     );
     ix.accounts[MANAGER_INDEX].is_signer = false;
 
-    let res = common::send(&mut svm, &params.payer, vec![ix]);
+    let res = common::send(&mut svm, &params.payer, &[ix]);
     assert_instruction_error(
         res,
         to_instruction_error(SettlementError::UnauthorizedSolverManagement),

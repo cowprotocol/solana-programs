@@ -2,7 +2,7 @@
 
 use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
 use cow_settlement_client::cow_settlement_interface::Instruction;
-use cow_settlement_client::instructions::CreateBuffers;
+use cow_settlement_client::instruction::CreateBuffers;
 use cow_settlement_interface::token_program::TokenProgram;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -21,34 +21,20 @@ pub fn buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {
 /// Create the canonical buffer for `mint`, paid for by `payer`, unless it
 /// already exists, and return its address. Idempotent so several orders can
 /// share one buy mint.
-///
-/// A buffer is a token account of its mint, so it is created under whichever
-/// program owns the mint; [`ensure_buffer_exists_for`] is for the tests that
-/// name a program of their own instead.
 pub fn ensure_buffer_exists(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     mint: &Pubkey,
 ) -> Pubkey {
-    let token_program = TokenProgram::try_from(&token::program_of(svm, mint))
-        .expect("a mint lives under a supported token program");
-    ensure_buffer_exists_for(svm, program_id, payer, mint, token_program)
-}
-
-/// [`ensure_buffer_exists`] under a token program of the caller's choosing, for
-/// the tests that need a buffer belonging to Token-2022.
-pub fn ensure_buffer_exists_for(
-    svm: &mut LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    mint: &Pubkey,
-    token_program: TokenProgram,
-) -> Pubkey {
     let pda = buffer_pda(program_id, mint);
     if svm.get_account(&pda).is_some() {
         return pda;
     }
+    // A buffer is a token account of its mint, so it has to be created under the
+    // mint's own program.
+    let token_program = TokenProgram::try_from(&token::program_of(svm, mint))
+        .expect("the mint lives under a supported token program");
     let ix = Instruction::from(CreateBuffers {
         program_id: *program_id,
         payer: payer.pubkey(),

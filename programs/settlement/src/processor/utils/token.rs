@@ -1,9 +1,6 @@
 //! Token-program dispatch and token-account reads
 
-use cow_settlement_interface::{
-    token_program::TokenProgram,
-    SettlementError,
-};
+use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
 use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView, Address};
 use pinocchio_token::instructions::GetAccountDataSize;
 

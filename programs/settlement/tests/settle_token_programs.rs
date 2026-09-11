@@ -19,7 +19,7 @@ use crate::common::{
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::OrderIntent, token_program::TokenProgram, Instruction,
 };
-use cow_settlement_client::instructions::{
+use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenPrograms,
 };
 use litesvm::LiteSVM;

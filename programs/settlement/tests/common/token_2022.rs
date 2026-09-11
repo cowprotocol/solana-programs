@@ -24,21 +24,25 @@ use spl_token_2022_interface::{
     state::{Account, Mint},
 };
 
+/// The Token-2022 program, spelled once so the builders below can take it.
+const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
+
 /// Decimals every test mint carries, matching [`super::token::create_mint`] so
 /// a legacy and a Token-2022 mint differ only in their program.
 const DECIMALS: u8 = 8;
 
-/// Transfer-fee parameters for [`Extensions::CloseAuthorityAndTransferFee`]. Arbitrary;
+/// Transfer-fee parameters for [`Extensions::CloseAuthorityAndTransferFee`].
 /// nothing reads them back, but `InitializeTransferFeeConfig` demands values.
-const FEE_BASIS_POINTS: u16 = 50;
-const MAXIMUM_FEE: u64 = 1_000;
+pub const FEE_BASIS_POINTS: u64 = 50;
+pub const MAXIMUM_FEE: u64 = 1_000;
 
 /// Defines a set of token account/mint configurations we are interested in testing
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum Extensions {
     None,
     CloseAuthorityOnly,
     CloseAuthorityAndNonTransferable,
+    #[default]
     CloseAuthorityAndTransferFee,
 }
 
@@ -119,19 +123,19 @@ impl Extensions {
             .map(|extension| {
                 match extension {
                     ExtensionType::MintCloseAuthority => initialize_mint_close_authority(
-                        &TokenProgram::Token2022.address(),
+                        &TOKEN_2022_PROGRAM_ID,
                         mint,
                         Some(authority),
                     ),
                     ExtensionType::NonTransferable => {
-                        initialize_non_transferable_mint(&TokenProgram::Token2022.address(), mint)
+                        initialize_non_transferable_mint(&TOKEN_2022_PROGRAM_ID, mint)
                     }
                     ExtensionType::TransferFeeConfig => initialize_transfer_fee_config(
-                        &TokenProgram::Token2022.address(),
+                        &TOKEN_2022_PROGRAM_ID,
                         mint,
                         Some(authority),
                         Some(authority),
-                        FEE_BASIS_POINTS,
+                        FEE_BASIS_POINTS.try_into().unwrap(),
                         MAXIMUM_FEE,
                     ),
                     other => panic!("no initializer is wired up for {other:?}"),
@@ -159,12 +163,12 @@ pub fn create_mint(
         &mint.pubkey(),
         svm.minimum_balance_for_rent_exemption(space),
         space as u64,
-        &TokenProgram::Token2022.address(),
+        &TOKEN_2022_PROGRAM_ID,
     )];
     instructions.extend(extensions.initializers(&mint.pubkey(), &payer.pubkey()));
     instructions.push(
         initialize_mint2(
-            &TokenProgram::Token2022.address(),
+            &TOKEN_2022_PROGRAM_ID,
             &mint.pubkey(),
             &payer.pubkey(),
             None,
@@ -190,7 +194,7 @@ pub fn create_mint(
 /// to claim again.
 pub fn close_mint(svm: &mut LiteSVM, payer: &Keypair, mint: &Pubkey) {
     let ix = close_account(
-        &TokenProgram::Token2022.address(),
+        &TOKEN_2022_PROGRAM_ID,
         mint,
         &payer.pubkey(),
         &payer.pubkey(),

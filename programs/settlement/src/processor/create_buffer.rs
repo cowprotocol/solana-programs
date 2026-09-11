@@ -10,8 +10,8 @@ use cow_settlement_interface::{
 use pinocchio::{AccountView, Address, ProgramResult};
 use pinocchio_token::instructions::InitializeAccount3;
 
-use crate::{
-    processor::CanonicalPda,
+use crate::processor::utils::{
+    pda::CanonicalPda,
     token::{owning_token_program, token_account_len},
 };
 

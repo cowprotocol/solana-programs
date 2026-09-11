@@ -4,7 +4,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::state::StateAccount, instruction::transfer_authority::fixtures::ROLE_OFFSET, Instruction,
     Role, SettlementError,
 };
-use cow_settlement_client::instructions::TransferAuthority;
+use cow_settlement_client::instruction::TransferAuthority;
 use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::InstructionError,
@@ -160,7 +160,7 @@ fn signer_must_sign_the_transaction() {
     );
     ix.accounts[SIGNER_INDEX].is_signer = false;
 
-    let res = common::send(&mut svm, &payer, vec![ix]);
+    let res = common::send(&mut svm, &payer, &[ix]);
     assert_instruction_error(res, InstructionError::MissingRequiredSignature);
 }
 

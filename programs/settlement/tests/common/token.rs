@@ -1,80 +1,53 @@
-//! SPL Token helpers for the settlement integration tests.
+//! Token helpers for the settlement integration tests.
 //!
 //! Every helper that acts on an existing token works under whichever token
 //! program owns it, read back with [`program_of`], so a test settling
-//! Token-2022 accounts uses the same calls as one settling legacy ones. Only
-//! [`create_mint_under`] has to be told, there being nothing yet to read it
-//! from.
+//! Token-2022 accounts uses the same calls as one settling legacy ones.
+//!
+//! Creating a mint is the one thing with nothing to read the program from.
+//! [`create_mint`] takes it from [`active_token::program`], the program the
+//! running test is exercising, and [`create_mint_under`] names it outright, for
+//! the tests that build mints under both at once.
 
-use cow_settlement_client::cow_settlement_interface::{pda::state::find_state_pda, Instruction};
+use super::{active_token, send_with_signers, token_2022::Extensions, unique_keypair};
+use cow_settlement_client::cow_settlement_interface::{
+    pda::state::find_state_pda, token_program::TokenProgram,
+};
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
-    spl_token::{
-        instruction::{approve, initialize_account3, initialize_mint2, mint_to as mint_to_ix},
-        native_mint,
-        state::{Account, Mint},
-    },
-    CreateAssociatedTokenAccount, Transfer, TOKEN_ID,
+    spl_token::{native_mint, state::Mint},
+    CreateAssociatedTokenAccount,
 };
 use solana_program_pack::Pack;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::Transaction,
 };
 use solana_system_interface::instruction::create_account as system_create_account;
-
-use super::unique_keypair;
+use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
+use spl_token_2022_interface::{
+    extension::StateWithExtensions,
+    instruction::{
+        approve, initialize_account3, initialize_mint2, mint_to as mint_to_ix,
+        transfer_checked as transfer_checked_ix,
+    },
+    state::{Account, Mint as Mint2022},
+};
 
 /// The token program that owns `account`.
-///
-/// A token account always lives under its mint's program, so this answers for a
-/// mint and for the accounts holding it alike — which is what lets the helpers
-/// below take the program from the tokens a test already built.
 pub fn program_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
     svm.get_account(account)
         .unwrap_or_else(|| panic!("{account} should exist on-chain"))
         .owner
 }
 
-/// Re-target a token instruction at `token_program`.
-///
-/// The SPL Token builders refuse to emit an instruction for any program but
-/// their own, so the helpers below build against the legacy program and re-point
-/// the result. Token-2022 encodes each of these instructions exactly as the
-/// legacy program does — the same fact that lets the settlement program issue
-/// one transfer against either — so only the program id needs replacing.
-fn under(mut instruction: Instruction, token_program: &Pubkey) -> Instruction {
-    instruction.program_id = *token_program;
-    instruction
-}
-
-/// Submit `instructions` as one transaction signed by `payer` and `extra`.
-fn send_token_tx(
-    svm: &mut LiteSVM,
-    payer: &Keypair,
-    extra: &[&Keypair],
-    instructions: &[Instruction],
-    what: &str,
-) {
-    let mut signers = vec![payer];
-    signers.extend_from_slice(extra);
-    let tx = Transaction::new_signed_with_payer(
-        instructions,
-        Some(&payer.pubkey()),
-        &signers,
-        svm.latest_blockhash(),
-    );
-    svm.send_transaction(tx)
-        .unwrap_or_else(|error| panic!("{what} should succeed: {error:?}"));
-}
-
 /// Plant the native mint (wrapped SOL) at its well-known address, owned by the
 /// legacy SPL Token program.
 ///
-/// Every cluster carries this mint already; LiteSVM starts without it, so a
-/// test that works with wrapped SOL has to put it there. Its body is what a
-/// real one holds: no authorities, no supply, and the native decimals.
+/// Every cluster carries this mint already; LiteSVM starts without it, so a test
+/// that works with wrapped SOL has to put it there — a buffer is created under
+/// the program that owns its mint, so the mint has to be readable. Its body is
+/// what a real one holds: no authorities, no supply, and the native decimals.
 pub fn create_native_mint(svm: &mut LiteSVM) {
     let mut data = vec![0u8; Mint::LEN];
     Mint {
@@ -83,37 +56,47 @@ pub fn create_native_mint(svm: &mut LiteSVM) {
         ..Default::default()
     }
     .pack_into_slice(&mut data);
-    super::create_account_at(svm, native_mint::ID, &TOKEN_ID, &data);
+    super::create_account_at(
+        svm,
+        native_mint::ID,
+        &TokenProgram::SplToken.address(),
+        &data,
+    );
 }
 
-/// Create a fresh mint under the legacy SPL Token program, owned by `payer`,
-/// and return its address.
+/// Create a fresh mint under [`active_token::program`], whose mint authority is
+/// `payer`, and return its address.
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
-    create_mint_under(svm, payer, &TOKEN_ID)
+    create_mint_at(svm, payer, &unique_keypair())
 }
 
 /// [`create_mint`] at `mint`'s address rather than a fresh one. Lets a test
 /// reclaim an address a Token-2022 mint was just closed at, which is the only
 /// way a legacy mint can end up where a Token-2022 one used to be.
+///
+/// Under Token-2022 the mint carries [`Extensions::DEFAULT`] rather than being
+/// bare, so every generated test exercises the longer accounts its extensions
+/// force. [`create_mint_under`] is the way to a bare one.
 pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pubkey {
-    create_mint_at_under(svm, payer, mint, &TOKEN_ID)
+    match active_token::program() {
+        TokenProgram::SplToken => {
+            create_mint_at_under(svm, payer, mint, &TokenProgram::SplToken.address())
+        }
+        TokenProgram::Token2022 => {
+            super::token_2022::create_mint(svm, payer, mint, Extensions::default())
+        }
+    }
 }
 
-/// [`create_mint`] under `token_program` rather than the legacy program, for
-/// the tests that build mints under both at once.
+/// [`create_mint`] under `token_program` rather than under
+/// [`active_token::program`], for the tests that build mints under both
+/// programs at once.
 pub fn create_mint_under(svm: &mut LiteSVM, payer: &Keypair, token_program: &Pubkey) -> Pubkey {
     create_mint_at_under(svm, payer, &unique_keypair(), token_program)
 }
 
 /// Create a mint at `mint`'s address under `token_program`, whose mint authority
-/// is `payer`, and return its address. Every later helper reads the program back
-/// off the mint, so the wrappers above are the only place a test names it.
-///
-/// This open-codes what [`litesvm_token::CreateMint`] does rather than calling
-/// it, because that builder generates the mint keypair with `Keypair::new()`
-/// internally and offers no way to supply one. A mint address is a seed of its
-/// buffer PDA, so a random one makes buffer bumps — and the compute cost of
-/// deriving them — vary between runs. See [`super::unique_pubkey`].
+/// is `payer`, and return its address.
 fn create_mint_at_under(
     svm: &mut LiteSVM,
     payer: &Keypair,
@@ -130,23 +113,25 @@ fn create_mint_at_under(
         Mint::LEN as u64,
         token_program,
     );
-    let initialize = under(
-        initialize_mint2(&TOKEN_ID, &mint.pubkey(), &payer.pubkey(), None, DECIMALS)
-            .expect("initialize_mint2 should build"),
+    // A mint with no extension data, which is every legacy mint and the shape a
+    // Token-2022 mint takes when nothing asks for more. That is what keeps a
+    // buffer for it at the base layout under either program.
+    let initialize = initialize_mint2(
         token_program,
-    );
-    send_token_tx(svm, payer, &[mint], &[create, initialize], "mint creation");
+        &mint.pubkey(),
+        &payer.pubkey(),
+        None,
+        DECIMALS,
+    )
+    .expect("initialize_mint2 should build");
+    send_with_signers(svm, payer, &[mint], &[create, initialize])
+        .unwrap_or_else(|error| panic!("mint creation should succeed: {error:?}"));
     mint.pubkey()
 }
 
-/// Create an initialized token account for `mint` whose token owner is `owner`,
-/// funded by `payer`, and return its address. The account is created under
-/// `mint`'s own token program. Each call produces a fresh account, so the same
-/// `owner` can hold several accounts for one `mint`.
-///
-/// Open-coded for the same reason as [`create_mint_under`]: the builder picks
-/// the account address itself, and it would build against the legacy program
-/// whatever the mint lives under.
+/// Create an initialized SPL token account for `mint` whose SPL owner is
+/// `owner`, funded by `payer`, and return its address. Each call produces a
+/// fresh account, so the same `owner` can hold several accounts for one `mint`.
 pub fn create_token_account(
     svm: &mut LiteSVM,
     payer: &Keypair,
@@ -162,32 +147,27 @@ pub fn create_token_account(
         Account::LEN as u64,
         &token_program,
     );
-    let initialize = under(
-        initialize_account3(&TOKEN_ID, &account.pubkey(), mint, owner)
-            .expect("initialize_account3 should build"),
-        &token_program,
-    );
-    send_token_tx(
-        svm,
-        payer,
-        &[&account],
-        &[create, initialize],
-        "token account creation",
-    );
+    let initialize = initialize_account3(&token_program, &account.pubkey(), mint, owner)
+        .expect("initialize_account3 should build");
+    send_with_signers(svm, payer, &[&account], &[create, initialize])
+        .unwrap_or_else(|error| panic!("token account creation should succeed: {error:?}"));
     account.pubkey()
 }
 
 /// Create `owner`'s associated token account for `mint`, funded by `payer`, and
-/// return its address. The address is the canonical ATA, so `transfer` can
-/// source from it without being told where the tokens live.
+/// return its address. The address is the canonical ATA under `mint`'s own
+/// program, so `transfer` can source from it without being told where the
+/// tokens live.
 pub fn create_associated_token_account(
     svm: &mut LiteSVM,
     payer: &Keypair,
     mint: &Pubkey,
     owner: &Pubkey,
 ) -> Pubkey {
+    let token_program = program_of(svm, mint);
     CreateAssociatedTokenAccount::new(svm, payer, mint)
         .owner(owner)
+        .token_program_id(&token_program)
         .send()
         .expect("associated token account creation should succeed")
 }
@@ -202,12 +182,31 @@ pub fn mint_to(
     amount: u64,
 ) {
     let token_program = program_of(svm, mint);
-    let instruction = under(
-        mint_to_ix(&TOKEN_ID, mint, destination, &payer.pubkey(), &[], amount)
-            .expect("mint_to should build"),
+    let instruction = mint_to_ix(
         &token_program,
-    );
-    send_token_tx(svm, payer, &[], &[instruction], "mint_to");
+        mint,
+        destination,
+        &payer.pubkey(),
+        &[],
+        amount,
+    )
+    .expect("mint_to should build");
+    send_with_signers(svm, payer, &[], &[instruction])
+        .unwrap_or_else(|error| panic!("mint_to should succeed: {error:?}"));
+}
+
+/// The decimals `mint` was created with.
+///
+/// Read through the extension layout, which covers a mint that has extensions
+/// and one that doesn't alike, so this answers under either program.
+fn decimals_of(svm: &LiteSVM, mint: &Pubkey) -> u8 {
+    let account = svm
+        .get_account(mint)
+        .unwrap_or_else(|| panic!("{mint} should exist on-chain"));
+    StateWithExtensions::<Mint2022>::unpack(&account.data)
+        .expect("the mint should be a valid mint account")
+        .base
+        .decimals
 }
 
 /// Transfer `amount` of `mint` from `owner`'s associated token account into
@@ -219,13 +218,29 @@ pub fn transfer(
     destination: &Pubkey,
     amount: u64,
 ) {
-    Transfer::new(svm, owner, mint, destination, amount)
-        .send()
-        .expect("transfer should succeed");
+    let token_program = program_of(svm, mint);
+    let source =
+        get_associated_token_address_with_program_id(&owner.pubkey(), mint, &token_program);
+    // Checked rather than plain `Transfer`: Token-2022 refuses the unchecked one
+    // for a mint carrying a transfer fee, which [`Extensions::DEFAULT`] does, and
+    // the legacy program accepts it just the same.
+    let instruction = transfer_checked_ix(
+        &token_program,
+        &source,
+        mint,
+        destination,
+        &owner.pubkey(),
+        &[],
+        amount,
+        decimals_of(svm, mint),
+    )
+    .expect("transfer should build");
+    send_with_signers(svm, owner, &[], &[instruction])
+        .unwrap_or_else(|error| panic!("transfer should succeed: {error:?}"));
 }
 
 /// Approve `delegate` to spend up to `amount` from `source`. `owner` must be the
-/// SPL owner of `source`. The transaction will be paid by the owner.
+/// token owner of `source`. The transaction will be paid by the owner.
 pub fn delegate(
     svm: &mut LiteSVM,
     owner: &Keypair,
@@ -234,12 +249,17 @@ pub fn delegate(
     amount: u64,
 ) {
     let token_program = program_of(svm, source);
-    let instruction = under(
-        approve(&TOKEN_ID, source, delegate, &owner.pubkey(), &[], amount)
-            .expect("approve should build"),
+    let instruction = approve(
         &token_program,
-    );
-    send_token_tx(svm, owner, &[], &[instruction], "approving a delegate");
+        source,
+        delegate,
+        &owner.pubkey(),
+        &[],
+        amount,
+    )
+    .expect("approve should build");
+    send_with_signers(svm, owner, &[], &[instruction])
+        .unwrap_or_else(|error| panic!("approving a delegate should succeed: {error:?}"));
 }
 
 /// Fund `sell_token` with `amount` of its mint and approve the settlement state
@@ -277,25 +297,29 @@ pub fn delegated_amount(svm: &LiteSVM, account: &Pubkey) -> u64 {
         .delegated_amount
 }
 
-/// Assert that no SPL Token instruction issued by the transaction references
+/// Assert that no token instruction issued by the transaction references
 /// `account`. Each token transfer the program performs is a CPI recorded in
 /// `transaction.inner_instructions`. We can use that to check the token-program
 /// instructions, so a settlement that must leave one side untouched can prove
 /// no token instruction so much as named it.
+///
+/// Every supported program counts, not just the one the settlement was expected
+/// to use: a transfer issued against the wrong one is exactly the kind of touch
+/// this is meant to catch.
 #[track_caller]
 pub fn assert_no_token_instruction_touching(
     transaction: &TransactionMetadata,
     account_keys: &[Pubkey],
     account: &Pubkey,
 ) {
-    let token_program = Pubkey::new_from_array(litesvm_token::spl_token::ID.to_bytes());
     for instruction in transaction
         .inner_instructions
         .iter()
         .flatten()
         .map(|inner| &inner.instruction)
     {
-        if account_keys[usize::from(instruction.program_id_index)] != token_program {
+        let program = account_keys[usize::from(instruction.program_id_index)];
+        if TokenProgram::try_from(&program).is_err() {
             continue;
         }
         let touches_account = instruction
@@ -304,7 +328,7 @@ pub fn assert_no_token_instruction_touching(
             .any(|&index| account_keys[usize::from(index)] == *account);
         assert!(
             !touches_account,
-            "expected no SPL Token instruction touching {account}, but one did",
+            "expected no token instruction touching {account}, but one did",
         );
     }
 }
@@ -316,12 +340,12 @@ pub fn overwrite_token_account(
     address: &Pubkey,
     mint: &Pubkey,
 ) {
+    let token_program = program_of(svm, mint);
     let template = create_token_account(svm, payer, mint, &payer.pubkey());
     let data = svm
         .get_account(&template)
         .expect("the freshly created template exists")
         .data;
-    let token_program = Pubkey::new_from_array(TOKEN_ID.to_bytes());
     super::create_account_at(svm, *address, &token_program, &data);
 }
 

@@ -7,7 +7,7 @@ use cow_settlement_client::{
         token_program::TokenProgram,
         Pubkey,
     },
-    instructions::{
+    instruction::{
         BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
         TokenPrograms,
     },
@@ -21,7 +21,7 @@ use solana_sdk::{
 };
 use std::collections::{HashMap, HashSet};
 
-use crate::token::{resolve_from_token_account, ResolvedToken};
+use crate::utils::token::{resolve_from_token_account, ResolvedToken};
 
 use super::Context;
 

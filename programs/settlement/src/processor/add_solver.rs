@@ -16,7 +16,7 @@ use pinocchio::{
 };
 use pinocchio_system::instructions::Transfer;
 
-use crate::processor::check_state_pda;
+use crate::processor::utils::auth::check_state_pda;
 
 pub fn process_add_solver(
     program_id: &Address,
