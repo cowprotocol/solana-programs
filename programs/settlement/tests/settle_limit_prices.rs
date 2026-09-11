@@ -28,19 +28,6 @@ use solana_sdk::{
 
 mod common;
 
-/// Convenience wrapper around [`assert_instruction_error_at`] for asserting a
-/// specific [`SettlementError`] at the instruction that produced it: settlements
-/// run as a `[BeginSettle, FinalizeSettle]` pair, so the failing instruction
-/// isn't always the first.
-#[track_caller]
-fn assert_settlement_error<T>(
-    ix_idx: u8,
-    result: Result<T, TransactionError>,
-    expected: SettlementError,
-) {
-    assert_instruction_error_at(ix_idx, result, expected.into());
-}
-
 /// Read `intent`'s order PDA and return its persisted `(amount_withdrawn,
 /// amount_received)` cumulative fill totals.
 fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent) -> (u64, u64) {
@@ -131,7 +118,7 @@ fn sell_order_below_limit_price_is_rejected() {
         .build();
 
     // One token short of the proportional minimum (600_000) for the pull.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle(
             &mut svm,
@@ -232,7 +219,7 @@ fn buy_order_below_limit_price_is_rejected() {
         .build();
 
     // One token more than the proportional maximum spend (800_000) for the buy.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle(
             &mut svm,
@@ -346,7 +333,7 @@ fn multiple_pulls_below_the_limit_are_rejected() {
 
     // One token short of the 1_200_000 the summed 600_000 pull requires; the
     // shortfall can't be hidden by splitting the pull across parts.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle_all(
             &mut svm,
@@ -373,7 +360,7 @@ fn sell_order_cannot_exceed_its_sell_amount() {
 
     // Pull 1_500_000 > the 1_000_000 sell amount, paid to match the limit price
     // so only the sell cap can reject it.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle(
             &mut svm,
@@ -400,7 +387,7 @@ fn buy_order_cannot_exceed_its_buy_amount() {
         .build();
 
     // Receive 1_500_000 > the 1_000_000 buy amount, spending within the limit.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle(
             &mut svm,
@@ -427,7 +414,7 @@ fn fill_or_kill_order_must_be_filled_completely() {
         .build();
 
     // Selling only half a fill-or-kill order isn't allowed, even at the limit.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle(
             &mut svm,
@@ -512,7 +499,7 @@ fn order_cannot_be_overfilled_across_settlements() {
     .expect("the first partial fill should be accepted");
 
     // A second 500_000 pull would take 1_100_000 in total, past the sell amount.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle(
             &mut svm,
@@ -554,7 +541,7 @@ fn buy_order_cannot_be_overfilled_across_settlements() {
 
     // Buying another 500_000 would total 1_100_000, past the buy amount, even
     // though this settlement's spend stays within the limit price.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle(
             &mut svm,
@@ -599,7 +586,7 @@ fn fill_or_kill_order_cannot_be_settled_twice() {
     // Settling it again would take more than the sell amount in total. Being
     // fill-or-kill, the resulting cumulative fill isn't exactly the order's
     // amount, so it's rejected as not exactly filled.
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle(
             &mut svm,
@@ -633,7 +620,7 @@ fn partially_fillable_order_cannot_be_settled_twice_in_one_settlement() {
         vec![],
     );
 
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         send(&mut svm, &solver, instructions).map(|_| ()),
         SettlementError::OrdersNotStrictlyIncreasing,
@@ -659,7 +646,7 @@ fn settlement_rejected_when_one_order_exceeds_its_amount() {
         .buy_amount(2_000_000)
         .build();
 
-    assert_settlement_error(
+    assert_instruction_error_at(
         BEGIN_INDEX,
         settle_all(
             &mut svm,

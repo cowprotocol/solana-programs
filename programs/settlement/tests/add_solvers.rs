@@ -136,7 +136,7 @@ fn rejects_adding_an_existing_solver() {
     svm.expire_blockhash();
     assert_instruction_error(
         add_solver(&mut svm, &params, &solver),
-        SettlementError::SolverAlreadyExists.into(),
+        SettlementError::SolverAlreadyExists,
     );
 }
 
@@ -159,10 +159,7 @@ fn rejects_adding_solver_if_manager_is_not_signer() {
     ix.accounts[MANAGER_INDEX].is_signer = false;
 
     let res = common::send(&mut svm, &params.payer, vec![ix]);
-    assert_instruction_error(
-        res,
-        SettlementError::UnauthorizedSolverManagement.into(),
-    );
+    assert_instruction_error(res, SettlementError::UnauthorizedSolverManagement);
 }
 
 #[test]
@@ -180,7 +177,7 @@ fn rejects_adding_solver_by_non_manager() {
     let tx = common::signed_tx(&svm, &params.payer, &stranger, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        SettlementError::UnauthorizedSolverManagement.into(),
+        SettlementError::UnauthorizedSolverManagement,
     );
 }
 

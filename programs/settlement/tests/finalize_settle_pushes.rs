@@ -10,6 +10,7 @@
 //! signed by the settlement state PDA that owns them.
 
 use crate::common::{
+    assert_instruction_error_at,
     benchmark::{send_metered, BenchLabel},
     buffer, create_account,
     order::{create_order_pda, settlable_intent, OrderBuilder},
@@ -32,11 +33,12 @@ mod common;
 
 /// Assert the transaction failed in `FinalizeSettle` (at [`FINALIZE_INDEX`])
 /// with `expected`.
-fn assert_finalize_error<T>(result: Result<T, TransactionError>, expected: InstructionError) {
-    assert_eq!(
-        result.err(),
-        Some(TransactionError::InstructionError(FINALIZE_INDEX, expected)),
-    );
+#[track_caller]
+fn assert_finalize_error<T>(
+    result: Result<T, TransactionError>,
+    expected: impl Into<InstructionError>,
+) {
+    assert_instruction_error_at(FINALIZE_INDEX, result, expected);
 }
 
 /// Build the minimal `[BeginSettle, FinalizeSettle]` instructions that settle
@@ -236,7 +238,7 @@ fn rejects_wrong_state_pda() {
 
     assert_finalize_error(
         send(&mut svm, &solver, instructions),
-        SettlementError::StateAccountMismatch.into(),
+        SettlementError::StateAccountMismatch,
     );
 }
 
@@ -266,7 +268,7 @@ fn rejects_push_account_count_mismatch() {
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_finalize_error(
         send(&mut svm, &solver, instructions),
-        SettlementError::AccountCountNotMatchingPushCount.into(),
+        SettlementError::AccountCountNotMatchingPushCount,
     );
 }
 
@@ -385,7 +387,7 @@ fn rejects_two_too_few_accounts() {
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
     assert_finalize_error(
         send(&mut svm, &solver, instructions),
-        SettlementError::AccountCountNotMatchingPushCount.into(),
+        SettlementError::AccountCountNotMatchingPushCount,
     );
 }
 

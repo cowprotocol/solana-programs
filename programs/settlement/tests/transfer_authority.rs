@@ -75,7 +75,7 @@ fn assert_transfer_rejected(
     };
     let tx = signed_tx(svm, &params.payer, signer, transfer);
     let res = svm.send_transaction(tx).map_err(|e| e.err);
-    assert_instruction_error(res, expected.into());
+    assert_instruction_error(res, expected);
 }
 
 /// Asserts that `signer` may transfer *only* `allowed`: every other role (see

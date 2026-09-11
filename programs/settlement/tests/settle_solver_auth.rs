@@ -84,7 +84,7 @@ fn unregistered_solver_may_not_settle() {
     assert_instruction_error_at(
         BEGIN_INDEX,
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        SettlementError::UnauthorizedSolver.into(),
+        SettlementError::UnauthorizedSolver,
     );
 }
 
@@ -119,6 +119,6 @@ fn non_signing_solver_may_not_settle() {
     assert_instruction_error_at(
         BEGIN_INDEX,
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        SettlementError::UnauthorizedSolver.into(),
+        SettlementError::UnauthorizedSolver,
     );
 }

@@ -18,7 +18,7 @@
 //! whose output is a properly built instruction.
 
 use crate::common::{
-    assert_instruction_error,
+    assert_instruction_error_at,
     benchmark::{send_metered, BenchLabel},
     buffer, create_account,
     order::{create_order_pda, sample_intent, settlable_intent, OrderBuilder},
@@ -52,14 +52,12 @@ mod common;
 
 /// Assert the transaction failed in `BeginSettle` (at [`BEGIN_INDEX`]) with
 /// `expected`.
-fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
-    assert_eq!(
-        result.err(),
-        Some(TransactionError::InstructionError(
-            BEGIN_INDEX,
-            expected.into(),
-        )),
-    );
+#[track_caller]
+fn assert_begin_error<T>(
+    result: Result<T, TransactionError>,
+    expected: impl Into<InstructionError>,
+) {
+    assert_instruction_error_at(BEGIN_INDEX, result, expected);
 }
 
 /// Assert the solver's payment clears the order's limit price for the amount
@@ -310,7 +308,7 @@ fn rejects_non_order_account_in_order_slot() {
     };
     let instructions = vec![begin.into(), finalize.into()];
 
-    assert_instruction_error(
+    assert_begin_error(
         send(&mut svm, &solver, instructions),
         InstructionError::InvalidAccountData,
     );
@@ -950,7 +948,7 @@ fn rejects_wrong_token_program() {
         unique_pubkey(),
     );
 
-    assert_instruction_error(
+    assert_begin_error(
         send(&mut svm, &solver, instructions),
         InstructionError::IncorrectProgramId,
     );
@@ -985,7 +983,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
             }],
         }],
     );
-    assert_instruction_error(
+    assert_begin_error(
         send(&mut svm, &solver, instructions),
         InstructionError::Custom(TokenError::OwnerMismatch as u32),
     );
@@ -1026,7 +1024,7 @@ fn rejects_pull_exceeding_delegation() {
             }],
         }],
     );
-    assert_instruction_error(
+    assert_begin_error(
         send(&mut svm, &solver, instructions),
         InstructionError::Custom(TokenError::InsufficientFunds as u32),
     );
