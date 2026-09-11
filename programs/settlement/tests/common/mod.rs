@@ -4,7 +4,7 @@
     dead_code,
     reason = "integration tests compile as separate crates, so items only used by a subset of the test binaries look dead to the others"
 )]
-
+pub mod active_token;
 pub mod benchmark;
 pub mod buffer;
 pub mod lookup_table;
@@ -15,9 +15,14 @@ pub mod state;
 pub mod token;
 pub mod token_2022;
 
+#[allow(
+    unused_imports,
+    reason = "re-exported for the suites that use the macro; the others never name it"
+)]
+pub(crate) use active_token::also_under_token_2022;
+
 use cow_settlement_client::instruction::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
-use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::SettlementError;
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -35,10 +40,6 @@ pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/deploy/cow_settlement.so"
 );
-
-/// The legacy SPL Token program, which the tests create their buffers and
-/// token accounts under unless they exercise Token-2022 specifically.
-pub const SPL_TOKEN_PROGRAM_ID: Pubkey = TokenProgram::SplToken.address();
 
 pub const CPI_CALLER_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -265,8 +266,10 @@ pub fn signed_tx(
     owner: &Keypair,
     ix: impl Into<Instruction>,
 ) -> Transaction {
+    let mut instructions = [ix.into()];
+    active_token::retarget(&mut instructions);
     Transaction::new_signed_with_payer(
-        &[ix.into()],
+        &instructions,
         Some(&fee_payer.pubkey()),
         &[fee_payer, owner],
         svm.latest_blockhash(),
@@ -287,18 +290,25 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
     meta.pubkey = to;
 }
 
-/// Assemble `instructions` into a transaction with `payer` as both fee payer and
-/// sole signer. Shared with [`benchmark::send_metered`] so a metered test
-/// submits exactly the transaction its unmetered twin would.
-pub fn payer_signed_tx(
+/// Assemble `instructions` into a transaction with `payer` as fee payer, signed
+/// by `payer` and `additional_signers`, and aimed at the active token program.
+///
+/// Private, so every test submits through [`send`] or [`send_metered`] and a
+/// metered test measures exactly the transaction its unmetered twin sends.
+fn assemble_tx(
     svm: &LiteSVM,
     payer: &Keypair,
-    instructions: Vec<Instruction>,
+    additional_signers: &[&Keypair],
+    instructions: &[Instruction],
 ) -> Transaction {
+    let mut instructions = Vec::from(instructions);
+    let mut signers = vec![payer];
+    signers.extend_from_slice(additional_signers);
+    active_token::retarget(&mut instructions);
     Transaction::new_signed_with_payer(
         &instructions,
         Some(&payer.pubkey()),
-        &[payer],
+        &signers,
         svm.latest_blockhash(),
     )
 }
@@ -306,11 +316,40 @@ pub fn payer_signed_tx(
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,
 /// surfacing only the transaction-level error on failure (dropping the success
 /// metadata's error wrapper).
+#[track_caller]
 pub fn send(
     svm: &mut LiteSVM,
     payer: &Keypair,
-    instructions: Vec<Instruction>,
+    instructions: &[Instruction],
 ) -> Result<TransactionMetadata, TransactionError> {
-    let tx = payer_signed_tx(svm, payer, instructions);
-    svm.send_transaction(tx).map_err(|e| e.err)
+    send_with_signers(svm, payer, &[], instructions)
+}
+
+/// [`send`], with `additional_signers` signing alongside `payer`, for the
+/// instructions that need a signature from an account other than the payer (a
+/// freshly created mint or token account signing for its own allocation).
+#[track_caller]
+pub fn send_with_signers(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    additional_signers: &[&Keypair],
+    instructions: &[Instruction],
+) -> Result<TransactionMetadata, TransactionError> {
+    let tx = assemble_tx(svm, payer, additional_signers, instructions);
+    svm.send_transaction(tx).map_err(|failed| failed.err)
+}
+
+/// [`send`], metered: submits the very same transaction and records it under
+/// `label`. Lets a test that assembles a multi-instruction transaction (a
+/// `[BeginSettle, FinalizeSettle]` pair) be benchmarked without restating how
+/// that transaction is built.
+#[track_caller]
+pub fn send_metered(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    instructions: &[Instruction],
+    label: benchmark::BenchLabel,
+) -> Result<TransactionMetadata, TransactionError> {
+    let tx = assemble_tx(svm, payer, &[], instructions);
+    benchmark::send_transaction_metered(svm, tx, label).map_err(|failed| failed.err)
 }

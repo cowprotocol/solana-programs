@@ -91,7 +91,7 @@ fn settle_all(
     // The solver settles and pays: it's the fee payer and the only signer the
     // pair needs (`BeginSettle` names it as its solver-signer). `payer` above
     // only funds the order/buffer setup.
-    send(svm, solver, instructions).map(|_| ())
+    send(svm, solver, &instructions).map(|_| ())
 }
 
 // --- Limit price ---------------------------------------------------------
@@ -635,7 +635,7 @@ fn partially_fillable_order_cannot_be_settled_twice_in_one_settlement() {
 
     assert_settlement_error(
         BEGIN_INDEX,
-        send(&mut svm, &solver, instructions).map(|_| ()),
+        send(&mut svm, &solver, &instructions).map(|_| ()),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
 }
