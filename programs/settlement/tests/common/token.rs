@@ -49,7 +49,7 @@ thread_local! {
 /// creates under and what [`super::token_programs`] tells a settlement to
 /// carry.
 pub fn active() -> TokenProgram {
-    ACTIVE.with(Cell::get)
+    ACTIVE.get()
 }
 
 /// Run `test` with `token_program` as the [`active`] one.
