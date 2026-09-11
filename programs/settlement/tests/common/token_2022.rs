@@ -6,6 +6,8 @@
 //! helpers drive that lifecycle: create a mint under a chosen extension set,
 //! close it, and put a different mint at the same address.
 
+use std::default;
+
 use cow_settlement_interface::token_program::TokenProgram;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -42,6 +44,7 @@ pub enum Extensions {
     None,
     CloseAuthorityOnly,
     CloseAuthorityAndNonTransferable,
+    #[default]
     CloseAuthorityAndTransferFee,
 }
 
@@ -65,10 +68,6 @@ impl RequiredInitAccountExtensionType {
 }
 
 impl Extensions {
-    /// Include CloseAuthorityAndTransferFee since it makes it mandatory for its token accounts to include an extension
-    /// for better test coverage.
-    pub const DEFAULT: Self = Self::CloseAuthorityAndTransferFee;
-
     /// The extensions which should be configured on the mint
     fn mint(self) -> &'static [ExtensionType] {
         match self {

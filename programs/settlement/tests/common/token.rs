@@ -104,18 +104,17 @@ pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pub
             create_mint_at_under(svm, payer, mint, &TokenProgram::SplToken.address())
         }
         TokenProgram::Token2022 => {
-            super::token_2022::create_mint(svm, payer, mint, Extensions::DEFAULT)
+            super::token_2022::create_mint(svm, payer, mint, Extensins::default())
         }
     }
 }
 
 /// The length a buffer for a [`create_mint`] mint is allocated at under
-/// [`active`]: the base layout under the legacy program, and whatever
-/// [`Extensions::DEFAULT`] forces under Token-2022.
+/// [`active`]
 pub fn buffer_len() -> usize {
     match active() {
         TokenProgram::SplToken => Account::LEN,
-        TokenProgram::Token2022 => Extensions::DEFAULT.token_account_len(),
+        TokenProgram::Token2022 => Extensions::default().token_account_len(),
     }
 }
 
