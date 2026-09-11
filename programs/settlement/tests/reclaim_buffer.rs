@@ -12,9 +12,9 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 
+use crate::common::active_token;
 use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::buffer::ensure_buffer_exists;
-use crate::common::token;
 use crate::common::token_2022::Extensions;
 use crate::common::{
     assert_instruction_error, to_instruction_error, unique_pubkey, InitializedParams,
@@ -50,7 +50,7 @@ fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -99,7 +99,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -140,7 +140,7 @@ fn funded_buffer_is_skipped() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -187,7 +187,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -237,7 +237,7 @@ fn reclaims_multiple_buffers_skipping_funded() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &[mint_a, mint_b],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -275,7 +275,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &[mint, mint],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
@@ -306,7 +306,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         program_id,
         reclaim_authority: impostor.pubkey(),
         reclaim_recipient: impostor.pubkey(),
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &[mint],
     };
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
@@ -339,7 +339,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &[mint],
     });
 
@@ -356,7 +356,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
     authority_meta.is_signer = false;
 
     assert_instruction_error(
-        common::send(&mut svm, &payer, vec![ix]),
+        common::send(&mut svm, &payer, &mut [ix]),
         to_instruction_error(SettlementError::ReclaimAuthorityMismatch),
     );
     assert!(
@@ -462,7 +462,7 @@ fn reclaims_a_buffer_whose_mint_was_reopened_as_a_legacy_mint() {
         svm.get_account(&mint)
             .expect("the reopened mint should exist")
             .owner,
-        token::active().address(),
+        active_token::address(),
         "sanity: the mint must now belong to the legacy program"
     );
 
@@ -508,7 +508,7 @@ fn max_buffers_reclaim_via_lookup_table(
             state_pda,
             reclaim_authority: reclaim_authority.pubkey(),
             reclaim_recipient: reclaim_authority.pubkey(),
-            token_program: token::active().address(),
+            token_program: active_token::address(),
             buffers: &buffers,
         };
         common::lookup_table::lookup_table_tx(svm, reclaim_authority, ix)
@@ -539,7 +539,7 @@ fn bench_assert_known_max_buffer_count() {
         max_buffers,
         30,
         "Max buffers that can be reclaimed has changed under {:?}",
-        token::active(),
+        active_token::program(),
     );
 }
 
@@ -592,7 +592,7 @@ fn max_buffers_in_one_instruction() {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
-        token_program: token::active(),
+        token_program: active_token::program(),
         mints: &mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &reclaim_authority, ix);

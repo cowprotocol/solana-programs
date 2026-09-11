@@ -19,10 +19,10 @@
 
 use crate::common::{
     assert_instruction_error,
-    benchmark::{send_metered, BenchLabel},
+    benchmark::BenchLabel,
     buffer, create_account,
     order::{create_order_pda, sample_intent, settlable_intent, OrderBuilder},
-    replace_first_matching_account, send, set_unix_timestamp,
+    replace_first_matching_account, send, send_metered, set_unix_timestamp,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, to_instruction_error, token, unique_pubkey,
 };
@@ -152,7 +152,7 @@ fn settles_a_single_order() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -162,7 +162,7 @@ fn settles_a_single_order() {
             pulls: &[],
         }],
     );
-    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
+    send_metered(&mut svm, &solver, &mut instructions, BenchLabel::Settle)
         .expect("settlement should succeed");
 }
 
@@ -183,8 +183,8 @@ fn settles_multiple_orders() {
         .iter()
         .map(|intent| InitializedIntent { intent, pulls: &[] })
         .collect();
-    let instructions = settle_and_pay(&mut svm, &program_id, &payer, &solver, &orders);
-    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
+    let mut instructions = settle_and_pay(&mut svm, &program_id, &payer, &solver, &orders);
+    send_metered(&mut svm, &solver, &mut instructions, BenchLabel::Settle)
         .expect("multi-order settlement should succeed");
 }
 
@@ -207,7 +207,7 @@ fn rejects_wrong_stored_bump() {
 
     common::create_account_at(&mut svm, order_pda, &program_id, &data);
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -218,7 +218,7 @@ fn rejects_wrong_stored_bump() {
         }],
     );
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::AccountNotDerivable,
     );
 }
@@ -269,10 +269,10 @@ fn rejects_fabricated_program_owned_account() {
         bumps: &[0],
         amounts: &[0],
     };
-    let instructions = vec![begin.into(), finalize.into()];
+    let mut instructions = vec![begin.into(), finalize.into()];
 
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::AccountNotDerivable,
     );
 }
@@ -308,10 +308,10 @@ fn rejects_non_order_account_in_order_slot() {
         bumps: &[0],
         amounts: &[0],
     };
-    let instructions = vec![begin.into(), finalize.into()];
+    let mut instructions = vec![begin.into(), finalize.into()];
 
     assert_instruction_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         InstructionError::InvalidAccountData,
     );
 }
@@ -341,7 +341,7 @@ fn rejects_sell_token_account_mismatch() {
     );
 
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::SellTokenAccountMismatch,
     );
 }
@@ -365,7 +365,7 @@ fn rejects_sell_token_owner_mismatch() {
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -376,7 +376,7 @@ fn rejects_sell_token_owner_mismatch() {
         }],
     );
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::SellTokenOwnerMismatch,
     );
 }
@@ -393,7 +393,7 @@ fn rejects_non_token_sell_account() {
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -404,7 +404,7 @@ fn rejects_non_token_sell_account() {
         }],
     );
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::SellTokenAccountInvalid,
     );
 }
@@ -417,7 +417,7 @@ fn rejects_sell_token_account_recreated_for_another_mint() {
     let another_mint = token::create_mint(&mut svm, &payer);
     token::overwrite_token_account(&mut svm, &payer, &intent.sell_token_account, &another_mint);
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -428,7 +428,7 @@ fn rejects_sell_token_account_recreated_for_another_mint() {
         }],
     );
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::SellMintMismatch,
     );
 }
@@ -438,7 +438,7 @@ fn rejects_duplicate_orders() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -455,7 +455,7 @@ fn rejects_duplicate_orders() {
         ],
     );
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
 }
@@ -533,9 +533,9 @@ fn rejects_orders_in_wrong_address_order() {
         bumps: &bumps,
         amounts: &amounts,
     };
-    let instructions = vec![begin, finalize.into()];
+    let mut instructions = vec![begin, finalize.into()];
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::OrdersNotStrictlyIncreasing,
     );
 }
@@ -564,7 +564,7 @@ fn rejects_cancelled_order() {
 
     common::create_account_at(&mut svm, order_pda, &program_id, &data);
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -575,7 +575,7 @@ fn rejects_cancelled_order() {
         }],
     );
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::OrderCancelled,
     );
 }
@@ -591,7 +591,7 @@ fn rejects_expired_order() {
     let after_expiration = i64::from(valid_to) + 1;
     set_unix_timestamp(&mut svm, after_expiration);
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -602,7 +602,7 @@ fn rejects_expired_order() {
         }],
     );
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::OrderExpired,
     );
 }
@@ -617,7 +617,7 @@ fn settles_order_at_exact_valid_to() {
         .build();
     set_unix_timestamp(&mut svm, i64::from(valid_to));
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -627,7 +627,7 @@ fn settles_order_at_exact_valid_to() {
             pulls: &[],
         }],
     );
-    send(&mut svm, &solver, instructions)
+    send(&mut svm, &solver, &mut instructions)
         .expect("an order is still settleable at exactly valid_to");
 }
 
@@ -649,7 +649,7 @@ fn pulls_funds_to_destination() {
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
-    let instructions = settle_and_pay_amounts(
+    let mut instructions = settle_and_pay_amounts(
         &mut svm,
         &program_id,
         &payer,
@@ -663,7 +663,7 @@ fn pulls_funds_to_destination() {
         }],
         &[paid],
     );
-    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
+    send_metered(&mut svm, &solver, &mut instructions, BenchLabel::Settle)
         .expect("a pull within the approved delegation, paid at the limit, should succeed");
 
     assert_eq!(token::balance(&svm, &destination), amount);
@@ -692,7 +692,7 @@ fn pulls_to_multiple_destinations() {
     let pulled1 = 100_000;
     let paid = 800_000;
     sanity_check_clears_limit(&intent, pulled0 + pulled1, paid);
-    let instructions = settle_and_pay_amounts(
+    let mut instructions = settle_and_pay_amounts(
         &mut svm,
         &program_id,
         &payer,
@@ -712,7 +712,7 @@ fn pulls_to_multiple_destinations() {
         }],
         &[paid],
     );
-    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
+    send_metered(&mut svm, &solver, &mut instructions, BenchLabel::Settle)
         .expect("multiple pulls from one order should succeed");
 
     assert_eq!(token::balance(&svm, &dest0), pulled0);
@@ -766,7 +766,7 @@ fn pulls_from_multiple_orders() {
     let paid_second = 2 * pulled_second;
     sanity_check_clears_limit(&first, pulled_first, paid_first);
     sanity_check_clears_limit(&second, pulled_second, paid_second);
-    let instructions = settle_and_pay_amounts(
+    let mut instructions = settle_and_pay_amounts(
         &mut svm,
         &program_id,
         &payer,
@@ -789,7 +789,7 @@ fn pulls_from_multiple_orders() {
         ],
         &[paid_first, paid_second],
     );
-    send_metered(&mut svm, &solver, instructions, BenchLabel::Settle)
+    send_metered(&mut svm, &solver, &mut instructions, BenchLabel::Settle)
         .expect("pulls from several orders should succeed");
 
     assert_eq!(token::balance(&svm, &dest_first), pulled_first);
@@ -820,7 +820,7 @@ fn rejects_pulls_summing_beyond_u64() {
     // Two pulls whose declared amounts sum is larger than `u64::MAX`.
     // No real token account could hold this, but a solver can craft the
     // instruction data, so the sum must reject it rather than wrap.
-    let instructions = settle_and_pay_amounts(
+    let mut instructions = settle_and_pay_amounts(
         &mut svm,
         &program_id,
         &payer,
@@ -841,7 +841,7 @@ fn rejects_pulls_summing_beyond_u64() {
         &[0],
     );
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::PullAmountOverflow,
     );
 }
@@ -921,7 +921,7 @@ fn rejects_wrong_state_pda() {
     );
 
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::StateAccountMismatch,
     );
 }
@@ -951,7 +951,7 @@ fn rejects_wrong_token_program() {
     );
 
     assert_instruction_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         InstructionError::IncorrectProgramId,
     );
 }
@@ -972,7 +972,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
     token::delegate(&mut svm, &payer, &sell_token, &unique_pubkey(), amount);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -986,7 +986,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
         }],
     );
     assert_instruction_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         InstructionError::Custom(TokenError::OwnerMismatch as u32),
     );
 }
@@ -1013,7 +1013,7 @@ fn rejects_pull_exceeding_delegation() {
     );
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
-    let instructions = settle_and_pay(
+    let mut instructions = settle_and_pay(
         &mut svm,
         &program_id,
         &payer,
@@ -1027,7 +1027,7 @@ fn rejects_pull_exceeding_delegation() {
         }],
     );
     assert_instruction_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         InstructionError::Custom(TokenError::InsufficientFunds as u32),
     );
     assert_eq!(token::balance(&svm, &sell_token), initial_amount);
@@ -1059,7 +1059,7 @@ fn rejects_extra_account() {
         .push(AccountMeta::new_readonly(unique_pubkey(), false));
 
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::AccountCountNotMatchingOrderCount,
     );
 }
@@ -1083,9 +1083,9 @@ fn rejects_push_to_wrong_destination() {
     let destination_index = 4;
     finalize.accounts[destination_index].pubkey = unique_pubkey();
 
-    let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
+    let mut instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::PushDestinationMismatch,
     );
 }
@@ -1115,9 +1115,9 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
         amounts: &[100],
     };
 
-    let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
+    let mut instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::PushSourceNotBuffer,
     );
 }
@@ -1138,9 +1138,9 @@ fn rejects_fewer_pushes_than_orders() {
         orders: &[],
     };
 
-    let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
+    let mut instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::SettledOrderPushCountMismatch,
     );
 }
@@ -1161,9 +1161,9 @@ fn rejects_more_pushes_than_orders() {
         }],
     };
 
-    let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
+    let mut instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
     assert_begin_error(
-        send(&mut svm, &solver, instructions),
+        send(&mut svm, &solver, &mut instructions),
         SettlementError::SettledOrderPushCountMismatch,
     );
 }
@@ -1187,9 +1187,9 @@ fn rejects_partial_push_amount_in_finalize_settle() {
     // it rejects the malformed encoding before the finalize instruction runs.
     finalize.data.pop();
 
-    let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
+    let mut instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_eq!(
-        send(&mut svm, &solver, instructions).err(),
+        send(&mut svm, &solver, &mut instructions).err(),
         Some(TransactionError::InstructionError(
             BEGIN_INDEX,
             InstructionError::InvalidInstructionData,

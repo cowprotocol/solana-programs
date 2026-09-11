@@ -5,13 +5,13 @@
 //! Token-2022 accounts uses the same calls as one settling legacy ones.
 //!
 //! Creating a mint is the one thing with nothing to read the program from.
-//! [`create_mint`] takes it from [`active`], the program the running test is
-//! exercising — the legacy one unless [`super::also_under_token_2022`]
-//! generated the test — and [`create_mint_under`] names it outright, for the
-//! tests that build mints under both at once.
+//! [`create_mint`] takes it from [`active_token::program`], the program the
+//! running test is exercising, and [`create_mint_under`] names it outright, for
+//! the tests that build mints under both at once.
 
+use super::{active_token, send_with_signers, token_2022::Extensions, unique_keypair};
 use cow_settlement_client::cow_settlement_interface::{
-    pda::state::find_state_pda, token_program::TokenProgram, Instruction,
+    pda::state::find_state_pda, token_program::TokenProgram,
 };
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{spl_token::state::Mint, CreateAssociatedTokenAccount};
@@ -19,7 +19,6 @@ use solana_program_pack::Pack;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::Transaction,
 };
 use solana_system_interface::instruction::create_account as system_create_account;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
@@ -31,32 +30,6 @@ use spl_token_2022_interface::{
     },
     state::{Account, Mint as Mint2022},
 };
-use std::cell::Cell;
-
-use super::{token_2022::Extensions, unique_keypair};
-
-thread_local! {
-    /// The token program [`active`] reports, scoped to one test by
-    /// [`under_token_program`]. Thread local because the test harness runs each
-    /// test on its own thread, so a per-thread value is a per-test value.
-    static ACTIVE: Cell<TokenProgram> = const { Cell::new(TokenProgram::SplToken) };
-}
-
-/// The token program the running test exercises, which is what [`create_mint`]
-/// creates under and what [`super::token_programs`] tells a settlement to
-/// carry.
-pub fn active() -> TokenProgram {
-    ACTIVE.get()
-}
-
-/// Run `test` with `token_program` as the [`active`] one.
-///
-/// [`super::also_under_token_2022`] is the way tests reach this; call it
-/// directly only to nest a differently-programmed section inside a test.
-pub fn under_token_program(token_program: TokenProgram, test: impl FnOnce()) {
-    ACTIVE.replace(token_program);
-    test();
-}
 
 /// The token program that owns `account`.
 pub fn program_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
@@ -65,28 +38,8 @@ pub fn program_of(svm: &LiteSVM, account: &Pubkey) -> Pubkey {
         .owner
 }
 
-/// Submit `instructions` as one transaction signed by `payer` and `extra`.
-fn send_token_tx(
-    svm: &mut LiteSVM,
-    payer: &Keypair,
-    extra: &[&Keypair],
-    instructions: &[Instruction],
-    what: &str,
-) {
-    let mut signers = vec![payer];
-    signers.extend_from_slice(extra);
-    let tx = Transaction::new_signed_with_payer(
-        instructions,
-        Some(&payer.pubkey()),
-        &signers,
-        svm.latest_blockhash(),
-    );
-    svm.send_transaction(tx)
-        .unwrap_or_else(|error| panic!("{what} should succeed: {error:?}"));
-}
-
-/// Create a fresh mint under [`active`], whose mint authority is `payer`, and
-/// return its address.
+/// Create a fresh mint under [`active_token::program`], whose mint authority is
+/// `payer`, and return its address.
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
     create_mint_at(svm, payer, &unique_keypair())
 }
@@ -99,7 +52,7 @@ pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
 /// bare, so every generated test exercises the longer accounts its extensions
 /// force. [`create_mint_under`] is the way to a bare one.
 pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pubkey {
-    match active() {
+    match active_token::program() {
         TokenProgram::SplToken => {
             create_mint_at_under(svm, payer, mint, &TokenProgram::SplToken.address())
         }
@@ -109,17 +62,9 @@ pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pub
     }
 }
 
-/// The length a buffer for a [`create_mint`] mint is allocated at under
-/// [`active`]
-pub fn buffer_len() -> usize {
-    match active() {
-        TokenProgram::SplToken => Account::LEN,
-        TokenProgram::Token2022 => Extensions::default().token_account_len(),
-    }
-}
-
-/// [`create_mint`] under `token_program` rather than under [`active`], for the
-/// tests that build mints under both programs at once.
+/// [`create_mint`] under `token_program` rather than under
+/// [`active_token::program`], for the tests that build mints under both
+/// programs at once.
 pub fn create_mint_under(svm: &mut LiteSVM, payer: &Keypair, token_program: &Pubkey) -> Pubkey {
     create_mint_at_under(svm, payer, &unique_keypair(), token_program)
 }
@@ -153,7 +98,8 @@ fn create_mint_at_under(
         DECIMALS,
     )
     .expect("initialize_mint2 should build");
-    send_token_tx(svm, payer, &[mint], &[create, initialize], "mint creation");
+    send_with_signers(svm, payer, &[mint], &mut [create, initialize])
+        .unwrap_or_else(|error| panic!("mint creation should succeed: {error:?}"));
     mint.pubkey()
 }
 
@@ -177,13 +123,8 @@ pub fn create_token_account(
     );
     let initialize = initialize_account3(&token_program, &account.pubkey(), mint, owner)
         .expect("initialize_account3 should build");
-    send_token_tx(
-        svm,
-        payer,
-        &[&account],
-        &[create, initialize],
-        "token account creation",
-    );
+    send_with_signers(svm, payer, &[&account], &mut [create, initialize])
+        .unwrap_or_else(|error| panic!("token account creation should succeed: {error:?}"));
     account.pubkey()
 }
 
@@ -224,7 +165,8 @@ pub fn mint_to(
         amount,
     )
     .expect("mint_to should build");
-    send_token_tx(svm, payer, &[], &[instruction], "mint_to");
+    send_with_signers(svm, payer, &[], &mut [instruction])
+        .unwrap_or_else(|error| panic!("mint_to should succeed: {error:?}"));
 }
 
 /// The decimals `mint` was created with.
@@ -267,7 +209,8 @@ pub fn transfer(
         decimals_of(svm, mint),
     )
     .expect("transfer should build");
-    send_token_tx(svm, owner, &[], &[instruction], "transfer");
+    send_with_signers(svm, owner, &[], &mut [instruction])
+        .unwrap_or_else(|error| panic!("transfer should succeed: {error:?}"));
 }
 
 /// Approve `delegate` to spend up to `amount` from `source`. `owner` must be the
@@ -289,7 +232,8 @@ pub fn delegate(
         amount,
     )
     .expect("approve should build");
-    send_token_tx(svm, owner, &[], &[instruction], "approving a delegate");
+    send_with_signers(svm, owner, &[], &mut [instruction])
+        .unwrap_or_else(|error| panic!("approving a delegate should succeed: {error:?}"));
 }
 
 /// Fund `sell_token` with `amount` of its mint and approve the settlement state
