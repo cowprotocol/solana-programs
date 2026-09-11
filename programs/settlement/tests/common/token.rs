@@ -11,6 +11,7 @@ use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
     spl_token::{
         instruction::{approve, initialize_account3, initialize_mint2, mint_to as mint_to_ix},
+        native_mint,
         state::{Account, Mint},
     },
     CreateAssociatedTokenAccount, Transfer, TOKEN_ID,
@@ -68,29 +69,57 @@ fn send_token_tx(
         .unwrap_or_else(|error| panic!("{what} should succeed: {error:?}"));
 }
 
+/// Plant the native mint (wrapped SOL) at its well-known address, owned by the
+/// legacy SPL Token program.
+///
+/// Every cluster carries this mint already; LiteSVM starts without it, so a
+/// test that works with wrapped SOL has to put it there. Its body is what a
+/// real one holds: no authorities, no supply, and the native decimals.
+pub fn create_native_mint(svm: &mut LiteSVM) {
+    let mut data = vec![0u8; Mint::LEN];
+    Mint {
+        decimals: native_mint::DECIMALS,
+        is_initialized: true,
+        ..Default::default()
+    }
+    .pack_into_slice(&mut data);
+    super::create_account_at(svm, native_mint::ID, &TOKEN_ID, &data);
+}
+
 /// Create a fresh mint under the legacy SPL Token program, owned by `payer`,
 /// and return its address.
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
     create_mint_under(svm, payer, &TOKEN_ID)
 }
 
-/// Create a fresh mint under `token_program`, whose mint authority is `payer`,
-/// and return its address. Every later helper reads the program back off the
-/// mint, so this is the only place a test names it.
+/// [`create_mint`] at `mint`'s address rather than a fresh one. Lets a test
+/// reclaim an address a Token-2022 mint was just closed at, which is the only
+/// way a legacy mint can end up where a Token-2022 one used to be.
+pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pubkey {
+    create_mint_at_under(svm, payer, mint, &TOKEN_ID)
+}
+
+/// [`create_mint`] under `token_program` rather than the legacy program, for
+/// the tests that build mints under both at once.
+pub fn create_mint_under(svm: &mut LiteSVM, payer: &Keypair, token_program: &Pubkey) -> Pubkey {
+    create_mint_at_under(svm, payer, &unique_keypair(), token_program)
+}
+
+/// Create a mint at `mint`'s address under `token_program`, whose mint authority
+/// is `payer`, and return its address. Every later helper reads the program back
+/// off the mint, so the wrappers above are the only place a test names it.
 ///
 /// This open-codes what [`litesvm_token::CreateMint`] does rather than calling
 /// it, because that builder generates the mint keypair with `Keypair::new()`
 /// internally and offers no way to supply one. A mint address is a seed of its
 /// buffer PDA, so a random one makes buffer bumps — and the compute cost of
 /// deriving them — vary between runs. See [`super::unique_pubkey`].
-pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {
-    create_mint_at(svm, payer, &unique_keypair())
-}
-
-/// [`create_mint`] at `mint`'s address rather than a fresh one. Lets a test
-/// reclaim an address a Token-2022 mint was just closed at, which is the only
-/// way a legacy mint can end up where a Token-2022 one used to be.
-pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pubkey {
+fn create_mint_at_under(
+    svm: &mut LiteSVM,
+    payer: &Keypair,
+    mint: &Keypair,
+    token_program: &Pubkey,
+) -> Pubkey {
     /// `litesvm_token::CreateMint`'s default, kept so the two agree.
     const DECIMALS: u8 = 8;
 
@@ -101,15 +130,12 @@ pub fn create_mint_at(svm: &mut LiteSVM, payer: &Keypair, mint: &Keypair) -> Pub
         Mint::LEN as u64,
         token_program,
     );
-    let initialize = initialize_mint2(&TOKEN_ID, &mint.pubkey(), &payer.pubkey(), None, DECIMALS)
-        .expect("initialize_mint2 should build");
-    let tx = Transaction::new_signed_with_payer(
-        &[create, initialize],
-        Some(&payer.pubkey()),
-        &[payer, mint],
-        svm.latest_blockhash(),
+    let initialize = under(
+        initialize_mint2(&TOKEN_ID, &mint.pubkey(), &payer.pubkey(), None, DECIMALS)
+            .expect("initialize_mint2 should build"),
+        token_program,
     );
-    send_token_tx(svm, payer, &[&mint], &[create, initialize], "mint creation");
+    send_token_tx(svm, payer, &[mint], &[create, initialize], "mint creation");
     mint.pubkey()
 }
 

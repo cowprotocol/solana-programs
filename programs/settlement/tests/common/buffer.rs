@@ -1,7 +1,6 @@
 //! Buffer-account helpers for the settlement integration tests.
 
 use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
-use cow_settlement_client::cow_settlement_interface::token_program::SPL_TOKEN_PROGRAM_ID;
 use cow_settlement_client::cow_settlement_interface::Instruction;
 use cow_settlement_client::instructions::CreateBuffers;
 use cow_settlement_interface::token_program::TokenProgram;
@@ -12,7 +11,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 
-use super::{replace_first_matching_account, token};
+use super::token;
 
 /// The canonical buffer PDA for `mint`.
 pub fn buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {
@@ -22,13 +21,19 @@ pub fn buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> Pubkey {
 /// Create the canonical buffer for `mint`, paid for by `payer`, unless it
 /// already exists, and return its address. Idempotent so several orders can
 /// share one buy mint.
+///
+/// A buffer is a token account of its mint, so it is created under whichever
+/// program owns the mint; [`ensure_buffer_exists_for`] is for the tests that
+/// name a program of their own instead.
 pub fn ensure_buffer_exists(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     mint: &Pubkey,
 ) -> Pubkey {
-    ensure_buffer_exists_for(svm, program_id, payer, mint, TokenProgram::SplToken)
+    let token_program = TokenProgram::try_from(&token::program_of(svm, mint))
+        .expect("a mint lives under a supported token program");
+    ensure_buffer_exists_for(svm, program_id, payer, mint, token_program)
 }
 
 /// [`ensure_buffer_exists`] under a token program of the caller's choosing, for
@@ -44,17 +49,12 @@ pub fn ensure_buffer_exists_for(
     if svm.get_account(&pda).is_some() {
         return pda;
     }
-    let mut ix = Instruction::from(CreateBuffers {
+    let ix = Instruction::from(CreateBuffers {
         program_id: *program_id,
         payer: payer.pubkey(),
         token_program,
         mints: &[*mint],
     });
-    // A buffer is a token account of its mint, so it has to be created under the
-    // mint's own program. The builder can only name the legacy one, so point the
-    // instruction at whichever program the mint actually lives under — a no-op
-    // for a legacy mint.
-    replace_first_matching_account(&mut ix, &SPL_TOKEN_PROGRAM_ID, token::program_of(svm, mint));
     let tx = Transaction::new_signed_with_payer(
         &[ix],
         Some(&payer.pubkey()),

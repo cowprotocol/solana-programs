@@ -79,7 +79,7 @@ mod tests {
     use super::*;
     use crate::instructions::{
         AddSolver, BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize,
-        InitializedIntent, RemoveSolver,
+        InitializedIntent, RemoveSolver, TokenPrograms,
     };
     use cow_settlement_interface::{
         data::intent::fixtures::sample_intent,

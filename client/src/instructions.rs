@@ -318,12 +318,12 @@ mod tests {
         instruction::{
             fixtures::fake_account_from_array,
             settle::{
-                BeginSettleInput, FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID,
-                SPL_TOKEN_PROGRAM_ID, SYSTEM_PROGRAM_ID,
+                BeginSettleInput, FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID,
             },
             InstructionInputParsing,
         },
         pda::order::find_order_pda,
+        token_program::SYSTEM_PROGRAM_ID,
     };
 
     proptest! {
@@ -457,16 +457,12 @@ mod tests {
             );
             let (state_pda, _bump) = find_state_pda(&program_id);
             prop_assert_eq!(parsed.state_pda_account.address(), &state_pda);
-            prop_assert_eq!(
-                parsed.spl_token_program_account.address(),
-                &SPL_TOKEN_PROGRAM_ID,
-            );
-            // These settlements are legacy-only, so Token-2022's slot stands
-            // empty.
-            prop_assert_eq!(
-                parsed.token_2022_program_account.address(),
-                &SYSTEM_PROGRAM_ID,
-            );
+            // The token-program slots aren't parsed, so the instruction's own
+            // account list is where they are checked: the legacy program in its
+            // own slot, and — these settlements being legacy-only — the
+            // placeholder in Token-2022's.
+            prop_assert_eq!(ix.accounts[2].pubkey, SPL_TOKEN_PROGRAM_ID);
+            prop_assert_eq!(ix.accounts[3].pubkey, SYSTEM_PROGRAM_ID);
 
             let parsed_pushes: Vec<_> = parsed.pushes.iter().collect();
             prop_assert_eq!(parsed_pushes.len(), expected.len());

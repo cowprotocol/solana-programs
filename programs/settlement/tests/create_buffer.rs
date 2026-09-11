@@ -147,6 +147,9 @@ fn happy_path_creates_native_token_buffer() {
     // and the buffer is initialized as a wrapped-SOL account. Since we fund
     // exactly the rent-exempt minimum, the wrapped balance starts at zero.
     let (mut svm, program_id, payer) = common::setup();
+    // The buffer is created under the program that owns its mint, so the native
+    // mint has to be on-chain here the way it is on a real cluster.
+    common::token::create_native_mint(&mut svm);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &native_mint::ID);
 
     let ix = CreateBuffers {
@@ -291,8 +294,12 @@ fn rejects_non_canonical_bump_pda() {
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &non_canonical_pda);
 }
 
+/// The token-program account isn't read: each buffer is created under the
+/// program that owns its mint. What the account is for is naming that program,
+/// and a CPI can only dispatch to a program its instruction names — so swapping
+/// it out leaves `InitializeAccount3` with nowhere to go.
 #[test]
-fn rejects_non_spl_token_program() {
+fn rejects_a_token_program_the_instruction_doesnt_name() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
@@ -316,13 +323,13 @@ fn rejects_non_spl_token_program() {
 
     let err = svm
         .send_transaction(tx)
-        .expect_err("a non-SPL-Token program must be rejected");
+        .expect_err("a buffer whose token program isn't named must be rejected");
     assert!(
         matches!(
             err.err,
-            TransactionError::InstructionError(0, InstructionError::IncorrectProgramId)
+            TransactionError::InstructionError(0, InstructionError::MissingAccount)
         ),
-        "expected instruction 0 to fail with IncorrectProgramId, got {:?}",
+        "expected instruction 0 to fail with MissingAccount, got {:?}",
         err.err,
     );
     assert!(
@@ -335,11 +342,10 @@ fn rejects_non_spl_token_program() {
 fn rejects_invalid_mint() {
     let (mut svm, program_id, payer) = common::setup();
 
-    // An account that isn't an initialized SPL mint. The handler derives the
-    // buffer PDA from it and delegates mint validation to InitializeAccount3,
-    // which rejects it: a non-mint account isn't owned by the token program, so
-    // the CPI fails with IncorrectProgramId after the buffer was allocated,
-    // reverting the whole instruction.
+    // An account that isn't an initialized SPL mint. The handler reads the
+    // mint's owner to decide which program the buffer belongs to, and an
+    // account under no token program has no answer: it is rejected with
+    // IncorrectProgramId before anything is allocated.
     let not_a_mint = unique_pubkey();
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &not_a_mint);
 
@@ -354,8 +360,6 @@ fn rejects_invalid_mint() {
     let err = svm
         .send_transaction(tx)
         .expect_err("a non-mint account must be rejected");
-    // Expected failing line:
-    // https://github.com/solana-program/token/blob/7ed1aa8d9eb6d54c0084a9e8475c56a0a868b5bd/program/src/processor.rs#L115
     assert!(
         matches!(
             err.err,

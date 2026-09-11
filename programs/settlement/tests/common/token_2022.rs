@@ -24,9 +24,6 @@ use spl_token_2022_interface::{
     state::{Account, Mint},
 };
 
-/// The Token-2022 program, the counterpart of [`super::SPL_TOKEN_PROGRAM_ID`].
-const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
-
 /// Decimals every test mint carries, matching [`super::token::create_mint`] so
 /// a legacy and a Token-2022 mint differ only in their program.
 const DECIMALS: u8 = 8;
@@ -122,15 +119,15 @@ impl Extensions {
             .map(|extension| {
                 match extension {
                     ExtensionType::MintCloseAuthority => initialize_mint_close_authority(
-                        &TOKEN_2022_PROGRAM_ID,
+                        &TokenProgram::Token2022.address(),
                         mint,
                         Some(authority),
                     ),
                     ExtensionType::NonTransferable => {
-                        initialize_non_transferable_mint(&TOKEN_2022_PROGRAM_ID, mint)
+                        initialize_non_transferable_mint(&TokenProgram::Token2022.address(), mint)
                     }
                     ExtensionType::TransferFeeConfig => initialize_transfer_fee_config(
-                        &TOKEN_2022_PROGRAM_ID,
+                        &TokenProgram::Token2022.address(),
                         mint,
                         Some(authority),
                         Some(authority),
@@ -162,12 +159,12 @@ pub fn create_mint(
         &mint.pubkey(),
         svm.minimum_balance_for_rent_exemption(space),
         space as u64,
-        &TOKEN_2022_PROGRAM_ID,
+        &TokenProgram::Token2022.address(),
     )];
     instructions.extend(extensions.initializers(&mint.pubkey(), &payer.pubkey()));
     instructions.push(
         initialize_mint2(
-            &TOKEN_2022_PROGRAM_ID,
+            &TokenProgram::Token2022.address(),
             &mint.pubkey(),
             &payer.pubkey(),
             None,
@@ -193,7 +190,7 @@ pub fn create_mint(
 /// to claim again.
 pub fn close_mint(svm: &mut LiteSVM, payer: &Keypair, mint: &Pubkey) {
     let ix = close_account(
-        &TOKEN_2022_PROGRAM_ID,
+        &TokenProgram::Token2022.address(),
         mint,
         &payer.pubkey(),
         &payer.pubkey(),

@@ -17,7 +17,6 @@ pub mod token_2022;
 
 use cow_settlement_client::instructions::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
-use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::SettlementError;
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -35,10 +34,6 @@ pub const PROGRAM_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../target/deploy/cow_settlement.so"
 );
-
-/// The legacy SPL Token program, which the tests create their buffers and
-/// token accounts under unless they exercise Token-2022 specifically.
-pub const SPL_TOKEN_PROGRAM_ID: Pubkey = TokenProgram::SplToken.address();
 
 pub const CPI_CALLER_SO: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -205,6 +200,19 @@ pub fn assert_instruction_error_at<T>(
         result.err(),
         Some(TransactionError::InstructionError(ix_idx, expected))
     );
+}
+
+/// Convenience wrapper around [`assert_instruction_error_at`] for asserting a
+/// specific [`SettlementError`] at the instruction that produced it: settlements
+/// run as a `[BeginSettle, FinalizeSettle]` pair, so the failing instruction
+/// isn't always the first.
+#[track_caller]
+pub fn assert_settlement_error<T>(
+    ix_idx: u8,
+    result: Result<T, TransactionError>,
+    expected: SettlementError,
+) {
+    assert_instruction_error_at(ix_idx, result, to_instruction_error(expected));
 }
 
 pub fn create_account_at(svm: &mut LiteSVM, address: Pubkey, owner: &Pubkey, data: &[u8]) {

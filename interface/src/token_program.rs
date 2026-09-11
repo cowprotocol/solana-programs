@@ -1,13 +1,16 @@
 //! The token programs settlement transfers may be issued against.
 //!
 //! An instruction that moves tokens has to name the program to issue its
-//! transfers against, and that program has to be one of [`TokenProgram::ALL`],
-//! which is what [`TokenProgram::try_from`] resolves an address against. How it
-//! names them differs by instruction:
+//! transfers against — a CPI can only dispatch to a program its instruction
+//! names — and the program it targets is the one owning the account it moves,
+//! which [`TokenProgram::try_from`] resolves from that account's owner. Naming
+//! is all the accounts below do; none of them is read on-chain. How an
+//! instruction names them differs:
 //!
 //! - `CreateBuffer` and `ReclaimBuffer` take a single `token_program` account.
-//!   Each works on one program's accounts at a time, so a mint under the other
-//!   needs its own instruction.
+//!   Each buffer is created under, and closed by, the program owning its mint,
+//!   so a mint under the program the instruction didn't name needs its own
+//!   instruction.
 //! - `BeginSettle` and `FinalizeSettle` take one account per supported program,
 //!   described by [`TokenPrograms`], and issue each transfer against the
 //!   program that owns the account it moves. One settlement can therefore mix
@@ -65,11 +68,11 @@ impl TryFrom<&Pubkey> for TokenProgram {
 /// Both instructions take one account per supported program, at fixed positions
 /// and in [`TokenProgram::ALL`] order, and issue each transfer against the
 /// program that owns the account it moves — so a single settlement may mix
-/// tokens from both. A program the settlement doesn't touch is left out by
-/// putting [`SYSTEM_PROGRAM_ID`] in its slot: the transfers still need their
-/// program to be named by the transaction, and the placeholder says this one
-/// isn't. A token account under a left-out program has nothing to be settled
-/// against and is rejected.
+/// tokens from both. The slots are what name those programs; they are not read
+/// on-chain, and a program the settlement doesn't touch is left out by putting
+/// [`SYSTEM_PROGRAM_ID`] in its slot. A transfer of a token account under a
+/// left-out program then has no program to dispatch to, and the runtime refuses
+/// the instruction.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TokenPrograms {
     /// Whether the legacy SPL Token program's slot carries the program rather
