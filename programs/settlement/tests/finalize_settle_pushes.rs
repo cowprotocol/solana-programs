@@ -196,9 +196,6 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
     );
 }
 
-/// The token-program account isn't read: every push is issued against the
-/// program that owns its destination. The account is what names that program to
-/// the runtime, and a CPI can only dispatch to a program its instruction names.
 #[test]
 fn rejects_a_token_program_the_instruction_doesnt_name() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();

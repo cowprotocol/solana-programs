@@ -1,20 +1,4 @@
 //! The token programs settlement transfers may be issued against.
-//!
-//! An instruction that moves tokens has to name the program to issue its
-//! transfers against — a CPI can only dispatch to a program its instruction
-//! names — and the program it targets is the one owning the account it moves,
-//! which [`TokenProgram::try_from`] resolves from that account's owner. Naming
-//! is all the accounts below do; none of them is read on-chain. How an
-//! instruction names them differs:
-//!
-//! - `CreateBuffer` and `ReclaimBuffer` take a single `token_program` account.
-//!   Each buffer is created under, and closed by, the program owning its mint,
-//!   so a mint under the program the instruction didn't name needs its own
-//!   instruction.
-//! - `BeginSettle` and `FinalizeSettle` take one account per supported program,
-//!   described by [`TokenPrograms`], and issue each transfer against the
-//!   program that owns the account it moves. One settlement can therefore mix
-//!   tokens from both programs.
 
 use crate::Pubkey;
 use solana_program_error::ProgramError;
@@ -70,9 +54,7 @@ impl TryFrom<&Pubkey> for TokenProgram {
 /// program that owns the account it moves — so a single settlement may mix
 /// tokens from both. The slots are what name those programs; they are not read
 /// on-chain, and a program the settlement doesn't touch is left out by putting
-/// [`SYSTEM_PROGRAM_ID`] in its slot. A transfer of a token account under a
-/// left-out program then has no program to dispatch to, and the runtime refuses
-/// the instruction.
+/// [`SYSTEM_PROGRAM_ID`] in its slot.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TokenPrograms {
     /// Whether the legacy SPL Token program's slot carries the program rather
@@ -168,7 +150,7 @@ mod tests {
     }
 
     /// The placeholder has to be something no token account can be owned by,
-    /// or a slot carrying it would still dispatch transfers somewhere.
+    /// or a slot carrying it would still execute transfers somewhere.
     #[test]
     fn the_placeholder_is_not_a_token_program() {
         assert_eq!(

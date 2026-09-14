@@ -1,4 +1,4 @@
-//! Token-program dispatch and token-account reads
+//! Token-program execution and token-account reads
 
 use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
 use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView, Address};
@@ -18,7 +18,7 @@ const BASE_TOKEN_ACCOUNT_LEN: u64 = pinocchio_token::state::Account::LEN as u64;
 ///
 /// The program the answer names still has to be one of the calling
 /// instruction's own accounts, or the CPI issued against it has nothing to
-/// dispatch to. Naming it is the caller's job, and the runtime is what enforces
+/// execute into. Naming it is the caller's job, and the runtime is what enforces
 /// it.
 #[must_use = "not consuming skips the owner check"]
 pub fn owning_token_program(account: &AccountView) -> Result<TokenProgram, ProgramError> {
@@ -220,11 +220,11 @@ mod tests {
         )
     }
 
-    /// Every token account dispatches to the program that owns it. This is what
+    /// Every token account executes against the program that owns it. This is what
     /// one instruction moving tokens under both programs rests on: nothing has
     /// to tell it which, each account already says.
     #[test]
-    fn owning_token_program_dispatches_on_the_accounts_owner() {
+    fn owning_token_program_returns_on_the_accounts_owner() {
         for program in TokenProgram::ALL {
             assert_eq!(
                 owning_token_program(&token_account_of(program.address())),

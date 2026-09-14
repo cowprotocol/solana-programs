@@ -316,10 +316,6 @@ fn rejects_non_canonical_bump_pda() {
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &non_canonical_pda);
 }
 
-/// The token-program account isn't read: each buffer is created under the
-/// program that owns its mint. What the account is for is naming that program,
-/// and a CPI can only dispatch to a program its instruction names — so swapping
-/// it out leaves `InitializeAccount3` with nowhere to go.
 #[test]
 fn rejects_a_token_program_the_instruction_doesnt_name() {
     let (mut svm, program_id, payer) = common::setup();

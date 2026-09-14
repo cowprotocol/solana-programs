@@ -37,7 +37,7 @@ use crate::SettlementInstruction;
 /// `[payer (W,S), system_program (R), token_program (R), (buffer_pda (W), mint (R))...]`.
 /// The three shared accounts come first and are read positionally; the
 /// per-buffer pairs follow. The system program only has to be present so the
-/// `CreateAccount` CPI can dispatch; it isn't read by index.
+/// `CreateAccount` CPI can execute; it isn't read by index.
 pub struct CreateBuffers<'a> {
     pub program_id: Pubkey,
     pub payer: Pubkey,
@@ -99,7 +99,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for CreateBufferInput<'a, A> {
         // (buffer_pda (W), mint (R))...]. The three shared accounts come first;
         // the per-buffer pairs follow, one pair per buffer. Neither program is
         // dereferenced here: they need to be present for the `CreateAccount`
-        // and `InitializeAccount3` CPIs to dispatch, and each buffer's program
+        // and `InitializeAccount3` CPIs to execute, and each buffer's program
         // is the one that owns its mint.
         let [payer, _system, _token_program, rest @ ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);

@@ -264,22 +264,14 @@ pub fn delegate(
         .unwrap_or_else(|error| panic!("approving a delegate should succeed: {error:?}"));
 }
 
-/// A third-party token program: an SPL Token clone, serving the same
-/// instructions over the same account layouts, that simply isn't one of the two
-/// programs this settlement supports.
+/// An SPL Token clone, serving the same instructions over the same account layouts.
+/// Used to validate unsupported token programs.
 ///
-/// Never deployed, because nothing here gets far enough to call it. An account's
-/// owner decides which program its transfers are issued against, and this one is
-/// refused at that step — long before there is a CPI to dispatch.
+/// Never deployed, because nothing here gets far enough to call it.
 pub const CLONED_TOKEN_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0x7c; 32]);
 
 /// Re-plant `account`'s bytes at a fresh address under
 /// [`CLONED_TOKEN_PROGRAM_ID`], and return it.
-///
-/// The copy is the account it was taken from in every respect that can be read
-/// out of it — same layout, same length, same mint, owner, balance and delegate
-/// — because it is the same bytes. All that differs is the program they sit
-/// under.
 pub fn clone_under_unsupported_program(svm: &mut LiteSVM, account: &Pubkey) -> Pubkey {
     let data = svm
         .get_account(account)
@@ -292,13 +284,6 @@ pub fn clone_under_unsupported_program(svm: &mut LiteSVM, account: &Pubkey) -> P
 
 /// A mint and one of its token accounts, both under
 /// [`CLONED_TOKEN_PROGRAM_ID`], returned as `(mint, token_account)`.
-///
-/// Both are byte-for-byte copies of a genuine SPL Token mint and a genuine,
-/// funded token account of it, held by `owner` and delegated to the settlement
-/// state PDA for the whole `amount` — everything a settleable sell account is.
-/// The copies are self-consistent under the clone: the account's mint field
-/// names the cloned mint, so under that program this is a whole, well-formed
-/// token. Only the owning program marks it out.
 pub fn cloned_token_under_unsupported_program(
     svm: &mut LiteSVM,
     program_id: &Pubkey,

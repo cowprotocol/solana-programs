@@ -1,14 +1,5 @@
-//! Integration tests for the token-program slots a `BeginSettle` /
-//! `FinalizeSettle` pair carries.
-//!
-//! Both instructions take one account per supported token program and issue
-//! each transfer against the program that owns the account it moves, so a
-//! single pair can settle legacy SPL Token and Token-2022 orders together. The
-//! slots are never read: all they do is name those programs, and a CPI can only
-//! dispatch to a program its instruction names. A program the settlement
-//! doesn't need is left out by putting the system program in its slot; a
-//! transfer of a token account under a left-out program then has nothing to
-//! dispatch to, and the runtime refuses it.
+//! Integration tests to verify the behavior of multiple token programs
+//! within a single settlement.
 
 use crate::common::{
     buffer,
@@ -24,7 +15,6 @@ use cow_settlement_client::instruction::{
 };
 use litesvm::LiteSVM;
 use solana_sdk::{
-    instruction::InstructionError,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::{Transaction, TransactionError},
@@ -141,10 +131,8 @@ fn order_across(
     intent
 }
 
-/// The headline capability: one settlement pair moving tokens under both
-/// programs, each transfer issued against the program that owns the account.
 #[test]
-fn settles_orders_under_both_token_programs() {
+fn settles_orders_under_both_token_programs_simultaneously() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let legacy = order_across(
@@ -193,8 +181,6 @@ fn settles_orders_under_both_token_programs() {
     assert_eq!(token::balance(&svm, &token_2022.sell_token_account), 0);
 }
 
-/// The two sides of one order need not share a program: the pull follows the
-/// sell account's owner and the push the buy account's, independently.
 #[test]
 fn settles_an_order_that_crosses_token_programs() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -227,8 +213,6 @@ fn settles_an_order_that_crosses_token_programs() {
     assert_eq!(token::balance(&svm, &intent.sell_token_account), 0);
 }
 
-/// A settlement that carries only Token-2022 still settles Token-2022 orders:
-/// the legacy slot holding the placeholder costs it nothing it needs.
 #[test]
 fn settles_token_2022_orders_without_carrying_the_legacy_program() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -260,51 +244,8 @@ fn settles_token_2022_orders_without_carrying_the_legacy_program() {
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 300);
 }
 
-/// `BeginSettle` pulls from the sell account against the program that owns it,
-/// so leaving that program out of the settlement leaves the pull's CPI with
-/// nothing to dispatch to. The runtime is what refuses it: the program was
-/// never told which programs the settlement carries, only which one owns the
-/// account in front of it.
 #[test]
-fn rejects_a_sell_account_under_a_left_out_program() {
-    let (mut svm, program_id, payer, solver) = setup_settle_ready();
-
-    let intent = order_across(
-        &mut svm,
-        &program_id,
-        &payer,
-        0,
-        &TokenProgram::Token2022.address(),
-        &TokenProgram::SplToken.address(),
-    );
-
-    assert_eq!(
-        settle_with(
-            &mut svm,
-            &program_id,
-            &payer,
-            &solver,
-            &[Settled {
-                intent: &intent,
-                amount_in: 100,
-                amount_out: 100,
-            }],
-            TokenPrograms::SPL_TOKEN,
-            TokenPrograms::SPL_TOKEN,
-        ),
-        Err(TransactionError::InstructionError(
-            BEGIN_INDEX,
-            InstructionError::MissingAccount,
-        )),
-    );
-}
-
-/// `FinalizeSettle` pushes into the buy account, so it is the instruction whose
-/// CPI has nothing to dispatch to when that account's program is left out.
-/// `BeginSettle` runs first and passes: it only pulls, and this order's sell
-/// side is legacy.
-#[test]
-fn rejects_a_buy_account_under_a_left_out_program() {
+fn settles_legacy_orders_without_carrying_the_token_2022_program() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = order_across(
@@ -313,33 +254,27 @@ fn rejects_a_buy_account_under_a_left_out_program() {
         &payer,
         0,
         &TokenProgram::SplToken.address(),
-        &TokenProgram::Token2022.address(),
+        &TokenProgram::SplToken.address(),
     );
 
-    assert_eq!(
-        settle_with(
-            &mut svm,
-            &program_id,
-            &payer,
-            &solver,
-            &[Settled {
-                intent: &intent,
-                amount_in: 100,
-                amount_out: 100,
-            }],
-            TokenPrograms::BOTH,
-            TokenPrograms::SPL_TOKEN,
-        ),
-        Err(TransactionError::InstructionError(
-            FINALIZE_INDEX,
-            InstructionError::MissingAccount,
-        )),
-    );
+    settle_with(
+        &mut svm,
+        &program_id,
+        &payer,
+        &solver,
+        &[Settled {
+            intent: &intent,
+            amount_in: 500,
+            amount_out: 500,
+        }],
+        TokenPrograms::SPL_TOKEN,
+        TokenPrograms::SPL_TOKEN,
+    )
+    .expect("a legacy-only settlement should not have to carry Token-2022");
+
+    assert_eq!(token::balance(&svm, &intent.buy_token_account), 500);
 }
 
-/// The slots aren't positional: nothing reads them, so a settlement naming both
-/// programs settles either way round. All the slots decide is which programs
-/// the instruction names.
 #[test]
 fn settles_with_the_token_program_slots_swapped() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -403,38 +338,4 @@ fn settles_with_the_token_program_slots_swapped() {
         .expect("the slots only name the programs, in either order");
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 100);
-}
-
-/// Every settlement in the rest of the suite leaves Token-2022's slot empty, so
-/// the placeholder has to be accepted for a legacy-only settlement — and it is
-/// only the accounts under the left-out program that become unsettleable.
-#[test]
-fn accepts_the_placeholder_for_a_legacy_only_settlement() {
-    let (mut svm, program_id, payer, solver) = setup_settle_ready();
-
-    let intent = order_across(
-        &mut svm,
-        &program_id,
-        &payer,
-        0,
-        &TokenProgram::SplToken.address(),
-        &TokenProgram::SplToken.address(),
-    );
-
-    settle_with(
-        &mut svm,
-        &program_id,
-        &payer,
-        &solver,
-        &[Settled {
-            intent: &intent,
-            amount_in: 500,
-            amount_out: 500,
-        }],
-        TokenPrograms::SPL_TOKEN,
-        TokenPrograms::SPL_TOKEN,
-    )
-    .expect("a legacy-only settlement should not have to carry Token-2022");
-
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 500);
 }

@@ -35,12 +35,10 @@ pub struct Pull {
 /// [transfer_count×n][amount: u64 LE ×T]`.
 /// Required accounts: `[solver (S,R), instructions_sysvar (R), state_pda (R),
 /// spl_token_program (R), token_2022_program (R)]` followed, per order, by
-/// `[order_pda (W), sell_token_account (W), destination (W)...]`. The two token
-/// programs are the slots [`TokenPrograms`] describes: each transfer is issued
-/// against the program that owns the account it moves, so the slots are there
-/// to name those programs — a CPI can only dispatch to a program the
-/// instruction names. A program this settlement doesn't touch is left out with
-/// the system program.
+/// `[order_pda (W), sell_token_account (W), destination (W)...]`. The token
+/// program accounts are there to allow CPI calls against the corresponding token
+/// program, and are otherwise not parsed or validated, so it is possible to replace
+/// these accounts with the system program (or any other program) if they are unused.
 ///
 /// `solver` must sign, and the solver must be registered in the state pda.
 ///
@@ -228,10 +226,8 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (finalize_ix_index, body) = recover_counterpart(instruction_data)?;
 
-        // The two token-program slots are skipped rather than read: every
-        // transfer is issued against the program that owns the account it
-        // moves, so naming the programs is all the slots do. They still take up
-        // their positions, which is what the order accounts are counted from.
+        // The two token-program slots are skipped rather than read since they are only
+        // used for program invocation.
         let [solver_account, instructions_sysvar_account, state_pda_account, _spl_token_program_account, _token_2022_program_account, order_accounts @ ..] =
             accounts
         else {
