@@ -3,11 +3,13 @@
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
 };
-use cow_settlement_interface::{data::intent::OrderIntent, Instruction};
+use cow_settlement_interface::{
+    data::intent::OrderIntent, token_program::is_native_sol, Instruction,
+};
 use litesvm::LiteSVM;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
-use super::{buffer, token, unique_pubkey};
+use super::{buffer, state, token, unique_pubkey};
 
 /// Positions of the two instructions in the `[BeginSettle, FinalizeSettle]` pair
 /// the settlement tests build: begin first, finalize right after it. Each
@@ -92,7 +94,11 @@ pub fn stage_order(
             amount,
         })
         .collect();
-    buffer::ensure_funded(svm, program_id, payer, &intent.buy_mint, amount_out);
+    if is_native_sol(&intent.buy_mint) {
+        state::fund_with_lamports(svm, program_id, amount_out);
+    } else {
+        buffer::ensure_funded(svm, program_id, payer, &intent.buy_mint, amount_out);
+    }
 
     StagedOrder {
         intent: intent.clone(),

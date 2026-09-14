@@ -10,9 +10,10 @@
 //! this address, so every delegation has to be renewed after a
 //! bump.
 
+use solana_address::Address;
 use solana_pubkey::Pubkey;
 
-use crate::pda::SETTLEMENT_SEED;
+use crate::pda::{is_pda_with_signer_seeds, SETTLEMENT_SEED};
 
 /// Canonical seed components for the settlement state PDA.
 pub fn state_pda_seeds<'a>() -> [&'a [u8]; 1] {
@@ -31,6 +32,14 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&state_pda_seeds(), program_id)
 }
 
+/// Confirm `address` is the settlement state PDA for `program_id` and `bump`.
+/// Takes the bump as given, so it costs one derivation where [`find_state_pda`]
+/// searches.
+#[must_use = "ignoring the output means ignoring the validation result"]
+pub fn is_state_pda(program_id: &Address, address: &Address, bump: u8) -> bool {
+    is_pda_with_signer_seeds(address, program_id, state_pda_signer_seeds(&[bump]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -39,6 +48,22 @@ mod tests {
     #[test]
     fn find_state_pda_uses_canonical_seeds() {
         crate::pda::tests::assert_canonical_bump(find_state_pda, state_pda_seeds());
+    }
+
+    #[test]
+    fn is_state_pda_accepts_only_the_canonical_pda_and_bump() {
+        let program_id = Pubkey::new_unique();
+        let (pda, bump) = find_state_pda(&program_id);
+
+        assert!(is_state_pda(&program_id, &pda, bump));
+        assert!(
+            !is_state_pda(&program_id, &pda, bump ^ 1),
+            "the canonical address must not validate under another bump",
+        );
+        assert!(
+            !is_state_pda(&program_id, &Pubkey::new_unique(), bump),
+            "an unrelated address must not validate as the state PDA",
+        );
     }
 
     #[test]

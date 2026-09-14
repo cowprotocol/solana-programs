@@ -3,6 +3,7 @@
 use cow_settlement_interface::{
     data::intent::OrderIntent,
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
+    token_program::is_native_sol,
     Instruction, Pubkey,
 };
 
@@ -19,7 +20,9 @@ pub struct FinalizedIntent<'a> {
 ///
 /// The destination is the order intent's `buy_token_account` and the source is
 /// the canonical buffer PDA for its `buy_mint` (see [`find_buffer_pda`]), the
-/// only buffer `BeginSettle` accepts as the source of that order's push. The
+/// only buffer `BeginSettle` accepts as the source of that order's push. An
+/// order buying native SOL (see [`is_native_sol`]) has no buffer, so its source
+/// is the settlement state PDA, whose lamports pay it. The
 /// orders are sorted by their canonical order PDA (the same key
 /// [`BeginSettle`](super::begin_settle::BeginSettle) orders its settled-order
 /// list by) so the two instructions present the orders
@@ -47,15 +50,19 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let mut destinations = Vec::with_capacity(num_orders);
         let mut bumps = Vec::with_capacity(num_orders);
         let mut amounts = Vec::with_capacity(num_orders);
+        let (state_pda, state_bump) = find_state_pda(&builder.program_id);
         for &i in &orders {
-            let (buffer_pda, bump) =
-                find_buffer_pda(&builder.program_id, &builder.orders[i].intent.buy_mint);
-            source_buffers.push(buffer_pda);
-            destinations.push(builder.orders[i].intent.buy_token_account);
+            let intent = builder.orders[i].intent;
+            let (source, bump) = if is_native_sol(&intent.buy_mint) {
+                (state_pda, state_bump)
+            } else {
+                find_buffer_pda(&builder.program_id, &intent.buy_mint)
+            };
+            source_buffers.push(source);
+            destinations.push(intent.buy_token_account);
             bumps.push(bump);
             amounts.push(builder.orders[i].amount);
         }
-        let (state_pda, _bump) = find_state_pda(&builder.program_id);
         cow_settlement_interface::instruction::settle::FinalizeSettle {
             program_id: builder.program_id,
             state_pda,
@@ -81,7 +88,46 @@ mod tests {
             settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID},
             InstructionInputParsing,
         },
+        token_program::NATIVE_SOL_MINT,
     };
+
+    /// An order buying native SOL is paid out of the state PDA, so that is what
+    /// the builder names as its push source, with the state PDA's own bump.
+    #[test]
+    fn native_sol_order_pushes_from_the_state_pda() {
+        let program_id = pubkey_from_seed("program id");
+        let intent = OrderIntent {
+            buy_mint: NATIVE_SOL_MINT,
+            buy_token_account: pubkey_from_seed("recipient wallet"),
+            ..OrderIntent::default()
+        };
+        let ix = Instruction::from(FinalizeSettle {
+            program_id,
+            begin_ix_index: 0,
+            orders: &[FinalizedIntent {
+                intent: &intent,
+                amount: 1_337,
+            }],
+        });
+
+        let accounts: Vec<_> = ix
+            .accounts
+            .iter()
+            .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
+            .collect();
+        let parsed = FinalizeSettleInput::parse(&ix.data, &accounts)
+            .expect("the builder emits a parseable finalize");
+        let pushes: Vec<_> = parsed.pushes.iter().collect();
+        let [push] = pushes.as_slice() else {
+            panic!("one order pushes once, got {} pushes", pushes.len());
+        };
+
+        let (state_pda, state_bump) = find_state_pda(&program_id);
+        assert_eq!(push.source_buffer.address(), &state_pda);
+        assert_eq!(push.bump, state_bump);
+        assert_eq!(push.destination.address(), &intent.buy_token_account);
+        assert_eq!(push.amount, 1_337);
+    }
 
     proptest! {
         // `FinalizeSettle` derives each order's source buffer from its buy mint
@@ -124,7 +170,11 @@ mod tests {
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump) = find_buffer_pda(&program_id, &order.intent.buy_mint);
+                    let (buffer, bump) = if is_native_sol(&order.intent.buy_mint) {
+                        find_state_pda(&program_id)
+                    } else {
+                        find_buffer_pda(&program_id, &order.intent.buy_mint)
+                    };
                     ExpectedPush {
                         order_pda,
                         buffer,

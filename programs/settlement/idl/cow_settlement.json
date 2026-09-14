@@ -270,7 +270,7 @@
       "name": "finalize_settle",
       "docs": [
         "Validates that a BeginSettle at `begin_ix_index` exists and points back at this instruction. Must not be called via CPI.",
-        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source buffer PDA. Please check the rust documentation for more information."
+        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source: the buy mint's buffer PDA, or the state PDA for an order buying native SOL. Please check the rust documentation for more information."
       ],
       "discriminator": [
         1
@@ -283,7 +283,7 @@
         {
           "name": "state_pda",
           "docs": [
-            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority."
+            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority, and pays the pushes of orders buying native SOL out of its own lamports."
           ]
         },
         {
@@ -1052,6 +1052,11 @@
       "code": 40,
       "name": "BufferSizeUnavailable",
       "msg": "CreateBuffer asked the token program how long a token account for a mint has to be and couldn't read the answer, so it can't size the buffer."
+    },
+    {
+      "code": 41,
+      "name": "PushSourceNotStatePda",
+      "msg": "BeginSettle: a paired FinalizeSettle push paying an order that buys native SOL doesn't draw from the settlement state PDA, the account holding the settlement's lamports."
     }
   ]
 }
