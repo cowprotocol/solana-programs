@@ -354,7 +354,7 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
     let instructions = finalize(&program_id, &solver.pubkey(), &orders);
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        to_instruction_error(SettlementError::InvalidTokenProgram),
+        SettlementError::InvalidTokenProgram,
     );
 }
 

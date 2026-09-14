@@ -7,7 +7,7 @@
 //! succeeds or is rejected with the expected error.
 
 use crate::common::{
-    assert_settlement_error,
+    assert_instruction_error_at,
     order::OrderBuilder,
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX},

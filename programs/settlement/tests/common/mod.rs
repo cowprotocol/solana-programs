@@ -204,9 +204,9 @@ pub fn assert_instruction_error_at<T>(
 pub fn assert_settlement_error<T>(
     ix_idx: u8,
     result: Result<T, TransactionError>,
-    expected: SettlementError,
+    expected: impl Into<InstructionError>,
 ) {
-    assert_instruction_error_at(ix_idx, result, to_instruction_error(expected));
+    assert_instruction_error_at(ix_idx, result, expected);
 }
 
 pub fn create_account_at(svm: &mut LiteSVM, address: Pubkey, owner: &Pubkey, data: &[u8]) {
