@@ -11,7 +11,7 @@
 
 use crate::common::{
     benchmark::BenchLabel,
-    buffer, create_account,
+    buffer,
     order::{create_order_pda, settlable_intent, OrderBuilder},
     replace_first_matching_account, send, send_metered,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
@@ -307,16 +307,15 @@ fn rejects_too_few_accounts() {
     );
 }
 
-/// An account that isn't a token account at all is owned by no token program,
-/// so the push has nothing to be issued against and `FinalizeSettle` says so
-/// itself rather than handing the transfer to a token program.
 #[test]
 fn rejects_invalid_buy_token_account() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
+    let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
+    // The mint account is a convenient invalid account we can use
     let intent = OrderIntent {
-        buy_token_account: unique_pubkey(),
-        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
+        buy_token_account: settlable.buy_mint,
+        ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
     buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
@@ -328,20 +327,16 @@ fn rejects_invalid_buy_token_account() {
     let instructions = finalize(&program_id, &solver.pubkey(), &orders);
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        to_instruction_error(SettlementError::PushDestinationInvalid),
+        InstructionError::InvalidAccountData,
     );
 }
 
 #[test]
-fn rejects_buy_token_account_owned_by_wrong_program() {
+fn rejects_buy_account_under_a_unsupported_token_program() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
 
-    let token_shaped = svm
-        .get_account(&settlable.buy_token_account)
-        .expect("the settlable order's buy token account exists")
-        .data;
-    let impostor = create_account(&mut svm, &unique_pubkey(), &token_shaped);
+    let impostor = token::clone_under_unsupported_program(&mut svm, &settlable.buy_token_account);
 
     // As above, the impostor passes both instructions' push checks (the push
     // pays `intent.buy_token_account` from `intent.buy_mint`'s buffer), but its
@@ -360,7 +355,7 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
     let instructions = finalize(&program_id, &solver.pubkey(), &orders);
     assert_finalize_error(
         send(&mut svm, &solver, &instructions),
-        to_instruction_error(SettlementError::PushDestinationInvalid),
+        to_instruction_error(SettlementError::InvalidTokenProgram),
     );
 }
 

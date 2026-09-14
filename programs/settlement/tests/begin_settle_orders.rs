@@ -416,6 +416,48 @@ fn rejects_non_token_sell_account() {
     );
 }
 
+/// Even if a token account parses, we should still correctly identify if its unsupported
+#[test]
+fn rejects_sell_account_under_a_unsupported_token_program() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+
+    let amount = 1_000_000;
+    let (sell_mint, sell_token_account) = token::cloned_token_under_unsupported_program(
+        &mut svm,
+        &program_id,
+        &payer,
+        &payer.pubkey(),
+        amount,
+    );
+
+    let intent = OrderIntent {
+        sell_token_account,
+        sell_mint,
+        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 1)
+    };
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
+
+    let instructions = settle_and_pay(
+        &mut svm,
+        &program_id,
+        &payer,
+        &solver,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[],
+        }],
+    );
+    assert_begin_error(
+        send(&mut svm, &solver, &instructions),
+        SettlementError::SellTokenAccountInvalid,
+    );
+    assert_eq!(
+        token::balance(&svm, &sell_token_account),
+        amount,
+        "the clone's tokens must be left where they were"
+    );
+}
+
 #[test]
 fn rejects_sell_token_account_recreated_for_another_mint() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();

@@ -9,7 +9,9 @@
 //! running test is exercising, and [`create_mint_under`] names it outright, for
 //! the tests that build mints under both at once.
 
-use super::{active_token, send_with_signers, token_2022::Extensions, unique_keypair};
+use super::{
+    active_token, send_with_signers, token_2022::Extensions, unique_keypair, unique_pubkey,
+};
 use cow_settlement_client::cow_settlement_interface::{
     pda::state::find_state_pda, token_program::TokenProgram,
 };
@@ -260,6 +262,69 @@ pub fn delegate(
     .expect("approve should build");
     send_with_signers(svm, owner, &[], &[instruction])
         .unwrap_or_else(|error| panic!("approving a delegate should succeed: {error:?}"));
+}
+
+/// A third-party token program: an SPL Token clone, serving the same
+/// instructions over the same account layouts, that simply isn't one of the two
+/// programs this settlement supports.
+///
+/// Never deployed, because nothing here gets far enough to call it. An account's
+/// owner decides which program its transfers are issued against, and this one is
+/// refused at that step — long before there is a CPI to dispatch.
+pub const CLONED_TOKEN_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0x7c; 32]);
+
+/// Re-plant `account`'s bytes at a fresh address under
+/// [`CLONED_TOKEN_PROGRAM_ID`], and return it.
+///
+/// The copy is the account it was taken from in every respect that can be read
+/// out of it — same layout, same length, same mint, owner, balance and delegate
+/// — because it is the same bytes. All that differs is the program they sit
+/// under.
+pub fn clone_under_unsupported_program(svm: &mut LiteSVM, account: &Pubkey) -> Pubkey {
+    let data = svm
+        .get_account(account)
+        .unwrap_or_else(|| panic!("{account} should exist on-chain"))
+        .data;
+    let clone = unique_pubkey();
+    super::create_account_at(svm, clone, &CLONED_TOKEN_PROGRAM_ID, &data);
+    clone
+}
+
+/// A mint and one of its token accounts, both under
+/// [`CLONED_TOKEN_PROGRAM_ID`], returned as `(mint, token_account)`.
+///
+/// Both are byte-for-byte copies of a genuine SPL Token mint and a genuine,
+/// funded token account of it, held by `owner` and delegated to the settlement
+/// state PDA for the whole `amount` — everything a settleable sell account is.
+/// The copies are self-consistent under the clone: the account's mint field
+/// names the cloned mint, so under that program this is a whole, well-formed
+/// token. Only the owning program marks it out.
+pub fn cloned_token_under_unsupported_program(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    owner: &Pubkey,
+    amount: u64,
+) -> (Pubkey, Pubkey) {
+    // Build the genuine article first, so what gets cloned is a real token's
+    // bytes rather than a test's idea of them.
+    let mint = create_mint_under(svm, payer, &TokenProgram::SplToken.address());
+    let account = create_token_account(svm, payer, &mint, owner);
+    fund_and_delegate(svm, program_id, payer, &account, amount);
+
+    let cloned_mint = clone_under_unsupported_program(svm, &mint);
+    // Repoint the copy at the cloned mint, so the pair stands on its own under
+    // the clone instead of borrowing the real mint.
+    let mut token =
+        litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, &account)
+            .expect("the freshly delegated account is a valid token account");
+    token.mint = cloned_mint;
+    let mut data = vec![0u8; litesvm_token::spl_token::state::Account::LEN];
+    token.pack_into_slice(&mut data);
+    let cloned_account = unique_pubkey();
+    super::create_account_at(svm, cloned_account, &CLONED_TOKEN_PROGRAM_ID, &data);
+
+    (cloned_mint, cloned_account)
 }
 
 /// Fund `sell_token` with `amount` of its mint and approve the settlement state

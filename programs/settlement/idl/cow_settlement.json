@@ -1055,11 +1055,6 @@
     },
     {
       "code": 41,
-      "name": "PushDestinationInvalid",
-      "msg": "FinalizeSettle: a push's destination isn't owned by a supported token program, so it is no token account at all and there is nothing to issue its transfer against."
-    },
-    {
-      "code": 42,
       "name": "InvalidTokenProgram",
       "msg": "The token program for a given token or mint is not supported."
     }
