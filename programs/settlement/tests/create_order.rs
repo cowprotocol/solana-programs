@@ -17,7 +17,7 @@ use solana_sdk::{
 
 use crate::common::{
     benchmark::{send_transaction_metered, BenchLabel},
-    signed_tx, to_instruction_error, unique_pubkey,
+    signed_tx, unique_pubkey,
 };
 
 mod common;
@@ -326,7 +326,7 @@ fn rejects_when_intent_owner_differs_from_signer() {
         err.err,
         TransactionError::InstructionError(
             expected_failing_instruction_index,
-            to_instruction_error(SettlementError::OwnerMismatch),
+            SettlementError::OwnerMismatch.into(),
         ),
         "expected MismatchingSettlePair at instruction {expected_failing_instruction_index}"
     );
@@ -357,7 +357,7 @@ fn rejects_intent_authenticated_off_chain() {
         svm.send_transaction(tx).map_err(|e| e.err).err(),
         Some(TransactionError::InstructionError(
             0,
-            to_instruction_error(SettlementError::OrderCreatedOnChainMismatch),
+            SettlementError::OrderCreatedOnChainMismatch.into(),
         )),
     );
     assert!(
