@@ -551,7 +551,12 @@ fn sizes_a_token_2022_buffer_to_the_extensions_its_mint_forces() {
         Extensions::CloseAuthorityAndNonTransferable,
         Extensions::CloseAuthorityAndTransferFee,
     ] {
-        let mint = common::token_2022::create_mint(&mut svm, &payer, &unique_keypair(), extensions);
+        let mint = common::token::create_mint_under(
+            &mut svm,
+            &payer,
+            &TokenProgram::Token2022.address(),
+            extensions,
+        );
         let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
 
         let ix = CreateBuffers {
@@ -647,10 +652,10 @@ fn bench_assert_known_max_token_2022_buffer_count() {
     let probe = loop {
         let mints: Vec<Pubkey> = (0..n)
             .map(|_| {
-                common::token_2022::create_mint(
+                common::token::create_mint_under(
                     &mut svm,
                     &payer,
-                    &unique_keypair(),
+                    &TokenProgram::Token2022.address(),
                     Extensions::default(),
                 )
             })

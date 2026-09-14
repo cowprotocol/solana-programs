@@ -377,11 +377,16 @@ fn buffer_whose_mint_was_reopened(
     reopen: impl FnOnce(&mut LiteSVM, &Keypair, &Keypair),
 ) -> (Pubkey, Pubkey) {
     let mint_keypair = common::unique_keypair();
-    let mint =
-        common::token_2022::create_mint(svm, payer, &mint_keypair, Extensions::CloseAuthorityOnly);
+    let mint = common::token::create_mint_at_under(
+        svm,
+        payer,
+        &mint_keypair,
+        &TokenProgram::Token2022.address(),
+        Extensions::CloseAuthorityOnly,
+    );
     let buffer_pda = common::buffer::ensure_buffer_exists(svm, program_id, payer, &mint);
 
-    common::token_2022::close_mint(svm, payer, &mint);
+    common::token::close_mint(svm, payer, &mint);
     reopen(svm, payer, &mint_keypair);
 
     (mint, buffer_pda)
@@ -404,10 +409,11 @@ fn reclaims_a_buffer_whose_mint_was_reopened_with_another_extension() {
         &program_id,
         &payer,
         |svm, payer, mint_keypair| {
-            common::token_2022::create_mint(
+            common::token::create_mint_at_under(
                 svm,
                 payer,
                 mint_keypair,
+                &TokenProgram::Token2022.address(),
                 Extensions::CloseAuthorityAndNonTransferable,
             );
         },
@@ -458,7 +464,13 @@ fn reclaims_a_buffer_whose_mint_was_reopened_as_a_legacy_mint() {
         &program_id,
         &payer,
         |svm, payer, mint_keypair| {
-            common::token::create_mint_at(svm, payer, mint_keypair);
+            common::token::create_mint_at_under(
+                svm,
+                payer,
+                mint_keypair,
+                &TokenProgram::SplToken.address(),
+                Extensions::default(),
+            );
         },
     );
     assert_eq!(

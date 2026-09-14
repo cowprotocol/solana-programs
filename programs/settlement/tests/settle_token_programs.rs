@@ -5,7 +5,9 @@ use crate::common::{
     buffer,
     order::OrderBuilder,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
-    setup_settle_ready, token, unique_pubkey,
+    setup_settle_ready, token,
+    token_2022::Extensions,
+    unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::OrderIntent, token_program::TokenProgram, Instruction,
@@ -109,8 +111,11 @@ fn order_across(
     sell_program: &Pubkey,
     buy_program: &Pubkey,
 ) -> OrderIntent {
-    let sell_mint = token::create_mint_under(svm, payer, sell_program);
-    let buy_mint = token::create_mint_under(svm, payer, buy_program);
+    // Bare mints: what these tests vary is which program a token lives under,
+    // and a transfer-fee mint would refuse the unchecked `Transfer` the program
+    // settles with before the crossing under test got a chance to matter.
+    let sell_mint = token::create_mint_under(svm, payer, sell_program, Extensions::None);
+    let buy_mint = token::create_mint_under(svm, payer, buy_program, Extensions::None);
     let intent = OrderBuilder::new(svm, program_id, payer)
         .salt(salt)
         .sell_mint(&sell_mint)
