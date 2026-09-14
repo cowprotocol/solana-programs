@@ -1,13 +1,4 @@
 //! Token helpers for the settlement integration tests.
-//!
-//! Every helper that acts on an existing token works under whichever token
-//! program owns it, read back with [`program_of`], so a test settling
-//! Token-2022 accounts uses the same calls as one settling legacy ones.
-//!
-//! Creating a mint is the one thing with nothing to read the program from.
-//! [`create_mint`] takes it from [`active_token::program`], the program the
-//! running test is exercising, and [`create_mint_under`] names it outright, for
-//! the tests that build mints under both at once.
 
 use crate::common::{active_token, token_2022::Extensions};
 
