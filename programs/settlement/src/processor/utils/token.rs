@@ -200,8 +200,7 @@ mod tests {
         );
     }
 
-    /// A token account of `program`, well-formed but empty of interest: only
-    /// its owner decides which program its transfers go to.
+    /// Creates a legacy SPL-compliant token account of `program`
     fn token_account_of(program: Address) -> AccountView {
         fake_account_owned_by(
             pubkey_from_seed("UNRELATED token account"),
