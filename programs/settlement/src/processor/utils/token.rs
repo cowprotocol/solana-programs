@@ -204,9 +204,13 @@ mod tests {
     /// its owner decides which program its transfers go to.
     fn token_account_of(program: Address) -> AccountView {
         fake_account_owned_by(
-            pubkey_from_seed("token account"),
+            pubkey_from_seed("UNRELATED token account"),
             program,
-            &base_account_layout(pubkey_from_seed("mint"), pubkey_from_seed("owner"), 0),
+            &base_account_layout(
+                pubkey_from_seed("UNRELATED mint"),
+                pubkey_from_seed("UNRELATED owner"),
+                0,
+            ),
         )
     }
 
