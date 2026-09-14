@@ -29,7 +29,7 @@ use solana_sdk::{
 use solana_system_interface::instruction::create_account as system_create_account;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use spl_token_2022_interface::{
-    extension::{BaseStateWithExtensions, ExtensionType, StateWithExtensions},
+    extension::{account_len::try_calculate_account_len_from_mint_data, StateWithExtensions},
     instruction::{
         approve, close_account, initialize_account3, initialize_mint2, mint_to as mint_to_ix,
         transfer_checked as transfer_checked_ix,
@@ -193,14 +193,8 @@ fn token_account_len_for(svm: &LiteSVM, mint: &Pubkey, token_program: &Pubkey) -
         .get_account(mint)
         .unwrap_or_else(|| panic!("{mint} should exist on-chain"))
         .data;
-    let mint_extensions = StateWithExtensions::<Mint2022>::unpack(&data)
-        .expect("the mint should be a valid mint account")
-        .get_extension_types()
-        .expect("the mint's extension list should be readable");
-    ExtensionType::try_calculate_account_len::<Account>(
-        &ExtensionType::get_required_init_account_extensions(&mint_extensions),
-    )
-    .expect("every account extension a test mint forces has a fixed length")
+    try_calculate_account_len_from_mint_data(&data, &[])
+        .expect("the mint should be a valid mint whose extensions have a fixed length")
 }
 
 /// Create an initialized SPL token account for `mint` whose SPL owner is

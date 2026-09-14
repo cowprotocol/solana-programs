@@ -7,29 +7,15 @@
 //! close it, and put a different mint at the same address.
 
 use cow_settlement_interface::token_program::TokenProgram;
-use litesvm::LiteSVM;
-use solana_sdk::{
-    instruction::Instruction,
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-};
-use solana_system_interface::instruction::create_account as system_create_account;
+use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
 use spl_token_2022_interface::{
     extension::{transfer_fee::instruction::initialize_transfer_fee_config, ExtensionType},
-    instruction::{
-        close_account, initialize_mint2, initialize_mint_close_authority,
-        initialize_non_transferable_mint,
-    },
+    instruction::{initialize_mint_close_authority, initialize_non_transferable_mint},
     state::{Account, Mint},
 };
 
 /// The Token-2022 program, spelled once so the builders below can take it.
 const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
-
-/// Decimals every test mint carries, matching [`super::token::create_mint`] so
-/// a legacy and a Token-2022 mint differ only in their program.
-const DECIMALS: u8 = 8;
 
 /// Transfer-fee parameters for [`Extensions::CloseAuthorityAndTransferFee`].
 /// nothing reads them back, but `InitializeTransferFeeConfig` demands values.
