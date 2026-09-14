@@ -9,8 +9,6 @@ use solana_sdk::{
 };
 use solana_system_interface::instruction as system_instruction;
 
-use crate::common::to_instruction_error;
-
 mod common;
 
 #[derive(Clone, Copy, Debug)]
@@ -176,7 +174,7 @@ fn invalid_sequences() {
             .expect_err(&format!("expected {sequence:?} to fail, got Ok"));
         assert_eq!(
             err.err,
-            TransactionError::InstructionError(*failing_index, to_instruction_error(*expected)),
+            TransactionError::InstructionError(*failing_index, (*expected).into()),
             "expected {expected:?} at instruction {failing_index} for {sequence:?}"
         );
     }
@@ -263,7 +261,7 @@ fn rejects_counterpart_instruction_in_different_program() {
         err.err,
         TransactionError::InstructionError(
             expected_failing_instruction_index,
-            to_instruction_error(SettlementError::CounterpartIsExternal),
+            SettlementError::CounterpartIsExternal.into(),
         ),
         "expected CounterpartIsExternal at instruction {expected_failing_instruction_index}"
     );
@@ -315,7 +313,7 @@ fn rejects_cpi_call_to_begin_settle() {
         .expect_err("CPI call to begin_settle should be rejected");
     assert_eq!(
         err.err,
-        TransactionError::InstructionError(0, to_instruction_error(SettlementError::CalledViaCpi)),
+        TransactionError::InstructionError(0, SettlementError::CalledViaCpi.into()),
         "expected CalledViaCpi when begin_settle is called via CPI"
     );
 }
@@ -348,7 +346,7 @@ fn rejects_cpi_call_to_finalize_settle() {
         .expect_err("CPI call to finalize_settle should be rejected");
     assert_eq!(
         err.err,
-        TransactionError::InstructionError(0, to_instruction_error(SettlementError::CalledViaCpi)),
+        TransactionError::InstructionError(0, SettlementError::CalledViaCpi.into()),
         "expected CalledViaCpi when finalize_settle is called via CPI"
     );
 }
@@ -390,7 +388,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
         err.err,
         TransactionError::InstructionError(
             0,
-            to_instruction_error(SettlementError::InvalidCounterpartDiscriminator),
+            SettlementError::InvalidCounterpartDiscriminator.into(),
         ),
         "expected InvalidCounterpartDiscriminator at instruction 0"
     );
@@ -434,7 +432,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
         err.err,
         TransactionError::InstructionError(
             0,
-            to_instruction_error(SettlementError::InvalidCounterpartCounterpart),
+            SettlementError::InvalidCounterpartCounterpart.into(),
         ),
         "expected InvalidCounterpartCounterpart at instruction 0"
     );
