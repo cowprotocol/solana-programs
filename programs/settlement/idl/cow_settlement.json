@@ -81,9 +81,9 @@
           "type": "pubkey"
         },
         {
-          "name": "fee_withdrawal_authority",
+          "name": "withdrawal_authority",
           "docs": [
-            "The initial holder of the FeeWithdrawalAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
+            "The initial holder of the WithdrawalAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
           ],
           "type": "pubkey"
         }
@@ -753,7 +753,7 @@
             "type": "pubkey"
           },
           {
-            "name": "fee_withdrawal_authority",
+            "name": "withdrawal_authority",
             "type": "pubkey"
           }
         ]
@@ -855,7 +855,7 @@
             "name": "ReclaimAuthority"
           },
           {
-            "name": "FeeWithdrawalAuthority"
+            "name": "WithdrawalAuthority"
           }
         ]
       }

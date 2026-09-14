@@ -95,7 +95,7 @@ fn assert_transfers_only(
 /// the same order as [`Role::ALL`].
 macro_rules! for_each_role {
     ($macro:ident) => {
-        $macro! { Manager, ReclaimAuthority, FeeWithdrawalAuthority }
+        $macro! { Manager, ReclaimAuthority, WithdrawalAuthority }
     };
 }
 
@@ -156,7 +156,7 @@ for_each_role!(manager_transfer_tests);
 // A non-manager authority may transfer only its own role; every other role is
 // rejected.
 transfer_authority_tests!(reclaim holds ReclaimAuthority);
-transfer_authority_tests!(fee_withdrawal holds FeeWithdrawalAuthority);
+transfer_authority_tests!(withdrawal holds WithdrawalAuthority);
 
 /// Index of the signer account in a `TransferAuthority` instruction.
 const SIGNER_INDEX: usize = 0;

@@ -19,7 +19,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
     let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_pubkey();
     let reclaim_authority = unique_pubkey();
-    let fee_withdrawal_authority = unique_pubkey();
+    let withdrawal_authority = unique_pubkey();
 
     // `payer` is both the transaction fee payer and the account funding the
     // state PDA's rent.
@@ -28,7 +28,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         payer: payer.pubkey(),
         manager,
         reclaim_authority,
-        fee_withdrawal_authority,
+        withdrawal_authority,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
@@ -48,7 +48,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         DecodedStateAccount {
             manager,
             reclaim_authority,
-            fee_withdrawal_authority,
+            withdrawal_authority,
         },
         "state PDA body must record the authorities"
     );
@@ -77,7 +77,7 @@ fn initializes_state_pda_when_address_is_prefunded() {
             payer: payer.pubkey(),
             manager: unique_pubkey(),
             reclaim_authority: unique_pubkey(),
-            fee_withdrawal_authority: unique_pubkey(),
+            withdrawal_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });
@@ -98,7 +98,7 @@ fn funding_payer_can_differ_from_fee_payer() {
         payer: funder.pubkey(),
         reclaim_authority: unique_pubkey(),
         manager: unique_pubkey(),
-        fee_withdrawal_authority: unique_pubkey(),
+        withdrawal_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -126,7 +126,7 @@ fn rejects_arbitrary_wrong_state_pda() {
         state_pda: wrong_pda,
         reclaim_authority: unique_pubkey(),
         manager: unique_pubkey(),
-        fee_withdrawal_authority: unique_pubkey(),
+        withdrawal_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
 
@@ -144,7 +144,7 @@ fn rejects_initializing_twice() {
             payer: payer.pubkey(),
             reclaim_authority: unique_pubkey(),
             manager: unique_pubkey(),
-            fee_withdrawal_authority: unique_pubkey(),
+            withdrawal_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });

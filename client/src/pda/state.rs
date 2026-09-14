@@ -9,7 +9,7 @@ use solana_program_error::ProgramError;
 pub struct DecodedStateAccount {
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
-    pub fee_withdrawal_authority: Pubkey,
+    pub withdrawal_authority: Pubkey,
 }
 
 impl TryFrom<&[u8]> for DecodedStateAccount {
@@ -20,7 +20,7 @@ impl TryFrom<&[u8]> for DecodedStateAccount {
         Ok(Self {
             manager: state.authority(Role::Manager),
             reclaim_authority: state.authority(Role::ReclaimAuthority),
-            fee_withdrawal_authority: state.authority(Role::FeeWithdrawalAuthority),
+            withdrawal_authority: state.authority(Role::WithdrawalAuthority),
         })
     }
 }
@@ -41,11 +41,11 @@ mod tests {
     fn decodes_the_header() {
         let manager = pubkey_from_seed("manager");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
-        let fee_withdrawal_authority = pubkey_from_seed("fee withdrawal authority");
+        let withdrawal_authority = pubkey_from_seed("withdrawal authority");
         let bytes = state_bytes(&StateInitArgs {
             manager,
             reclaim_authority,
-            fee_withdrawal_authority,
+            withdrawal_authority,
         });
 
         let decoded = DecodedStateAccount::try_from(&bytes[..]).expect("valid state account");
@@ -54,7 +54,7 @@ mod tests {
             DecodedStateAccount {
                 manager,
                 reclaim_authority,
-                fee_withdrawal_authority,
+                withdrawal_authority,
             },
         );
     }
@@ -72,7 +72,7 @@ mod tests {
         let bytes = state_bytes(&StateInitArgs {
             manager: pubkey_from_seed("manager"),
             reclaim_authority: pubkey_from_seed("reclaim authority"),
-            fee_withdrawal_authority: pubkey_from_seed("fee withdrawal authority"),
+            withdrawal_authority: pubkey_from_seed("withdrawal authority"),
         });
         assert!(DecodedStateAccount::try_from(&bytes[..WIDTH_HEADER - 1]).is_err());
     }

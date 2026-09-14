@@ -116,9 +116,7 @@ mod tests {
         StateInitArgs {
             manager: pubkey_from_seed("base_init_args's unused manager"),
             reclaim_authority: AUTHORITY,
-            fee_withdrawal_authority: pubkey_from_seed(
-                "base_init_args's unused fee withdrawal authority",
-            ),
+            withdrawal_authority: pubkey_from_seed("base_init_args's unused withdrawal authority"),
         }
     }
 

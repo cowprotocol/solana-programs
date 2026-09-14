@@ -95,7 +95,7 @@ pub struct InitializedParams {
     pub state_pda: Pubkey,
     pub manager: Keypair,
     pub reclaim: Keypair,
-    pub fee_withdrawal: Keypair,
+    pub withdrawal: Keypair,
 }
 
 /// [`setup`] followed by a successful `Initialize` whose authorities are
@@ -108,7 +108,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_keypair();
     let reclaim = unique_keypair();
-    let fee_withdrawal = unique_keypair();
+    let withdrawal = unique_keypair();
     state::initialize(
         &mut svm,
         &payer,
@@ -117,7 +117,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             payer: payer.pubkey(),
             manager: manager.pubkey(),
             reclaim_authority: reclaim.pubkey(),
-            fee_withdrawal_authority: fee_withdrawal.pubkey(),
+            withdrawal_authority: withdrawal.pubkey(),
         },
     );
 
@@ -129,7 +129,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             state_pda,
             manager,
             reclaim,
-            fee_withdrawal,
+            withdrawal,
         },
     )
 }

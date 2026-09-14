@@ -34,11 +34,11 @@
     "settle/pushes_several_orders_from_one_buffer": 12,
     "settle/settles_a_single_order": 9,
     "settle/settles_multiple_orders": 17,
-    "transfer_authority/fee_withdrawal_authority_can_transfer_itself": 4,
-    "transfer_authority/manager_can_transfer_fee_withdrawal_authority": 4,
     "transfer_authority/manager_can_transfer_manager": 4,
     "transfer_authority/manager_can_transfer_reclaim_authority": 4,
-    "transfer_authority/reclaim_authority_can_transfer_itself": 4
+    "transfer_authority/manager_can_transfer_withdrawal_authority": 4,
+    "transfer_authority/reclaim_authority_can_transfer_itself": 4,
+    "transfer_authority/withdrawal_authority_can_transfer_itself": 4
   },
   "compute_units": {
     "add_solver/add_with_many_existing_solvers": 5152,
@@ -75,11 +75,11 @@
     "settle/pushes_several_orders_from_one_buffer": 17802,
     "settle/settles_a_single_order": 12549,
     "settle/settles_multiple_orders": 23122,
-    "transfer_authority/fee_withdrawal_authority_can_transfer_itself": 3260,
-    "transfer_authority/manager_can_transfer_fee_withdrawal_authority": 3233,
     "transfer_authority/manager_can_transfer_manager": 3233,
     "transfer_authority/manager_can_transfer_reclaim_authority": 3233,
-    "transfer_authority/reclaim_authority_can_transfer_itself": 3260
+    "transfer_authority/manager_can_transfer_withdrawal_authority": 3233,
+    "transfer_authority/reclaim_authority_can_transfer_itself": 3260,
+    "transfer_authority/withdrawal_authority_can_transfer_itself": 3260
   },
   "transaction_bytes": {
     "add_solver/add_with_many_existing_solvers": 366,
@@ -116,10 +116,10 @@
     "settle/pushes_several_orders_from_one_buffer": 542,
     "settle/settles_a_single_order": 432,
     "settle/settles_multiple_orders": 716,
-    "transfer_authority/fee_withdrawal_authority_can_transfer_itself": 333,
-    "transfer_authority/manager_can_transfer_fee_withdrawal_authority": 333,
     "transfer_authority/manager_can_transfer_manager": 333,
     "transfer_authority/manager_can_transfer_reclaim_authority": 333,
-    "transfer_authority/reclaim_authority_can_transfer_itself": 333
+    "transfer_authority/manager_can_transfer_withdrawal_authority": 333,
+    "transfer_authority/reclaim_authority_can_transfer_itself": 333,
+    "transfer_authority/withdrawal_authority_can_transfer_itself": 333
   }
 }

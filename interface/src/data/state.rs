@@ -8,7 +8,7 @@
 //! ```text
 //!  ┌──── discriminator
 //!  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───── ... ─────┬───────────────────────────────┐
-//!  ││            manager            │       reclaim_authority       │   fee_withdrawal_authority    │           solver[0]           │ other solvers │          solver[N-1]          │
+//!  ││            manager            │       reclaim_authority       │     withdrawal_authority      │           solver[0]           │ other solvers │          solver[N-1]          │
 //!  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───── ... ─────┴───────────────────────────────┘
 //! 0 1                               33                              65                              97                             129              97 + 32·(N-1)                   97 + 32·N
 //!  └───────────────────────────────────────── header ──────────────────────────────────────────────┘└─────────────────────────────── sorted solvers ───────────────────────────────┘
@@ -51,7 +51,7 @@ struct HeaderSlots<'a> {
     discriminator: &'a [u8; WIDTH_DISCRIMINATOR],
     manager: &'a [u8; WIDTH_PUBKEY],
     reclaim_authority: &'a [u8; WIDTH_PUBKEY],
-    fee_withdrawal_authority: &'a [u8; WIDTH_PUBKEY],
+    withdrawal_authority: &'a [u8; WIDTH_PUBKEY],
 }
 
 /// The mutable counterpart of [`HeaderSlots`], for in-place writes.
@@ -59,12 +59,12 @@ struct HeaderSlotsMut<'a> {
     discriminator: &'a mut [u8; WIDTH_DISCRIMINATOR],
     manager: &'a mut [u8; WIDTH_PUBKEY],
     reclaim_authority: &'a mut [u8; WIDTH_PUBKEY],
-    fee_withdrawal_authority: &'a mut [u8; WIDTH_PUBKEY],
+    withdrawal_authority: &'a mut [u8; WIDTH_PUBKEY],
 }
 
 /// Split the header into its named slots.
 fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
-    let (discriminator, manager, reclaim_authority, fee_withdrawal_authority) = array_refs![
+    let (discriminator, manager, reclaim_authority, withdrawal_authority) = array_refs![
         header,
         WIDTH_DISCRIMINATOR,
         WIDTH_PUBKEY,
@@ -75,13 +75,13 @@ fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
         discriminator,
         manager,
         reclaim_authority,
-        fee_withdrawal_authority,
+        withdrawal_authority,
     }
 }
 
 /// [`header_slots`] over a mutable header, for in-place writes.
 fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
-    let (discriminator, manager, reclaim_authority, fee_withdrawal_authority) = mut_array_refs![
+    let (discriminator, manager, reclaim_authority, withdrawal_authority) = mut_array_refs![
         header,
         WIDTH_DISCRIMINATOR,
         WIDTH_PUBKEY,
@@ -92,7 +92,7 @@ fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
         discriminator,
         manager,
         reclaim_authority,
-        fee_withdrawal_authority,
+        withdrawal_authority,
     }
 }
 
@@ -103,8 +103,8 @@ pub struct StateInitArgs {
     pub manager: Pubkey,
     /// The [`Role::ReclaimAuthority`] holder.
     pub reclaim_authority: Pubkey,
-    /// The [`Role::FeeWithdrawalAuthority`] holder.
-    pub fee_withdrawal_authority: Pubkey,
+    /// The [`Role::WithdrawalAuthority`] holder.
+    pub withdrawal_authority: Pubkey,
 }
 
 /// A zero-copy accessor over a settlement state account's canonical byte
@@ -141,7 +141,7 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
         let holder = match role {
             Role::Manager => slots.manager,
             Role::ReclaimAuthority => slots.reclaim_authority,
-            Role::FeeWithdrawalAuthority => slots.fee_withdrawal_authority,
+            Role::WithdrawalAuthority => slots.withdrawal_authority,
         };
         Pubkey::new_from_array(*holder)
     }
@@ -213,7 +213,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
             *slots.discriminator = [DISCRIMINATOR];
             *slots.manager = args.manager.to_bytes();
             *slots.reclaim_authority = args.reclaim_authority.to_bytes();
-            *slots.fee_withdrawal_authority = args.fee_withdrawal_authority.to_bytes();
+            *slots.withdrawal_authority = args.withdrawal_authority.to_bytes();
         }
         Ok(Self(bytes))
     }
@@ -231,7 +231,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
         let holder = match role {
             Role::Manager => slots.manager,
             Role::ReclaimAuthority => slots.reclaim_authority,
-            Role::FeeWithdrawalAuthority => slots.fee_withdrawal_authority,
+            Role::WithdrawalAuthority => slots.withdrawal_authority,
         };
         *holder = new.to_bytes();
     }
@@ -341,10 +341,10 @@ pub mod fixtures {
     /// Any valid [`StateInitArgs`].
     pub fn arb_init_params() -> impl Strategy<Value = StateInitArgs> {
         (any::<[u8; 32]>(), any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(
-            |(manager, reclaim_authority, fee_withdrawal_authority)| StateInitArgs {
+            |(manager, reclaim_authority, withdrawal_authority)| StateInitArgs {
                 manager: Pubkey::new_from_array(manager),
                 reclaim_authority: Pubkey::new_from_array(reclaim_authority),
-                fee_withdrawal_authority: Pubkey::new_from_array(fee_withdrawal_authority),
+                withdrawal_authority: Pubkey::new_from_array(withdrawal_authority),
             },
         )
     }
@@ -363,9 +363,7 @@ mod tests {
     static SAMPLE_INIT_ARGS: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
         manager: pubkey_from_seed("SAMPLE_INIT_ARGS's sample manager"),
         reclaim_authority: pubkey_from_seed("SAMPLE_INIT_ARGS's sample reclaim authority"),
-        fee_withdrawal_authority: pubkey_from_seed(
-            "SAMPLE_INIT_ARGS's sample fee withdrawal authority",
-        ),
+        withdrawal_authority: pubkey_from_seed("SAMPLE_INIT_ARGS's sample withdrawal authority"),
     });
 
     /// State account bytes stamped with [`SAMPLE_INIT_ARGS`].
@@ -394,7 +392,7 @@ mod tests {
         );
         assert_eq!(
             &bytes[65..97],
-            &SAMPLE_INIT_ARGS.fee_withdrawal_authority.to_bytes()[..]
+            &SAMPLE_INIT_ARGS.withdrawal_authority.to_bytes()[..]
         );
     }
 
@@ -408,8 +406,8 @@ mod tests {
             SAMPLE_INIT_ARGS.reclaim_authority
         );
         assert_eq!(
-            state.authority(Role::FeeWithdrawalAuthority),
-            SAMPLE_INIT_ARGS.fee_withdrawal_authority
+            state.authority(Role::WithdrawalAuthority),
+            SAMPLE_INIT_ARGS.withdrawal_authority
         );
     }
 
@@ -468,7 +466,7 @@ mod tests {
     set_authority_test!(set_authority_updates_only_manager: Role::Manager);
     set_authority_test!(set_authority_updates_only_reclaim_authority: Role::ReclaimAuthority);
     set_authority_test!(
-        set_authority_updates_only_fee_withdrawal_authority: Role::FeeWithdrawalAuthority
+        set_authority_updates_only_withdrawal_authority: Role::WithdrawalAuthority
     );
 
     #[test]
@@ -483,8 +481,8 @@ mod tests {
             SAMPLE_INIT_ARGS.reclaim_authority
         );
         assert_eq!(
-            state.authority(Role::FeeWithdrawalAuthority),
-            SAMPLE_INIT_ARGS.fee_withdrawal_authority
+            state.authority(Role::WithdrawalAuthority),
+            SAMPLE_INIT_ARGS.withdrawal_authority
         );
     }
 
@@ -591,12 +589,12 @@ mod tests {
                 StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
 
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
-                let StateInitArgs { manager, reclaim_authority, fee_withdrawal_authority } = header;
+                let StateInitArgs { manager, reclaim_authority, withdrawal_authority } = header;
                 prop_assert_eq!(state.authority(Role::Manager), manager);
                 prop_assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
                 prop_assert_eq!(
-                    state.authority(Role::FeeWithdrawalAuthority),
-                    fee_withdrawal_authority
+                    state.authority(Role::WithdrawalAuthority),
+                    withdrawal_authority
                 );
             }
 

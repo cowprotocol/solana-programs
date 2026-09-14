@@ -35,7 +35,7 @@ The program grant privileged roles to specific accounts (_authorities_). They ar
 
 - Manager: the account that can add and remove solvers. It can also update the address of all other roles.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
-- Fee Withdrawal Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (fee withdrawals).
+- Withdrawal Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (fee withdrawals).
 
 ### Updating authorities
 
