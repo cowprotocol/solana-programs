@@ -157,10 +157,22 @@ pub fn register_solver(svm: &mut LiteSVM, params: &InitializedParams, solver: &P
 /// the fee `payer`. `payer` funds the test's setup transactions (creating orders,
 /// funding buffers). `solver` authorizes settlements and must sign them; it is
 /// airdropped so it can submit and pay for the settlement itself.
+/// How many fake solvers [`setup_settle_ready`] plants alongside the real one,
+/// so the metered settlements run against a realistically large solver list.
+const BENCH_SOLVER_COUNT: usize = 1000;
+
 pub fn setup_settle_ready() -> (LiteSVM, Pubkey, Keypair, Keypair) {
     let (mut svm, params) = setup_init();
     let solver = unique_keypair();
     register_solver(&mut svm, &params, &solver.pubkey());
+    // Pad the solver list so the metered settlements authenticate against a
+    // realistically large set, planted directly rather than via `AddSolver`.
+    state::plant_fake_solvers(
+        &mut svm,
+        &params.program_id,
+        &params.state_pda,
+        BENCH_SOLVER_COUNT,
+    );
     svm.airdrop(&solver.pubkey(), 1_000_000_000)
         .expect("airdrop to solver should succeed");
     let InitializedParams {
