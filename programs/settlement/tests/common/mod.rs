@@ -24,7 +24,6 @@ pub(crate) use active_token::also_under_token_2022;
 use cow_settlement_client::instruction::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_interface::Instruction;
-use cow_settlement_interface::SettlementError;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{
     account::Account,
@@ -174,24 +173,13 @@ pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
     cpi_caller_id
 }
 
-/// Wrap a `SettlementError` in the runtime-side `InstructionError::Custom`
-/// shape that the validator records and `TransactionError::InstructionError`
-/// carries. The cross-crate conversion isn't provided by the interface, so
-/// tests asserting on a failed instruction's error code use this helper.
-///
-/// This is mostly here to make the one-way relationship between the two more
-/// explicit.
-pub fn to_instruction_error(e: SettlementError) -> InstructionError {
-    InstructionError::Custom(e.into())
-}
-
 /// Assert that the transaction failed with `expected` on its first
 /// instruction. Use [`assert_instruction_error_at`] when the failing
 /// instruction isn't the first one.
 #[track_caller]
 pub fn assert_instruction_error<T>(
     result: Result<T, TransactionError>,
-    expected: InstructionError,
+    expected: impl Into<InstructionError>,
 ) {
     assert_instruction_error_at(0, result, expected);
 }
@@ -200,11 +188,11 @@ pub fn assert_instruction_error<T>(
 pub fn assert_instruction_error_at<T>(
     ix_idx: u8,
     result: Result<T, TransactionError>,
-    expected: InstructionError,
+    expected: impl Into<InstructionError>,
 ) {
     assert_eq!(
         result.err(),
-        Some(TransactionError::InstructionError(ix_idx, expected))
+        Some(TransactionError::InstructionError(ix_idx, expected.into()))
     );
 }
 
