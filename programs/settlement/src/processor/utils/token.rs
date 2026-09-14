@@ -275,11 +275,15 @@ mod tests {
             TokenProgram::Token2022.address(),
             &extended_token_2022_account_layout(mint, owner, 7),
         );
-        let read = read_token_account(TokenProgram::Token2022, &account)
+        let TokenAccount {
+            mint: read_mint,
+            owner: read_owner,
+            amount,
+        } = read_token_account(TokenProgram::Token2022, &account)
             .expect("an extended Token-2022 account should read");
-        assert_eq!(read.mint, mint);
-        assert_eq!(read.owner, owner);
-        assert_eq!(read.amount, 7);
+        assert_eq!(read_mint, mint);
+        assert_eq!(read_owner, owner);
+        assert_eq!(amount, 7);
     }
 
     #[test]
