@@ -1,0 +1,39 @@
+name: Check versions match
+description: Fail unless Cargo.toml, the npm package.json, and (if given) a release tag agree on the version.
+
+inputs:
+  tag:
+    description: Release tag to match, e.g. v0.4.0. Empty checks only Cargo.toml against package.json.
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: The agreed-upon version.
+    value: ${{ steps.check.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      env:
+        TAG: ${{ inputs.tag }}
+      run: |
+        cargo_version=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+        npm_version=$(jq -r .version programs/settlement/idl/client/js/package.json)
+
+        if [ -n "$TAG" ]; then
+          # Old tags (v0.2, v0.3) are major.minor only; pad the patch component.
+          IFS='.' read -r major minor patch <<< "${TAG#v}"
+          expected="${major}.${minor:-0}.${patch:-0}"
+        else
+          expected="$cargo_version"
+        fi
+
+        if [ "$expected" != "$cargo_version" ] || [ "$cargo_version" != "$npm_version" ]; then
+          echo "::error::Version mismatch: tag ${TAG:-<none>} ($expected), Cargo.toml $cargo_version, package.json $npm_version must all agree." >&2
+          exit 1
+        fi
+
+        echo "version=$cargo_version" >> "$GITHUB_OUTPUT"

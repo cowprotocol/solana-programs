@@ -1,0 +1,153 @@
+name: Publish npm package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Release tag to publish (e.g. v0.4.0). Leave empty for a dry run.
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # to look up releases in the version check step
+    outputs:
+      package-name: ${{ steps.pkg.outputs.name }}
+      package-version: ${{ steps.pkg.outputs.version }}
+      flow: ${{ steps.tag.outputs.flow }}
+      tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # We release the code from the input tag. We don't care where the
+          # workflow was triggered from except in the dry run.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-just
+
+      - name: Record released commit
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = release ]; then
+            flow=manual-release
+            tag="$GITHUB_REF_NAME"
+          elif [ -n "$INPUT_TAG" ]; then
+            flow=tagged-dispatch
+            # The input is free text, unlike a `release` event's ref, so
+            # check the release actually exists.
+            tag="$INPUT_TAG"
+            gh release view "$tag" >/dev/null
+          else
+            flow=dry-run
+            tag=""
+          fi
+          echo "flow=$flow" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/check-versions
+        with:
+          tag: ${{ steps.tag.outputs.tag }}
+
+      - uses: ./.github/actions/setup-node
+
+      - name: Build JS client
+        run: just build-js-client
+
+      - name: Read package metadata
+        id: pkg
+        working-directory: programs/settlement/idl/client/js
+        run: |
+          echo "name=$(jq -r .name package.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Write publish summary
+        working-directory: programs/settlement/idl/client/js
+        run: ./scripts/publish-summary.sh "${{ steps.tag.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-package
+          path: |
+            programs/settlement/idl/client/js/dist
+            programs/settlement/idl/client/js/package.json
+            programs/settlement/idl/client/js/README.md
+
+  publish:
+    needs: build
+    if: needs.build.outputs.flow != 'dry-run'
+    runs-on: ubuntu-latest
+    # Holds the publish for manual approval; see the repo's Environments
+    # settings for who can approve. The `build` job's step summary is what an
+    # approver reviews.
+    environment: npm-publish
+    permissions:
+      id-token: write # for Trusted Publishing and npm provenance
+      actions: read # to look up the commit's CI run
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/actions
+          persist-credentials: false
+
+      # The tests live in ci.yml, so confirm they passed for this exact commit
+      # before shipping it. Checked here rather than in `build` because
+      # auto-release.yml dispatches on the same push that starts CI, so CI is
+      # still running then; by the time this job is approved it has finished.
+      - name: CI must have passed for the released commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          conclusion=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push" \
+            --jq '.workflow_runs[0].conclusion')
+          if [ "$conclusion" != success ]; then
+            echo "::error::CI for $SHA is ${conclusion:-missing}; refusing to publish." >&2
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-package
+          path: package
+
+      - uses: ./.github/actions/setup-node
+        with:
+          # Makes setup-node write an .npmrc binding NODE_AUTH_TOKEN to this
+          # registry, which only the bootstrap first publish uses.
+          registry-url: https://registry.npmjs.org
+
+      - name: Trusted Publishing needs npm >= 11.5.1
+        run: |
+          installed=$(npm --version)
+          if [ "$(printf '%s\n11.5.1\n' "$installed" | sort -V | head -1)" != "11.5.1" ]; then
+            echo "::error::npm $installed is too old for Trusted Publishing, need >= 11.5.1." >&2
+            exit 1
+          fi
+
+      - name: Publish ${{ needs.build.outputs.package-name }}@${{ needs.build.outputs.package-version }}
+        working-directory: package
+        # Authenticates via Trusted Publishing (OIDC), no stored token. That
+        # can only be configured once a package exists, so NODE_AUTH_TOKEN
+        # covers the first publish; afterwards add a Trusted Publisher on
+        # npmjs.com for this repo, workflow and environment, then delete the
+        # NPM_TOKEN secret. npm tries OIDC first either way, so leaving the
+        # env var resolving to an empty string is harmless.
+        # --ignore-scripts: publish exactly the artifact reviewed in `build`,
+        # with no lifecycle script able to run and alter it at this point.
+        run: npm publish --provenance --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
