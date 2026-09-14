@@ -91,72 +91,66 @@ fn assert_transfers_only(
     }
 }
 
-/// Expands the callback macro `$macro!` over every [`Role`] variant, in
-/// the same order as [`Role::ALL`].
-macro_rules! for_each_role {
-    ($macro:ident) => {
-        $macro! { Manager, ReclaimAuthority, FeeWithdrawalAuthority }
-    };
-}
-
-#[test]
-fn sanity_check_for_each_role_lists_exactly_all_roles() {
-    macro_rules! as_array {
-        ($($role:ident),+ $(,)?) => { [$(Role::$role),+] };
-    }
-    assert_eq!(for_each_role!(as_array), Role::ALL);
-}
-
-/// Emits one `#[test]` named `$name`: `$signer` (a keypair field of
-/// [`InitializedParams`]) may transfer `$role`.
-macro_rules! transfers_authority_test {
-    ($name:ident, $signer:ident, $role:ident) => {
-        #[test]
-        fn $name() {
-            let (mut svm, params) = setup_init();
-            assert_transfers_authority(&mut svm, &params, Role::$role, &params.$signer);
-        }
-    };
-}
-
-/// Generates the pair of transfer tests for a non-manager holder, deriving each
-/// test's name from the [`Role`] variant. The holder may transfer its own role
-/// but no other.
+/// Declares which [`InitializedParams`] keypair holds each [`Role`] after
+/// [`setup_init`], and generates the whole authorization matrix from that
+/// roster:
+///
+/// * the manager — the first entry, and the highest authority — may transfer
+///   every role, including its own;
+/// * every other holder may transfer its own role and no other;
+/// * a sanity check that the roster lists exactly [`Role::ALL`], in order.
 ///
 /// "Entry" names a keypair field of [`InitializedParams`]; "Role" is a [`Role`]
-/// variant, snake-cased into the test name.
-macro_rules! transfer_authority_tests {
-    ($signer:ident holds $role:ident) => {
+/// variant, snake-cased into the test names. Adding a `Role` to the roster
+/// extends the coverage automatically.
+macro_rules! authority_matrix {
+    (
+        $manager:ident holds $manager_role:ident,
+        $($signer:ident holds $role:ident),+ $(,)?
+    ) => {
         pastey::paste! {
-            transfers_authority_test!([< $role:snake _can_transfer_itself >], $signer, $role);
+            #[test]
+            fn sanity_check_roster_lists_exactly_all_roles() {
+                assert_eq!([Role::$manager_role, $(Role::$role),+], Role::ALL);
+            }
 
             #[test]
-            fn [< $role:snake _cannot_transfer_other_roles >]() {
+            fn [< $manager _can_transfer_ $manager_role:snake >]() {
                 let (mut svm, params) = setup_init();
-                assert_transfers_only(&mut svm, &params, &params.$signer, Role::$role);
+                let signer = &params.$manager;
+                assert_transfers_authority(&mut svm, &params, Role::$manager_role, signer);
             }
+
+            $(
+                #[test]
+                fn [< $manager _can_transfer_ $role:snake >]() {
+                    let (mut svm, params) = setup_init();
+                    let signer = &params.$manager;
+                    assert_transfers_authority(&mut svm, &params, Role::$role, signer);
+                }
+
+                #[test]
+                fn [< $role:snake _can_transfer_itself >]() {
+                    let (mut svm, params) = setup_init();
+                    let signer = &params.$signer;
+                    assert_transfers_authority(&mut svm, &params, Role::$role, signer);
+                }
+
+                #[test]
+                fn [< $role:snake _cannot_transfer_other_roles >]() {
+                    let (mut svm, params) = setup_init();
+                    assert_transfers_only(&mut svm, &params, &params.$signer, Role::$role);
+                }
+            )+
         }
     };
 }
 
-/// Generates test `manager_can_transfer_<role>`: the manager (the highest
-/// authority) may transfer every role, including its own.
-macro_rules! manager_transfer_tests {
-    ($($role:ident),+ $(,)?) => {
-        pastey::paste! { $(
-            transfers_authority_test!([< manager_can_transfer_ $role:snake >], manager, $role);
-        )+ }
-    };
+authority_matrix! {
+    manager holds Manager,
+    reclaim holds ReclaimAuthority,
+    fee_withdrawal holds FeeWithdrawalAuthority,
 }
-
-// Generate one test for each role, showing that the manager can transfer each
-// of them.
-for_each_role!(manager_transfer_tests);
-
-// A non-manager authority may transfer only its own role; every other role is
-// rejected.
-transfer_authority_tests!(reclaim holds ReclaimAuthority);
-transfer_authority_tests!(fee_withdrawal holds FeeWithdrawalAuthority);
 
 /// Index of the signer account in a `TransferAuthority` instruction.
 const SIGNER_INDEX: usize = 0;
