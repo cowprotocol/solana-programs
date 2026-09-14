@@ -119,15 +119,14 @@ macro_rules! transfers_authority_test {
     };
 }
 
-/// Generates the pair of transfer tests for a non-manager holder, deriving each
-/// test's name from the [`Role`] variant. The holder may transfer its own role
-/// but no other.
+/// Generates, for each non-manager holder, the pair of transfer tests (it may
+/// transfer its own role but no other).
 ///
-/// "Entry" names a keypair field of [`InitializedParams`]; "Role" is a [`Role`]
-/// variant, snake-cased into the test name.
-macro_rules! transfer_authority_tests {
-    ($signer:ident holds $role:ident) => {
-        pastey::paste! {
+/// "holds" pairs the keypair field of [`InitializedParams`] that holds a role
+/// with its [`Role`] variant (snake-cased into the test name).
+macro_rules! non_manager_transfer_tests {
+    ($($signer:ident holds $role:ident),+ $(,)?) => {
+        pastey::paste! { $(
             transfers_authority_test!([< $role:snake _can_transfer_itself >], $signer, $role);
 
             #[test]
@@ -135,7 +134,14 @@ macro_rules! transfer_authority_tests {
                 let (mut svm, params) = setup_init();
                 assert_transfers_only(&mut svm, &params, &params.$signer, Role::$role);
             }
-        }
+        )+ }
+
+        // Generate a compile-time error if we didn't add all roles to a call to
+        // this macro
+        const _: () = match Role::Manager {
+            Role::Manager => {} // covered by manager_transfer_tests
+            $( Role::$role => {} ),+
+        };
     };
 }
 
@@ -155,8 +161,10 @@ for_each_role!(manager_transfer_tests);
 
 // A non-manager authority may transfer only its own role; every other role is
 // rejected.
-transfer_authority_tests!(reclaim holds ReclaimAuthority);
-transfer_authority_tests!(withdrawal holds WithdrawalAuthority);
+non_manager_transfer_tests! {
+    reclaim holds ReclaimAuthority,
+    withdrawal holds WithdrawalAuthority,
+}
 
 /// Index of the signer account in a `TransferAuthority` instruction.
 const SIGNER_INDEX: usize = 0;
