@@ -6,9 +6,9 @@ use cow_settlement_interface::{
     Instruction, Pubkey,
 };
 
-// Reexport the interface's `Pull` and `TokenPrograms` so the client provides
+// Reexport the interface's `Pull` and `TokenProgram` so the client provides
 // all the types a caller needs to build a settlement.
-pub use cow_settlement_interface::instruction::settle::{Pull, TokenPrograms};
+pub use cow_settlement_interface::instruction::settle::{Pull, TokenProgram};
 
 /// An order ready to be settled, together with the funds to pull from it:
 /// `intent` identifies the order and `pulls` lists the [`Pull`]s to make from
@@ -26,10 +26,10 @@ pub struct BeginSettle<'a> {
     /// The off-chain auction this settlement executes, carried so it can be tied
     /// back to its auction off-chain.
     pub auction_id: i64,
-    /// The token programs owning the accounts this settlement pulls from and
-    /// pays into. Leaving one out makes its accounts unsettleable here, so this
-    /// has to cover every one of them.
-    pub token_programs: TokenPrograms,
+    /// Replaces any token program not corresponding with what is given
+    /// with the system program. Reduces the total number of accounts
+    /// depended upon by this instruction.
+    pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [InitializedIntent<'a>],
 }
 
@@ -51,7 +51,7 @@ impl From<BeginSettle<'_>> for Instruction {
             solver: builder.solver,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
-            token_programs: builder.token_programs,
+            only_token_program: builder.only_token_program,
             order_pdas: &order_pdas,
             sell_token_accounts: &sell_token_accounts,
             pulls: &pull_lists,
@@ -95,7 +95,7 @@ mod tests {
                 solver: pubkey_from_seed("solver"),
                 finalize_ix_index,
                 auction_id: 0,
-                token_programs: TokenPrograms::SPL_TOKEN,
+                only_token_program: Some(TokenProgram::SplToken),
                 orders: &orders,
             });
 

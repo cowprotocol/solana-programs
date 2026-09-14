@@ -3,10 +3,6 @@
 use crate::Pubkey;
 use solana_program_error::ProgramError;
 
-/// The program a [`TokenPrograms`] slot carries when the settlement moves no
-/// token under that program. The system program is named by nearly every
-/// settlement transaction already, so standing it in costs one more account
-/// index rather than another 32-byte address.
 pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
 /// A token program a token-moving instruction accepts.
@@ -21,7 +17,7 @@ pub enum TokenProgram {
 impl TokenProgram {
     /// Every supported token program. The single list [`TryFrom`] resolves
     /// addresses against, and the order `BeginSettle` and `FinalizeSettle` lay
-    /// their token-program accounts out in; see [`TokenPrograms::addresses`].
+    /// their token-program accounts out in; see [`Self::addresses`].
     pub const ALL: [Self; 2] = [Self::SplToken, Self::Token2022];
 
     /// The address the program is deployed at.
@@ -29,6 +25,38 @@ impl TokenProgram {
         match self {
             Self::SplToken => spl_token_2022_interface::inline_spl_token::ID,
             Self::Token2022 => spl_token_2022_interface::ID,
+        }
+    }
+
+    /// The addresses a `BeginSettle`/`FinalizeSettle` pair puts in its
+    /// token-program slots, one per entry of [`Self::ALL`] and in that order.
+    ///
+    /// Both instructions take one account per supported program, at fixed
+    /// positions, and issue each transfer against the program that owns the
+    /// account it moves — so a settlement naming every program may mix tokens
+    /// from both. `only_token_program` is what narrows that: `None` names them
+    /// all, and `Some(program)` names just that one, leaving
+    /// [`SYSTEM_PROGRAM_ID`] in every other slot.
+    pub const fn addresses(only_token_program: Option<Self>) -> [Pubkey; Self::ALL.len()] {
+        let [spl_token, token_2022] = Self::ALL;
+        [
+            spl_token.slot(only_token_program),
+            token_2022.slot(only_token_program),
+        ]
+    }
+
+    /// The address this program's own slot holds. The slots are not read
+    /// on-chain, so a program the settlement doesn't touch is left out by
+    /// standing [`SYSTEM_PROGRAM_ID`] in: nearly every settlement transaction
+    /// names the system program already, so it costs one more account index
+    /// rather than another 32-byte address.
+    const fn slot(self, only_token_program: Option<Self>) -> Pubkey {
+        match only_token_program {
+            // Compared as discriminants because `PartialEq` isn't const. That
+            // keeps the narrowing correct for any variant added to `ALL`,
+            // rather than making this a second place to list them.
+            Some(only) if only as u8 != self as u8 => SYSTEM_PROGRAM_ID,
+            _ => self.address(),
         }
     }
 }
@@ -43,78 +71,6 @@ impl TryFrom<&Pubkey> for TokenProgram {
             .into_iter()
             .find(|program| program.address() == *address)
             .ok_or(ProgramError::IncorrectProgramId)
-    }
-}
-
-/// Which of [`TokenProgram::ALL`] a `BeginSettle`/`FinalizeSettle` pair
-/// carries.
-///
-/// Both instructions take one account per supported program, at fixed positions
-/// and in [`TokenProgram::ALL`] order, and issue each transfer against the
-/// program that owns the account it moves — so a single settlement may mix
-/// tokens from both. The slots are what name those programs; they are not read
-/// on-chain, and a program the settlement doesn't touch is left out by putting
-/// [`SYSTEM_PROGRAM_ID`] in its slot.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct TokenPrograms {
-    /// Whether the legacy SPL Token program's slot carries the program rather
-    /// than the placeholder.
-    pub spl_token: bool,
-    /// Whether Token-2022's slot carries the program rather than the
-    /// placeholder.
-    pub token_2022: bool,
-}
-
-impl TokenPrograms {
-    /// The legacy SPL Token program alone.
-    pub const SPL_TOKEN: Self = Self {
-        spl_token: true,
-        token_2022: false,
-    };
-
-    /// Token-2022 alone.
-    pub const TOKEN_2022: Self = Self {
-        spl_token: false,
-        token_2022: true,
-    };
-
-    /// Both programs, for a settlement mixing tokens from each.
-    pub const BOTH: Self = Self {
-        spl_token: true,
-        token_2022: true,
-    };
-
-    /// Neither program: every slot is the placeholder. Only a settlement that
-    /// moves no tokens at all can be built this way.
-    pub const NONE: Self = Self {
-        spl_token: false,
-        token_2022: false,
-    };
-
-    /// The addresses to pass, one per entry of [`TokenProgram::ALL`] and in
-    /// that order: the program itself where the settlement needs it, and
-    /// [`SYSTEM_PROGRAM_ID`] where it doesn't.
-    pub const fn addresses(self) -> [Pubkey; TokenProgram::ALL.len()] {
-        let [spl_token, token_2022] = TokenProgram::ALL;
-        [self.slot(spl_token), self.slot(token_2022)]
-    }
-
-    /// The address `program`'s own slot holds.
-    const fn slot(self, program: TokenProgram) -> Pubkey {
-        if self.carries(program) {
-            program.address()
-        } else {
-            SYSTEM_PROGRAM_ID
-        }
-    }
-
-    /// Whether `program`'s slot carries it rather than the placeholder. The one
-    /// place a new [`TokenProgram`] variant has to be given a slot.
-    const fn carries(self, program: TokenProgram) -> bool {
-        match program {
-            TokenProgram::SplToken => self.spl_token,
-            TokenProgram::Token2022 => self.token_2022,
-        }
     }
 }
 
@@ -159,42 +115,36 @@ mod tests {
         );
     }
 
-    /// Every combination puts each program in its own slot, and the placeholder
-    /// wherever the settlement said it isn't needed.
+    /// Naming every program puts each of them in its own slot, in the order
+    /// the on-chain side pairs a slot with the program it stands for by.
     #[test]
-    fn addresses_fill_each_slot_with_its_program_or_the_placeholder() {
-        let spl_token = TokenProgram::SplToken.address();
-        let token_2022 = TokenProgram::Token2022.address();
-        assert_eq!(TokenPrograms::BOTH.addresses(), [spl_token, token_2022]);
+    fn every_program_is_named_when_the_settlement_is_not_narrowed() {
         assert_eq!(
-            TokenPrograms::SPL_TOKEN.addresses(),
-            [spl_token, SYSTEM_PROGRAM_ID],
-        );
-        assert_eq!(
-            TokenPrograms::TOKEN_2022.addresses(),
-            [SYSTEM_PROGRAM_ID, token_2022],
-        );
-        assert_eq!(
-            TokenPrograms::NONE.addresses(),
-            [SYSTEM_PROGRAM_ID, SYSTEM_PROGRAM_ID],
-        );
-    }
-
-    /// The slots are laid out in [`TokenProgram::ALL`] order, which is what
-    /// lets the on-chain side pair a slot with the program it stands for by
-    /// position alone.
-    #[test]
-    fn addresses_follow_the_supported_program_order() {
-        assert_eq!(
-            TokenPrograms::BOTH.addresses(),
+            TokenProgram::addresses(None),
             TokenProgram::ALL.map(TokenProgram::address),
         );
     }
 
-    /// Carrying nothing is the default, so a builder that forgets its token
-    /// programs settles no tokens rather than silently picking one.
+    /// Narrowing to one program keeps that program in its own slot and leaves
+    /// the placeholder everywhere else, so a settlement pays for the addresses
+    /// of only the programs it touches.
     #[test]
-    fn no_program_is_carried_by_default() {
-        assert_eq!(TokenPrograms::default(), TokenPrograms::NONE);
+    fn narrowing_to_one_program_leaves_the_placeholder_in_every_other_slot() {
+        for (named, only) in TokenProgram::ALL.into_iter().enumerate() {
+            let addresses = TokenProgram::addresses(Some(only));
+            for (slot, (address, program)) in
+                addresses.into_iter().zip(TokenProgram::ALL).enumerate()
+            {
+                let expected = if slot == named {
+                    only.address()
+                } else {
+                    SYSTEM_PROGRAM_ID
+                };
+                assert_eq!(
+                    address, expected,
+                    "a settlement narrowed to {only:?} should not name {program:?}",
+                );
+            }
+        }
     }
 }

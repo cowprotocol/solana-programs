@@ -420,9 +420,7 @@ mod tests {
     use cow_settlement_interface::data::intent::Flags;
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use cow_settlement_interface::instruction::settle::{
-        FinalizeSettle, FinalizeSettleInput, TokenPrograms,
-    };
+    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
@@ -1027,7 +1025,7 @@ mod tests {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
                 begin_ix_index,
-                token_programs: TokenPrograms::BOTH,
+                only_token_program: None,
                 source_buffers: &source_buffers,
                 destinations: &destinations,
                 bumps: &bumps,

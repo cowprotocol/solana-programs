@@ -79,7 +79,7 @@ mod tests {
     use super::*;
     use crate::instruction::{
         AddSolver, BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize,
-        InitializedIntent, RemoveSolver, TokenPrograms,
+        InitializedIntent, RemoveSolver,
     };
     use cow_settlement_interface::{
         data::intent::fixtures::sample_intent,
@@ -125,7 +125,7 @@ mod tests {
                 solver: payer,
                 finalize_ix_index: 1,
                 auction_id: 42,
-                token_programs: TokenPrograms::SPL_TOKEN,
+                only_token_program: Some(TokenProgram::SplToken),
                 orders: &[InitializedIntent {
                     intent: &intent,
                     pulls: &[],
@@ -135,7 +135,7 @@ mod tests {
             SettlementInstruction::FinalizeSettle => FinalizeSettle {
                 program_id,
                 begin_ix_index: 0,
-                token_programs: TokenPrograms::SPL_TOKEN,
+                only_token_program: Some(TokenProgram::SplToken),
                 orders: &[],
             }
             .into(),

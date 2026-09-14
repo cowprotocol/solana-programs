@@ -6,7 +6,7 @@ use cow_settlement_interface::{
     Instruction, Pubkey,
 };
 
-use super::begin_settle::TokenPrograms;
+use super::begin_settle::TokenProgram;
 
 /// A settled order whose proceeds are pushed to it: `intent` identifies the
 /// order (its `buy_token_account` is the push destination and its `buy_mint`
@@ -29,10 +29,10 @@ pub struct FinalizedIntent<'a> {
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub begin_ix_index: u16,
-    /// The token programs owning the buffers and buy token accounts this
-    /// settlement pushes between, filled the same way as
-    /// [`BeginSettle`](super::begin_settle::BeginSettle)'s.
-    pub token_programs: TokenPrograms,
+    /// Replaces any token program not corresponding with what is given
+    /// with the system program. Reduces the total number of accounts
+    /// depended upon by this instruction.
+    pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [FinalizedIntent<'a>],
 }
 
@@ -66,7 +66,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             program_id: builder.program_id,
             state_pda,
             begin_ix_index: builder.begin_ix_index,
-            token_programs: builder.token_programs,
+            only_token_program: builder.only_token_program,
             source_buffers: &source_buffers,
             destinations: &destinations,
             bumps: &bumps,
@@ -114,7 +114,7 @@ mod tests {
             let ix = Instruction::from(FinalizeSettle {
                 program_id,
                 begin_ix_index,
-                token_programs: TokenPrograms::SPL_TOKEN,
+                only_token_program: Some(TokenProgram::SplToken),
                 orders: &orders,
             });
 

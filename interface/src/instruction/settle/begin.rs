@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, TokenPrograms, INSTRUCTIONS_SYSVAR_ID};
+use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID};
 
 /// A single transfer made when settling an order: `amount` tokens sent from the
 /// order's sell token account to `destination`.
@@ -55,9 +55,9 @@ pub struct BeginSettle<'a> {
     /// instruction data so the settlement can be tied back to its auction
     /// off-chain, unused on-chain.
     pub auction_id: i64,
-    /// The token programs this settlement carries, one slot each; see
-    /// [`TokenPrograms`].
-    pub token_programs: TokenPrograms,
+    /// The only token program this settlement's transfers are issued against,
+    /// or `None` to name every supported one; see [`TokenProgram::addresses`].
+    pub only_token_program: Option<TokenProgram>,
     pub order_pdas: &'a [Pubkey],
     pub sell_token_accounts: &'a [Pubkey],
     pub pulls: &'a [&'a [Pull]],
@@ -71,7 +71,7 @@ impl From<BeginSettle<'_>> for Instruction {
             solver,
             finalize_ix_index,
             auction_id,
-            token_programs,
+            only_token_program,
             order_pdas,
             sell_token_accounts,
             pulls,
@@ -108,8 +108,7 @@ impl From<BeginSettle<'_>> for Instruction {
             AccountMeta::new_readonly(state_pda, false),
         ];
         accounts.extend(
-            token_programs
-                .addresses()
+            TokenProgram::addresses(only_token_program)
                 .map(|address| AccountMeta::new_readonly(address, false)),
         );
         for &i in &order {
@@ -331,7 +330,7 @@ mod tests {
             solver,
             finalize_ix_index: 0x1337,
             auction_id: 0x0102_0304_0506_0708,
-            token_programs: TokenPrograms::SPL_TOKEN,
+            only_token_program: Some(TokenProgram::SplToken),
             order_pdas: &[],
             sell_token_accounts: &[],
             pulls: &[],
@@ -360,15 +359,15 @@ mod tests {
         assert_readonly_nonsigner(&accounts[4], SYSTEM_PROGRAM_ID);
     }
 
-    /// The token-program slots are whatever [`TokenPrograms`] says, in its own
-    /// order, so a settlement can carry both programs — or leave either one out.
+    /// The token-program slots are the addresses the settlement's
+    /// `only_token_program` names, in [`TokenProgram::ALL`] order, so a
+    /// settlement can name both programs — or leave either one out.
     #[test]
     fn begin_settle_carries_the_token_program_slots_it_is_given() {
-        for token_programs in [
-            TokenPrograms::SPL_TOKEN,
-            TokenPrograms::TOKEN_2022,
-            TokenPrograms::BOTH,
-            TokenPrograms::NONE,
+        for only_token_program in [
+            None,
+            Some(TokenProgram::SplToken),
+            Some(TokenProgram::Token2022),
         ] {
             let Instruction { accounts, .. } = Instruction::from(BeginSettle {
                 program_id: Pubkey::new_unique(),
@@ -376,7 +375,7 @@ mod tests {
                 solver: Pubkey::new_unique(),
                 finalize_ix_index: 0,
                 auction_id: 0,
-                token_programs,
+                only_token_program,
                 order_pdas: &[],
                 sell_token_accounts: &[],
                 pulls: &[],
@@ -384,8 +383,8 @@ mod tests {
             let slots: Vec<Pubkey> = accounts[3..].iter().map(|meta| meta.pubkey).collect();
             assert_eq!(
                 slots,
-                token_programs.addresses(),
-                "{token_programs:?} should be laid out as its own addresses",
+                TokenProgram::addresses(only_token_program),
+                "{only_token_program:?} should be laid out as its own addresses",
             );
         }
     }
@@ -407,7 +406,7 @@ mod tests {
             solver,
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
-            token_programs: TokenPrograms::SPL_TOKEN,
+            only_token_program: Some(TokenProgram::SplToken),
             order_pdas: &[high_order_pda, low_order_pda],
             sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
             pulls: &[&[], &[]],
@@ -478,7 +477,7 @@ mod tests {
             solver,
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
-            token_programs: TokenPrograms::BOTH,
+            only_token_program: None,
             order_pdas: &[order_a, order_b],
             sell_token_accounts: &[sell_a, sell_b],
             pulls: &[

@@ -37,7 +37,7 @@ use cow_settlement_client::cow_settlement_interface::{
     Instruction, SettlementError, SettlementInstruction,
 };
 use cow_settlement_client::instruction::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenPrograms,
+    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenProgram,
 };
 use cow_settlement_interface::data::intent::OrderIntent;
 use litesvm::LiteSVM;
@@ -138,13 +138,13 @@ fn settle_and_pay_amounts(
         solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         orders,
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         orders: &settled,
     };
     vec![begin.into(), finalize.into()]
@@ -257,7 +257,7 @@ fn rejects_fabricated_program_owned_account() {
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         order_pdas: &[fake_order],
         sell_token_accounts: &[sell_token],
         pulls: &no_pulls(1),
@@ -268,7 +268,7 @@ fn rejects_fabricated_program_owned_account() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: 0,
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         source_buffers: &[unique_pubkey()],
         destinations: &[intent.buy_token_account],
         bumps: &[0],
@@ -299,7 +299,7 @@ fn rejects_non_order_account_in_order_slot() {
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         order_pdas: &[sell_token],
         sell_token_accounts: &[sell_token],
         pulls: &no_pulls(1),
@@ -309,7 +309,7 @@ fn rejects_non_order_account_in_order_slot() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: 0,
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         source_buffers: &[unique_pubkey()],
         destinations: &[unique_pubkey()],
         bumps: &[0],
@@ -549,8 +549,7 @@ fn rejects_orders_in_wrong_address_order() {
         AccountMeta::new_readonly(find_state_pda(&program_id).0, false),
     ];
     accounts.extend(
-        TokenPrograms::SPL_TOKEN
-            .addresses()
+        TokenProgram::addresses(Some(TokenProgram::SplToken))
             .map(|program| AccountMeta::new_readonly(program, false)),
     );
     for (order_pda, intent) in orders {
@@ -581,7 +580,7 @@ fn rejects_orders_in_wrong_address_order() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         source_buffers: &source_buffers,
         destinations: &destinations,
         bumps: &bumps,
@@ -1151,7 +1150,7 @@ fn rejects_push_to_wrong_destination() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         orders: &orders,
     });
     // Redirect the push to an account that isn't the order's buy token account.
@@ -1185,7 +1184,7 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
         program_id,
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         source_buffers: &[other_buffer],
         destinations: &[intent.buy_token_account],
         bumps: &[other_bump],
@@ -1212,7 +1211,7 @@ fn rejects_fewer_pushes_than_orders() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         orders: &[],
     };
 
@@ -1233,7 +1232,7 @@ fn rejects_more_pushes_than_orders() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         orders: &[FinalizedIntent {
             intent: &intent,
             amount: 0,
@@ -1259,7 +1258,7 @@ fn rejects_partial_push_amount_in_finalize_settle() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         orders: &orders,
     });
     // Drop one byte from the finalize intstruction so the trailing amount is no

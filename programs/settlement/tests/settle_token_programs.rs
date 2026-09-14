@@ -9,11 +9,9 @@ use crate::common::{
     token_2022::Extensions,
     unique_pubkey,
 };
-use cow_settlement_client::cow_settlement_interface::{
-    data::intent::OrderIntent, token_program::TokenProgram, Instruction,
-};
+use cow_settlement_client::cow_settlement_interface::{data::intent::OrderIntent, Instruction};
 use cow_settlement_client::instruction::{
-    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenPrograms,
+    BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenProgram,
 };
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -33,18 +31,19 @@ struct Settled<'a> {
 }
 
 /// Fund and settle `orders` in one `[BeginSettle, FinalizeSettle]` pair, with
-/// each instruction carrying the token-program slots it is given.
+/// each instruction narrowed to the token program it is given, or naming every
+/// one of them when given `None`.
 ///
 /// Every account involved is set up under its own mint's program, so the only
-/// thing a test varies is which programs the settlement says it carries.
+/// thing a test varies is which programs the settlement says it names.
 fn settle_with(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     solver: &Keypair,
     orders: &[Settled],
-    begin_programs: TokenPrograms,
-    finalize_programs: TokenPrograms,
+    begin_program: Option<TokenProgram>,
+    finalize_program: Option<TokenProgram>,
 ) -> Result<(), TransactionError> {
     let mut initialized: Vec<InitializedIntent> = vec![];
     let mut finalized: Vec<FinalizedIntent> = vec![];
@@ -81,13 +80,13 @@ fn settle_with(
         solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
-        token_programs: begin_programs,
+        only_token_program: begin_program,
         orders: &initialized,
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: finalize_programs,
+        only_token_program: finalize_program,
         orders: &finalized,
     };
     let tx = Transaction::new_signed_with_payer(
@@ -174,8 +173,8 @@ fn settles_orders_under_both_token_programs_simultaneously() {
                 amount_out: 700,
             },
         ],
-        TokenPrograms::BOTH,
-        TokenPrograms::BOTH,
+        None,
+        None,
     )
     .expect("a settlement carrying both programs should settle orders under either");
 
@@ -209,8 +208,8 @@ fn settles_an_order_that_crosses_token_programs() {
             amount_in: 250,
             amount_out: 250,
         }],
-        TokenPrograms::BOTH,
-        TokenPrograms::BOTH,
+        None,
+        None,
     )
     .expect("an order selling under one program and buying under the other should settle");
 
@@ -241,8 +240,8 @@ fn settles_token_2022_orders_without_carrying_the_legacy_program() {
             amount_in: 300,
             amount_out: 300,
         }],
-        TokenPrograms::TOKEN_2022,
-        TokenPrograms::TOKEN_2022,
+        Some(TokenProgram::Token2022),
+        Some(TokenProgram::Token2022),
     )
     .expect("a Token-2022-only settlement should settle Token-2022 orders");
 
@@ -272,8 +271,8 @@ fn settles_legacy_orders_without_carrying_the_token_2022_program() {
             amount_in: 500,
             amount_out: 500,
         }],
-        TokenPrograms::SPL_TOKEN,
-        TokenPrograms::SPL_TOKEN,
+        Some(TokenProgram::SplToken),
+        Some(TokenProgram::SplToken),
     )
     .expect("a legacy-only settlement should not have to carry Token-2022");
 
@@ -313,7 +312,7 @@ fn settles_with_the_token_program_slots_swapped() {
         solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
-        token_programs: TokenPrograms::BOTH,
+        only_token_program: None,
         orders: &[InitializedIntent {
             intent: &intent,
             pulls: &pulls,
@@ -326,7 +325,7 @@ fn settles_with_the_token_program_slots_swapped() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::BOTH,
+        only_token_program: None,
         orders: &[FinalizedIntent {
             intent: &intent,
             amount: 100,

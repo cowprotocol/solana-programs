@@ -4,7 +4,7 @@
 //! unauthorized caller is rejected before any settlement work happens.
 
 use cow_settlement_client::cow_settlement_interface::{Instruction, SettlementError};
-use cow_settlement_client::instruction::{BeginSettle, FinalizeSettle, TokenPrograms};
+use cow_settlement_client::instruction::{BeginSettle, FinalizeSettle};
 use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 
 use crate::common::{
@@ -24,13 +24,13 @@ fn noop_settlement(program_id: &Pubkey, solver: &Pubkey) -> Vec<Instruction> {
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
-        token_programs: TokenPrograms::NONE,
+        only_token_program: None,
         orders: &[],
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        token_programs: TokenPrograms::NONE,
+        only_token_program: None,
         orders: &[],
     };
     vec![begin.into(), finalize.into()]
@@ -101,7 +101,7 @@ fn non_signing_solver_may_not_settle() {
         solver: solver.pubkey(),
         finalize_ix_index: 0,
         auction_id: 0,
-        token_programs: TokenPrograms::NONE,
+        only_token_program: None,
         orders: &[],
     }
     .into();

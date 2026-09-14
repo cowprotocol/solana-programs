@@ -9,7 +9,6 @@ use cow_settlement_client::{
     },
     instruction::{
         BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
-        TokenPrograms,
     },
 };
 use solana_hash::Hash;
@@ -119,7 +118,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         finalize_ix_index,
         // Token resolution builds legacy SPL accounts throughout (see
         // `crate::token`), so Token-2022's slot stays empty.
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         orders: &initialized_intents,
         auction_id: 0,
     };
@@ -136,7 +135,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let finalize_ix = FinalizeSettle {
         program_id: ctx.program_id,
         begin_ix_index,
-        token_programs: TokenPrograms::SPL_TOKEN,
+        only_token_program: Some(TokenProgram::SplToken),
         orders: &settled,
     };
 

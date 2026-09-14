@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{recover_discriminator, SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, TokenPrograms, INSTRUCTIONS_SYSVAR_ID};
+use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID};
 
 /// The number of fixed accounts every `FinalizeSettle` carries before its push
 /// accounts: the instructions sysvar, the settlement state PDA, and one slot per
@@ -82,9 +82,10 @@ pub fn finalize_push_data(
 /// Required accounts:
 /// `[instructions_sysvar (R), state_pda (R), spl_token_program (R),
 /// token_2022_program (R)]` followed, per push, by `[source_buffer (W),
-/// destination (W)]`. The two token programs are the slots [`TokenPrograms`]
-/// describes, there to name the programs this instruction's pushes are issued
-/// against; the matching `BeginSettle` carries the ones its pulls need.
+/// destination (W)]`. The two token programs are the slots
+/// [`TokenProgram::addresses`] describes, there to name the programs this
+/// instruction's pushes are issued against; the matching `BeginSettle` carries
+/// the ones its pulls need.
 ///
 /// `FinalizeSettle` only executes the transfers. Every push is validated by
 /// `BeginSettle`, which reads this instruction through introspection.
@@ -92,9 +93,9 @@ pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
     pub begin_ix_index: u16,
-    /// The token programs this settlement carries, one slot each; see
-    /// [`TokenPrograms`].
-    pub token_programs: TokenPrograms,
+    /// The only token program this settlement's transfers are issued against,
+    /// or `None` to name every supported one; see [`TokenProgram::addresses`].
+    pub only_token_program: Option<TokenProgram>,
     pub source_buffers: &'a [Pubkey],
     pub destinations: &'a [Pubkey],
     pub bumps: &'a [u8],
@@ -107,7 +108,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             program_id,
             state_pda,
             begin_ix_index,
-            token_programs,
+            only_token_program,
             source_buffers,
             destinations,
             bumps,
@@ -125,8 +126,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             AccountMeta::new_readonly(state_pda, false),
         ];
         accounts.extend(
-            token_programs
-                .addresses()
+            TokenProgram::addresses(only_token_program)
                 .map(|address| AccountMeta::new_readonly(address, false)),
         );
         for (source, destination) in source_buffers.iter().zip(destinations) {
@@ -280,7 +280,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
-            token_programs: TokenPrograms::SPL_TOKEN,
+            only_token_program: Some(TokenProgram::SplToken),
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -301,7 +301,7 @@ mod tests {
             program_id,
             state_pda,
             begin_ix_index: 0x1337,
-            token_programs: TokenPrograms::SPL_TOKEN,
+            only_token_program: Some(TokenProgram::SplToken),
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -328,21 +328,21 @@ mod tests {
         assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
     }
 
-    /// The token-program slots are whatever [`TokenPrograms`] says, in its own
-    /// order, so a settlement can carry both programs — or leave either one out.
+    /// The token-program slots are the addresses the settlement's
+    /// `only_token_program` names, in [`TokenProgram::ALL`] order, so a
+    /// settlement can name both programs — or leave either one out.
     #[test]
     fn finalize_settle_carries_the_token_program_slots_it_is_given() {
-        for token_programs in [
-            TokenPrograms::SPL_TOKEN,
-            TokenPrograms::TOKEN_2022,
-            TokenPrograms::BOTH,
-            TokenPrograms::NONE,
+        for only_token_program in [
+            None,
+            Some(TokenProgram::SplToken),
+            Some(TokenProgram::Token2022),
         ] {
             let ix = Instruction::from(FinalizeSettle {
                 program_id: Pubkey::new_unique(),
                 state_pda: Pubkey::new_unique(),
                 begin_ix_index: 0,
-                token_programs,
+                only_token_program,
                 source_buffers: &[],
                 destinations: &[],
                 bumps: &[],
@@ -351,8 +351,8 @@ mod tests {
             let slots: Vec<Pubkey> = ix.accounts[2..].iter().map(|meta| meta.pubkey).collect();
             assert_eq!(
                 slots,
-                token_programs.addresses(),
-                "{token_programs:?} should be laid out as its own addresses",
+                TokenProgram::addresses(only_token_program),
+                "{only_token_program:?} should be laid out as its own addresses",
             );
         }
     }
@@ -370,7 +370,7 @@ mod tests {
             program_id,
             state_pda,
             begin_ix_index: 0x1337,
-            token_programs: TokenPrograms::BOTH,
+            only_token_program: None,
             source_buffers: &[source_a, source_b],
             destinations: &[dest_a, dest_b],
             bumps: &[0xa1, 0xb1],
@@ -631,7 +631,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0x1337,
-            token_programs: TokenPrograms::SPL_TOKEN,
+            only_token_program: Some(TokenProgram::SplToken),
             source_buffers: &[
                 pubkey_from_seed("source buffer 0"),
                 pubkey_from_seed("source buffer 1"),
@@ -655,7 +655,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
-            token_programs: TokenPrograms::SPL_TOKEN,
+            only_token_program: Some(TokenProgram::SplToken),
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -671,7 +671,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
-            token_programs: TokenPrograms::SPL_TOKEN,
+            only_token_program: Some(TokenProgram::SplToken),
             source_buffers: &[pubkey_from_seed("source buffer")],
             destinations: &[pubkey_from_seed("destination")],
             bumps: &[0xff],
@@ -706,7 +706,7 @@ mod tests {
                         program_id,
                         state_pda,
                         begin_ix_index,
-                        token_programs: TokenPrograms::BOTH,
+                        only_token_program: None,
                         source_buffers: &source_buffers,
                         destinations: &destinations,
                         bumps: &bumps,
