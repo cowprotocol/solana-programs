@@ -63,6 +63,7 @@ struct HeaderSlotsMut<'a> {
 }
 
 /// Split the header into its named slots.
+#[inline]
 fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
     let (discriminator, manager, reclaim_authority, withdrawal_authority) = array_refs![
         header,
@@ -80,6 +81,7 @@ fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
 }
 
 /// [`header_slots`] over a mutable header, for in-place writes.
+#[inline]
 fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
     let (discriminator, manager, reclaim_authority, withdrawal_authority) = mut_array_refs![
         header,
