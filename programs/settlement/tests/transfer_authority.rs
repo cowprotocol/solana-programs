@@ -91,22 +91,6 @@ fn assert_transfers_only(
     }
 }
 
-/// Expands the callback macro `$macro!` over every [`Role`] variant, in
-/// the same order as [`Role::ALL`].
-macro_rules! for_each_role {
-    ($macro:ident) => {
-        $macro! { Manager, ReclaimAuthority, WithdrawalAuthority }
-    };
-}
-
-#[test]
-fn sanity_check_for_each_role_lists_exactly_all_roles() {
-    macro_rules! as_array {
-        ($($role:ident),+ $(,)?) => { [$(Role::$role),+] };
-    }
-    assert_eq!(for_each_role!(as_array), Role::ALL);
-}
-
 /// Emits one `#[test]` named `$name`: `$signer` (a keypair field of
 /// [`InitializedParams`]) may transfer `$role`.
 macro_rules! transfers_authority_test {
@@ -119,49 +103,53 @@ macro_rules! transfers_authority_test {
     };
 }
 
-/// Generates, for each non-manager holder, the pair of transfer tests (it may
-/// transfer its own role but no other).
+/// Generates the whole authority-transfer test matrix from one list of holders:
+/// the holder marked "controls all authorities" may transfer every role, and
+/// every other holder may transfer only its own role.
 ///
 /// "holds" pairs the keypair field of [`InitializedParams`] that holds a role
-/// with its [`Role`] variant (snake-cased into the test name).
-macro_rules! non_manager_transfer_tests {
-    ($($signer:ident holds $role:ident),+ $(,)?) => {
-        pastey::paste! { $(
-            transfers_authority_test!([< $role:snake _can_transfer_itself >], $signer, $role);
+/// with its [`Role`] variant.
+macro_rules! authority_transfer_tests {
+    (
+        $manager:ident holds $manager_role:ident and controls all authorities,
+        $($signer:ident holds $role:ident),+ $(,)?
+    ) => {
+        pastey::paste! {
+            // The manager may transfer every role, its own included.
+            transfers_authority_test!(
+                [< $manager _can_transfer_ $manager_role:snake >], $manager, $manager_role
+            );
 
-            #[test]
-            fn [< $role:snake _cannot_transfer_other_roles >]() {
-                let (mut svm, params) = setup_init();
-                assert_transfers_only(&mut svm, &params, &params.$signer, Role::$role);
-            }
-        )+ }
+            $(
+                transfers_authority_test!(
+                    [< $manager _can_transfer_ $role:snake >], $manager, $role
+                );
+            )+
 
-        // Generate a compile-time error if we didn't add all roles to a call to
-        // this macro
-        const _: () = match Role::Manager {
-            Role::Manager => {} // covered by manager_transfer_tests
+            // Every other holder may transfer only its own role.
+            $(
+                transfers_authority_test!(
+                    [< $role:snake _can_transfer_itself >], $signer, $role
+                );
+
+                #[test]
+                fn [< $role:snake _cannot_transfer_other_roles >]() {
+                    let (mut svm, params) = setup_init();
+                    assert_transfers_only(&mut svm, &params, &params.$signer, Role::$role);
+                }
+            )+
+        }
+
+        // Generate a compile-time error if we didn't list every role above.
+        const _: () = match Role::$manager_role {
+            Role::$manager_role => {}
             $( Role::$role => {} ),+
         };
     };
 }
 
-/// Generates test `manager_can_transfer_<role>`: the manager (the highest
-/// authority) may transfer every role, including its own.
-macro_rules! manager_transfer_tests {
-    ($($role:ident),+ $(,)?) => {
-        pastey::paste! { $(
-            transfers_authority_test!([< manager_can_transfer_ $role:snake >], manager, $role);
-        )+ }
-    };
-}
-
-// Generate one test for each role, showing that the manager can transfer each
-// of them.
-for_each_role!(manager_transfer_tests);
-
-// A non-manager authority may transfer only its own role; every other role is
-// rejected.
-non_manager_transfer_tests! {
+authority_transfer_tests! {
+    manager holds Manager and controls all authorities,
     reclaim holds ReclaimAuthority,
     withdrawal holds WithdrawalAuthority,
 }
