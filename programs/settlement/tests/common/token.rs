@@ -181,10 +181,7 @@ pub fn close_mint(svm: &mut LiteSVM, payer: &Keypair, mint: &Pubkey) {
 
 /// The length a token account for `mint` has to be allocated at.
 ///
-/// A legacy account is always the base layout; a Token-2022 one has to make room
-/// for whatever account extensions its mint's own extensions force, which is
-/// read back off the mint rather than being passed in, so this answers for a
-/// mint created anywhere.
+/// The `token_program` should be the owner of the provided mint account.
 fn token_account_len_for(svm: &LiteSVM, mint: &Pubkey, token_program: &Pubkey) -> usize {
     if token_program == &TokenProgram::SplToken.address() {
         return Account::LEN;
