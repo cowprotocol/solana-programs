@@ -21,6 +21,9 @@ pub struct InitializeArgs {
     /// Account authorized to place fee-withdrawal orders (defaults to the payer)
     #[arg(long)]
     withdrawal_authority: Option<Pubkey>,
+    /// Placeholder authority with no program behavior (defaults to the payer)
+    #[arg(long)]
+    spare_authority: Option<Pubkey>,
 }
 
 pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
@@ -33,6 +36,7 @@ pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
         manager: args.manager.unwrap_or(payer),
         reclaim_authority: args.reclaim_authority.unwrap_or(payer),
         withdrawal_authority: args.withdrawal_authority.unwrap_or(payer),
+        spare_authority: args.spare_authority.unwrap_or(payer),
     };
 
     let blockhash = ctx

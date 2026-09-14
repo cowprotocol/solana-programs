@@ -8,6 +8,7 @@ pub struct Initialize {
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
     pub withdrawal_authority: Pubkey,
+    pub spare_authority: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
@@ -20,6 +21,7 @@ impl From<Initialize> for Instruction {
             manager: builder.manager,
             reclaim_authority: builder.reclaim_authority,
             withdrawal_authority: builder.withdrawal_authority,
+            spare_authority: builder.spare_authority,
         }
         .into()
     }

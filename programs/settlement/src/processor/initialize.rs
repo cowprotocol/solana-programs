@@ -20,6 +20,7 @@ pub fn process_initialize(
         manager,
         reclaim_authority,
         withdrawal_authority,
+        spare_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
     // There are no explicit account guards here: `CanonicalPda::create_new`
@@ -45,6 +46,7 @@ pub fn process_initialize(
             manager,
             reclaim_authority,
             withdrawal_authority,
+            spare_authority,
         },
     )?;
 

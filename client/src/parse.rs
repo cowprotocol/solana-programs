@@ -105,6 +105,7 @@ mod tests {
                 manager: payer,
                 reclaim_authority: payer,
                 withdrawal_authority: payer,
+                spare_authority: payer,
             }
             .into(),
             SettlementInstruction::CreateOrder => CreateOrder {

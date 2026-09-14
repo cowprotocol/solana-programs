@@ -20,14 +20,19 @@ pub enum Role {
     /// buffer balances (fee withdrawals). It chooses the destination, the
     /// bought token, and the price of those orders.
     WithdrawalAuthority,
+    /// A placeholder role with no associated program behavior: it is stored in
+    /// the header and transferable like the others, but no instruction consults
+    /// it. Present to measure the per-authority cost of the header abstraction.
+    SpareAuthority,
 }
 
 impl Role {
     /// Every [`Role`] variant, in discriminant order.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
         Role::Manager,
         Role::ReclaimAuthority,
         Role::WithdrawalAuthority,
+        Role::SpareAuthority,
     ];
 
     /// The single wire byte that selects this role in the authority-transfer

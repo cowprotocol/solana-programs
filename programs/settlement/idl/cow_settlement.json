@@ -86,6 +86,13 @@
             "The initial holder of the WithdrawalAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
           ],
           "type": "pubkey"
+        },
+        {
+          "name": "spare_authority",
+          "docs": [
+            "The initial holder of the SpareAuthority role: a placeholder with no associated program behavior."
+          ],
+          "type": "pubkey"
         }
       ]
     },
@@ -755,6 +762,10 @@
           {
             "name": "withdrawal_authority",
             "type": "pubkey"
+          },
+          {
+            "name": "spare_authority",
+            "type": "pubkey"
           }
         ]
       }
@@ -856,6 +867,9 @@
           },
           {
             "name": "WithdrawalAuthority"
+          },
+          {
+            "name": "SpareAuthority"
           }
         ]
       }

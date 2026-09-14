@@ -25,18 +25,19 @@ use crate::SettlementInstruction;
 /// [`crate::pda::state::find_state_pda`]; the program derives the bump itself
 /// and rejects any other address.
 ///
-/// `manager`, `reclaim_authority`, and `withdrawal_authority` are recorded
-/// verbatim in the state PDA's data: the account authorized to add and remove
-/// solvers, the account authorized to reclaim rent for buffers, and the account
-/// authorized to place fee-withdrawal orders. See
-/// [`crate::data::state::StateAccount`].
+/// `manager`, `reclaim_authority`, `withdrawal_authority`, and `spare_authority`
+/// are recorded verbatim in the state PDA's data: the account authorized to add
+/// and remove solvers, the account authorized to reclaim rent for buffers, the
+/// account authorized to place fee-withdrawal orders, and a placeholder holder
+/// with no program behavior. See [`crate::data::state::StateAccount`].
 ///
 /// The state account is owned by the settlement program. This instruction
 /// succeeds only once: a second call fails because the account already
 /// exists.
 ///
 /// Wire format: `[discriminator=3, manager (32 bytes), reclaim_authority (32
-/// bytes), withdrawal_authority (32 bytes)]`, 97 bytes. Required accounts:
+/// bytes), withdrawal_authority (32 bytes), spare_authority (32 bytes)]`, 129
+/// bytes. Required accounts:
 /// `[payer (W,S), state_pda (W), system_program (R)]`. The system program must
 /// be available for the `CreateAccount` CPI but doesn't need to sit at that
 /// specific position.
@@ -47,6 +48,7 @@ pub struct Initialize {
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
     pub withdrawal_authority: Pubkey,
+    pub spare_authority: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
@@ -55,6 +57,7 @@ impl From<Initialize> for Instruction {
         data.extend_from_slice(&builder.manager.to_bytes());
         data.extend_from_slice(&builder.reclaim_authority.to_bytes());
         data.extend_from_slice(&builder.withdrawal_authority.to_bytes());
+        data.extend_from_slice(&builder.spare_authority.to_bytes());
         Instruction {
             program_id: builder.program_id,
             accounts: vec![
@@ -74,17 +77,19 @@ pub struct InitializeInput<'a, A> {
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
     pub withdrawal_authority: Pubkey,
+    pub spare_authority: Pubkey,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::Initialize;
 
     fn parse_body(instruction_data: &[u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
-        let authorities: &[u8; 3 * size_of::<Pubkey>()] = instruction_data
+        let authorities: &[u8; 4 * size_of::<Pubkey>()] = instruction_data
             .try_into()
             .map_err(|_| ProgramError::InvalidInstructionData)?;
-        let (manager, reclaim_authority, withdrawal_authority) = array_refs![
+        let (manager, reclaim_authority, withdrawal_authority, spare_authority) = array_refs![
             authorities,
+            size_of::<Pubkey>(),
             size_of::<Pubkey>(),
             size_of::<Pubkey>(),
             size_of::<Pubkey>()
@@ -92,6 +97,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
         let manager = Pubkey::new_from_array(*manager);
         let reclaim_authority = Pubkey::new_from_array(*reclaim_authority);
         let withdrawal_authority = Pubkey::new_from_array(*withdrawal_authority);
+        let spare_authority = Pubkey::new_from_array(*spare_authority);
 
         // Accounts: [payer (W,S), state_pda (W), system_program (R)]. The system
         // program needs to be present for the `CreateAccount` CPI but doesn't
@@ -106,6 +112,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
             manager,
             reclaim_authority,
             withdrawal_authority,
+            spare_authority,
         })
     }
 }
@@ -132,6 +139,7 @@ pub mod fixtures {
             reclaim_authority: zero,
             manager: zero,
             withdrawal_authority: zero,
+            spare_authority: zero,
         })
         .data
     }
@@ -157,6 +165,7 @@ mod tests {
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let manager = pubkey_from_seed("manager");
         let withdrawal_authority = pubkey_from_seed("withdrawal authority");
+        let spare_authority = pubkey_from_seed("spare authority");
         let data = Instruction::from(Initialize {
             program_id,
             payer: *payer.address(),
@@ -164,6 +173,7 @@ mod tests {
             manager,
             reclaim_authority,
             withdrawal_authority,
+            spare_authority,
         })
         .data;
 
@@ -176,6 +186,7 @@ mod tests {
             manager: parsed_manager,
             reclaim_authority: parsed_reclaim_authority,
             withdrawal_authority: parsed_withdrawal_authority,
+            spare_authority: parsed_spare_authority,
         } = InitializeInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(parsed_payer.address(), payer.address());
@@ -183,6 +194,7 @@ mod tests {
         assert_eq!(parsed_manager, manager);
         assert_eq!(parsed_reclaim_authority, reclaim_authority);
         assert_eq!(parsed_withdrawal_authority, withdrawal_authority);
+        assert_eq!(parsed_spare_authority, spare_authority);
     }
 
     #[test]
@@ -226,6 +238,7 @@ mod tests {
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let manager = pubkey_from_seed("manager");
         let withdrawal_authority = pubkey_from_seed("withdrawal authority");
+        let spare_authority = pubkey_from_seed("spare authority");
 
         let Instruction { data, .. } = Initialize {
             program_id,
@@ -234,13 +247,15 @@ mod tests {
             reclaim_authority,
             manager,
             withdrawal_authority,
+            spare_authority,
         }
         .into();
-        assert_eq!(data.len(), 1 + 3 * core::mem::size_of::<Pubkey>());
+        assert_eq!(data.len(), 1 + 4 * core::mem::size_of::<Pubkey>());
         assert_eq!(data[0], SettlementInstruction::Initialize.discriminator());
         assert_eq!(&data[1..33], &manager.to_bytes());
         assert_eq!(&data[33..65], &reclaim_authority.to_bytes());
-        assert_eq!(&data[65..], &withdrawal_authority.to_bytes());
+        assert_eq!(&data[65..97], &withdrawal_authority.to_bytes());
+        assert_eq!(&data[97..], &spare_authority.to_bytes());
     }
 
     #[test]
@@ -248,6 +263,7 @@ mod tests {
         let manager = Pubkey::new_from_array([0x11; 32]);
         let reclaim_authority = Pubkey::new_from_array([0x22; 32]);
         let withdrawal_authority = Pubkey::new_from_array([0x33; 32]);
+        let spare_authority = Pubkey::new_from_array([0x44; 32]);
 
         let Instruction { data, .. } = Initialize {
             program_id: pubkey_from_seed("program id"),
@@ -256,11 +272,12 @@ mod tests {
             manager,
             reclaim_authority,
             withdrawal_authority,
+            spare_authority,
         }
         .into();
 
         #[rustfmt::skip]
-        let expected: [u8; 1 + 3 * core::mem::size_of::<Pubkey>()] = [
+        let expected: [u8; 1 + 4 * core::mem::size_of::<Pubkey>()] = [
             // discriminator (Initialize = 3)
             0x03,
             // manager
@@ -278,6 +295,11 @@ mod tests {
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            // spare_authority
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
         ];
         assert_eq!(data, expected);
     }
@@ -290,6 +312,7 @@ mod tests {
         let manager = pubkey_from_seed("manager");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let withdrawal_authority = pubkey_from_seed("withdrawal authority");
+        let spare_authority = pubkey_from_seed("spare authority");
 
         let Instruction { accounts, .. } = Initialize {
             program_id,
@@ -298,6 +321,7 @@ mod tests {
             reclaim_authority,
             manager,
             withdrawal_authority,
+            spare_authority,
         }
         .into();
 

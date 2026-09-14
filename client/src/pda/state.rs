@@ -10,6 +10,7 @@ pub struct DecodedStateAccount {
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
     pub withdrawal_authority: Pubkey,
+    pub spare_authority: Pubkey,
 }
 
 impl TryFrom<&[u8]> for DecodedStateAccount {
@@ -21,6 +22,7 @@ impl TryFrom<&[u8]> for DecodedStateAccount {
             manager: state.authority(Role::Manager),
             reclaim_authority: state.authority(Role::ReclaimAuthority),
             withdrawal_authority: state.authority(Role::WithdrawalAuthority),
+            spare_authority: state.authority(Role::SpareAuthority),
         })
     }
 }
@@ -42,10 +44,12 @@ mod tests {
         let manager = pubkey_from_seed("manager");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let withdrawal_authority = pubkey_from_seed("withdrawal authority");
+        let spare_authority = pubkey_from_seed("spare authority");
         let bytes = state_bytes(&StateInitArgs {
             manager,
             reclaim_authority,
             withdrawal_authority,
+            spare_authority,
         });
 
         let decoded = DecodedStateAccount::try_from(&bytes[..]).expect("valid state account");
@@ -55,6 +59,7 @@ mod tests {
                 manager,
                 reclaim_authority,
                 withdrawal_authority,
+                spare_authority,
             },
         );
     }
@@ -73,6 +78,7 @@ mod tests {
             manager: pubkey_from_seed("manager"),
             reclaim_authority: pubkey_from_seed("reclaim authority"),
             withdrawal_authority: pubkey_from_seed("withdrawal authority"),
+            spare_authority: pubkey_from_seed("spare authority"),
         });
         assert!(DecodedStateAccount::try_from(&bytes[..WIDTH_HEADER - 1]).is_err());
     }
