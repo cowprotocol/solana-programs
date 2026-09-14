@@ -8,18 +8,8 @@ use pinocchio_token::instructions::GetAccountDataSize;
 /// the actual token account longer than this.
 const BASE_TOKEN_ACCOUNT_LEN: u64 = pinocchio_token::state::Account::LEN as u64;
 
-/// The token program that owns `account`, and so the one every transfer of its
-/// tokens has to be issued against.
-///
-/// Reading the owner is what lets one instruction move tokens under either
-/// program without being told which: the account itself says. An account under
-/// anything else is no token account at all, and there is nothing to issue a
-/// transfer against.
-///
-/// The program the answer names still has to be one of the calling
-/// instruction's own accounts, or the CPI issued against it has nothing to
-/// execute into. Naming it is the caller's job, and the runtime is what enforces
-/// it.
+/// Resolve the token program behind the given token account.
+/// Throws if the owning token program isn't supported.
 #[must_use = "not consuming skips the owner check"]
 pub fn owning_token_program(account: &AccountView) -> Result<TokenProgram, ProgramError> {
     TokenProgram::try_from(account.owner())
