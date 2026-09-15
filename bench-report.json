@@ -40,6 +40,9 @@
     "transfer_authority/reclaim_authority_can_transfer_itself": 4
   },
   "compute_units": {
+    "add_solver/add_with_many_existing_solvers": 5074,
+    "add_solver/adds_a_solver": 4622,
+    "create_buffers/happy_path_creates_initialized_buffer_token_account": 7373,
     "create_buffers/happy_path_creates_initialized_buffer_token_account_token_2022": 12188,
     "create_buffers/happy_path_creates_multiple_buffers_in_one_instruction": 17283,
     "create_buffers/happy_path_creates_multiple_buffers_in_one_instruction_token_2022": 31720,
