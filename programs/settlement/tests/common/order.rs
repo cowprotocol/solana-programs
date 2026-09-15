@@ -3,6 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Flags, OrderIntent, OrderKind,
 };
+use cow_settlement_client::cow_settlement_interface::data::order::OrderAccount;
 use cow_settlement_client::instruction::CreateOrder;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -11,6 +12,12 @@ use solana_sdk::{
 };
 
 use super::{signed_tx, token};
+
+/// Decode the [`OrderAccount`] stored at an order PDA.
+pub fn read_order(svm: &LiteSVM, pda: &Pubkey) -> OrderAccount {
+    let account = svm.get_account(pda).expect("order PDA must exist");
+    OrderAccount::try_from(&account.data[..]).expect("order PDA must decode")
+}
 
 /// A default valid sell order owned by `owner`, using placeholders for all
 /// token accounts and mints.
