@@ -67,9 +67,6 @@ fn push_funds<'a>(
     pushes: Pushes<'a, AccountView>,
 ) -> ProgramResult {
     for push in pushes.iter() {
-        // The push moves this destination's tokens, so it is issued against the
-        // token program that owns it. An account under neither program isn't a
-        // token account at all.
         let token_program = owning_token_program(push.destination)
             .map_err(|_| SettlementError::InvalidTokenProgram)?;
         Transfer::new(
