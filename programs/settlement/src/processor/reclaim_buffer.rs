@@ -73,9 +73,9 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::state::{StateAccount, StateInitArgs, WIDTH_HEADER};
-    use cow_settlement_interface::fixtures::pubkey_from_seed;
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
+    use cow_settlement_interface::data::state::fixtures::state_account_bytes;
+    use cow_settlement_interface::data::state::{StateInitArgs, WIDTH_HEADER};
+    use cow_settlement_interface::fixtures::{pubkey_from_seed, PROGRAM_ID, STATE_PDA};
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
@@ -83,7 +83,6 @@ mod tests {
     use cow_settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
-    use cow_settlement_interface::pda::state::state_pda_seeds;
     use cow_settlement_interface::token_program::TokenProgram;
     use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use pinocchio::error::ProgramError;
@@ -99,17 +98,10 @@ mod tests {
     const NUM_ACCOUNTS: usize = NUM_SHARED_ACCOUNTS + 2;
 
     // Positions within [`base_accounts`], for the tests that swap one entry.
-    const STATE_PDA: usize = 0;
+    const STATE_ACCOUNT: usize = 0;
     const RECLAIM_AUTHORITY: usize = 1;
     const TOKEN_PROGRAM: usize = 3;
     const BUFFER_PDA: usize = 4;
-
-    /// State account bytes for planting a well-formed state PDA in tests.
-    fn state_account_bytes(init_args: &StateInitArgs) -> [u8; WIDTH_HEADER] {
-        let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(&mut bytes[..], init_args).expect("header fits");
-        bytes
-    }
 
     /// The [`StateInitArgs`] planted by [`base_accounts`].
     fn base_init_args() -> StateInitArgs {
@@ -137,17 +129,16 @@ mod tests {
     fn base_accounts() -> [AccountView; NUM_ACCOUNTS] {
         let recipient: Address = Address::new_from_array([1; 32]);
         let mint: Address = Address::new_from_array([2; 32]);
-        let state_pda = Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0;
 
         [
-            fake_account_with_data(state_pda, &state_account_bytes(&base_init_args())), // state PDA
+            fake_account_with_data(*STATE_PDA, &state_account_bytes(&base_init_args(), &[])), // state PDA
             fake_signer(AUTHORITY),             // reclaim authority
             fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
             fake_account_owned_by(
                 find_buffer_pda(&PROGRAM_ID, &mint).0,
                 SPL_TOKEN_PROGRAM_ID,
-                &empty_buffer_data(mint, state_pda),
+                &empty_buffer_data(mint, *STATE_PDA),
             ), // buffer PDA
             fake_account(mint),                 // mint
         ]
@@ -190,8 +181,8 @@ mod tests {
     #[test]
     fn process_reclaim_buffer_rejects_wrong_state_pda() {
         let mut accounts = base_accounts();
-        accounts[STATE_PDA] =
-            fake_account_with_data(UNRELATED, &state_account_bytes(&base_init_args()));
+        accounts[STATE_ACCOUNT] =
+            fake_account_with_data(UNRELATED, &state_account_bytes(&base_init_args(), &[]));
         assert_rejects(accounts, SettlementError::StateAccountMismatch.into());
     }
 
@@ -202,8 +193,8 @@ mod tests {
         // The canonical state PDA address, but nothing was ever written there:
         // the account carries no data at all. Its `reclaim_authority` is
         // unknowable, so no caller can be authorized.
-        let state_pda = *accounts[STATE_PDA].address();
-        accounts[STATE_PDA] = fake_account(state_pda);
+        let state_pda = *accounts[STATE_ACCOUNT].address();
+        accounts[STATE_ACCOUNT] = fake_account(state_pda);
 
         assert_rejects(accounts, ProgramError::InvalidAccountData);
     }
@@ -214,8 +205,8 @@ mod tests {
 
         // Allocated to the right size but never initialized: its leading byte
         // isn't the state discriminator, so it isn't a valid state account.
-        let state_pda = *accounts[STATE_PDA].address();
-        accounts[STATE_PDA] = fake_account_with_data(state_pda, &[0; WIDTH_HEADER]);
+        let state_pda = *accounts[STATE_ACCOUNT].address();
+        accounts[STATE_ACCOUNT] = fake_account_with_data(state_pda, &[0; WIDTH_HEADER]);
 
         assert_rejects(accounts, ProgramError::InvalidAccountData);
     }
