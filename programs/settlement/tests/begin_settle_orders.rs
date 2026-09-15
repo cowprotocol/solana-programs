@@ -420,13 +420,24 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let amount = 1_000_000;
-    let (sell_mint, sell_token_account) = token::cloned_token_under_unsupported_program(
-        &mut svm,
-        &program_id,
-        &payer,
-        &payer.pubkey(),
-        amount,
-    );
+
+    // Build the genuine article first, so what gets cloned is a real token's
+    // bytes rather than a test's idea of them.
+    let mint = create_mint(svm, payer);
+    let account = create_token_account(svm, payer, &mint, owner);
+    fund_and_delegate(svm, program_id, payer, &account, amount);
+
+    let sell_mint = clone_under_unsupported_program(svm, &mint);
+    // Repoint the copy at the cloned mint, so the pair stands on its own under
+    // the clone instead of borrowing the real mint.
+    let mut token =
+        litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, &account)
+            .expect("the freshly delegated account is a valid token account");
+    token.mint = cloned_mint;
+    let mut data = vec![0u8; litesvm_token::spl_token::state::Account::LEN];
+    token.pack_into_slice(&mut data);
+    let sell_token_account = unique_pubkey();
+    super::create_account_at(svm, cloned_account, &CLONED_TOKEN_PROGRAM_ID, &data);
 
     let intent = OrderIntent {
         sell_token_account,
