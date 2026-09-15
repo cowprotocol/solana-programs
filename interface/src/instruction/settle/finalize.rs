@@ -221,10 +221,8 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         let (begin_ix_index, body) = recover_counterpart(instruction_data)?;
 
-        // The two token-program slots are skipped rather than read: every push
-        // is issued against the program that owns its destination, so naming
-        // the programs is all the slots do. They still take up their positions,
-        // which is what the push accounts are counted from.
+        // The two token-program slots are skipped rather than read since they are only
+        // used for program invocation.
         let [instructions_sysvar_account, state_pda_account, _spl_token_program_account, _token_2022_program_account, push_accounts @ ..] =
             accounts
         else {
