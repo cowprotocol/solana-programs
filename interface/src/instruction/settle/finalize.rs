@@ -83,7 +83,7 @@ pub fn finalize_push_data(
 /// `[instructions_sysvar (R), state_pda (R), spl_token_program (R),
 /// token_2022_program (R)]` followed, per push, by `[source_buffer (W),
 /// destination (W)]`. The two token programs are the slots
-/// [`TokenProgram::addresses`] describes, there to name the programs this
+/// [`TokenProgram::ALL`] describes, there to name the programs this
 /// instruction's pushes are issued against; the matching `BeginSettle` carries
 /// the ones its pulls need.
 ///
@@ -94,7 +94,7 @@ pub struct FinalizeSettle<'a> {
     pub state_pda: Pubkey,
     pub begin_ix_index: u16,
     /// The only token program this settlement's transfers are issued against,
-    /// or `None` to name every supported one; see [`TokenProgram::addresses`].
+    /// or `None` to name every supported one; see [`TokenProgram::ALL`].
     pub only_token_program: Option<TokenProgram>,
     pub source_buffers: &'a [Pubkey],
     pub destinations: &'a [Pubkey],
@@ -125,10 +125,17 @@ impl From<FinalizeSettle<'_>> for Instruction {
             AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
             AccountMeta::new_readonly(state_pda, false),
         ];
-        accounts.extend(
-            TokenProgram::addresses(only_token_program)
-                .map(|address| AccountMeta::new_readonly(address, false)),
-        );
+        // One account per supported token program. If `only_token_program`,
+        // replace the other program in the instruction with an account that's
+        // already present (and so doesn't take extra space in the tx).
+        accounts.extend(TokenProgram::ALL.map(|program| {
+            let address = if only_token_program.is_none_or(|only| only == program) {
+                program.address()
+            } else {
+                INSTRUCTIONS_SYSVAR_ID
+            };
+            AccountMeta::new_readonly(address, false)
+        }));
         for (source, destination) in source_buffers.iter().zip(destinations) {
             accounts.push(AccountMeta::new(*source, false));
             accounts.push(AccountMeta::new(*destination, false));
@@ -330,10 +337,22 @@ mod tests {
     /// settlement can name both programs — or leave either one out.
     #[test]
     fn finalize_settle_carries_the_token_program_slots_it_is_given() {
-        for only_token_program in [
-            None,
-            Some(TokenProgram::SplToken),
-            Some(TokenProgram::Token2022),
+        for (only_token_program, expected) in [
+            (
+                None,
+                [
+                    TokenProgram::SplToken.address(),
+                    TokenProgram::Token2022.address(),
+                ],
+            ),
+            (
+                Some(TokenProgram::SplToken),
+                [TokenProgram::SplToken.address(), INSTRUCTIONS_SYSVAR_ID],
+            ),
+            (
+                Some(TokenProgram::Token2022),
+                [INSTRUCTIONS_SYSVAR_ID, TokenProgram::Token2022.address()],
+            ),
         ] {
             let ix = Instruction::from(FinalizeSettle {
                 program_id: Pubkey::new_unique(),
@@ -347,9 +366,8 @@ mod tests {
             });
             let slots: Vec<Pubkey> = ix.accounts[2..].iter().map(|meta| meta.pubkey).collect();
             assert_eq!(
-                slots,
-                TokenProgram::addresses(only_token_program),
-                "{only_token_program:?} should be laid out as its own addresses",
+                slots, expected,
+                "{only_token_program:?} should name just the programs it settles against",
             );
         }
     }

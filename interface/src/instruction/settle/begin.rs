@@ -56,7 +56,7 @@ pub struct BeginSettle<'a> {
     /// off-chain, unused on-chain.
     pub auction_id: i64,
     /// The only token program this settlement's transfers are issued against,
-    /// or `None` to name every supported one; see [`TokenProgram::addresses`].
+    /// or `None` to name every supported one; see [`TokenProgram::ALL`].
     pub only_token_program: Option<TokenProgram>,
     pub order_pdas: &'a [Pubkey],
     pub sell_token_accounts: &'a [Pubkey],
@@ -370,10 +370,22 @@ mod tests {
     /// settlement can name both programs — or leave either one out.
     #[test]
     fn begin_settle_carries_the_token_program_slots_it_is_given() {
-        for only_token_program in [
-            None,
-            Some(TokenProgram::SplToken),
-            Some(TokenProgram::Token2022),
+        for (only_token_program, expected) in [
+            (
+                None,
+                [
+                    TokenProgram::SplToken.address(),
+                    TokenProgram::Token2022.address(),
+                ],
+            ),
+            (
+                Some(TokenProgram::SplToken),
+                [TokenProgram::SplToken.address(), INSTRUCTIONS_SYSVAR_ID],
+            ),
+            (
+                Some(TokenProgram::Token2022),
+                [INSTRUCTIONS_SYSVAR_ID, TokenProgram::Token2022.address()],
+            ),
         ] {
             let Instruction { accounts, .. } = Instruction::from(BeginSettle {
                 program_id: Pubkey::new_unique(),
@@ -388,9 +400,8 @@ mod tests {
             });
             let slots: Vec<Pubkey> = accounts[3..].iter().map(|meta| meta.pubkey).collect();
             assert_eq!(
-                slots,
-                TokenProgram::addresses(only_token_program),
-                "{only_token_program:?} should be laid out as its own addresses",
+                slots, expected,
+                "{only_token_program:?} should name just the programs it settles against",
             );
         }
     }

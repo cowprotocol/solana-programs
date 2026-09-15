@@ -558,9 +558,10 @@ fn rejects_orders_in_wrong_address_order() {
         AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
         AccountMeta::new_readonly(find_state_pda(&program_id).0, false),
     ];
+    // Narrowed to the legacy program, so Token-2022's slot holds the placeholder.
     accounts.extend(
-        TokenProgram::addresses(Some(TokenProgram::SplToken))
-            .map(|program| AccountMeta::new_readonly(program, false)),
+        [TokenProgram::SplToken.address(), INSTRUCTIONS_SYSVAR_ID]
+            .map(|address| AccountMeta::new_readonly(address, false)),
     );
     for (order_pda, intent) in orders {
         accounts.push(AccountMeta::new_readonly(order_pda, false));
