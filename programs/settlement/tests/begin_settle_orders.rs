@@ -13,10 +13,9 @@
 //! sends it unmodified (when the rejection is already baked into the orders or
 //! accounts passed in) or mutates its `BeginSettle` instruction in place
 //! afterwards (a wrong account, a wrong token program, a wrong state PDA, an
-//! extra account). A few
-//! tests are the exception and build the raw instruction directly, because
-//! what they exercise can't come out of the client builder, whose output is a
-//! properly built instruction.
+//! extra account). A few tests are the exception and build the raw instruction
+//! directly, because what they exercise can't come out of the client builder,
+//! whose output is a properly built instruction.
 
 use crate::common::{
     assert_instruction_error_at,
