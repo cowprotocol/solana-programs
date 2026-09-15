@@ -12,7 +12,7 @@
 use crate::common::{
     assert_instruction_error_at,
     benchmark::BenchLabel,
-    buffer,
+    buffer, create_account,
     order::{create_order_pda, settlable_intent, OrderBuilder},
     replace_first_matching_account, send, send_metered,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
@@ -337,7 +337,9 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
 
-    let impostor = token::clone_under_unsupported_program(&mut svm, &settlable.buy_token_account);
+    let fake_token_program = create_account(&mut svm, &payer.pubkey(), &[]);
+    let impostor =
+        token::clone_under_new_program(&mut svm, &settlable.buy_token_account, &fake_token_program);
 
     // As above, the impostor passes both instructions' push checks (the push
     // pays `intent.buy_token_account` from `intent.buy_mint`'s buffer), but its

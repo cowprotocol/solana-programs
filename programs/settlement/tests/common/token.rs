@@ -319,21 +319,19 @@ pub fn delegate(
         .unwrap_or_else(|error| panic!("approving a delegate should succeed: {error:?}"));
 }
 
-/// An SPL Token clone, serving the same instructions over the same account layouts.
-/// Used to validate unsupported token programs.
-///
-/// Never deployed, because nothing here gets far enough to call it.
-pub const CLONED_TOKEN_PROGRAM_ID: Pubkey = Pubkey::new_from_array([0x7c; 32]);
-
 /// Re-plant `account`'s bytes at a fresh address under
-/// [`CLONED_TOKEN_PROGRAM_ID`], and return it.
-pub fn clone_under_unsupported_program(svm: &mut LiteSVM, account: &Pubkey) -> Pubkey {
+/// the provided new_program and return it.
+pub fn clone_under_new_program(
+    svm: &mut LiteSVM,
+    new_program: &Pubkey,
+    account: &Pubkey,
+) -> Pubkey {
     let data = svm
         .get_account(account)
         .unwrap_or_else(|| panic!("{account} should exist on-chain"))
         .data;
     let clone = unique_pubkey();
-    super::create_account_at(svm, clone, &CLONED_TOKEN_PROGRAM_ID, &data);
+    super::create_account_at(svm, clone, new_program, &data);
     clone
 }
 

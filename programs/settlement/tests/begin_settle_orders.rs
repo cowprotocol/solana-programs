@@ -13,10 +13,9 @@
 //! sends it unmodified (when the rejection is already baked into the orders or
 //! accounts passed in) or mutates its `BeginSettle` instruction in place
 //! afterwards (a wrong account, a wrong token program, a wrong state PDA, an
-//! extra account). A few
-//! tests are the exception and build the raw instruction directly, because
-//! what they exercise can't come out of the client builder, whose output is a
-//! properly built instruction.
+//! extra account). A few tests are the exception and build the raw instruction
+//! directly, because what they exercise can't come out of the client builder,
+//! whose output is a properly built instruction.
 
 use crate::common::{
     assert_instruction_error_at,
@@ -428,17 +427,19 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
     let account = common::token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
     common::token::fund_and_delegate(&mut svm, &program_id, &payer, &account, amount);
 
-    let sell_mint = common::token::clone_under_unsupported_program(&mut svm, &mint);
+    let fake_token_program = create_account(&mut svm, &payer.pubkey(), &[]);
+    let sell_mint = common::token::clone_under_new_program(&mut svm, &mint, &fake_token_program);
     // Repoint the copy at the cloned mint, so the pair stands on its own under
     // the clone instead of borrowing the real mint.
-    let mut token =
-        litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(&mut svm, &account)
-            .expect("the freshly delegated account is a valid token account");
+    let mut token = litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(
+        &mut svm, &account,
+    )
+    .expect("the freshly delegated account is a valid token account");
     token.mint = sell_mint;
     let mut data = vec![0u8; litesvm_token::spl_token::state::Account::LEN];
     token.pack_into_slice(&mut data);
     let sell_token_account = unique_pubkey();
-    common::create_account_at(&mut svm, sell_token_account, &common::token::CLONED_TOKEN_PROGRAM_ID, &data);
+    common::create_account_at(&mut svm, sell_token_account, &unique_pubkey(), &data);
 
     let intent = OrderIntent {
         sell_token_account,
