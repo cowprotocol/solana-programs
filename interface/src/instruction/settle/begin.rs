@@ -107,10 +107,17 @@ impl From<BeginSettle<'_>> for Instruction {
             AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
             AccountMeta::new_readonly(state_pda, false),
         ];
-        accounts.extend(
-            TokenProgram::addresses(only_token_program)
-                .map(|address| AccountMeta::new_readonly(address, false)),
-        );
+        // One account per supported token program. If `only_token_program`,
+        // replace the other program in the instruction with an account that's
+        // already present (and so doesn't take extra space in the tx).
+        accounts.extend(TokenProgram::ALL.map(|program| {
+            let address = if only_token_program.is_none_or(|only| only == program) {
+                program.address()
+            } else {
+                INSTRUCTIONS_SYSVAR_ID
+            };
+            AccountMeta::new_readonly(address, false)
+        }));
         for &i in &order {
             // Writable account for the order: `BeginSettle` updates its filled
             // amounts (`amount_withdrawn`/`amount_received`).
