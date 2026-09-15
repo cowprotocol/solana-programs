@@ -256,7 +256,7 @@ pub fn mint_to(
 ///
 /// Read through the extension layout, which covers a mint that has extensions
 /// and one that doesn't alike, so this answers under either program.
-fn decimals_of(svm: &LiteSVM, mint: &Pubkey) -> u8 {
+pub fn decimals_of(svm: &LiteSVM, mint: &Pubkey) -> u8 {
     let account = svm
         .get_account(mint)
         .unwrap_or_else(|| panic!("{mint} should exist on-chain"));
