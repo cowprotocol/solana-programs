@@ -15,6 +15,8 @@ jobs:
       - uses: ./.github/actions/setup-solana
       - uses: ./.github/actions/setup-just
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ env.SOLANA_VERSION }}
 
       - name: Build
         run: just build
@@ -29,6 +31,8 @@ jobs:
       - uses: ./.github/actions/setup-solana
       - uses: ./.github/actions/setup-just
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ env.SOLANA_VERSION }}
 
       - name: Test and benchmark
         # Deterministic tests. Pin the proptest seed so the fuzz tests in
@@ -77,6 +81,8 @@ jobs:
       - uses: ./.github/actions/setup-solana
       - uses: ./.github/actions/setup-just
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ env.SOLANA_VERSION }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -119,6 +125,8 @@ jobs:
 
       - uses: ./.github/actions/setup-just
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ env.SOLANA_VERSION }}
 
       - name: Lint
         run: just lint
@@ -132,6 +140,8 @@ jobs:
 
       - uses: ./.github/actions/setup-just
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ env.SOLANA_VERSION }}
 
       - name: Dev docs
         run: just doc-dev
