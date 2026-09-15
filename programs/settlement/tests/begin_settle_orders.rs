@@ -18,13 +18,13 @@
 //! whose output is a properly built instruction.
 
 use crate::common::{
-    assert_instruction_error,
+    assert_instruction_error_at,
     benchmark::BenchLabel,
     buffer, create_account,
     order::{create_order_pda, sample_intent, settlable_intent, OrderBuilder},
     replace_first_matching_account, send, send_metered, set_unix_timestamp,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
-    setup_settle_ready, to_instruction_error, token, unique_pubkey,
+    setup_settle_ready, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::order::{EncodedOrderAccount, OrderAccount},
@@ -52,14 +52,12 @@ mod common;
 
 /// Assert the transaction failed in `BeginSettle` (at [`BEGIN_INDEX`]) with
 /// `expected`.
-fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
-    assert_eq!(
-        result.err(),
-        Some(TransactionError::InstructionError(
-            BEGIN_INDEX,
-            to_instruction_error(expected),
-        )),
-    );
+#[track_caller]
+fn assert_begin_error<T>(
+    result: Result<T, TransactionError>,
+    expected: impl Into<InstructionError>,
+) {
+    assert_instruction_error_at(BEGIN_INDEX, result, expected);
 }
 
 /// Assert the solver's payment clears the order's limit price for the amount
@@ -310,7 +308,7 @@ fn rejects_non_order_account_in_order_slot() {
     };
     let instructions = vec![begin.into(), finalize.into()];
 
-    assert_instruction_error(
+    assert_begin_error(
         send(&mut svm, &solver, &instructions),
         InstructionError::InvalidAccountData,
     );
@@ -950,7 +948,7 @@ fn rejects_wrong_token_program() {
         unique_pubkey(),
     );
 
-    assert_instruction_error(
+    assert_begin_error(
         send(&mut svm, &solver, &instructions),
         InstructionError::IncorrectProgramId,
     );
@@ -985,7 +983,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
             }],
         }],
     );
-    assert_instruction_error(
+    assert_begin_error(
         send(&mut svm, &solver, &instructions),
         InstructionError::Custom(TokenError::OwnerMismatch as u32),
     );
@@ -1026,7 +1024,7 @@ fn rejects_pull_exceeding_delegation() {
             }],
         }],
     );
-    assert_instruction_error(
+    assert_begin_error(
         send(&mut svm, &solver, &instructions),
         InstructionError::Custom(TokenError::InsufficientFunds as u32),
     );
@@ -1188,11 +1186,8 @@ fn rejects_partial_push_amount_in_finalize_settle() {
     finalize.data.pop();
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
-    assert_eq!(
-        send(&mut svm, &solver, &instructions).err(),
-        Some(TransactionError::InstructionError(
-            BEGIN_INDEX,
-            InstructionError::InvalidInstructionData,
-        )),
+    assert_begin_error(
+        send(&mut svm, &solver, &instructions),
+        InstructionError::InvalidInstructionData,
     );
 }

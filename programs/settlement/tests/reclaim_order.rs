@@ -22,7 +22,7 @@ use crate::common::{
     order::OrderBuilder,
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder},
-    signed_tx, to_instruction_error, token, unique_keypair, unique_pubkey,
+    signed_tx, token, unique_keypair, unique_pubkey,
 };
 
 mod common;
@@ -264,7 +264,7 @@ fn rejects_when_order_not_yet_expired() {
     let tx = signed_tx(&svm, &owner, &owner, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        to_instruction_error(SettlementError::OrderNotReclaimable),
+        SettlementError::OrderNotReclaimable,
     );
 }
 
@@ -283,7 +283,7 @@ fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
 
     assert_instruction_error(
         perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
-        to_instruction_error(SettlementError::OrderNotReclaimable),
+        SettlementError::OrderNotReclaimable,
     );
 }
 
@@ -314,7 +314,7 @@ fn off_chain_order_is_reclaimable_only_once_expired() {
 
     assert_instruction_error(
         perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
-        to_instruction_error(SettlementError::OrderNotReclaimable),
+        SettlementError::OrderNotReclaimable,
     );
     assert!(
         svm.get_account(&pda).is_some(),
@@ -417,7 +417,7 @@ fn rejects_when_reclaim_recipient_mismatch() {
     let tx = signed_tx(&svm, &owner, &owner, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        to_instruction_error(SettlementError::ReclaimRecipientMismatch),
+        SettlementError::ReclaimRecipientMismatch,
     );
 }
 
@@ -480,7 +480,7 @@ fn rejects_reclaim_of_a_partially_filled_order() {
     let tx = signed_tx(&svm, &payer, &payer, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        to_instruction_error(SettlementError::OrderNotReclaimable),
+        SettlementError::OrderNotReclaimable,
     );
     assert!(
         svm.get_account(&order_pda).is_some(),
