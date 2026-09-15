@@ -1,12 +1,70 @@
 import path from "node:path";
-import { generateKeyPairSigner, type Address } from "@solana/kit";
+import {
+  appendTransactionMessageInstruction,
+  assertAccountExists,
+  createTransactionMessage,
+  generateKeyPairSigner,
+  pipe,
+  setTransactionMessageFeePayerSigner,
+  signTransactionMessageWithSigners,
+  type Address,
+  type Instruction,
+  type TransactionSigner,
+} from "@solana/kit";
+import { LiteSVM } from "litesvm";
 import { encodeFlags } from "../src/order";
-import { OrderKind, type OrderIntentArgs } from "../src/generated";
+import {
+  COW_SETTLEMENT_PROGRAM_ADDRESS,
+  getOrderAccountDecoder,
+  OrderKind,
+  type OrderIntentArgs,
+} from "../src/generated";
+import { resolveOrderPda } from "../src/hooked";
 
 export const COW_SETTLEMENT_SO_PATH = path.join(
   import.meta.dirname,
   "../../../../../../target/deploy/cow_settlement.so",
 );
+
+/// A fresh LiteSVM with the settlement program deployed under its canonical address.
+export function newSvm(): LiteSVM {
+  const svm = new LiteSVM();
+  svm.addProgramFromFile(COW_SETTLEMENT_PROGRAM_ADDRESS, COW_SETTLEMENT_SO_PATH);
+  return svm;
+}
+
+/// Sign `instruction` with `feePayer` and submit it, throwing a labelled error
+/// (with the program logs) if it fails.
+export async function sendInstruction(
+  svm: LiteSVM,
+  feePayer: TransactionSigner,
+  instruction: Instruction,
+  label: string,
+): Promise<void> {
+  const tx = await pipe(
+    createTransactionMessage({ version: 0 }),
+    (t) => setTransactionMessageFeePayerSigner(feePayer, t),
+    (t) => svm.setTransactionMessageLifetimeUsingLatestBlockhash(t),
+    (t) => appendTransactionMessageInstruction(instruction, t),
+    signTransactionMessageWithSigners,
+  );
+  const result = svm.sendTransaction(tx);
+  if ("err" in result) {
+    throw new Error(`${label} failed: ${result.toString()}\n${result.meta().prettyLogs()}`);
+  }
+}
+
+/// Resolve the order PDA `intent` hashes to, assert the account exists, and
+/// return its decoded body.
+export async function fetchOrderAccount(svm: LiteSVM, intent: OrderIntentArgs) {
+  const { value: orderPda } = await resolveOrderPda({
+    programAddress: COW_SETTLEMENT_PROGRAM_ADDRESS,
+    args: { intent },
+  });
+  const account = svm.getAccount(orderPda);
+  assertAccountExists(account);
+  return getOrderAccountDecoder().decode(account.data);
+}
 
 export async function buildOrderIntent(
   overrides: Partial<OrderIntentArgs> & { owner: Address },
