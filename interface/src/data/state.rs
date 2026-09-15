@@ -7,11 +7,11 @@
 //!
 //! ```text
 //!  ┌──── discriminator
-//!  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───── ... ─────┬───────────────────────────────┐
-//!  ││            manager            │       reclaim_authority       │           solver[0]           │ other solvers │          solver[N-1]          │
-//!  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───── ... ─────┴───────────────────────────────┘
-//! 0 1                               33                              65                              97
-//!  └───────────────────────────── header ──────────────────────────┘└─────────────────────────────── N sorted solvers ─────────────────────────────┘
+//!  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───── ... ─────┬───────────────────────────────┐
+//!  ││            manager            │       reclaim_authority       │     withdrawal_authority      │           solver[0]           │ other solvers │          solver[N-1]          │
+//!  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───── ... ─────┴───────────────────────────────┘
+//! 0 1                               33                              65                              97                             129              97 + 32·(N-1)                   97 + 32·N
+//!  └───────────────────────────────────────── header ──────────────────────────────────────────────┘└─────────────────────────────── sorted solvers ───────────────────────────────┘
 //! ```
 //!
 //! [`StateAccount`] is a zero-copy accessor over an account's bytes, generic
@@ -42,7 +42,7 @@ pub const WIDTH_PUBKEY: usize = size_of::<Pubkey>();
 
 /// Length of the fixed header: the discriminator byte followed by one holder
 /// per [`Role`].
-pub const WIDTH_HEADER: usize = WIDTH_DISCRIMINATOR + 2 * WIDTH_PUBKEY;
+pub const WIDTH_HEADER: usize = WIDTH_DISCRIMINATOR + 3 * WIDTH_PUBKEY;
 
 /// A borrowed view over the bytes of a state acc, split into its
 /// discriminator and per-role slots so each can be named. The slots hold raw
@@ -51,6 +51,7 @@ struct HeaderSlots<'a> {
     discriminator: &'a [u8; WIDTH_DISCRIMINATOR],
     manager: &'a [u8; WIDTH_PUBKEY],
     reclaim_authority: &'a [u8; WIDTH_PUBKEY],
+    withdrawal_authority: &'a [u8; WIDTH_PUBKEY],
 }
 
 /// The mutable counterpart of [`HeaderSlots`], for in-place writes.
@@ -58,27 +59,42 @@ struct HeaderSlotsMut<'a> {
     discriminator: &'a mut [u8; WIDTH_DISCRIMINATOR],
     manager: &'a mut [u8; WIDTH_PUBKEY],
     reclaim_authority: &'a mut [u8; WIDTH_PUBKEY],
+    withdrawal_authority: &'a mut [u8; WIDTH_PUBKEY],
 }
 
 /// Split the header into its named slots.
+#[inline]
 fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
-    let (discriminator, manager, reclaim_authority) =
-        array_refs![header, WIDTH_DISCRIMINATOR, WIDTH_PUBKEY, WIDTH_PUBKEY];
+    let (discriminator, manager, reclaim_authority, withdrawal_authority) = array_refs![
+        header,
+        WIDTH_DISCRIMINATOR,
+        WIDTH_PUBKEY,
+        WIDTH_PUBKEY,
+        WIDTH_PUBKEY
+    ];
     HeaderSlots {
         discriminator,
         manager,
         reclaim_authority,
+        withdrawal_authority,
     }
 }
 
 /// [`header_slots`] over a mutable header, for in-place writes.
+#[inline]
 fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
-    let (discriminator, manager, reclaim_authority) =
-        mut_array_refs![header, WIDTH_DISCRIMINATOR, WIDTH_PUBKEY, WIDTH_PUBKEY];
+    let (discriminator, manager, reclaim_authority, withdrawal_authority) = mut_array_refs![
+        header,
+        WIDTH_DISCRIMINATOR,
+        WIDTH_PUBKEY,
+        WIDTH_PUBKEY,
+        WIDTH_PUBKEY
+    ];
     HeaderSlotsMut {
         discriminator,
         manager,
         reclaim_authority,
+        withdrawal_authority,
     }
 }
 
@@ -89,6 +105,8 @@ pub struct StateInitArgs {
     pub manager: Pubkey,
     /// The [`Role::ReclaimAuthority`] holder.
     pub reclaim_authority: Pubkey,
+    /// The [`Role::WithdrawalAuthority`] holder.
+    pub withdrawal_authority: Pubkey,
 }
 
 /// A zero-copy accessor over a settlement state account's canonical byte
@@ -125,6 +143,7 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
         let holder = match role {
             Role::Manager => slots.manager,
             Role::ReclaimAuthority => slots.reclaim_authority,
+            Role::WithdrawalAuthority => slots.withdrawal_authority,
         };
         Pubkey::new_from_array(*holder)
     }
@@ -196,6 +215,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
             *slots.discriminator = [DISCRIMINATOR];
             *slots.manager = args.manager.to_bytes();
             *slots.reclaim_authority = args.reclaim_authority.to_bytes();
+            *slots.withdrawal_authority = args.withdrawal_authority.to_bytes();
         }
         Ok(Self(bytes))
     }
@@ -213,6 +233,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
         let holder = match role {
             Role::Manager => slots.manager,
             Role::ReclaimAuthority => slots.reclaim_authority,
+            Role::WithdrawalAuthority => slots.withdrawal_authority,
         };
         *holder = new.to_bytes();
     }
@@ -321,12 +342,13 @@ pub mod fixtures {
 
     /// Any valid [`StateInitArgs`].
     pub fn arb_init_params() -> impl Strategy<Value = StateInitArgs> {
-        (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(|(manager, reclaim_authority)| {
-            StateInitArgs {
+        (any::<[u8; 32]>(), any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(
+            |(manager, reclaim_authority, withdrawal_authority)| StateInitArgs {
                 manager: Pubkey::new_from_array(manager),
                 reclaim_authority: Pubkey::new_from_array(reclaim_authority),
-            }
-        })
+                withdrawal_authority: Pubkey::new_from_array(withdrawal_authority),
+            },
+        )
     }
 }
 
@@ -343,6 +365,7 @@ mod tests {
     static SAMPLE_INIT_ARGS: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
         manager: pubkey_from_seed("SAMPLE_INIT_ARGS's sample manager"),
         reclaim_authority: pubkey_from_seed("SAMPLE_INIT_ARGS's sample reclaim authority"),
+        withdrawal_authority: pubkey_from_seed("SAMPLE_INIT_ARGS's sample withdrawal authority"),
     });
 
     /// State account bytes stamped with [`SAMPLE_INIT_ARGS`].
@@ -360,7 +383,7 @@ mod tests {
 
     #[test]
     fn header_has_the_canonical_wire_layout() {
-        assert_eq!(WIDTH_HEADER, 65);
+        assert_eq!(WIDTH_HEADER, 97);
 
         let bytes = header_bytes();
         assert_eq!(bytes[0], SettlementAccount::SettlementState.discriminator());
@@ -368,6 +391,10 @@ mod tests {
         assert_eq!(
             &bytes[33..65],
             &SAMPLE_INIT_ARGS.reclaim_authority.to_bytes()[..]
+        );
+        assert_eq!(
+            &bytes[65..97],
+            &SAMPLE_INIT_ARGS.withdrawal_authority.to_bytes()[..]
         );
     }
 
@@ -379,6 +406,10 @@ mod tests {
         assert_eq!(
             state.authority(Role::ReclaimAuthority),
             SAMPLE_INIT_ARGS.reclaim_authority
+        );
+        assert_eq!(
+            state.authority(Role::WithdrawalAuthority),
+            SAMPLE_INIT_ARGS.withdrawal_authority
         );
     }
 
@@ -436,6 +467,9 @@ mod tests {
 
     set_authority_test!(set_authority_updates_only_manager: Role::Manager);
     set_authority_test!(set_authority_updates_only_reclaim_authority: Role::ReclaimAuthority);
+    set_authority_test!(
+        set_authority_updates_only_withdrawal_authority: Role::WithdrawalAuthority
+    );
 
     #[test]
     fn new_accepts_a_longer_account_and_reads_the_header() {
@@ -447,6 +481,10 @@ mod tests {
         assert_eq!(
             state.authority(Role::ReclaimAuthority),
             SAMPLE_INIT_ARGS.reclaim_authority
+        );
+        assert_eq!(
+            state.authority(Role::WithdrawalAuthority),
+            SAMPLE_INIT_ARGS.withdrawal_authority
         );
     }
 
@@ -553,9 +591,13 @@ mod tests {
                 StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
 
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
-                let StateInitArgs { manager, reclaim_authority } = header;
+                let StateInitArgs { manager, reclaim_authority, withdrawal_authority } = header;
                 prop_assert_eq!(state.authority(Role::Manager), manager);
                 prop_assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
+                prop_assert_eq!(
+                    state.authority(Role::WithdrawalAuthority),
+                    withdrawal_authority
+                );
             }
 
             #[test]

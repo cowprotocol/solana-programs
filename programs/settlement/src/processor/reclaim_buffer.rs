@@ -73,6 +73,7 @@ pub fn process_reclaim_buffer(
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::state::{StateAccount, StateInitArgs, WIDTH_HEADER};
+    use cow_settlement_interface::fixtures::pubkey_from_seed;
     use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
@@ -89,7 +90,6 @@ mod tests {
 
     use super::*;
     const AUTHORITY: Address = Address::new_from_array([101; 32]);
-    const MANAGER: Address = Address::new_from_array([102; 32]);
     const UNRELATED: Address = Address::new_from_array([254; 32]);
     const SPL_TOKEN_PROGRAM_ID: Address = TokenProgram::SplToken.address();
 
@@ -112,8 +112,9 @@ mod tests {
     /// The [`StateInitArgs`] planted by [`base_accounts`].
     fn base_init_args() -> StateInitArgs {
         StateInitArgs {
-            manager: MANAGER,
+            manager: pubkey_from_seed("base_init_args's unused manager"),
             reclaim_authority: AUTHORITY,
+            withdrawal_authority: pubkey_from_seed("base_init_args's unused withdrawal authority"),
         }
     }
 
