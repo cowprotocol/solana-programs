@@ -91,8 +91,6 @@ mod tests {
         token_program::NATIVE_SOL_MINT,
     };
 
-    /// An order buying native SOL is paid out of the state PDA, so that is what
-    /// the builder names as its push source, with the state PDA's own bump.
     #[test]
     fn native_sol_order_pushes_from_the_state_pda() {
         let program_id = pubkey_from_seed("program id");

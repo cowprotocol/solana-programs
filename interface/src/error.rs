@@ -133,7 +133,7 @@ pub enum SettlementError {
     /// buffer.
     BufferSizeUnavailable = 40,
     /// `BeginSettle`: a paired `FinalizeSettle` push paying an order that buys
-    /// native SOL doesn't draw from the settlement state PDA
+    /// native SOL doesn't draw from the settlement state PDA.
     PushSourceNotStatePda = 41,
 }
 

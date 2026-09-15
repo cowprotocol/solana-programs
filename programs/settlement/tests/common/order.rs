@@ -80,9 +80,7 @@ pub fn create_order_pda(
 ///
 /// `build` always creates real sell and buy token accounts. Each side gets its
 /// own freshly generated mint, so the two differ unless a test pins one with
-/// [`OrderBuilder::sell_mint`] / [`OrderBuilder::buy_mint`]. Pinning the buy
-/// mint to the native SOL marker is the exception: proceeds are then lamports,
-/// so the buy side gets a plain address rather than a token account.
+/// [`OrderBuilder::sell_mint`] / [`OrderBuilder::buy_mint`].
 pub struct OrderBuilder<'a> {
     svm: &'a mut LiteSVM,
     program_id: &'a Pubkey,

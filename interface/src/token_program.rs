@@ -3,12 +3,10 @@
 use crate::Pubkey;
 use solana_program_error::ProgramError;
 
-/// The mint an order names to trade native SOL rather than an SPL token.
-/// An order whose `buy_mint` is this is paid out of the settlement state PDA's
-/// own lamports instead of a per-mint buffer.
+/// The address an `OrderIntent` uses as `buy_mint` to trade native SOL rather than a token.
 pub const NATIVE_SOL_MINT: Pubkey = solana_system_interface::program::ID;
 
-/// Whether `mint` names native SOL instead of an SPL token; see
+/// Whether `mint` names native SOL; see
 /// [`NATIVE_SOL_MINT`].
 #[must_use]
 pub fn is_native_sol(mint: &Pubkey) -> bool {

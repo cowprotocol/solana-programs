@@ -14,7 +14,7 @@ use cow_settlement_interface::{
         },
         InstructionInputParsing,
     },
-    pda::{buffer::validate_buffer_pda, state::is_state_pda},
+    pda::{buffer::validate_buffer_pda, state::validate_state_pda},
     recover_discriminator,
     token_program::is_native_sol,
     SettlementError, SettlementInstruction,
@@ -292,9 +292,7 @@ fn process_order(
     // mints must match.
     // If its a native SOL buy order, the validation is a bit different.
     if is_native_sol(&intent.buy_mint) {
-        if !is_state_pda(program_id, push.source_buffer, push.bump) {
-            return Err(SettlementError::PushSourceNotStatePda.into());
-        }
+        validate_state_pda(program_id, push.source_buffer, push.bump)?;
     } else {
         validate_buffer_pda(program_id, push.source_buffer, &intent.buy_mint, push.bump)?;
     }

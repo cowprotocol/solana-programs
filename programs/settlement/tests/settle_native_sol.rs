@@ -3,7 +3,7 @@
 use crate::common::{
     assert_instruction_error_at, buffer, lamports,
     order::{create_order_pda, settlable_intent, OrderBuilder},
-    send,
+    send, send_metered,
     settlement::{
         build_settlement, build_staged_settlement, stage_order, BEGIN_INDEX, FINALIZE_INDEX,
     },
@@ -31,7 +31,11 @@ fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: Settleme
 
 /// The `[BeginSettle, FinalizeSettle]` pair settling `orders` with no pulls,
 /// the finalize pushing each order's amount.
-fn finalize(program_id: &Pubkey, solver: &Pubkey, orders: &[FinalizedIntent]) -> Vec<Instruction> {
+fn native_sol_settlement(
+    program_id: &Pubkey,
+    solver: &Pubkey,
+    orders: &[FinalizedIntent],
+) -> Vec<Instruction> {
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
@@ -41,38 +45,7 @@ fn finalize(program_id: &Pubkey, solver: &Pubkey, orders: &[FinalizedIntent]) ->
 }
 
 #[test]
-fn pushes_native_sol_to_the_buy_account() {
-    let (mut svm, program_id, payer, solver) = setup_settle_ready();
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
-        .build();
-    let funding = 5_000_000;
-    let funded = state::fund_with_lamports(&mut svm, &program_id, funding);
-
-    // The recipient is a plain address nothing has created yet: the push is
-    // what brings it into existence.
-    assert_eq!(lamports(&svm, &intent.buy_token_account), 0);
-
-    let amount = 1_500_000;
-    let instructions = finalize(
-        &program_id,
-        &solver.pubkey(),
-        &[FinalizedIntent {
-            intent: &intent,
-            amount,
-        }],
-    );
-    send(&mut svm, &solver, &instructions).expect("a native SOL push should be paid");
-
-    let (state_pda, _bump) = find_state_pda(&program_id);
-    assert_eq!(lamports(&svm, &intent.buy_token_account), amount);
-    assert_eq!(lamports(&svm, &state_pda), funded - amount);
-}
-
-/// The full round trip: the user sells an SPL token out of their delegated sell
-/// account and is paid in SOL, at a price that meets the order's limit.
-#[test]
-fn settles_an_spl_sell_order_paid_in_sol() {
+fn happy_path_sell_tokens_for_native_sol() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&NATIVE_SOL_MINT)
@@ -87,7 +60,13 @@ fn settles_an_spl_sell_order_paid_in_sol() {
 
     let instructions =
         build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new());
-    send(&mut svm, &solver, &instructions).expect("a fully filled SOL buy should settle");
+    send_metered(
+        &mut svm,
+        &solver,
+        &instructions,
+        common::benchmark::BenchLabel::Settle,
+    )
+    .expect("a fully filled SOL buy should settle");
 
     assert_eq!(token::balance(&svm, &intent.sell_token_account), 0);
     assert_eq!(lamports(&svm, &intent.buy_token_account), 2_000_000);
@@ -97,7 +76,7 @@ fn settles_an_spl_sell_order_paid_in_sol() {
 /// A settlement mixing both kinds of push: one order paid out of a buffer, one
 /// paid out of the state PDA's lamports.
 #[test]
-fn pushes_native_sol_alongside_an_spl_order() {
+fn happy_path_with_token_payout() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let mint = token::create_mint(&mut svm, &payer);
     let spl_intent = OrderBuilder::new(&mut svm, &program_id, &payer)
@@ -116,7 +95,7 @@ fn pushes_native_sol_alongside_an_spl_order() {
 
     let spl_amount = 3_000;
     let sol_amount = 1_000_000;
-    let instructions = finalize(
+    let instructions = native_sol_settlement(
         &program_id,
         &solver.pubkey(),
         &[
@@ -148,7 +127,7 @@ fn pushes_native_sol_alongside_an_spl_order() {
 /// Two orders buying SOL both draw on the one balance, the way two orders
 /// buying the same token both draw on its one buffer.
 #[test]
-fn pushes_several_native_orders_from_one_balance() {
+fn happy_path_multiple_native_orders_can_settle() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&NATIVE_SOL_MINT)
@@ -162,7 +141,7 @@ fn pushes_several_native_orders_from_one_balance() {
 
     let amount0 = 1_000_000;
     let amount1 = 2_000_000;
-    let instructions = finalize(
+    let instructions = native_sol_settlement(
         &program_id,
         &solver.pubkey(),
         &[
@@ -185,7 +164,7 @@ fn pushes_several_native_orders_from_one_balance() {
 }
 
 #[test]
-fn pushes_nothing_for_a_zero_amount() {
+fn happy_path_zero_amount() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&NATIVE_SOL_MINT)
@@ -193,7 +172,7 @@ fn pushes_nothing_for_a_zero_amount() {
     let (state_pda, _bump) = find_state_pda(&program_id);
     let before = lamports(&svm, &state_pda);
 
-    let instructions = finalize(
+    let instructions = native_sol_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
@@ -208,6 +187,32 @@ fn pushes_nothing_for_a_zero_amount() {
 }
 
 #[test]
+fn happy_path_state_pda_receiver_still_works() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let (state_pda, _bump) = find_state_pda(&program_id);
+    let intent = OrderIntent {
+        buy_mint: NATIVE_SOL_MINT,
+        buy_token_account: state_pda,
+        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
+    };
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
+    let funded = state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
+
+    let instructions = native_sol_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: 100,
+        }],
+    );
+    send(&mut svm, &solver, &instructions)
+        .expect("a push that credits its own source should settle as a no-op");
+
+    assert_eq!(lamports(&svm, &state_pda), funded);
+}
+
+#[test]
 fn rejects_a_push_spending_the_state_pdas_rent() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
@@ -218,7 +223,7 @@ fn rejects_a_push_spending_the_state_pdas_rent() {
 
     // One lamport past the balance that isn't rent, so the push is affordable
     // but leaves the account under-funded for its own data.
-    let instructions = finalize(
+    let instructions = native_sol_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
@@ -247,7 +252,7 @@ fn rejects_a_push_larger_than_the_whole_balance() {
     let (state_pda, _bump) = find_state_pda(&program_id);
     let balance = lamports(&svm, &state_pda);
 
-    let instructions = finalize(
+    let instructions = native_sol_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
@@ -325,8 +330,6 @@ fn rejects_a_native_push_with_a_wrong_bump() {
     );
 }
 
-/// A native push still has to pay the account the intent names, the same check
-/// an SPL push passes.
 #[test]
 fn rejects_a_native_push_to_wrong_destination() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -355,30 +358,4 @@ fn rejects_a_native_push_to_wrong_destination() {
         send(&mut svm, &solver, &instructions),
         SettlementError::PushDestinationMismatch,
     );
-}
-
-#[test]
-fn settles_a_native_push_paying_the_state_pda_itself_without_moving_lamports() {
-    let (mut svm, program_id, payer, solver) = setup_settle_ready();
-    let (state_pda, _bump) = find_state_pda(&program_id);
-    let intent = OrderIntent {
-        buy_mint: NATIVE_SOL_MINT,
-        buy_token_account: state_pda,
-        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
-    };
-    create_order_pda(&mut svm, &program_id, &payer, &intent);
-    let funded = state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
-
-    let instructions = finalize(
-        &program_id,
-        &solver.pubkey(),
-        &[FinalizedIntent {
-            intent: &intent,
-            amount: 100,
-        }],
-    );
-    send(&mut svm, &solver, &instructions)
-        .expect("a push that credits its own source should settle as a no-op");
-
-    assert_eq!(lamports(&svm, &state_pda), funded);
 }

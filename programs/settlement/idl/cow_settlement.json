@@ -1056,7 +1056,7 @@
     {
       "code": 41,
       "name": "PushSourceNotStatePda",
-      "msg": "BeginSettle: a paired FinalizeSettle push paying an order that buys native SOL doesn't draw from the settlement state PDA, the account holding the settlement's lamports."
+      "msg": "BeginSettle: a paired FinalizeSettle push paying an order that buys native SOL doesn't draw from the settlement state PDA."
     }
   ]
 }
