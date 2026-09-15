@@ -3,6 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Flags, OrderIntent, OrderKind,
 };
+use cow_settlement_client::cow_settlement_interface::token_program::is_native_sol;
 use cow_settlement_client::instruction::CreateOrder;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -10,7 +11,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 
-use super::{signed_tx, token};
+use super::{signed_tx, token, unique_pubkey};
 
 /// A default valid sell order owned by `owner`, using placeholders for all
 /// token accounts and mints.
@@ -147,6 +148,8 @@ impl<'a> OrderBuilder<'a> {
     }
 
     /// Pin the mint of the order's buy token account. Defaults to a fresh mint.
+    /// Pass [`NATIVE_SOL_MINT`](cow_settlement_client::cow_settlement_interface::token_program::NATIVE_SOL_MINT)
+    /// to have the order bought in lamports.
     pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
         self.buy_mint = Some(*mint);
         self
@@ -167,8 +170,11 @@ impl<'a> OrderBuilder<'a> {
             token::create_token_account(svm, payer, &sell_mint, &payer.pubkey());
         let buy_mint = buy_mint.unwrap_or_else(|| token::create_mint(svm, payer));
         intent.buy_mint = buy_mint;
-        intent.buy_token_account =
-            token::create_token_account(svm, payer, &buy_mint, &payer.pubkey());
+        intent.buy_token_account = if is_native_sol(&buy_mint) {
+            unique_pubkey()
+        } else {
+            token::create_token_account(svm, payer, &buy_mint, &payer.pubkey())
+        };
         create_order_pda(svm, program_id, payer, &intent);
         intent
     }

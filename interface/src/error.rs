@@ -132,6 +132,9 @@ pub enum SettlementError {
     /// mint has to be and couldn't read the answer, so it can't size the
     /// buffer.
     BufferSizeUnavailable = 40,
+    /// `BeginSettle`: a paired `FinalizeSettle` push paying an order that buys
+    /// native SOL doesn't draw from the settlement state PDA.
+    PushSourceNotStatePda = 41,
 }
 
 impl From<SettlementError> for u32 {

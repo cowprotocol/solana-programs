@@ -303,7 +303,7 @@ A settlement transaction is split into multiple instructions. All settlement ope
 
 - `BeginSettle`: Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Validates each order's limit price and that its cumulative fill stays within the order's sell and buy amounts (fully filling a fill-or-kill order), and updates the order's `amount_withdrawn`/`amount_received`. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
 - (arbitrary interactions): Any instruction from the solver. This could be a token transfer, an AMM swap, or anything else.
-- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
+- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. An order [buying SOL](#buying-sol) is instead paid in lamports out of the state PDA itself. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
 
 Additionally, `BeginSettle` includes the `auction_id` (an `i64`) as part of its instruction data. This value is unused by the program and only relied upon by the off-chain back-end services.
 
@@ -314,6 +314,11 @@ Differences with Ethereum:
 - Interactions aren’t executed from the context of the settlement program but from the context of the solver as completely separate instructions.
   - Notably: a solver doesn’t have to set approvals from the settlement contract to on-chain contracts. Once solver privileges are removed, there’s no way for old solvers to access the buffers anymore, unlike in the current Ethereum contract.
 - Fund transfers are explicit instead of being automatically done as part of the order inclusion. These transfers aren’t automatically done to the buffers, they may go to different accounts.
+
+## Buying SOL
+
+Setting the `OrderIntent`'s `buy_mint` to the system program will cause
+native SOL tokens to be sent out to the provided `buy_token_account` through the state PDA.
 
 ## Selling SOL (a.k.a. ETH flow)
 

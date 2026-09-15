@@ -14,8 +14,10 @@ use cow_settlement_interface::{
         },
         InstructionInputParsing,
     },
-    pda::buffer::validate_buffer_pda,
-    recover_discriminator, SettlementError, SettlementInstruction,
+    pda::{buffer::validate_buffer_pda, state::validate_state_pda},
+    recover_discriminator,
+    token_program::is_native_sol,
+    SettlementError, SettlementInstruction,
 };
 use pinocchio::{
     cpi::Signer,
@@ -288,7 +290,12 @@ fn process_order(
     // This effectively transitively verifies `intent.buy_token_account`
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
-    validate_buffer_pda(program_id, push.source_buffer, &intent.buy_mint, push.bump)?;
+    // If its a native SOL buy order, the validation is a bit different.
+    if is_native_sol(&intent.buy_mint) {
+        validate_state_pda(program_id, push.source_buffer, push.bump)?;
+    } else {
+        validate_buffer_pda(program_id, push.source_buffer, &intent.buy_mint, push.bump)?;
+    }
 
     // The sell token account must be the one named in the intent, owned by
     // the intent owner: an order can only sell funds its own owner controls.

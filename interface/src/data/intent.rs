@@ -124,10 +124,14 @@ pub struct OrderIntent {
     pub sell_mint: Pubkey,
 
     /// Token account that receives the buy-side proceeds. Implicitly
-    /// encodes the recipient.
+    /// encodes the recipient. When `buy_mint` is
+    /// [`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT) the proceeds
+    /// are lamports, so this is a plain account rather than a token account.
     pub buy_token_account: Pubkey,
 
-    /// Mint of the buy token.
+    /// Mint of the buy token, or
+    /// [`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT) for an order
+    /// paid in native SOL.
     pub buy_mint: Pubkey,
 
     /// Amount of the sell token. For `Sell` orders this is the exact
@@ -418,7 +422,13 @@ pub mod fixtures {
                         sell_token_account: Pubkey::new_from_array(sell_tok),
                         sell_mint: Pubkey::new_from_array(sell_mint),
                         buy_token_account: Pubkey::new_from_array(buy_tok),
-                        buy_mint: Pubkey::new_from_array(buy_mint),
+                        // Ensure there are some cases where the system program (buy native SOL) is selected
+                        // To prevent interrupting common base cases that proptest is likely covering (ex. all 0s), select "random" bytes that must be certain values
+                        buy_mint: if buy_mint[4] % 2 == 0 && buy_mint[14] % 2 == 1 {
+                            solana_system_interface::program::ID
+                        } else {
+                            Pubkey::new_from_array(buy_mint)
+                        },
                         sell_amount,
                         buy_amount,
                         valid_to,
