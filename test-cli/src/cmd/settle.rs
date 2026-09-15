@@ -116,6 +116,9 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         program_id: ctx.program_id,
         solver,
         finalize_ix_index,
+        // Token resolution builds legacy SPL accounts throughout (see
+        // `crate::token`), so Token-2022's slot stays empty.
+        only_token_program: None,
         orders: &initialized_intents,
         auction_id: 0,
     };
@@ -132,6 +135,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let finalize_ix = FinalizeSettle {
         program_id: ctx.program_id,
         begin_ix_index,
+        only_token_program: None,
         orders: &settled,
     };
 

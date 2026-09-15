@@ -24,11 +24,13 @@ fn noop_settlement(program_id: &Pubkey, solver: &Pubkey) -> Vec<Instruction> {
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
+        only_token_program: None,
         orders: &[],
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &[],
     };
     vec![begin.into(), finalize.into()]
@@ -99,6 +101,7 @@ fn non_signing_solver_may_not_settle() {
         solver: solver.pubkey(),
         finalize_ix_index: 0,
         auction_id: 0,
+        only_token_program: None,
         orders: &[],
     }
     .into();

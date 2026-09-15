@@ -1,7 +1,8 @@
-//! Utilities related to the token programs supported by the settlement program.
+//! The token programs settlement transfers may be issued against.
 
 use crate::Pubkey;
 use solana_program_error::ProgramError;
+pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
 /// A token program a token-moving instruction accepts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -13,8 +14,7 @@ pub enum TokenProgram {
 }
 
 impl TokenProgram {
-    /// Every supported token program, in no particular order. The single list
-    /// [`TryFrom`] resolves addresses against.
+    /// Every supported token program.
     pub const ALL: [Self; 2] = [Self::SplToken, Self::Token2022];
 
     /// The address the program is deployed at.
@@ -66,6 +66,16 @@ mod tests {
     fn unrelated_program_cannot_be_resolved_as_token_program() {
         assert_eq!(
             TokenProgram::try_from(&pubkey_from_seed("not a token program")),
+            Err(ProgramError::IncorrectProgramId),
+        );
+    }
+
+    /// The placeholder has to be something no token account can be owned by,
+    /// or a slot carrying it would still execute transfers somewhere.
+    #[test]
+    fn the_placeholder_is_not_a_token_program() {
+        assert_eq!(
+            TokenProgram::try_from(&INSTRUCTIONS_SYSVAR_ID),
             Err(ProgramError::IncorrectProgramId),
         );
     }
