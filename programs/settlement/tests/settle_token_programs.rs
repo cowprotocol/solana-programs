@@ -36,68 +36,85 @@ struct Settled<'a> {
 ///
 /// Every account involved is set up under its own mint's program, so the only
 /// thing a test varies is which programs the settlement says it names.
-fn settle_with(
-    svm: &mut LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    solver: &Keypair,
-    orders: &[Settled],
+struct Settlement<'a> {
+    svm: &'a mut LiteSVM,
+    program_id: &'a Pubkey,
+    payer: &'a Keypair,
+    solver: &'a Keypair,
+    orders: &'a [Settled<'a>],
+    /// The token program `BeginSettle` names on its own, or every one of them
+    /// when `None`.
     begin_program: Option<TokenProgram>,
+    /// The same, for `FinalizeSettle`.
     finalize_program: Option<TokenProgram>,
-) -> Result<(), TransactionError> {
-    let mut initialized: Vec<InitializedIntent> = vec![];
-    let mut finalized: Vec<FinalizedIntent> = vec![];
-    for order in orders {
-        let intent = order.intent;
-        // Sell side: fund the account and delegate the pull to the state PDA,
-        // then pull into a throwaway account of the same mint.
-        token::fund_and_delegate(
+}
+
+impl Settlement<'_> {
+    /// Fund the orders, then send the pair, reporting only whether it landed.
+    fn run(self) -> Result<(), TransactionError> {
+        let Self {
             svm,
             program_id,
             payer,
-            &intent.sell_token_account,
-            order.amount_in,
+            solver,
+            orders,
+            begin_program,
+            finalize_program,
+        } = self;
+        let mut initialized: Vec<InitializedIntent> = vec![];
+        let mut finalized: Vec<FinalizedIntent> = vec![];
+        for order in orders {
+            let intent = order.intent;
+            // Sell side: fund the account and delegate the pull to the state PDA,
+            // then pull into a throwaway account of the same mint.
+            token::fund_and_delegate(
+                svm,
+                program_id,
+                payer,
+                &intent.sell_token_account,
+                order.amount_in,
+            );
+            let sell_mint = token::mint_of(svm, &intent.sell_token_account);
+            let destination = token::create_token_account(svm, payer, &sell_mint, &unique_pubkey());
+            let pulls: &[Pull] = Box::leak(Box::new([Pull {
+                destination,
+                amount: order.amount_in,
+            }]));
+            initialized.push(InitializedIntent { intent, pulls });
+
+            // Buy side: fund the buffer so the push has something to draw from.
+            let buy_mint = token::mint_of(svm, &intent.buy_token_account);
+            buffer::ensure_funded(svm, program_id, payer, &buy_mint, order.amount_out);
+            finalized.push(FinalizedIntent {
+                intent,
+                amount: order.amount_out,
+            });
+        }
+
+        let begin = BeginSettle {
+            program_id: *program_id,
+            solver: solver.pubkey(),
+            finalize_ix_index: FINALIZE_INDEX.into(),
+            auction_id: 0,
+            only_token_program: begin_program,
+            orders: &initialized,
+        };
+        let finalize = FinalizeSettle {
+            program_id: *program_id,
+            begin_ix_index: BEGIN_INDEX.into(),
+            only_token_program: finalize_program,
+            orders: &finalized,
+        };
+        let tx = Transaction::new_signed_with_payer(
+            &[begin.into(), finalize.into()],
+            Some(&payer.pubkey()),
+            &[payer, solver],
+            svm.latest_blockhash(),
         );
-        let sell_mint = token::mint_of(svm, &intent.sell_token_account);
-        let destination = token::create_token_account(svm, payer, &sell_mint, &unique_pubkey());
-        let pulls: &[Pull] = Box::leak(Box::new([Pull {
-            destination,
-            amount: order.amount_in,
-        }]));
-        initialized.push(InitializedIntent { intent, pulls });
-
-        // Buy side: fund the buffer so the push has something to draw from.
-        let buy_mint = token::mint_of(svm, &intent.buy_token_account);
-        buffer::ensure_funded(svm, program_id, payer, &buy_mint, order.amount_out);
-        finalized.push(FinalizedIntent {
-            intent,
-            amount: order.amount_out,
-        });
+        svm.send_transaction(tx)
+            .map(|_| ())
+            .map_err(|error| error.err)
     }
-
-    let begin = BeginSettle {
-        program_id: *program_id,
-        solver: solver.pubkey(),
-        finalize_ix_index: FINALIZE_INDEX.into(),
-        auction_id: 0,
-        only_token_program: begin_program,
-        orders: &initialized,
-    };
-    let finalize = FinalizeSettle {
-        program_id: *program_id,
-        begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: finalize_program,
-        orders: &finalized,
-    };
-    let tx = Transaction::new_signed_with_payer(
-        &[begin.into(), finalize.into()],
-        Some(&payer.pubkey()),
-        &[payer, solver],
-        svm.latest_blockhash(),
-    );
-    svm.send_transaction(tx)
-        .map(|_| ())
-        .map_err(|error| error.err)
 }
 
 /// An order selling a token under `sell_program` and buying one under
@@ -156,12 +173,12 @@ fn settles_orders_under_both_token_programs_simultaneously() {
         &TokenProgram::Token2022.address(),
     );
 
-    settle_with(
-        &mut svm,
-        &program_id,
-        &payer,
-        &solver,
-        &[
+    Settlement {
+        svm: &mut svm,
+        program_id: &program_id,
+        payer: &payer,
+        solver: &solver,
+        orders: &[
             Settled {
                 intent: &legacy,
                 amount_in: 400,
@@ -173,9 +190,10 @@ fn settles_orders_under_both_token_programs_simultaneously() {
                 amount_out: 700,
             },
         ],
-        None,
-        None,
-    )
+        begin_program: None,
+        finalize_program: None,
+    }
+    .run()
     .expect("a settlement carrying both programs should settle orders under either");
 
     assert_eq!(token::balance(&svm, &legacy.buy_token_account), 400);
@@ -198,19 +216,20 @@ fn settles_an_order_that_crosses_token_programs() {
         &TokenProgram::Token2022.address(),
     );
 
-    settle_with(
-        &mut svm,
-        &program_id,
-        &payer,
-        &solver,
-        &[Settled {
+    Settlement {
+        svm: &mut svm,
+        program_id: &program_id,
+        payer: &payer,
+        solver: &solver,
+        orders: &[Settled {
             intent: &intent,
             amount_in: 250,
             amount_out: 250,
         }],
-        None,
-        None,
-    )
+        begin_program: None,
+        finalize_program: None,
+    }
+    .run()
     .expect("an order selling under one program and buying under the other should settle");
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 250);
@@ -230,19 +249,20 @@ fn settles_token_2022_orders_without_carrying_the_legacy_program() {
         &TokenProgram::Token2022.address(),
     );
 
-    settle_with(
-        &mut svm,
-        &program_id,
-        &payer,
-        &solver,
-        &[Settled {
+    Settlement {
+        svm: &mut svm,
+        program_id: &program_id,
+        payer: &payer,
+        solver: &solver,
+        orders: &[Settled {
             intent: &intent,
             amount_in: 300,
             amount_out: 300,
         }],
-        Some(TokenProgram::Token2022),
-        Some(TokenProgram::Token2022),
-    )
+        begin_program: Some(TokenProgram::Token2022),
+        finalize_program: Some(TokenProgram::Token2022),
+    }
+    .run()
     .expect("a Token-2022-only settlement should settle Token-2022 orders");
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 300);
@@ -261,19 +281,20 @@ fn settles_legacy_orders_without_carrying_the_token_2022_program() {
         &TokenProgram::SplToken.address(),
     );
 
-    settle_with(
-        &mut svm,
-        &program_id,
-        &payer,
-        &solver,
-        &[Settled {
+    Settlement {
+        svm: &mut svm,
+        program_id: &program_id,
+        payer: &payer,
+        solver: &solver,
+        orders: &[Settled {
             intent: &intent,
             amount_in: 500,
             amount_out: 500,
         }],
-        Some(TokenProgram::SplToken),
-        Some(TokenProgram::SplToken),
-    )
+        begin_program: Some(TokenProgram::SplToken),
+        finalize_program: Some(TokenProgram::SplToken),
+    }
+    .run()
     .expect("a legacy-only settlement should not have to carry Token-2022");
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 500);
