@@ -203,11 +203,11 @@ mod tests {
     /// Creates a legacy SPL-compliant token account of `program`
     fn token_account_of(program: Address) -> AccountView {
         fake_account_owned_by(
-            pubkey_from_seed("UNRELATED token account"),
+            pubkey_from_seed("token_account_of's token account"),
             program,
             &base_account_layout(
-                pubkey_from_seed("UNRELATED mint"),
-                pubkey_from_seed("UNRELATED owner"),
+                pubkey_from_seed("token_account_of's mint"),
+                pubkey_from_seed("token_account_of's owner"),
                 0,
             ),
         )
