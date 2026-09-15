@@ -293,50 +293,15 @@ mod tests {
         assert_eq!(ix.accounts.len(), FINALIZE_FIXED_ACCOUNTS);
     }
 
-    #[test]
-    fn expected_encoding_finalize_settle_no_pushes() {
-        let program_id = pubkey_from_seed("program id");
-        let state_pda = pubkey_from_seed("state pda");
-        let Instruction {
-            program_id: ix_program_id,
-            accounts,
-            data,
-        } = FinalizeSettle {
-            program_id,
-            state_pda,
-            begin_ix_index: 0x1337,
-            only_token_program: None,
-            source_buffers: &[],
-            destinations: &[],
-            bumps: &[],
-            amounts: &[],
-        }
-        .into();
-        assert_eq!(ix_program_id, program_id);
-        assert_eq!(
-            data,
-            ix_data![
-                [SettlementInstruction::FinalizeSettle.discriminator()],
-                hex!("3713"), // counterpart index (little-endian)
-            ],
-        );
-        // No orders: the fixed accounts (sysvar, state PDA, and a slot per token
-        // program). They are all generic accounts that don't play an active role
-        // in the base instruction (the state PDA CPI signature isn't relevant
-        // here). This settlement carries only the legacy program, so Token-2022's
-        // slot holds the placeholder.
-        assert_eq!(accounts.len(), FINALIZE_FIXED_ACCOUNTS);
-        assert_readonly_nonsigner(&accounts[0], INSTRUCTIONS_SYSVAR_ID);
-        assert_readonly_nonsigner(&accounts[1], state_pda);
-        assert_readonly_nonsigner(&accounts[2], TokenProgram::SplToken.address());
-        assert_readonly_nonsigner(&accounts[3], TokenProgram::Token2022.address());
-    }
-
     /// The token-program slots are the addresses the settlement's
     /// `only_token_program` names, in [`TokenProgram::ALL`] order, so a
     /// settlement can name both programs — or leave either one out.
     #[test]
-    fn finalize_settle_carries_the_token_program_slots_it_is_given() {
+    fn expected_encoding_finalize_settle_no_pushes() {
+        let program_id = pubkey_from_seed("program id");
+        let state_pda = pubkey_from_seed("state pda");
+
+        // Confirm the fixed accounts for ever combination of token program encodings
         for (only_token_program, expected) in [
             (
                 None,
@@ -354,20 +319,37 @@ mod tests {
                 [INSTRUCTIONS_SYSVAR_ID, TokenProgram::Token2022.address()],
             ),
         ] {
-            let ix = Instruction::from(FinalizeSettle {
-                program_id: Pubkey::new_unique(),
-                state_pda: Pubkey::new_unique(),
-                begin_ix_index: 0,
+            let Instruction {
+                accounts,
+                program_id: ix_program_id,
+                data,
+            } = Instruction::from(FinalizeSettle {
+                program_id,
+                state_pda,
+                begin_ix_index: 0x1337,
                 only_token_program,
                 source_buffers: &[],
                 destinations: &[],
                 bumps: &[],
                 amounts: &[],
             });
-            let slots: Vec<Pubkey> = ix.accounts[2..].iter().map(|meta| meta.pubkey).collect();
+
+            assert_eq!(accounts.len(), FINALIZE_FIXED_ACCOUNTS);
+            assert_readonly_nonsigner(&accounts[0], INSTRUCTIONS_SYSVAR_ID);
+            assert_readonly_nonsigner(&accounts[1], state_pda);
+
+            let token_slots = &accounts[2..];
+            for (actual, expected) in token_slots.iter().zip(expected) {
+                assert_readonly_nonsigner(actual, expected);
+            }
+
+            assert_eq!(ix_program_id, program_id);
             assert_eq!(
-                slots, expected,
-                "{only_token_program:?} should name just the programs it settles against",
+                data,
+                ix_data![
+                    [SettlementInstruction::FinalizeSettle.discriminator()],
+                    hex!("3713"), // counterpart index (little-endian)
+                ],
             );
         }
     }

@@ -326,50 +326,8 @@ mod tests {
         let program_id = pubkey_from_seed("program id");
         let state_pda = pubkey_from_seed("state pda");
         let solver = pubkey_from_seed("solver");
-        let Instruction {
-            program_id: ix_program_id,
-            accounts,
-            data,
-        } = BeginSettle {
-            program_id,
-            state_pda,
-            solver,
-            finalize_ix_index: 0x1337,
-            auction_id: 0x0102_0304_0506_0708,
-            only_token_program: None,
-            order_pdas: &[],
-            sell_token_accounts: &[],
-            pulls: &[],
-        }
-        .into();
-        assert_eq!(ix_program_id, program_id);
-        assert_eq!(
-            data,
-            ix_data![
-                [SettlementInstruction::BeginSettle.discriminator()],
-                hex!("3713"),             // counterpart index, little endian
-                hex!("0807060504030201"), // auction id, little endian
-                [0],                      // order count
-            ],
-        );
-        // No orders: the fixed accounts (solver, sysvar, state PDA, and a slot
-        // per token program). Only the solver signs; the rest don't play an
-        // active role in the base instruction (the state PDA CPI signature isn't
-        // relevant here). This settlement carries only the legacy program, so
-        // Token-2022's slot holds the placeholder.
-        assert_eq!(accounts.len(), FIXED_ACCOUNTS);
-        assert_readonly_signer(&accounts[0], solver);
-        assert_readonly_nonsigner(&accounts[1], INSTRUCTIONS_SYSVAR_ID);
-        assert_readonly_nonsigner(&accounts[2], state_pda);
-        assert_readonly_nonsigner(&accounts[3], TokenProgram::SplToken.address());
-        assert_readonly_nonsigner(&accounts[4], TokenProgram::Token2022.address());
-    }
 
-    /// The token-program slots are the addresses the settlement's
-    /// `only_token_program` names, in [`TokenProgram::ALL`] order, so a
-    /// settlement can name both programs — or leave either one out.
-    #[test]
-    fn begin_settle_carries_the_token_program_slots_it_is_given() {
+        // Confirm the fixed accounts for ever combination of token program encodings
         for (only_token_program, expected) in [
             (
                 None,
@@ -387,21 +345,39 @@ mod tests {
                 [INSTRUCTIONS_SYSVAR_ID, TokenProgram::Token2022.address()],
             ),
         ] {
-            let Instruction { accounts, .. } = Instruction::from(BeginSettle {
-                program_id: Pubkey::new_unique(),
-                state_pda: Pubkey::new_unique(),
-                solver: Pubkey::new_unique(),
-                finalize_ix_index: 0,
-                auction_id: 0,
+            let Instruction {
+                accounts,
+                program_id: ix_program_id,
+                data,
+            } = Instruction::from(BeginSettle {
+                program_id,
+                state_pda,
+                solver,
+                finalize_ix_index: 0x1337,
+                auction_id: 0x0102_0304_0506_0708,
                 only_token_program,
                 order_pdas: &[],
                 sell_token_accounts: &[],
                 pulls: &[],
             });
-            let slots: Vec<Pubkey> = accounts[3..].iter().map(|meta| meta.pubkey).collect();
+            assert_eq!(accounts.len(), FIXED_ACCOUNTS);
+            assert_readonly_signer(&accounts[0], solver);
+            assert_readonly_nonsigner(&accounts[1], INSTRUCTIONS_SYSVAR_ID);
+            assert_readonly_nonsigner(&accounts[2], state_pda);
+            let token_slots = &accounts[3..];
+            for (actual, expected) in token_slots.iter().zip(expected) {
+                assert_readonly_nonsigner(actual, expected);
+            }
+
+            assert_eq!(ix_program_id, program_id);
             assert_eq!(
-                slots, expected,
-                "{only_token_program:?} should name just the programs it settles against",
+                data,
+                ix_data![
+                    [SettlementInstruction::BeginSettle.discriminator()],
+                    hex!("3713"),             // counterpart index, little endian
+                    hex!("0807060504030201"), // auction id, little endian
+                    [0],                      // order count
+                ],
             );
         }
     }
