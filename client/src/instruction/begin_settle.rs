@@ -25,10 +25,12 @@ pub struct BeginSettle<'a> {
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes, carried so it can be tied
     /// back to its auction off-chain.
-    pub auction_id: i64,
-    /// Replaces any token program not corresponding with what is given
-    /// with the system program. Reduces the total number of accounts
-    /// depended upon by this instruction.
+    pub auction_id: i64,    
+    /// By default, a settlement support both token programs at the same time.
+    /// If you know you only need a single token program, you can make the byte
+    /// size of the settlement transaction a bit smaller and reduce the total
+    /// accounts used in the transaction by specifying the
+    /// only token program you need here.
     pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [InitializedIntent<'a>],
 }

@@ -29,9 +29,11 @@ pub struct FinalizedIntent<'a> {
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub begin_ix_index: u16,
-    /// Replaces any token program not corresponding with what is given
-    /// with the system program. Reduces the total number of accounts
-    /// depended upon by this instruction.
+    /// By default, a settlement support both token programs at the same time.
+    /// If you know you only need a single token program, you can make the byte
+    /// size of the settlement transaction a bit smaller and reduce the total
+    /// accounts used in the transaction by specifying the
+    /// only token program you need here.
     pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [FinalizedIntent<'a>],
 }
