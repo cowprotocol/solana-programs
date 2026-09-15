@@ -432,7 +432,7 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
     // Repoint the copy at the cloned mint, so the pair stands on its own under
     // the clone instead of borrowing the real mint.
     let mut token = litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(
-        &mut svm, &account,
+        &svm, &account,
     )
     .expect("the freshly delegated account is a valid token account");
     token.mint = sell_mint;
