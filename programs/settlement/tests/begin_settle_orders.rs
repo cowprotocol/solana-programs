@@ -42,6 +42,7 @@ use cow_settlement_client::instruction::{
 use cow_settlement_interface::data::intent::OrderIntent;
 use litesvm::LiteSVM;
 use litesvm_token::spl_token::error::TokenError;
+use solana_program_pack::Pack;
 use solana_sdk::{
     instruction::{AccountMeta, InstructionError},
     pubkey::Pubkey,
@@ -423,21 +424,21 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
 
     // Build the genuine article first, so what gets cloned is a real token's
     // bytes rather than a test's idea of them.
-    let mint = create_mint(svm, payer);
-    let account = create_token_account(svm, payer, &mint, owner);
-    fund_and_delegate(svm, program_id, payer, &account, amount);
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let account = common::token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
+    common::token::fund_and_delegate(&mut svm, &program_id, &payer, &account, amount);
 
-    let sell_mint = clone_under_unsupported_program(svm, &mint);
+    let sell_mint = common::token::clone_under_unsupported_program(&mut svm, &mint);
     // Repoint the copy at the cloned mint, so the pair stands on its own under
     // the clone instead of borrowing the real mint.
     let mut token =
-        litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(svm, &account)
+        litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(&mut svm, &account)
             .expect("the freshly delegated account is a valid token account");
-    token.mint = cloned_mint;
+    token.mint = sell_mint;
     let mut data = vec![0u8; litesvm_token::spl_token::state::Account::LEN];
     token.pack_into_slice(&mut data);
     let sell_token_account = unique_pubkey();
-    super::create_account_at(svm, cloned_account, &CLONED_TOKEN_PROGRAM_ID, &data);
+    common::create_account_at(&mut svm, sell_token_account, &common::token::CLONED_TOKEN_PROGRAM_ID, &data);
 
     let intent = OrderIntent {
         sell_token_account,

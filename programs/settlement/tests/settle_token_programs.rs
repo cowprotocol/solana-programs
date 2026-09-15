@@ -343,3 +343,90 @@ fn settles_with_the_token_program_slots_swapped() {
 
     assert_eq!(token::balance(&svm, &intent.buy_token_account), 100);
 }
+
+#[test]
+fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
+    /// What the order settles for. Any amount does; it just has to be the same
+    /// in both transactions, so the two differ only in what they name.
+    const AMOUNT: u64 = 100;
+
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+
+    let intent = order_across(
+        &mut svm,
+        &program_id,
+        &payer,
+        0,
+        &TokenProgram::Token2022.address(),
+        &TokenProgram::Token2022.address(),
+    );
+    token::fund_and_delegate(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent.sell_token_account,
+        AMOUNT,
+    );
+    let sell_mint = token::mint_of(&svm, &intent.sell_token_account);
+    let buy_mint = token::mint_of(&svm, &intent.buy_token_account);
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, AMOUNT);
+    let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
+    let pulls = [Pull {
+        destination,
+        amount: AMOUNT,
+    }];
+    let blockhash = svm.latest_blockhash();
+
+    let verify_narrowed = |only_token_program| {
+        let initialized = [InitializedIntent {
+            intent: &intent,
+            pulls: &pulls,
+        }];
+        let finalized = [FinalizedIntent {
+            intent: &intent,
+            amount: AMOUNT,
+        }];
+        let begin = BeginSettle {
+            program_id,
+            solver: solver.pubkey(),
+            finalize_ix_index: FINALIZE_INDEX.into(),
+            auction_id: 0,
+            only_token_program,
+            orders: &initialized,
+        };
+        let finalize = FinalizeSettle {
+            program_id,
+            begin_ix_index: BEGIN_INDEX.into(),
+            only_token_program,
+            orders: &finalized,
+        };
+        Transaction::new_signed_with_payer(
+            &[begin.into(), finalize.into()],
+            Some(&payer.pubkey()),
+            &[&payer, &solver],
+            blockhash,
+        )
+    };
+
+    let both = verify_narrowed(None);
+    let narrowed_legacy = verify_narrowed(Some(TokenProgram::SplToken));
+    let narrowed_2022 = verify_narrowed(Some(TokenProgram::Token2022));
+
+    assert_eq!(
+        narrowed_legacy.message.account_keys.len() + 1,
+        both.message.account_keys.len(),
+        "narrowing `BeginSettle` to the SPL token program should cost the transaction \
+         one account fewer",
+    );
+    assert_eq!(
+        narrowed_2022.message.account_keys.len() + 1,
+        both.message.account_keys.len(),
+        "narrowing `BeginSettle` to the Token2022 token program should cost the transaction \
+         one account fewer",
+    );
+
+    // And the shorter transaction is still one that settles.
+    svm.send_transaction(narrowed_2022)
+        .expect("a settlement narrowed to the program it uses should settle");
+    assert_eq!(token::balance(&svm, &intent.buy_token_account), AMOUNT);
+}

@@ -2,8 +2,7 @@
 
 use crate::Pubkey;
 use solana_program_error::ProgramError;
-
-pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
+pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
 /// A token program a token-moving instruction accepts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,7 +35,7 @@ impl TokenProgram {
     /// account it moves — so a settlement naming every program may mix tokens
     /// from both. `only_token_program` is what narrows that: `None` names them
     /// all, and `Some(program)` names just that one, leaving
-    /// [`SYSTEM_PROGRAM_ID`] in every other slot.
+    /// [`INSTRUCTIONS_SYSVAR_ID`] in every other slot.
     pub const fn addresses(only_token_program: Option<Self>) -> [Pubkey; Self::ALL.len()] {
         let [spl_token, token_2022] = Self::ALL;
         [
@@ -47,7 +46,7 @@ impl TokenProgram {
 
     /// The address this program's own slot holds. The slots are not read
     /// on-chain, so a program the settlement doesn't touch is left out by
-    /// standing [`SYSTEM_PROGRAM_ID`] in: nearly every settlement transaction
+    /// standing [`INSTRUCTIONS_SYSVAR_ID`] in: nearly every settlement transaction
     /// names the system program already, so it costs one more account index
     /// rather than another 32-byte address.
     const fn slot(self, only_token_program: Option<Self>) -> Pubkey {
@@ -55,7 +54,7 @@ impl TokenProgram {
             // Compared as discriminants because `PartialEq` isn't const. That
             // keeps the narrowing correct for any variant added to `ALL`,
             // rather than making this a second place to list them.
-            Some(only) if only as u8 != self as u8 => SYSTEM_PROGRAM_ID,
+            Some(only) if only as u8 != self as u8 => INSTRUCTIONS_SYSVAR_ID,
             _ => self.address(),
         }
     }
@@ -110,7 +109,7 @@ mod tests {
     #[test]
     fn the_placeholder_is_not_a_token_program() {
         assert_eq!(
-            TokenProgram::try_from(&SYSTEM_PROGRAM_ID),
+            TokenProgram::try_from(&INSTRUCTIONS_SYSVAR_ID),
             Err(ProgramError::IncorrectProgramId),
         );
     }
@@ -138,7 +137,7 @@ mod tests {
                 let expected = if slot == named {
                     only.address()
                 } else {
-                    SYSTEM_PROGRAM_ID
+                    INSTRUCTIONS_SYSVAR_ID
                 };
                 assert_eq!(
                     address, expected,
