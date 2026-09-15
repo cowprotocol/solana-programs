@@ -18,11 +18,13 @@ use crate::common::{
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token, unique_pubkey,
 };
-use cow_settlement_client::cow_settlement_interface::{
-    data::intent::OrderIntent, instruction::settle::SPL_TOKEN_PROGRAM_ID,
-    pda::state::find_state_pda, Instruction, SettlementError,
+use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
+use cow_settlement_client::{
+    cow_settlement_interface::{
+        data::intent::OrderIntent, pda::state::find_state_pda, Instruction, SettlementError,
+    },
+    instruction::TokenProgram,
 };
-use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent, TokenProgram};
 use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
     instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signer::Signer,
@@ -47,7 +49,7 @@ fn finalize(program_id: &Pubkey, solver: &Pubkey, orders: &[FinalizedIntent]) ->
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: Some(TokenProgram::SplToken),
+        only_token_program: None,
         orders,
     };
     build_settlement(program_id, solver, orders, finalize)
@@ -210,7 +212,7 @@ fn rejects_a_token_program_the_instruction_doesnt_name() {
     let mut instructions = finalize(&program_id, &solver.pubkey(), &orders);
     replace_first_matching_account(
         &mut instructions[usize::from(FINALIZE_INDEX)],
-        &SPL_TOKEN_PROGRAM_ID,
+        &TokenProgram::SplToken.address(),
         unique_pubkey(),
     );
 
@@ -256,7 +258,7 @@ fn rejects_push_account_count_mismatch() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: Some(TokenProgram::SplToken),
+        only_token_program: None,
         orders: &orders,
     });
     // ...with another push's worth of data bytes appended but no matching
@@ -282,7 +284,7 @@ fn rejects_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: Some(TokenProgram::SplToken),
+        only_token_program: None,
         orders: &[],
     });
     // ...with one of its fixed accounts popped. `BeginSettle` runs first
@@ -375,7 +377,7 @@ fn rejects_two_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: Some(TokenProgram::SplToken),
+        only_token_program: None,
         orders: &orders,
     });
     // ...with that push's whole (source, destination) pair popped, so the data
@@ -405,7 +407,7 @@ fn rejects_partial_push_amount() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: Some(TokenProgram::SplToken),
+        only_token_program: None,
         orders: &orders,
     });
     // Drop one byte so the trailing amount is no longer a whole `u64`.

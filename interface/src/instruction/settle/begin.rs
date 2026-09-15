@@ -299,9 +299,8 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
-    use crate::instruction::settle::SPL_TOKEN_PROGRAM_ID;
     use crate::instruction::tests::{assert_readonly_nonsigner, assert_readonly_signer};
-    use crate::token_program::{TokenProgram, SYSTEM_PROGRAM_ID};
+    use crate::token_program::TokenProgram;
     use hex_literal::hex;
     use solana_account_view::AccountView;
     use solana_address::Address;
@@ -330,7 +329,7 @@ mod tests {
             solver,
             finalize_ix_index: 0x1337,
             auction_id: 0x0102_0304_0506_0708,
-            only_token_program: Some(TokenProgram::SplToken),
+            only_token_program: None,
             order_pdas: &[],
             sell_token_accounts: &[],
             pulls: &[],
@@ -355,8 +354,8 @@ mod tests {
         assert_readonly_signer(&accounts[0], solver);
         assert_readonly_nonsigner(&accounts[1], INSTRUCTIONS_SYSVAR_ID);
         assert_readonly_nonsigner(&accounts[2], state_pda);
-        assert_readonly_nonsigner(&accounts[3], SPL_TOKEN_PROGRAM_ID);
-        assert_readonly_nonsigner(&accounts[4], SYSTEM_PROGRAM_ID);
+        assert_readonly_nonsigner(&accounts[3], TokenProgram::SplToken.address());
+        assert_readonly_nonsigner(&accounts[4], TokenProgram::Token2022.address());
     }
 
     /// The token-program slots are the addresses the settlement's
@@ -406,7 +405,7 @@ mod tests {
             solver,
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
-            only_token_program: Some(TokenProgram::SplToken),
+            only_token_program: None,
             order_pdas: &[high_order_pda, low_order_pda],
             sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
             pulls: &[&[], &[]],
@@ -428,8 +427,8 @@ mod tests {
             solver,
             INSTRUCTIONS_SYSVAR_ID,
             state_pda,
-            SPL_TOKEN_PROGRAM_ID,
-            SYSTEM_PROGRAM_ID,
+            TokenProgram::SplToken.address(),
+            TokenProgram::Token2022.address(),
             low_order_pda,
             low_sell_token_account,
             high_order_pda,
@@ -518,7 +517,7 @@ mod tests {
             solver,
             INSTRUCTIONS_SYSVAR_ID,
             state_pda,
-            SPL_TOKEN_PROGRAM_ID,
+            TokenProgram::SplToken.address(),
             TokenProgram::Token2022.address(),
             order_a,
             sell_a,

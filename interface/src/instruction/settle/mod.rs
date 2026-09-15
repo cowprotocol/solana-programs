@@ -1,11 +1,7 @@
 //! `BeginSettle`/`FinalizeSettle` instruction tools, the instructions-sysvar
 //! account ID they all reference, and the off-chain instruction builders.
 
-use crate::Pubkey;
 use solana_program_error::ProgramError;
-
-/// The legacy SPL Token program, which the builders below target by default.
-pub const SPL_TOKEN_PROGRAM_ID: Pubkey = TokenProgram::SplToken.address();
 
 pub use crate::token_program::TokenProgram;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;

@@ -264,9 +264,8 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
-    use crate::instruction::settle::SPL_TOKEN_PROGRAM_ID;
     use crate::instruction::tests::assert_readonly_nonsigner;
-    use crate::token_program::{TokenProgram, SYSTEM_PROGRAM_ID};
+    use crate::token_program::TokenProgram;
     use hex_literal::hex;
     use proptest::prelude::*;
     use solana_account_view::AccountView;
@@ -280,7 +279,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
-            only_token_program: Some(TokenProgram::SplToken),
+            only_token_program: None,
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -301,7 +300,7 @@ mod tests {
             program_id,
             state_pda,
             begin_ix_index: 0x1337,
-            only_token_program: Some(TokenProgram::SplToken),
+            only_token_program: None,
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -324,8 +323,8 @@ mod tests {
         assert_eq!(accounts.len(), FINALIZE_FIXED_ACCOUNTS);
         assert_readonly_nonsigner(&accounts[0], INSTRUCTIONS_SYSVAR_ID);
         assert_readonly_nonsigner(&accounts[1], state_pda);
-        assert_readonly_nonsigner(&accounts[2], SPL_TOKEN_PROGRAM_ID);
-        assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
+        assert_readonly_nonsigner(&accounts[2], TokenProgram::SplToken.address());
+        assert_readonly_nonsigner(&accounts[3], TokenProgram::Token2022.address());
     }
 
     /// The token-program slots are the addresses the settlement's
@@ -395,7 +394,7 @@ mod tests {
             vec![
                 INSTRUCTIONS_SYSVAR_ID,
                 state_pda,
-                SPL_TOKEN_PROGRAM_ID,
+                TokenProgram::SplToken.address(),
                 TokenProgram::Token2022.address(),
                 source_a,
                 dest_a,
@@ -631,7 +630,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0x1337,
-            only_token_program: Some(TokenProgram::SplToken),
+            only_token_program: None,
             source_buffers: &[
                 pubkey_from_seed("source buffer 0"),
                 pubkey_from_seed("source buffer 1"),
@@ -655,7 +654,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
-            only_token_program: Some(TokenProgram::SplToken),
+            only_token_program: None,
             source_buffers: &[],
             destinations: &[],
             bumps: &[],
@@ -671,7 +670,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             state_pda: pubkey_from_seed("state pda"),
             begin_ix_index: 0,
-            only_token_program: Some(TokenProgram::SplToken),
+            only_token_program: None,
             source_buffers: &[pubkey_from_seed("source buffer")],
             destinations: &[pubkey_from_seed("destination")],
             bumps: &[0xff],

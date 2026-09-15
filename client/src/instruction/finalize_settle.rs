@@ -116,7 +116,7 @@ mod tests {
             let ix = Instruction::from(FinalizeSettle {
                 program_id,
                 begin_ix_index,
-                only_token_program: Some(TokenProgram::SplToken),
+                only_token_program: None,
                 orders: &orders,
             });
 

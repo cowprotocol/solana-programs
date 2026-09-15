@@ -25,7 +25,7 @@ pub struct BeginSettle<'a> {
     pub finalize_ix_index: u16,
     /// The off-chain auction this settlement executes, carried so it can be tied
     /// back to its auction off-chain.
-    pub auction_id: i64,    
+    pub auction_id: i64,
     /// By default, a settlement support both token programs at the same time.
     /// If you know you only need a single token program, you can make the byte
     /// size of the settlement transaction a bit smaller and reduce the total
@@ -97,7 +97,7 @@ mod tests {
                 solver: pubkey_from_seed("solver"),
                 finalize_ix_index,
                 auction_id: 0,
-                only_token_program: Some(TokenProgram::SplToken),
+                only_token_program: None,
                 orders: &orders,
             });
 

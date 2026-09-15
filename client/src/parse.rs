@@ -125,7 +125,7 @@ mod tests {
                 solver: payer,
                 finalize_ix_index: 1,
                 auction_id: 42,
-                only_token_program: Some(TokenProgram::SplToken),
+                only_token_program: None,
                 orders: &[InitializedIntent {
                     intent: &intent,
                     pulls: &[],
@@ -135,7 +135,7 @@ mod tests {
             SettlementInstruction::FinalizeSettle => FinalizeSettle {
                 program_id,
                 begin_ix_index: 0,
-                only_token_program: Some(TokenProgram::SplToken),
+                only_token_program: None,
                 orders: &[],
             }
             .into(),
