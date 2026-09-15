@@ -15,9 +15,7 @@ pub enum TokenProgram {
 }
 
 impl TokenProgram {
-    /// Every supported token program. The single list [`TryFrom`] resolves
-    /// addresses against, and the order `BeginSettle` and `FinalizeSettle` lay
-    /// their token-program accounts out in; see [`Self::addresses`].
+    /// Every supported token program.
     pub const ALL: [Self; 2] = [Self::SplToken, Self::Token2022];
 
     /// The address the program is deployed at.
