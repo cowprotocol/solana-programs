@@ -177,9 +177,12 @@ mod tests {
             .unwrap_or_else(|err| panic!("reclaim buffer happy path should succeed: {err}"));
     }
 
-    /// The buffer's own owner is what says which program closes it, so one
-    /// owned by neither token program is refused: there is nothing to close it
-    /// with.
+    /// The buffer's own owner is what says which program closes it. If the buffer account is
+    /// owned by neither token program, it should be refused.
+    ///
+    /// In general this condition should be impossible (hence the faked account). The reason the test
+    /// is included here is for completeness in confirming the behavior/defensiveness of this function
+    /// in isolation.
     #[test]
     fn process_reclaim_buffer_rejects_a_buffer_under_an_unrelated_program() {
         let mut accounts = base_accounts();
