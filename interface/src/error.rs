@@ -26,8 +26,9 @@ pub enum SettlementError {
     /// `BeginSettle`/`FinalizeSettle` kind, or its counterpart index doesn't
     /// point back at this instruction.
     MismatchedCounterpartDiscriminator = 6,
-    /// `CreateOrder` instruction wasn't signed by the created `OrderIntent`
-    /// owner.
+    /// An order-creation instruction's intent owner isn't the owner it must
+    /// have: the signer for `CreateOrder`, the settlement state PDA for
+    /// `CreateWithdrawalOrder`.
     OwnerMismatch = 7,
     /// An account was provided that cannot be derived from the seeds recognized by the program
     AccountNotDerivable = 8,
@@ -132,6 +133,10 @@ pub enum SettlementError {
     /// mint has to be and couldn't read the answer, so it can't size the
     /// buffer.
     BufferSizeUnavailable = 40,
+    /// `CreateWithdrawalOrder`'s withdrawal-authority account isn't a signer, or
+    /// doesn't match the `withdrawal_authority` recorded in the settlement state
+    /// PDA, so it may not create withdrawal orders.
+    UnauthorizedWithdrawalOrder = 41,
 }
 
 impl From<SettlementError> for u32 {

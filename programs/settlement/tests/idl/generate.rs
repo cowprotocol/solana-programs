@@ -78,6 +78,14 @@ const INSTRUCTIONS: &[Instruction] = &[
         pda_accounts: &[],
     },
     Instruction {
+        variant: SettlementInstruction::CreateWithdrawalOrder,
+        input: &parse_rust::CREATE_WITHDRAWAL_ORDER_RS,
+        // `state_pda` is passed as a plain account checked against the canonical
+        // address, and `order_pda`'s seeds include `sha256(intent)`, which the
+        // IDL has no `seeds` kind for.
+        pda_accounts: &[],
+    },
+    Instruction {
         variant: SettlementInstruction::BeginSettle,
         input: &parse_rust::BEGIN_SETTLE_RS,
         // `state_pda` is passed as a plain account here rather than derived:
@@ -243,10 +251,12 @@ fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
     match (owner, field) {
         // The wire carries the canonical intent bytes; the IDL names the type
         // they decode to.
-        ("CreateOrderInput", "intent_bytes") => Some((
-            "intent".to_string(),
-            json!({ "defined": { "name": "OrderIntent" } }),
-        )),
+        ("CreateOrderInput", "intent_bytes") | ("CreateWithdrawalOrderInput", "intent_bytes") => {
+            Some((
+                "intent".to_string(),
+                json!({ "defined": { "name": "OrderIntent" } }),
+            ))
+        }
         // `Flags` packs three fields into a single byte, which the IDL's type
         // grammar can't express. The byte is what the wire carries.
         ("OrderIntent", "flags") => Some(("flags".to_string(), json!("u8"))),

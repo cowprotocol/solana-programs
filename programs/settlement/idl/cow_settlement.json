@@ -225,6 +225,90 @@
       ]
     },
     {
+      "name": "create_withdrawal_order",
+      "docs": [
+        "Create an order on behalf of the state PDA. Used to sell fees accumulated in the buffer accounts through a regular settlement.",
+        "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The withdrawal authority signs instead, and the program forces intent.owner to be the state PDA, so a withdrawal order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
+        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe.",
+        "The intent's created_on_chain flag must be set: this instruction implements that authentication scheme, and an intent flagged for off-chain Ed25519 authentication is rejected."
+      ],
+      "discriminator": [
+        10
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "docs": [
+            "Must match the withdrawal_authority recorded in the state PDA; authorizes the order without paying rent."
+          ]
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true,
+          "docs": [
+            "Funds the new order PDA's rent and is recorded as its created_by, so ReclaimOrder refunds it. May be the same account as authority."
+          ]
+        },
+        {
+          "name": "state_pda",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  51,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              }
+            ]
+          },
+          "docs": [
+            "Names the withdrawal authority the signer is checked against and is the owner every withdrawal order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
+          ]
+        },
+        {
+          "name": "order_pda",
+          "writable": true,
+          "docs": [
+            "See the seed-derivation note above; cannot be auto-derived by IDL-driven tooling."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "intent",
+          "type": {
+            "defined": {
+              "name": "OrderIntent"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "begin_settle",
       "docs": [
         "Pulls funds for a batch of orders. Must be paired in the same transaction with a FinalizeSettle at `finalize_ix_index`.",
@@ -900,7 +984,7 @@
     {
       "code": 7,
       "name": "OwnerMismatch",
-      "msg": "CreateOrder instruction wasn't signed by the created OrderIntent owner."
+      "msg": "An order-creation instruction's intent owner isn't the owner it must have: the signer for CreateOrder, the settlement state PDA for CreateWithdrawalOrder."
     },
     {
       "code": 8,
@@ -1066,6 +1150,11 @@
       "code": 40,
       "name": "BufferSizeUnavailable",
       "msg": "CreateBuffer asked the token program how long a token account for a mint has to be and couldn't read the answer, so it can't size the buffer."
+    },
+    {
+      "code": 41,
+      "name": "UnauthorizedWithdrawalOrder",
+      "msg": "CreateWithdrawalOrder's withdrawal-authority account isn't a signer, or doesn't match the withdrawal_authority recorded in the settlement state PDA, so it may not create withdrawal orders."
     }
   ]
 }

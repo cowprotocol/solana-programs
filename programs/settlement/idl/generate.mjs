@@ -11,18 +11,19 @@ import IDL from "./cow_settlement.json" with {type: 'json'};
 
 const codama = createFromRoot(rootNodeFromAnchor(IDL));
 
-// order_pda seed generation requires hashing the input intent in `createOrder`
-// so we use codama's `resolverValueNode` to inject custom code for this.
+// order_pda seed generation requires hashing the input intent, which codama
+// can't express from the IDL, so we inject a custom `resolveOrderPda` resolver
+// for every instruction that creates an order at the canonical order PDA.
 codama.update(
-  setInstructionAccountDefaultValuesVisitor([
-    {
-      instruction: "createOrder",
+  setInstructionAccountDefaultValuesVisitor(
+    ["createOrder", "createWithdrawalOrder"].map((instruction) => ({
+      instruction,
       account: "orderPda",
       defaultValue: resolverValueNode("resolveOrderPda", {
         dependsOn: [argumentValueNode("intent")],
       }),
-    },
-  ]),
+    })),
+  ),
 );
 
 // build the TS library

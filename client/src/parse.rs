@@ -8,6 +8,7 @@ use cow_settlement_interface::{
         add_solver::AddSolverInput,
         create_buffer::CreateBufferInput,
         create_order::CreateOrderInput,
+        create_withdrawal_order::CreateWithdrawalOrderInput,
         initialize::InitializeInput,
         reclaim_buffer::ReclaimBufferInput,
         reclaim_order::ReclaimOrderInput,
@@ -24,6 +25,7 @@ use solana_program_error::ProgramError;
 pub enum ParsedInstruction<'a, A> {
     Initialize(InitializeInput<'a, A>),
     CreateOrder(CreateOrderInput<'a, A>),
+    CreateWithdrawalOrder(CreateWithdrawalOrderInput<'a, A>),
     CreateBuffer(CreateBufferInput<'a, A>),
     BeginSettle(BeginSettleInput<'a, A>),
     FinalizeSettle(FinalizeSettleInput<'a, A>),
@@ -47,6 +49,9 @@ pub fn parse_instruction<'a, A>(
         SettlementInstruction::CreateOrder => {
             ParsedInstruction::CreateOrder(CreateOrderInput::parse_body(remaining_data, accounts)?)
         }
+        SettlementInstruction::CreateWithdrawalOrder => ParsedInstruction::CreateWithdrawalOrder(
+            CreateWithdrawalOrderInput::parse_body(remaining_data, accounts)?,
+        ),
         SettlementInstruction::CreateBuffer => ParsedInstruction::CreateBuffer(
             CreateBufferInput::parse_body(remaining_data, accounts)?,
         ),
@@ -78,8 +83,8 @@ pub fn parse_instruction<'a, A>(
 mod tests {
     use super::*;
     use crate::instruction::{
-        AddSolver, BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize,
-        InitializedIntent, RemoveSolver,
+        AddSolver, BeginSettle, CreateBuffers, CreateOrder, CreateWithdrawalOrder, FinalizeSettle,
+        Initialize, InitializedIntent, RemoveSolver,
     };
     use cow_settlement_interface::{
         data::intent::fixtures::sample_intent,
@@ -111,6 +116,13 @@ mod tests {
                 program_id,
                 owner: intent.owner,
                 created_by: payer,
+                intent: &intent,
+            }
+            .into(),
+            SettlementInstruction::CreateWithdrawalOrder => CreateWithdrawalOrder {
+                program_id,
+                authority: payer,
+                payer,
                 intent: &intent,
             }
             .into(),
@@ -186,6 +198,7 @@ mod tests {
         for expected in [
             SettlementInstruction::Initialize,
             SettlementInstruction::CreateOrder,
+            SettlementInstruction::CreateWithdrawalOrder,
             SettlementInstruction::CreateBuffer,
             SettlementInstruction::BeginSettle,
             SettlementInstruction::FinalizeSettle,
@@ -206,6 +219,9 @@ mod tests {
             let actual = match parsed {
                 ParsedInstruction::Initialize(_) => SettlementInstruction::Initialize,
                 ParsedInstruction::CreateOrder(_) => SettlementInstruction::CreateOrder,
+                ParsedInstruction::CreateWithdrawalOrder(_) => {
+                    SettlementInstruction::CreateWithdrawalOrder
+                }
                 ParsedInstruction::CreateBuffer(_) => SettlementInstruction::CreateBuffer,
                 ParsedInstruction::BeginSettle(_) => SettlementInstruction::BeginSettle,
                 ParsedInstruction::FinalizeSettle(_) => SettlementInstruction::FinalizeSettle,
