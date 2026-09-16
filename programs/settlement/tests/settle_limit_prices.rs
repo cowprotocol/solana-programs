@@ -17,6 +17,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
     data::order::OrderAccount,
     pda::order::find_order_pda,
+    token_program::BuyMint,
     SettlementError,
 };
 use litesvm::LiteSVM;
@@ -255,7 +256,7 @@ fn assert_locality_rejected(generous_kind: OrderKind, violating_kind: OrderKind)
             .kind(kind)
             .partially_fillable(true)
             .sell_mint(&sell_mint)
-            .buy_mint(&buy_mint)
+            .buy_mint(BuyMint::Token(buy_mint))
             .sell_amount(SELL_AMOUNT)
             .buy_amount(BUY_AMOUNT)
             .build()

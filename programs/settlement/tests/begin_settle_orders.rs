@@ -33,6 +33,7 @@ use cow_settlement_client::cow_settlement_interface::{
         SPL_TOKEN_PROGRAM_ID,
     },
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
+    token_program::BuyMint,
     Instruction, SettlementError, SettlementInstruction,
 };
 use cow_settlement_client::instruction::{
@@ -122,7 +123,13 @@ fn settle_and_pay_amounts(
         .iter()
         .zip(push_amounts)
         .map(|(order, &amount)| {
-            buffer::ensure_funded(svm, program_id, payer, &order.intent.buy_mint, amount);
+            buffer::ensure_funded(
+                svm,
+                program_id,
+                payer,
+                &order.intent.buy_mint.address(),
+                amount,
+            );
             FinalizedIntent {
                 intent: order.intent,
                 amount,
@@ -358,7 +365,7 @@ fn rejects_sell_token_owner_mismatch() {
         sell_token_account: sell_token,
         sell_mint,
         buy_token_account: buy_token,
-        buy_mint,
+        buy_mint: BuyMint::Token(buy_mint),
         ..sample_intent(payer.pubkey(), 1)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
@@ -516,7 +523,7 @@ fn rejects_orders_in_wrong_address_order() {
         .iter()
         .map(|(_, intent)| {
             (
-                find_buffer_pda(&program_id, &intent.buy_mint),
+                find_buffer_pda(&program_id, &intent.buy_mint.address()),
                 intent.buy_token_account,
             )
         })
@@ -853,7 +860,7 @@ fn zero_pulls_moves_nothing() {
     let buy_mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .sell_mint(&sell_mint)
-        .buy_mint(&buy_mint)
+        .buy_mint(BuyMint::Token(buy_mint))
         .build();
     let sell_token = intent.sell_token_account;
 
@@ -1094,7 +1101,7 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
     let buy_mint = token::create_mint(&mut svm, &payer);
     let other_mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&buy_mint)
+        .buy_mint(BuyMint::Token(buy_mint))
         .build();
     let orders = [FinalizedIntent {
         intent: &intent,

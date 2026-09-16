@@ -3,7 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Flags, OrderIntent, OrderKind,
 };
-use cow_settlement_client::cow_settlement_interface::token_program::is_native_sol;
+use cow_settlement_client::cow_settlement_interface::token_program::BuyMint;
 use cow_settlement_client::instruction::CreateOrder;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -23,7 +23,7 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
         sell_token_account: Pubkey::new_from_array([0x22; 32]),
         sell_mint: Pubkey::new_from_array([0x33; 32]),
         buy_token_account: Pubkey::new_from_array([0x44; 32]),
-        buy_mint: Pubkey::new_from_array([0x55; 32]),
+        buy_mint: BuyMint::Token(Pubkey::new_from_array([0x55; 32])),
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,
@@ -51,7 +51,7 @@ pub fn settlable_intent(
         sell_token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
         sell_mint,
         buy_token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
-        buy_mint,
+        buy_mint: BuyMint::Token(buy_mint),
         ..sample_intent(owner, salt)
     }
 }
@@ -87,7 +87,7 @@ pub struct OrderBuilder<'a> {
     payer: &'a Keypair,
     intent: OrderIntent,
     sell_mint: Option<Pubkey>,
-    buy_mint: Option<Pubkey>,
+    buy_mint: Option<BuyMint>,
 }
 
 impl<'a> OrderBuilder<'a> {
@@ -147,11 +147,11 @@ impl<'a> OrderBuilder<'a> {
         self
     }
 
-    /// Pin the mint of the order's buy token account. Defaults to a fresh mint.
-    /// Pass [`NATIVE_SOL_MINT`](cow_settlement_client::cow_settlement_interface::token_program::NATIVE_SOL_MINT)
-    /// to have the order bought in lamports.
-    pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
-        self.buy_mint = Some(*mint);
+    /// Pin what the order's buy side pays out. Defaults to
+    /// [`BuyMint::Token`] with a fresh mint; pass [`BuyMint::NativeSol`] to
+    /// have the order bought in lamports.
+    pub fn buy_mint(mut self, buy_mint: BuyMint) -> Self {
+        self.buy_mint = Some(buy_mint);
         self
     }
 
@@ -168,12 +168,11 @@ impl<'a> OrderBuilder<'a> {
         intent.sell_mint = sell_mint;
         intent.sell_token_account =
             token::create_token_account(svm, payer, &sell_mint, &payer.pubkey());
-        let buy_mint = buy_mint.unwrap_or_else(|| token::create_mint(svm, payer));
+        let buy_mint = buy_mint.unwrap_or_else(|| BuyMint::Token(token::create_mint(svm, payer)));
         intent.buy_mint = buy_mint;
-        intent.buy_token_account = if is_native_sol(&buy_mint) {
-            unique_pubkey()
-        } else {
-            token::create_token_account(svm, payer, &buy_mint, &payer.pubkey())
+        intent.buy_token_account = match buy_mint {
+            BuyMint::NativeSol => unique_pubkey(),
+            BuyMint::Token(mint) => token::create_token_account(svm, payer, &mint, &payer.pubkey()),
         };
         create_order_pda(svm, program_id, payer, &intent);
         intent

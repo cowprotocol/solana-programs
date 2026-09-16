@@ -21,6 +21,8 @@ use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
+use crate::token_program::BuyMint;
+
 /// Direction of the trade. The discriminants are the values the `kind` bit of
 /// the encoded flags byte takes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
@@ -125,14 +127,14 @@ pub struct OrderIntent {
 
     /// Token account that receives the buy-side proceeds. Implicitly
     /// encodes the recipient. When `buy_mint` is
-    /// [`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT) the proceeds
-    /// are lamports, so this is a plain account rather than a token account.
+    /// [`BuyMint::NativeSol`] the proceeds are lamports, so this is a plain
+    /// account rather than a token account.
     pub buy_token_account: Pubkey,
 
-    /// Mint of the buy token, or
-    /// [`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT) for an order
-    /// paid in native SOL.
-    pub buy_mint: Pubkey,
+    /// What the buy side pays out: a token mint, or native SOL. Encoded as the
+    /// single mint address [`BuyMint::address`] gives, so the variant is a
+    /// property of the bytes rather than something layered on top of them.
+    pub buy_mint: BuyMint,
 
     /// Amount of the sell token. For `Sell` orders this is the exact
     /// amount to be sold (subject to `partially_fillable`); for `Buy`
@@ -257,7 +259,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *sell_token = intent.sell_token_account.to_bytes();
         *sell_mint = intent.sell_mint.to_bytes();
         *buy_token = intent.buy_token_account.to_bytes();
-        *buy_mint = intent.buy_mint.to_bytes();
+        *buy_mint = intent.buy_mint.address().to_bytes();
         *sell_amount = intent.sell_amount.to_le_bytes();
         *buy_amount = intent.buy_amount.to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
@@ -308,7 +310,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             sell_token_account: Pubkey::new_from_array(*sell_token),
             sell_mint: Pubkey::new_from_array(*sell_mint),
             buy_token_account: Pubkey::new_from_array(*buy_token),
-            buy_mint: Pubkey::new_from_array(*buy_mint),
+            buy_mint: BuyMint::from(Pubkey::new_from_array(*buy_mint)),
             sell_amount: u64::from_le_bytes(*sell_amount),
             buy_amount: u64::from_le_bytes(*buy_amount),
             valid_to: u32::from_le_bytes(*valid_to),
@@ -339,7 +341,7 @@ impl OrderIntent {
 pub mod fixtures {
     use proptest::{prelude::*, strategy::Union};
 
-    use super::{Flags, OrderIntent, OrderKind, Pubkey};
+    use super::{BuyMint, Flags, OrderIntent, OrderKind, Pubkey};
 
     /// Every valid [`OrderKind`].
     pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
@@ -353,7 +355,7 @@ pub mod fixtures {
             sell_token_account: Pubkey::new_from_array([0x22; 32]),
             sell_mint: Pubkey::new_from_array([0x33; 32]),
             buy_token_account: Pubkey::new_from_array([0x44; 32]),
-            buy_mint: Pubkey::new_from_array([0x55; 32]),
+            buy_mint: BuyMint::Token(Pubkey::new_from_array([0x55; 32])),
             sell_amount: 0x0123_4567_89ab_cdef,
             buy_amount: 0xfedc_ba98_7654_3210,
             valid_to: 0xdead_beef,
@@ -365,6 +367,19 @@ pub mod fixtures {
     /// Any valid [`OrderKind`].
     pub fn arb_order_kind() -> impl Strategy<Value = OrderKind> {
         Union::new(ALL_ORDER_KINDS.map(Just))
+    }
+
+    /// Any valid [`BuyMint`], weighted so native SOL shows up often enough to
+    /// exercise its payout path without crowding out the token one.
+    ///
+    /// Going through `BuyMint::from` rather than building `Token` directly is
+    /// what keeps the strategy from ever producing `Token(NATIVE_SOL_MINT)`,
+    /// the one value that would encode like native SOL but match like a token.
+    pub fn arb_buy_mint() -> impl Strategy<Value = BuyMint> {
+        prop_oneof![
+            1 => Just(BuyMint::NativeSol),
+            3 => any::<[u8; 32]>().prop_map(|bytes| BuyMint::from(Pubkey::new_from_array(bytes))),
+        ]
     }
 
     /// Any valid [`Flags`].
@@ -397,7 +412,7 @@ pub mod fixtures {
             any::<[u8; 32]>(),
             any::<[u8; 32]>(),
             any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
+            arb_buy_mint(),
             any::<u64>(),
             any::<u64>(),
             any::<u32>(),
@@ -422,13 +437,7 @@ pub mod fixtures {
                         sell_token_account: Pubkey::new_from_array(sell_tok),
                         sell_mint: Pubkey::new_from_array(sell_mint),
                         buy_token_account: Pubkey::new_from_array(buy_tok),
-                        // Ensure there are some cases where the system program (buy native SOL) is selected
-                        // To prevent interrupting common base cases that proptest is likely covering (ex. all 0s), select "random" bytes that must be certain values
-                        buy_mint: if buy_mint[4] % 2 == 0 && buy_mint[14] % 2 == 1 {
-                            solana_system_interface::program::ID
-                        } else {
-                            Pubkey::new_from_array(buy_mint)
-                        },
+                        buy_mint,
                         sell_amount,
                         buy_amount,
                         valid_to,
@@ -489,8 +498,10 @@ mod tests {
             size_of_val(&intent.buy_token_account)
         );
         assert_eq!(
+            // The enum's own size says nothing about the wire; the address it
+            // encodes to is the field's width.
             EncodedOrderIntent::WIDTH_BUY_MINT,
-            size_of_val(&intent.buy_mint)
+            size_of_val(&intent.buy_mint.address())
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,

@@ -20,7 +20,7 @@ use crate::common::{
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::OrderIntent, instruction::settle::SPL_TOKEN_PROGRAM_ID,
-    pda::state::find_state_pda, Instruction, SettlementError,
+    pda::state::find_state_pda, token_program::BuyMint, Instruction, SettlementError,
 };
 use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
 use litesvm_token::spl_token::error::TokenError;
@@ -66,7 +66,7 @@ fn pushes_a_single_order() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&mint)
+        .buy_mint(BuyMint::Token(mint))
         .build();
     let funding = 1_000;
     let buffer_pda = buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, funding);
@@ -94,11 +94,11 @@ fn pushes_several_orders_from_one_buffer() {
     // Distinct orders (each `OrderBuilder` makes fresh sell and buy token
     // accounts) sharing one buy mint, so both pushes draw from one buffer.
     let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&mint)
+        .buy_mint(BuyMint::Token(mint))
         .salt(0)
         .build();
     let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&mint)
+        .buy_mint(BuyMint::Token(mint))
         .salt(1)
         .build();
     let funding = 10_000;
@@ -137,10 +137,10 @@ fn pushes_several_orders_from_different_buffers() {
     let mint0 = token::create_mint(&mut svm, &payer);
     let mint1 = token::create_mint(&mut svm, &payer);
     let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&mint0)
+        .buy_mint(BuyMint::Token(mint0))
         .build();
     let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&mint1)
+        .buy_mint(BuyMint::Token(mint1))
         .build();
     let funding = 5_000;
     let buffer0 = buffer::ensure_funded(&mut svm, &program_id, &payer, &mint0, funding);
@@ -176,7 +176,7 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let buy_mint = token::create_mint(&mut svm, &payer);
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&buy_mint)
+        .buy_mint(BuyMint::Token(buy_mint))
         .build();
     buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, 1_000);
 
@@ -312,7 +312,13 @@ fn rejects_invalid_buy_token_account() {
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
+    buffer::ensure_funded(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent.buy_mint.address(),
+        1_000,
+    );
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
@@ -344,7 +350,13 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
+    buffer::ensure_funded(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent.buy_mint.address(),
+        1_000,
+    );
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
