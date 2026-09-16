@@ -3,7 +3,7 @@
 pub use solana_instruction::{AccountMeta, Instruction};
 pub use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb");
+solana_pubkey::declare_id!("C7PXyLpLQBh3Ce7e9DNj3rDVUvwqa5orDwQG5hs1rfNi");
 
 pub mod data;
 pub mod error;
