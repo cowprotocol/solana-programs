@@ -46,9 +46,15 @@ pub enum SettlementInstruction {
     /// No signature requirement: anyone may reclaim an expired order on behalf
     /// of its reclaim_recipient.
     ReclaimOrder = 5,
+    /// Closes one or more buffer PDAs and sends each closed buffer's rent
+    /// lamports to a reclaim_recipient of the caller's choosing.
     ReclaimBuffer = 6,
+    /// Transfers a Role to another account: the signer names the new holder and
+    /// the role's holder is updated immediately.
     TransferAuthority = 7,
+    /// Registers a solver, allowing that account to execute settlements.
     AddSolver = 8,
+    /// Removes a solver, preventing that account from executing settlements.
     RemoveSolver = 9,
 }
 
