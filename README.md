@@ -161,13 +161,14 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
 - Store the newly generated account in 1password (under "Settlement account by version").
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
+- Update the state PDA bytes in the IDL (use the test to see the bytes to change).
 - Commit the code changes resulting from the steps above (excluding the key of the generated account).
 - Switch your network to mainnet (`solana config set --url mainnet-beta`). You should try out the next steps before the PR on devnet first, but switch to mainnet for the actual release.
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
-- [Publish the IDL](#publishing-the-idl).
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair ../deployer-keypair.json <solver-address>`).
 - Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
+- [Publish the IDL](#publishing-the-idl).
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 - Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
@@ -180,6 +181,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Create a PR with the changes and wait for approval.
 - [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
+- [Publish the IDL](#publishing-the-idl), if changed.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
 ### Bumping the crate version
