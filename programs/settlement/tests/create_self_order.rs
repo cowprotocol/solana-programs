@@ -5,8 +5,9 @@
 
 use crate::common::{
     assert_instruction_error,
-    order::{sample_intent, OrderBuilder},
-    send_with_signers, setup_init, unique_keypair,
+    benchmark::{send_transaction_metered, BenchLabel},
+    order::sample_intent,
+    send_with_signers, setup_init, signed_tx, unique_keypair,
 };
 use cow_settlement_client::instruction::CreateSelfOrder;
 use cow_settlement_interface::{
@@ -20,11 +21,16 @@ mod common;
 fn places_an_order_owned_by_the_state_pda() {
     let (mut svm, params) = setup_init();
 
-    let intent = OrderBuilder::new(&mut svm, &params.program_id, &params.payer)
-        .self_order(&params.self_order)
-        .sell_amount(1_000_000)
-        .buy_amount(500_000)
-        .build();
+    let intent = sample_intent(params.state_pda, 0);
+    let ix = CreateSelfOrder {
+        program_id: params.program_id,
+        authority: params.self_order.pubkey(),
+        created_by: params.payer.pubkey(),
+        intent: &intent,
+    };
+    let tx = signed_tx(&svm, &params.payer, &params.self_order, ix);
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateSelfOrder)
+        .expect("create_self_order should succeed");
 
     let (order_pda, bump) = find_order_pda(&params.program_id, &intent.uid());
     let account = svm

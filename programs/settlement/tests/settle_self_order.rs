@@ -6,9 +6,11 @@
 //! never reach user funds.
 
 use crate::common::{
-    assert_instruction_error, buffer,
+    assert_instruction_error,
+    benchmark::BenchLabel,
+    buffer,
     order::{read_order, OrderBuilder},
-    register_solver, send,
+    register_solver, send, send_metered,
     settlement::{build_staged_settlement, StagedOrder},
     setup_init, token, unique_keypair,
 };
@@ -66,7 +68,8 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     };
     let instructions =
         build_staged_settlement(&params.program_id, &solver.pubkey(), &[staged], vec![]);
-    send(&mut svm, &solver, &instructions).expect("settling the self order should succeed");
+    send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
+        .expect("settling the self order should succeed");
 
     // The fees left the buffer for the solver, and the proceeds reached the
     // treasury out of the buy buffer.
