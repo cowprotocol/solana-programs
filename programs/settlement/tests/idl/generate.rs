@@ -250,6 +250,10 @@ fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
         // `Flags` packs three fields into a single byte, which the IDL's type
         // grammar can't express. The byte is what the wire carries.
         ("OrderIntent", "flags") => Some(("flags".to_string(), json!("u8"))),
+        // `BuyMint` names the two payout paths a single mint address selects.
+        // The address is what the wire carries, and the sentinel picking the
+        // native SOL path is just one of its values.
+        ("OrderIntent", "buy_mint") => Some(("buy_mint".to_string(), json!("pubkey"))),
         _ => None,
     }
 }

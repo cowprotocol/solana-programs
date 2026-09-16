@@ -16,7 +16,7 @@ use cow_settlement_interface::{
     },
     pda::{buffer::validate_buffer_pda, state::validate_state_pda},
     recover_discriminator,
-    token_program::is_native_sol,
+    token_program::BuyMint,
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -291,10 +291,11 @@ fn process_order(
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
     // If its a native SOL buy order, the validation is a bit different.
-    if is_native_sol(&intent.buy_mint) {
-        validate_state_pda(program_id, push.source_buffer, push.bump)?;
-    } else {
-        validate_buffer_pda(program_id, push.source_buffer, &intent.buy_mint, push.bump)?;
+    match intent.buy_mint {
+        BuyMint::NativeSol => validate_state_pda(program_id, push.source_buffer, push.bump)?,
+        BuyMint::Token(mint) => {
+            validate_buffer_pda(program_id, push.source_buffer, &mint, push.bump)?;
+        }
     }
 
     // The sell token account must be the one named in the intent, owned by

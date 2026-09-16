@@ -120,7 +120,8 @@ struct OrderIntent {
 	sell_token_account: Pubkey
 	sell_mint: Pubkey
 	buy_token_account: Pubkey
-	buy_mint: Pubkey
+	// Either a mint, or native SOL; see "Buying SOL" below.
+	buy_mint: BuyMint
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
@@ -317,7 +318,8 @@ Differences with Ethereum:
 
 ## Buying SOL
 
-Setting the `OrderIntent`'s `buy_mint` to the system program will cause
+Setting the `OrderIntent`'s `buy_mint` to `BuyMint::NativeSol` — encoded as the
+system program address, the one address that isn't a mint — will cause
 native SOL tokens to be sent out to the provided `buy_token_account` through the state PDA.
 
 ## Selling SOL (a.k.a. ETH flow)
