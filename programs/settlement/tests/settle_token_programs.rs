@@ -346,8 +346,6 @@ fn settles_with_the_token_program_slots_swapped() {
 
 #[test]
 fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
-    /// What the order settles for. Any amount does; it just has to be the same
-    /// in both transactions, so the two differ only in what they name.
     const AMOUNT: u64 = 100;
 
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
