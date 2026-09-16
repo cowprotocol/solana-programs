@@ -24,7 +24,6 @@ pub(crate) use active_token::also_under_token_2022;
 use cow_settlement_client::instruction::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_interface::Instruction;
-use cow_settlement_interface::SettlementError;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{
     account::Account,
@@ -88,26 +87,28 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     (svm, program_id, payer)
 }
 
-/// A settlement initialized by [`setup_init`], with the manager and
-/// reclaim authority held as keypairs the test can sign transfers with.
+/// A settlement initialized by [`setup_init`], with all authorities held as
+/// keypairs the test can sign transfers with.
 pub struct InitializedParams {
     pub program_id: Pubkey,
     pub payer: Keypair,
     pub state_pda: Pubkey,
     pub manager: Keypair,
     pub reclaim: Keypair,
+    pub withdrawal: Keypair,
 }
 
-/// [`setup`] followed by a successful `Initialize` whose manager and reclaim
-/// authority are keypairs the test controls, so it can sign on their behalf.
+/// [`setup`] followed by a successful `Initialize` whose authorities are
+/// keypairs the test controls, so it can sign on their behalf.
 ///
 /// Returns the SVM and an [`InitializedParams`] bundling the program id, the
-/// fee payer, the state PDA, and the manager and reclaim authority keypairs.
+/// fee payer, the state PDA, and all authority keypairs.
 pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let (mut svm, program_id, payer) = setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_keypair();
     let reclaim = unique_keypair();
+    let withdrawal = unique_keypair();
     state::initialize(
         &mut svm,
         &payer,
@@ -116,6 +117,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             payer: payer.pubkey(),
             manager: manager.pubkey(),
             reclaim_authority: reclaim.pubkey(),
+            withdrawal_authority: withdrawal.pubkey(),
         },
     );
 
@@ -127,6 +129,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             state_pda,
             manager,
             reclaim,
+            withdrawal,
         },
     )
 }
@@ -174,24 +177,13 @@ pub fn setup_cpi_caller(svm: &mut LiteSVM) -> Pubkey {
     cpi_caller_id
 }
 
-/// Wrap a `SettlementError` in the runtime-side `InstructionError::Custom`
-/// shape that the validator records and `TransactionError::InstructionError`
-/// carries. The cross-crate conversion isn't provided by the interface, so
-/// tests asserting on a failed instruction's error code use this helper.
-///
-/// This is mostly here to make the one-way relationship between the two more
-/// explicit.
-pub fn to_instruction_error(e: SettlementError) -> InstructionError {
-    InstructionError::Custom(e.into())
-}
-
 /// Assert that the transaction failed with `expected` on its first
 /// instruction. Use [`assert_instruction_error_at`] when the failing
 /// instruction isn't the first one.
 #[track_caller]
 pub fn assert_instruction_error<T>(
     result: Result<T, TransactionError>,
-    expected: InstructionError,
+    expected: impl Into<InstructionError>,
 ) {
     assert_instruction_error_at(0, result, expected);
 }
@@ -200,11 +192,11 @@ pub fn assert_instruction_error<T>(
 pub fn assert_instruction_error_at<T>(
     ix_idx: u8,
     result: Result<T, TransactionError>,
-    expected: InstructionError,
+    expected: impl Into<InstructionError>,
 ) {
     assert_eq!(
         result.err(),
-        Some(TransactionError::InstructionError(ix_idx, expected))
+        Some(TransactionError::InstructionError(ix_idx, expected.into()))
     );
 }
 

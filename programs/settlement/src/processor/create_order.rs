@@ -24,14 +24,35 @@ pub fn process_create_order(
         created_by,
         order_pda,
     } = CreateOrderInput::parse(instruction_data, accounts)?;
-    // Validate the intent payload and recover its UID before any allocation.
-    let (intent, intent_uid) = EncodedOrderIntent::decode_and_hash(&intent_bytes)?;
 
-    // The order must be authorized by its owner.
+    // The order is authenticated by its owner's signature.
     if !owner.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    if owner.address() != &intent.owner {
+
+    process_new_onchain_order(
+        program_id,
+        (order_pda, &intent_bytes),
+        owner.address(),
+        created_by,
+    )
+}
+
+/// Create a new on-chain order PDA at the specified address, with the given
+/// encoded intent data, owned by the expected order, and flagged as created by
+/// the specified address.
+///
+/// This function performs all necessary validity checks and reverts if the
+/// order has already been created before.
+pub(crate) fn process_new_onchain_order(
+    program_id: &Address,
+    (order_pda, intent_bytes): (&AccountView, &[u8; EncodedOrderIntent::SIZE]),
+    expected_owner: &Address,
+    created_by: &AccountView,
+) -> ProgramResult {
+    let (intent, intent_uid) = EncodedOrderIntent::decode_and_hash(intent_bytes)?;
+
+    if expected_owner != &intent.owner {
         return Err(SettlementError::OwnerMismatch.into());
     }
     // The intent commits to how it's authenticated, and this is the on-chain
@@ -40,12 +61,6 @@ pub fn process_create_order(
         return Err(SettlementError::OrderCreatedOnChainMismatch.into());
     }
 
-    // We want a single order per uid; `CanonicalPda::create_new` derives the
-    // canonical bump and, by signing the creation with the order seeds, rejects
-    // any `order_pda` that isn't the canonical address. This is the owner's own
-    // create flow, so recreating an order that already exists is a user error:
-    // `create_new` then reverts. The rest of the code can assume that if an
-    // account has data, then the bump is valid.
     let bump = CanonicalPda {
         program_id,
         payer: created_by,
@@ -69,7 +84,7 @@ pub fn process_create_order(
         0,
         0,
         created_by.address(),
-        &intent_bytes,
+        intent_bytes,
     );
 
     Ok(())
@@ -134,6 +149,12 @@ mod tests {
 
         let data = default_order_data(&intent_bytes);
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        // The owner must sign for the handler to reach intent validation; the
+        // intent bytes are what's invalid here.
+        accounts[0] = fake_account_from(RuntimeAccount {
+            is_signer: 1,
+            ..Default::default()
+        });
 
         assert_eq!(
             process_create_order(&PROGRAM_ID, &mut accounts, &data),

@@ -918,6 +918,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-hash 4.5.0",
  "solana-instruction",
+ "solana-instruction-error",
  "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-sdk-ids",
