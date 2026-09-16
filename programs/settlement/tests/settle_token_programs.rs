@@ -367,10 +367,9 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
         &intent.sell_token_account,
         AMOUNT,
     );
-    let sell_mint = token::mint_of(&svm, &intent.sell_token_account);
-    let buy_mint = token::mint_of(&svm, &intent.buy_token_account);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, AMOUNT);
-    let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, AMOUNT);
+    let destination =
+        token::create_token_account(&mut svm, &payer, &intent.sell_mint, &unique_pubkey());
     let pulls = [Pull {
         destination,
         amount: AMOUNT,
