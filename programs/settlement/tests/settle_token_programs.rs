@@ -405,9 +405,9 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
         )
     };
 
-    let both = verify_narrowed(None);
-    let narrowed_legacy = verify_narrowed(Some(TokenProgram::SplToken));
-    let narrowed_2022 = verify_narrowed(Some(TokenProgram::Token2022));
+    let both = settle_tx(None);
+    let narrowed_legacy = settle_tx(Some(TokenProgram::SplToken));
+    let narrowed_2022 = settle_tx(Some(TokenProgram::Token2022));
 
     assert_eq!(
         narrowed_legacy.message.account_keys.len() + 1,

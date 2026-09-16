@@ -426,10 +426,10 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
     let account = common::token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
     common::token::fund_and_delegate(&mut svm, &program_id, &payer, &account, amount);
 
-    // We clone the previous mint but assign it to a fake program 
+    // We clone the previous mint but assign it to a fake program
     let fake_token_program = create_account(&mut svm, &payer.pubkey(), &[]);
     let sell_mint = common::token::clone_under_new_program(&mut svm, &mint, &fake_token_program);
-    // We replace the mint of the previous account with the new mint 
+    // We replace the mint of the previous account with the new mint
     let mut token =
         litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(&svm, &account)
             .expect("the freshly delegated account is a valid token account");
