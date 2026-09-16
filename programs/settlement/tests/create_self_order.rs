@@ -96,3 +96,20 @@ fn rejects_an_order_not_owned_by_the_state_pda() {
     let result = send_with_signers(&mut svm, &params.payer, &[&params.self_order], &[ix.into()]);
     assert_instruction_error(result, SettlementError::OwnerMismatch);
 }
+
+#[test]
+fn rejects_an_order_not_flagged_as_created_on_chain() {
+    let (mut svm, params) = setup_init();
+    // Owned by the state PDA, but the intent claims an off-chain creation.
+    let mut intent = sample_intent(params.state_pda, 0);
+    intent.flags.created_on_chain = false;
+
+    let ix = CreateSelfOrder {
+        program_id: params.program_id,
+        authority: params.self_order.pubkey(),
+        created_by: params.payer.pubkey(),
+        intent: &intent,
+    };
+    let result = send_with_signers(&mut svm, &params.payer, &[&params.self_order], &[ix.into()]);
+    assert_instruction_error(result, SettlementError::OrderCreatedOnChainMismatch);
+}
