@@ -19,7 +19,7 @@ use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
     buffer, create_account_at,
-    order::OrderBuilder,
+    order::{read_order, OrderBuilder},
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder},
     signed_tx, token, unique_keypair, unique_pubkey,
@@ -48,12 +48,6 @@ fn encode_and_derive(
     let bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
     let (pda, _) = find_order_pda(program_id, &encoded.hash());
     (bytes, pda)
-}
-
-/// Decode the order stored in an order PDA.
-fn read_order(svm: &LiteSVM, pda: &Pubkey) -> OrderAccount {
-    let account = svm.get_account(pda).expect("order PDA must exist");
-    OrderAccount::try_from(&account.data[..]).expect("order PDA must decode")
 }
 
 /// Directly overwrite the body stored in an order PDA.

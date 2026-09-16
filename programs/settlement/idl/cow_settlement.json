@@ -464,7 +464,7 @@
     {
       "name": "transfer_authority",
       "docs": [
-        "Transfers one Role stored in the state PDA to another account in a single step: the signer names the new holder and the role's holder is updated immediately.",
+        "Transfers a Role to another account: the signer names the new holder and the role's holder is updated immediately.",
         "The signer must be either the manager or the current holder of the role being transferred."
       ],
       "discriminator": [
@@ -538,7 +538,7 @@
     {
       "name": "add_solver",
       "docs": [
-        "Registers a solver, inserting it into the sorted solver list stored in the state PDA. Only the current holder of the Manager role may authorize this, and a solver that is already registered is rejected.",
+        "Registers a solver, allowing that account to execute settlements. Only the current holder of the Manager role may authorize this, and a solver that is already registered is rejected.",
         "The state PDA grows by one address, so the payer tops up its rent through a system-program transfer."
       ],
       "discriminator": [
@@ -613,7 +613,7 @@
     {
       "name": "remove_solver",
       "docs": [
-        "Removes a solver, deleting it from the sorted solver list stored in the state PDA. Only the current holder of the Manager role may authorize this, and a solver that isn't registered is rejected.",
+        "Removes a solver, preventing that account from executing settlements. Only the current holder of the Manager role may authorize this, and a solver that isn't registered is rejected.",
         "The state PDA shrinks by one address, and the freed rent is paid to rent_recipient by a direct debit from the program-owned PDA, so no system program is involved."
       ],
       "discriminator": [
