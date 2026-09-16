@@ -9,7 +9,10 @@
 
 use cow_settlement_interface::{
     data::state::StateAccount,
-    instruction::{create_withdrawal_order::CreateWithdrawalOrderInput, InstructionInputParsing},
+    instruction::{
+        create_order::CreateOrderInput, create_withdrawal_order::CreateWithdrawalOrderInput,
+        InstructionInputParsing,
+    },
     Pubkey, Role, SettlementError,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
@@ -23,11 +26,14 @@ pub fn process_create_withdrawal_order(
     instruction_data: &[u8],
 ) -> ProgramResult {
     let CreateWithdrawalOrderInput {
-        intent_bytes,
+        order:
+            CreateOrderInput {
+                intent_bytes,
+                owner: state_pda,
+                created_by,
+                order_pda,
+            },
         authority,
-        created_by,
-        state_pda,
-        order_pda,
     } = CreateWithdrawalOrderInput::parse(instruction_data, accounts)?;
 
     check_state_pda(program_id, state_pda)?;

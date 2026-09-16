@@ -6,7 +6,7 @@ use solana_pubkey::Pubkey;
 
 pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 
-use super::InstructionInputParsing;
+use super::{create_order::CreateOrderInput, InstructionInputParsing};
 use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 
 /// Builder for a `CreateWithdrawalOrder` instruction.
@@ -63,12 +63,13 @@ impl From<CreateWithdrawalOrder> for Instruction {
 }
 
 /// Parsed inputs of a `CreateWithdrawalOrder` instruction.
+///
+/// The bulk of it is a plain [`CreateOrderInput`] whose `owner` is the state PDA
+/// (the account the order is bound to, and the one the withdrawal authority is
+/// read from); `authority` is the extra signer that gates the instruction.
 pub struct CreateWithdrawalOrderInput<'a, A> {
-    pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
+    pub order: CreateOrderInput<'a, A>,
     pub authority: &'a A,
-    pub created_by: &'a A,
-    pub state_pda: &'a A,
-    pub order_pda: &'a A,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for CreateWithdrawalOrderInput<'a, A> {
@@ -89,11 +90,14 @@ impl<'a, A> InstructionInputParsing<'a, A> for CreateWithdrawalOrderInput<'a, A>
         };
 
         Ok(Self {
-            intent_bytes,
+            // A withdrawal order is a regular on-chain order owned by the state PDA.
+            order: CreateOrderInput {
+                intent_bytes,
+                owner: state_pda,
+                created_by,
+                order_pda,
+            },
             authority,
-            created_by,
-            state_pda,
-            order_pda,
         })
     }
 }
@@ -177,11 +181,14 @@ mod tests {
         ];
 
         let CreateWithdrawalOrderInput {
-            intent_bytes: derived_intent_bytes,
+            order:
+                CreateOrderInput {
+                    intent_bytes: derived_intent_bytes,
+                    owner: derived_state_pda,
+                    created_by: derived_created_by,
+                    order_pda: derived_order_pda,
+                },
             authority: derived_authority,
-            created_by: derived_created_by,
-            state_pda: derived_state_pda,
-            order_pda: derived_order_pda,
         } = CreateWithdrawalOrderInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(derived_intent_bytes, intent_bytes);
