@@ -244,11 +244,11 @@
           ]
         },
         {
-          "name": "payer",
+          "name": "created_by",
           "writable": true,
           "signer": true,
           "docs": [
-            "Funds the new order PDA's rent and is recorded as its created_by, so ReclaimOrder refunds it. May be the same account as authority."
+            "Funds the new order PDA's rent and is recorded as the order's created_by, so ReclaimOrder refunds it there. May be the same account as authority."
           ]
         },
         {

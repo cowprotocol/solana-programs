@@ -25,7 +25,7 @@ pub fn process_create_withdrawal_order(
     let CreateWithdrawalOrderInput {
         intent_bytes,
         authority,
-        payer,
+        created_by,
         state_pda,
         order_pda,
     } = CreateWithdrawalOrderInput::parse(instruction_data, accounts)?;
@@ -43,7 +43,7 @@ pub fn process_create_withdrawal_order(
         program_id,
         (order_pda, &intent_bytes),
         state_pda.address(),
-        payer,
+        created_by,
     )
 }
 
@@ -100,7 +100,7 @@ mod tests {
     fn base_accounts() -> [AccountView; NUM_ACCOUNTS] {
         [
             fake_signer(*WITHDRAWAL_AUTHORITY),
-            fake_signer(pubkey_from_seed("base_accounts's payer")),
+            fake_signer(pubkey_from_seed("base_accounts's created_by")),
             fake_account_with_data(*STATE_PDA, &state_account_bytes(&base_init_args(), &[])),
             fake_account(pubkey_from_seed("base_accounts's order pda")),
             fake_account(SYSTEM_PROGRAM_ID),

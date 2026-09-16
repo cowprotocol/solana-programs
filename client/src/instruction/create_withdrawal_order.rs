@@ -8,12 +8,12 @@ use cow_settlement_interface::{
 
 /// Places `intent` as an order owned by the settlement state PDA, gated by the
 /// withdrawal `authority`. `intent`'s owner must be the state PDA and it
-/// must be flagged `created_on_chain`, or the program rejects it; `payer` funds
-/// the order PDA's rent and is recorded as its `created_by`.
+/// must be flagged `created_on_chain`, or the program rejects it; `created_by`
+/// funds the order PDA's rent.
 pub struct CreateWithdrawalOrder<'a> {
     pub program_id: Pubkey,
     pub authority: Pubkey,
-    pub payer: Pubkey,
+    pub created_by: Pubkey,
     pub intent: &'a OrderIntent,
 }
 
@@ -26,7 +26,7 @@ impl From<CreateWithdrawalOrder<'_>> for Instruction {
         cow_settlement_interface::instruction::create_withdrawal_order::CreateWithdrawalOrder {
             program_id: builder.program_id,
             authority: builder.authority,
-            payer: builder.payer,
+            created_by: builder.created_by,
             state_pda,
             order_pda,
             intent_bytes,
