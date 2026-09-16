@@ -4,8 +4,9 @@
 //! `settle_withdrawal_order.rs`.
 
 use crate::common::{
-    assert_instruction_error, send_with_signers, setup_init, unique_keypair,
-    withdrawal::{prepare_fee_withdrawal_accounts, sample_fee_order},
+    assert_instruction_error,
+    order::{sample_intent, OrderBuilder},
+    send_with_signers, setup_init, unique_keypair,
 };
 use cow_settlement_client::instruction::CreateWithdrawalOrder;
 use cow_settlement_interface::{
@@ -18,22 +19,12 @@ mod common;
 #[test]
 fn places_an_order_owned_by_the_state_pda() {
     let (mut svm, params) = setup_init();
-    let fee_withdrawal_accounts = prepare_fee_withdrawal_accounts(&mut svm, &params, 1_000_000);
-    let intent = sample_fee_order(
-        params.state_pda,
-        &fee_withdrawal_accounts,
-        1_000_000,
-        500_000,
-    );
 
-    let ix = CreateWithdrawalOrder {
-        program_id: params.program_id,
-        authority: params.withdrawal.pubkey(),
-        payer: params.payer.pubkey(),
-        intent: &intent,
-    };
-    send_with_signers(&mut svm, &params.payer, &[&params.withdrawal], &[ix.into()])
-        .expect("placing a withdrawal order should succeed");
+    let intent = OrderBuilder::new(&mut svm, &params.program_id, &params.payer)
+        .withdrawal(&params.withdrawal)
+        .sell_amount(1_000_000)
+        .buy_amount(500_000)
+        .build();
 
     let (order_pda, bump) = find_order_pda(&params.program_id, &intent.uid());
     let account = svm
@@ -53,6 +44,10 @@ fn places_an_order_owned_by_the_state_pda() {
     } = OrderAccount::try_from(&account.data[..]).expect("the order PDA must decode");
     assert_eq!(decoded_intent, intent, "the stored intent must match");
     assert_eq!(
+        decoded_intent.owner, params.state_pda,
+        "the program must force the order's owner to the state PDA"
+    );
+    assert_eq!(
         created_by,
         params.payer.pubkey(),
         "the payer must be recorded as created_by, so the rent refunds to it"
@@ -66,13 +61,7 @@ fn places_an_order_owned_by_the_state_pda() {
 #[test]
 fn rejects_a_caller_that_is_not_the_withdrawal_authority() {
     let (mut svm, params) = setup_init();
-    let fee_withdrawal_accounts = prepare_fee_withdrawal_accounts(&mut svm, &params, 1_000_000);
-    let intent = sample_fee_order(
-        params.state_pda,
-        &fee_withdrawal_accounts,
-        1_000_000,
-        500_000,
-    );
+    let intent = sample_intent(params.state_pda, 0);
 
     // An unrelated signer isn't the withdrawal authority recorded in state.
     let impostor = unique_keypair();
@@ -89,14 +78,8 @@ fn rejects_a_caller_that_is_not_the_withdrawal_authority() {
 #[test]
 fn rejects_an_order_not_owned_by_the_state_pda() {
     let (mut svm, params) = setup_init();
-    let fee_withdrawal_accounts = prepare_fee_withdrawal_accounts(&mut svm, &params, 1_000_000);
     // Owned by an arbitrary account rather than the state PDA.
-    let intent = sample_fee_order(
-        unique_keypair().pubkey(),
-        &fee_withdrawal_accounts,
-        1_000_000,
-        500_000,
-    );
+    let intent = sample_intent(unique_keypair().pubkey(), 0);
 
     let ix = CreateWithdrawalOrder {
         program_id: params.program_id,
