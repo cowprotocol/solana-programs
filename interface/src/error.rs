@@ -132,6 +132,8 @@ pub enum SettlementError {
     /// mint has to be and couldn't read the answer, so it can't size the
     /// buffer.
     BufferSizeUnavailable = 40,
+    /// The token program for a given token or mint is not supported.
+    InvalidTokenProgram = 41,
 }
 
 impl From<SettlementError> for u32 {
