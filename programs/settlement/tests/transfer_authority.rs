@@ -151,7 +151,7 @@ macro_rules! authority_transfer_tests {
 authority_transfer_tests! {
     manager holds Manager and controls all authorities,
     reclaim holds ReclaimAuthority,
-    withdrawal holds WithdrawalAuthority,
+    self_order holds SelfOrderAuthority,
 }
 
 /// Index of the signer account in a `TransferAuthority` instruction.

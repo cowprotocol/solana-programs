@@ -81,9 +81,9 @@
           "type": "pubkey"
         },
         {
-          "name": "withdrawal_authority",
+          "name": "self_order_authority",
           "docs": [
-            "The initial holder of the WithdrawalAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
+            "The initial holder of the SelfOrderAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
           ],
           "type": "pubkey"
         }
@@ -225,10 +225,10 @@
       ]
     },
     {
-      "name": "create_withdrawal_order",
+      "name": "create_self_order",
       "docs": [
         "Create an order on behalf of the state PDA. Used to sell fees accumulated in the buffer accounts through a regular settlement.",
-        "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The withdrawal authority signs instead, and the program forces intent.owner to be the state PDA, so a withdrawal order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
+        "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The self-order authority signs instead, and the program forces intent.owner to be the state PDA, so a self order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
         "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe.",
         "The intent's created_on_chain flag must be set: this instruction implements that authentication scheme, and an intent flagged for off-chain Ed25519 authentication is rejected."
       ],
@@ -240,7 +240,7 @@
           "name": "authority",
           "signer": true,
           "docs": [
-            "Must match the withdrawal_authority recorded in the state PDA; authorizes the order without paying rent."
+            "Must match the self_order_authority recorded in the state PDA; authorizes the order without paying rent."
           ]
         },
         {
@@ -282,7 +282,7 @@
             ]
           },
           "docs": [
-            "Names the withdrawal authority the signer is checked against and is the owner every withdrawal order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
+            "Names the self-order authority the signer is checked against and is the owner every self order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
           ]
         },
         {
@@ -837,7 +837,7 @@
             "type": "pubkey"
           },
           {
-            "name": "withdrawal_authority",
+            "name": "self_order_authority",
             "type": "pubkey"
           }
         ]
@@ -939,7 +939,7 @@
             "name": "ReclaimAuthority"
           },
           {
-            "name": "WithdrawalAuthority"
+            "name": "SelfOrderAuthority"
           }
         ]
       }
@@ -984,7 +984,7 @@
     {
       "code": 7,
       "name": "OwnerMismatch",
-      "msg": "An order-creation instruction's intent owner isn't the owner it must have: the signer for CreateOrder, the settlement state PDA for CreateWithdrawalOrder."
+      "msg": "An order-creation instruction's intent owner isn't the owner it must have: the signer for CreateOrder, the settlement state PDA for CreateSelfOrder."
     },
     {
       "code": 8,
@@ -1153,8 +1153,8 @@
     },
     {
       "code": 41,
-      "name": "UnauthorizedWithdrawalOrder",
-      "msg": "CreateWithdrawalOrder's withdrawal-authority account isn't a signer, or doesn't match the withdrawal_authority recorded in the settlement state PDA, so it may not create withdrawal orders."
+      "name": "UnauthorizedSelfOrder",
+      "msg": "CreateSelfOrder's self-order-authority account isn't a signer, or doesn't match the self_order_authority recorded in the settlement state PDA, so it may not create self orders."
     }
   ]
 }

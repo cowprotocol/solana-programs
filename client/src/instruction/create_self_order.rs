@@ -1,4 +1,4 @@
-//! Builder for the `CreateWithdrawalOrder` instruction.
+//! Builder for the `CreateSelfOrder` instruction.
 
 use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
@@ -7,23 +7,23 @@ use cow_settlement_interface::{
 };
 
 /// Places `intent` as an order owned by the settlement state PDA, gated by the
-/// withdrawal `authority`. `intent`'s owner must be the state PDA and it
+/// self-order `authority`. `intent`'s owner must be the state PDA and it
 /// must be flagged `created_on_chain`, or the program rejects it; `created_by`
 /// funds the order PDA's rent.
-pub struct CreateWithdrawalOrder<'a> {
+pub struct CreateSelfOrder<'a> {
     pub program_id: Pubkey,
     pub authority: Pubkey,
     pub created_by: Pubkey,
     pub intent: &'a OrderIntent,
 }
 
-impl From<CreateWithdrawalOrder<'_>> for Instruction {
-    fn from(builder: CreateWithdrawalOrder<'_>) -> Self {
+impl From<CreateSelfOrder<'_>> for Instruction {
+    fn from(builder: CreateSelfOrder<'_>) -> Self {
         let encoded = EncodedOrderIntent::from(builder.intent);
         let (order_pda, _bump) = find_order_pda(&builder.program_id, &encoded.hash());
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
-        cow_settlement_interface::instruction::create_withdrawal_order::CreateWithdrawalOrder {
+        cow_settlement_interface::instruction::create_self_order::CreateSelfOrder {
             program_id: builder.program_id,
             authority: builder.authority,
             created_by: builder.created_by,

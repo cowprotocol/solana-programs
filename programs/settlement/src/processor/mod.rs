@@ -4,7 +4,7 @@ mod add_solver;
 mod begin_settle;
 mod create_buffer;
 mod create_order;
-mod create_withdrawal_order;
+mod create_self_order;
 mod finalize_settle;
 mod initialize;
 mod reclaim_buffer;
@@ -17,7 +17,7 @@ use add_solver::process_add_solver;
 use begin_settle::process_begin_settle;
 use create_buffer::process_create_buffer;
 use create_order::process_create_order;
-use create_withdrawal_order::process_create_withdrawal_order;
+use create_self_order::process_create_self_order;
 use finalize_settle::process_finalize_settle;
 use initialize::process_initialize;
 use reclaim_buffer::process_reclaim_buffer;
@@ -44,8 +44,8 @@ pub fn process_instruction(
         SettlementInstruction::CreateOrder => {
             process_create_order(program_id, accounts, instruction_data)
         }
-        SettlementInstruction::CreateWithdrawalOrder => {
-            process_create_withdrawal_order(program_id, accounts, instruction_data)
+        SettlementInstruction::CreateSelfOrder => {
+            process_create_self_order(program_id, accounts, instruction_data)
         }
         SettlementInstruction::Initialize => {
             process_initialize(program_id, accounts, instruction_data)

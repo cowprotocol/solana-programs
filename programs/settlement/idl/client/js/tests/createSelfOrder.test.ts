@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { generateKeyPairSigner, lamports } from "@solana/kit";
 import {
   findStatePdaPda,
-  getCreateWithdrawalOrderInstructionAsync,
+  getCreateSelfOrderInstructionAsync,
   getInitializeInstructionAsync,
 } from "../src/generated";
 import { buildOrderIntent, fetchOrderAccount, newSvm, sendInstruction } from "./fixtures";
 
-describe("createWithdrawalOrder", () => {
+describe("createSelfOrder", () => {
   let svm: LiteSVM;
 
   beforeEach(() => {
@@ -16,7 +16,7 @@ describe("createWithdrawalOrder", () => {
   });
 
   it("resolves the order PDA and creates an order owned by the state PDA", async () => {
-    const [payer, manager, reclaimAuthority, withdrawalAuthority] = await Promise.all([
+    const [payer, manager, reclaimAuthority, selfOrderAuthority] = await Promise.all([
       generateKeyPairSigner(),
       generateKeyPairSigner(),
       generateKeyPairSigner(),
@@ -24,27 +24,27 @@ describe("createWithdrawalOrder", () => {
     ]);
     svm.airdrop(payer.address, lamports(1_000_000_000n));
 
-    // Put a withdrawal authority on record so it can place the order.
+    // Put a self-order authority on record so it can place the order.
     const initialize = await getInitializeInstructionAsync({
       payer,
       manager: manager.address,
       reclaimAuthority: reclaimAuthority.address,
-      withdrawalAuthority: withdrawalAuthority.address,
+      selfOrderAuthority: selfOrderAuthority.address,
     });
     await sendInstruction(svm, payer, initialize, "initialize");
 
-    // A withdrawal order must be owned by the state PDA.
+    // A self order must be owned by the state PDA.
     const [statePda] = await findStatePdaPda();
     const intent = await buildOrderIntent({ owner: statePda });
 
     // orderPda is omitted on purpose: the codama resolver must derive it from
     // the intent, the same as it does for createOrder.
-    const instruction = await getCreateWithdrawalOrderInstructionAsync({
-      authority: withdrawalAuthority,
+    const instruction = await getCreateSelfOrderInstructionAsync({
+      authority: selfOrderAuthority,
       createdBy: payer,
       intent,
     });
-    await sendInstruction(svm, payer, instruction, "createWithdrawalOrder");
+    await sendInstruction(svm, payer, instruction, "createSelfOrder");
 
     const {
       cancelled,

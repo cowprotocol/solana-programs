@@ -35,7 +35,7 @@ The program grant privileged roles to specific accounts (_authorities_). They ar
 
 - Manager: the account that can add and remove solvers. It can also update the address of all other roles.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
-- Withdrawal Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (fee withdrawals).
+- Self-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
 
 ### Updating authorities
 
@@ -81,9 +81,9 @@ Limitation:
 
 Fees accumulate in the buffer accounts after a settlement is concluded.
 
-Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [withdrawal authority](#authorities).
+Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [self-order authority](#authorities).
 
-The order is placed through the `CreateWithdrawalOrder` instruction. The withdrawal authority can specify arbitrary order parameters, as long as the owner is the state PDA and the order is marked as created on-chain.
+The order is placed through the `CreateSelfOrder` instruction. The self-order authority can specify arbitrary order parameters, as long as the owner is the state PDA and the order is marked as created on-chain.
 
 Differences with Ethereum:
 
