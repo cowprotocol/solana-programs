@@ -421,16 +421,15 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
 
     let amount = 1_000_000;
 
-    // Build the genuine article first, so what gets cloned is a real token's
-    // bytes rather than a test's idea of them.
+    // We set up a standard token account, ready to trade
     let mint = common::token::create_mint(&mut svm, &payer);
     let account = common::token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
     common::token::fund_and_delegate(&mut svm, &program_id, &payer, &account, amount);
 
+    // We clone the previous mint but assign it to a fake program 
     let fake_token_program = create_account(&mut svm, &payer.pubkey(), &[]);
     let sell_mint = common::token::clone_under_new_program(&mut svm, &mint, &fake_token_program);
-    // Repoint the copy at the cloned mint, so the pair stands on its own under
-    // the clone instead of borrowing the real mint.
+    // We replace the mint of the previous account with the new mint 
     let mut token =
         litesvm_token::get_spl_account::<litesvm_token::spl_token::state::Account>(&svm, &account)
             .expect("the freshly delegated account is a valid token account");
