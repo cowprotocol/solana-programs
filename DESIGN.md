@@ -88,7 +88,7 @@ The order is placed through the `CreateSelfOrder` instruction. The self-order au
 Differences with Ethereum:
 
 - Solvers can't access the content of the buffers directly anymore (though they can do so indirectly by creating a dedicated order just to sweep the buffer).
-- Fee withdrawals have a dedicated authority.
+- `CreateSelfOrder` has a dedicated authority rather than requiring a solver.
 - Creating a fee-withdrawal order is done directly through a dedicated instruction, not indirectly as the result of a call from the settlement context.
 
 ## User delegation (i.e., "approvals")
