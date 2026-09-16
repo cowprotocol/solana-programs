@@ -1,9 +1,8 @@
 //! Builder for the `FinalizeSettle` instruction.
 
 use cow_settlement_interface::{
-    data::intent::OrderIntent,
+    data::intent::{BuyAsset, OrderIntent},
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
-    token_program::is_native_sol,
     Instruction, Pubkey,
 };
 
@@ -11,7 +10,7 @@ use cow_settlement_interface::{
 /// order (its `buy_token_account` is the push destination and its `buy_mint`
 /// selects the canonical source buffer) and `amount` is the quantity to push.
 pub struct FinalizedIntent<'a> {
-    pub intent: &'a OrderIntent,
+    pub intent: &'a OrderIntent<BuyAsset>,
     pub amount: u64,
 }
 
@@ -21,8 +20,8 @@ pub struct FinalizedIntent<'a> {
 /// The destination is the order intent's `buy_token_account` and the source is
 /// the canonical buffer PDA for its `buy_mint` (see [`find_buffer_pda`]), the
 /// only buffer `BeginSettle` accepts as the source of that order's push. An
-/// order buying native SOL (see [`is_native_sol`]) has no buffer, so its source
-/// is the settlement state PDA, whose lamports pay it. The
+/// order buying native SOL ([`BuyAsset::NativeSol`]) has no buffer, so its
+/// source is the settlement state PDA, whose lamports pay it. The
 /// orders are sorted by their canonical order PDA (the same key
 /// [`BeginSettle`](super::begin_settle::BeginSettle) orders its settled-order
 /// list by) so the two instructions present the orders
@@ -53,10 +52,9 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let (state_pda, state_bump) = find_state_pda(&builder.program_id);
         for &i in &orders {
             let intent = builder.orders[i].intent;
-            let (source, bump) = if is_native_sol(&intent.buy_mint) {
-                (state_pda, state_bump)
-            } else {
-                find_buffer_pda(&builder.program_id, &intent.buy_mint)
+            let (source, bump) = match intent.buy_mint {
+                BuyAsset::NativeSol => (state_pda, state_bump),
+                BuyAsset::Token(mint) => find_buffer_pda(&builder.program_id, &mint),
             };
             source_buffers.push(source);
             destinations.push(intent.buy_token_account);
@@ -81,21 +79,20 @@ mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_order_intent,
+        data::intent::fixtures::arb_explicit_order_intent,
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
             settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID},
             InstructionInputParsing,
         },
-        token_program::NATIVE_SOL_MINT,
     };
 
     #[test]
     fn native_sol_order_pushes_from_the_state_pda() {
         let program_id = pubkey_from_seed("program id");
         let intent = OrderIntent {
-            buy_mint: NATIVE_SOL_MINT,
+            buy_mint: BuyAsset::NativeSol,
             buy_token_account: pubkey_from_seed("recipient wallet"),
             ..OrderIntent::default()
         };
@@ -136,7 +133,7 @@ mod tests {
         fn finalize_settle_derives_buffers_from_mints(
             begin_ix_index in any::<u16>(),
             cases in prop::collection::vec(
-                (arb_order_intent(), any::<u64>()),
+                (arb_explicit_order_intent(), any::<u64>()),
                 1..=5,
             ),
         ) {
@@ -168,10 +165,9 @@ mod tests {
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump) = if is_native_sol(&order.intent.buy_mint) {
-                        find_state_pda(&program_id)
-                    } else {
-                        find_buffer_pda(&program_id, &order.intent.buy_mint)
+                    let (buffer, bump) = match order.intent.buy_mint {
+                        BuyAsset::NativeSol => find_state_pda(&program_id),
+                        BuyAsset::Token(mint) => find_buffer_pda(&program_id, &mint),
                     };
                     ExpectedPush {
                         order_pda,

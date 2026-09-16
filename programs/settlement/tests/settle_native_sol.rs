@@ -10,7 +10,7 @@ use crate::common::{
     setup_settle_ready, state, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::{OrderIntent, OrderKind},
+    data::intent::{BuyAsset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
     pda::{buffer::find_buffer_pda, state::find_state_pda},
     token_program::NATIVE_SOL_MINT,
@@ -191,7 +191,7 @@ fn happy_path_state_pda_receiver_still_works() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let intent = OrderIntent {
-        buy_mint: NATIVE_SOL_MINT,
+        buy_mint: BuyAsset::NativeSol,
         buy_token_account: state_pda,
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };

@@ -14,7 +14,7 @@ use crate::common::{
     setup_settle_ready, token,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::{OrderIntent, OrderKind},
+    data::intent::{BuyAsset, OrderIntent, OrderKind},
     data::order::OrderAccount,
     pda::order::find_order_pda,
     SettlementError,
@@ -30,7 +30,7 @@ mod common;
 
 /// Read `intent`'s order PDA and return its persisted `(amount_withdrawn,
 /// amount_received)` cumulative fill totals.
-fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent) -> (u64, u64) {
+fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent<BuyAsset>) -> (u64, u64) {
     let (order_pda, _bump) = find_order_pda(program_id, &intent.uid());
     let data = svm
         .get_account(&order_pda)
@@ -47,7 +47,7 @@ fn settle(
     program_id: &Pubkey,
     payer: &Keypair,
     solver: &Keypair,
-    intent: &OrderIntent,
+    intent: &OrderIntent<BuyAsset>,
     amount_in: u64,
     amount_out: u64,
 ) -> Result<(), TransactionError> {
@@ -66,7 +66,7 @@ fn settle_all(
     program_id: &Pubkey,
     payer: &Keypair,
     solver: &Keypair,
-    orders: &[(&OrderIntent, &[u64], u64)],
+    orders: &[(&OrderIntent<BuyAsset>, &[u64], u64)],
 ) -> Result<(), TransactionError> {
     let staged: Vec<StagedOrder> = orders
         .iter()

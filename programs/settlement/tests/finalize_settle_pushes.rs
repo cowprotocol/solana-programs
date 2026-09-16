@@ -312,7 +312,13 @@ fn rejects_invalid_buy_token_account() {
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
+    buffer::ensure_funded(
+        &mut svm,
+        &program_id,
+        &payer,
+        &Pubkey::from(intent.buy_mint),
+        1_000,
+    );
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
@@ -344,7 +350,13 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
+    buffer::ensure_funded(
+        &mut svm,
+        &program_id,
+        &payer,
+        &Pubkey::from(intent.buy_mint),
+        1_000,
+    );
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,

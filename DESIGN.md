@@ -318,7 +318,10 @@ Differences with Ethereum:
 ## Buying SOL
 
 Setting the `OrderIntent`'s `buy_mint` to the system program will cause
-native SOL tokens to be sent out to the provided `buy_token_account` through the state PDA.
+native SOL tokens to be sent out to the provided `buy_token_account` through the state PDA. To prevent errors
+in understanding/representation on the boundary, an enum
+must be explicitly set to `BuyAsset::NativeEth` to allow
+for the system program to be set.
 
 ## Selling SOL (a.k.a. ETH flow)
 

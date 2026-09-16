@@ -1,9 +1,8 @@
 //! On-chain order construction shared by the settlement integration tests.
 
 use cow_settlement_client::cow_settlement_interface::data::intent::{
-    Flags, OrderIntent, OrderKind,
+    BuyAsset, Flags, OrderIntent, OrderKind,
 };
-use cow_settlement_client::cow_settlement_interface::token_program::is_native_sol;
 use cow_settlement_client::instruction::CreateOrder;
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -17,13 +16,13 @@ use super::{signed_tx, token, unique_pubkey};
 /// token accounts and mints.
 /// `salt` is folded into `app_data` so callers can mint several orders that hash
 /// to different UIDs (and therefore different order PDAs).
-pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
+pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent<BuyAsset> {
     OrderIntent {
         owner,
         sell_token_account: Pubkey::new_from_array([0x22; 32]),
         sell_mint: Pubkey::new_from_array([0x33; 32]),
         buy_token_account: Pubkey::new_from_array([0x44; 32]),
-        buy_mint: Pubkey::new_from_array([0x55; 32]),
+        buy_mint: BuyAsset::Token(Pubkey::new_from_array([0x55; 32])),
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,
@@ -44,14 +43,14 @@ pub fn settlable_intent(
     payer: &Keypair,
     owner: Pubkey,
     salt: u8,
-) -> OrderIntent {
+) -> OrderIntent<BuyAsset> {
     let sell_mint = token::create_mint(svm, payer);
     let buy_mint = token::create_mint(svm, payer);
     OrderIntent {
         sell_token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
         sell_mint,
         buy_token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
-        buy_mint,
+        buy_mint: BuyAsset::Token(buy_mint),
         ..sample_intent(owner, salt)
     }
 }
@@ -61,7 +60,7 @@ pub fn create_order_pda(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     owner: &Keypair,
-    intent: &OrderIntent,
+    intent: &OrderIntent<BuyAsset>,
 ) {
     let ix = CreateOrder {
         program_id: *program_id,
@@ -85,7 +84,7 @@ pub struct OrderBuilder<'a> {
     svm: &'a mut LiteSVM,
     program_id: &'a Pubkey,
     payer: &'a Keypair,
-    intent: OrderIntent,
+    intent: OrderIntent<BuyAsset>,
     sell_mint: Option<Pubkey>,
     buy_mint: Option<Pubkey>,
 }
@@ -155,7 +154,7 @@ impl<'a> OrderBuilder<'a> {
         self
     }
 
-    pub fn build(self) -> OrderIntent {
+    pub fn build(self) -> OrderIntent<BuyAsset> {
         let Self {
             svm,
             program_id,
@@ -168,12 +167,16 @@ impl<'a> OrderBuilder<'a> {
         intent.sell_mint = sell_mint;
         intent.sell_token_account =
             token::create_token_account(svm, payer, &sell_mint, &payer.pubkey());
-        let buy_mint = buy_mint.unwrap_or_else(|| token::create_mint(svm, payer));
+        // The setter takes a raw mint, the way the wire spells the buy side;
+        // classifying it here is what decides whether the order needs a token
+        // account at all.
+        let buy_mint = BuyAsset::from(&buy_mint.unwrap_or_else(|| token::create_mint(svm, payer)));
         intent.buy_mint = buy_mint;
-        intent.buy_token_account = if is_native_sol(&buy_mint) {
-            unique_pubkey()
-        } else {
-            token::create_token_account(svm, payer, &buy_mint, &payer.pubkey())
+        intent.buy_token_account = match buy_mint {
+            BuyAsset::NativeSol => unique_pubkey(),
+            BuyAsset::Token(mint) => {
+                token::create_token_account(svm, payer, &mint, &payer.pubkey())
+            }
         };
         create_order_pda(svm, program_id, payer, &intent);
         intent

@@ -38,7 +38,7 @@ use cow_settlement_client::cow_settlement_interface::{
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
 };
-use cow_settlement_interface::data::intent::OrderIntent;
+use cow_settlement_interface::data::intent::{fixtures, BuyAsset, OrderIntent};
 use litesvm::LiteSVM;
 use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
@@ -63,7 +63,7 @@ fn assert_begin_error<T>(
 /// Assert the solver's payment clears the order's limit price for the amount
 /// pulled. Guards these happy-path tests against a payment silently chosen
 /// below the limit.
-fn sanity_check_clears_limit(intent: &OrderIntent, pulled: u64, paid: u64) {
+fn sanity_check_clears_limit<Buy>(intent: &OrderIntent<Buy>, pulled: u64, paid: u64) {
     let proceeds = u128::from(paid).strict_mul(u128::from(intent.sell_amount));
     let required = u128::from(intent.buy_amount).strict_mul(u128::from(pulled));
     assert!(
@@ -122,7 +122,13 @@ fn settle_and_pay_amounts(
         .iter()
         .zip(push_amounts)
         .map(|(order, &amount)| {
-            buffer::ensure_funded(svm, program_id, payer, &order.intent.buy_mint, amount);
+            buffer::ensure_funded(
+                svm,
+                program_id,
+                payer,
+                &Pubkey::from(order.intent.buy_mint),
+                amount,
+            );
             FinalizedIntent {
                 intent: order.intent,
                 amount,
@@ -199,7 +205,7 @@ fn rejects_wrong_stored_bump() {
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: intent.clone(),
+        intent: fixtures::decoded_intent(&intent),
     })
     .into();
 
@@ -239,7 +245,7 @@ fn rejects_fabricated_program_owned_account() {
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: intent.clone(),
+        intent: fixtures::decoded_intent(&intent),
     })
     .into();
     // A program-owned account holding a valid order body (canonical bump
@@ -358,7 +364,7 @@ fn rejects_sell_token_owner_mismatch() {
         sell_token_account: sell_token,
         sell_mint,
         buy_token_account: buy_token,
-        buy_mint,
+        buy_mint: BuyAsset::Token(buy_mint),
         ..sample_intent(payer.pubkey(), 1)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
@@ -516,7 +522,7 @@ fn rejects_orders_in_wrong_address_order() {
         .iter()
         .map(|(_, intent)| {
             (
-                find_buffer_pda(&program_id, &intent.buy_mint),
+                find_buffer_pda(&program_id, &Pubkey::from(intent.buy_mint)),
                 intent.buy_token_account,
             )
         })
@@ -556,7 +562,7 @@ fn rejects_cancelled_order() {
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: intent.clone(),
+        intent: fixtures::decoded_intent(&intent),
     })
     .into();
 

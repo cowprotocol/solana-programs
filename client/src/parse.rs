@@ -97,7 +97,7 @@ mod tests {
     fn build(instruction: SettlementInstruction) -> Instruction {
         let program_id = pubkey_from_seed("program id");
         let payer = pubkey_from_seed("payer");
-        let intent = sample_intent(Default::default());
+        let intent = sample_intent(Default::default()).classify_buy();
         match instruction {
             SettlementInstruction::Initialize => Initialize {
                 program_id,
