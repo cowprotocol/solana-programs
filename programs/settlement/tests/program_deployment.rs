@@ -34,12 +34,14 @@ fn program_can_be_invoked() {
                 solver: solver.pubkey(),
                 finalize_ix_index: 1,
                 auction_id: 0,
+                only_token_program: None,
                 orders: &[],
             }
             .into(),
             FinalizeSettle {
                 program_id,
                 begin_ix_index: 0,
+                only_token_program: None,
                 orders: &[],
             }
             .into(),

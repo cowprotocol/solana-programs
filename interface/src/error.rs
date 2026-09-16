@@ -133,10 +133,12 @@ pub enum SettlementError {
     /// mint has to be and couldn't read the answer, so it can't size the
     /// buffer.
     BufferSizeUnavailable = 40,
+    /// The token program for a given token or mint is not supported.
+    InvalidTokenProgram = 41,
     /// `CreateSelfOrder`'s self-order-authority account isn't a signer, or
     /// doesn't match the `self_order_authority` recorded in the settlement state
     /// PDA, so it may not create self orders.
-    UnauthorizedSelfOrder = 41,
+    UnauthorizedSelfOrder = 42,
 }
 
 impl From<SettlementError> for u32 {

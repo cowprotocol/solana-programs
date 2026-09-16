@@ -17,7 +17,7 @@ pub mod remove_solver;
 pub mod transfer_authority;
 
 pub use add_solver::AddSolver;
-pub use begin_settle::{BeginSettle, InitializedIntent, Pull};
+pub use begin_settle::{BeginSettle, InitializedIntent, Pull, TokenProgram};
 pub use create_buffer::CreateBuffers;
 pub use create_order::CreateOrder;
 pub use create_self_order::CreateSelfOrder;
