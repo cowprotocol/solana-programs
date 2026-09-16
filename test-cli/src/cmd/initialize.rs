@@ -18,9 +18,9 @@ pub struct InitializeArgs {
     /// Account authorized to reclaim buffer rent (defaults to the payer)
     #[arg(long)]
     reclaim_authority: Option<Pubkey>,
-    /// Account authorized to place fee-withdrawal orders (defaults to the payer)
+    /// Account authorized to place self orders (defaults to the payer)
     #[arg(long)]
-    withdrawal_authority: Option<Pubkey>,
+    self_order_authority: Option<Pubkey>,
 }
 
 pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
@@ -32,7 +32,7 @@ pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
         payer,
         manager: args.manager.unwrap_or(payer),
         reclaim_authority: args.reclaim_authority.unwrap_or(payer),
-        withdrawal_authority: args.withdrawal_authority.unwrap_or(payer),
+        self_order_authority: args.self_order_authority.unwrap_or(payer),
     };
 
     let blockhash = ctx

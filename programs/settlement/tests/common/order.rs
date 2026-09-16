@@ -4,14 +4,15 @@ use cow_settlement_client::cow_settlement_interface::data::intent::{
     Flags, OrderIntent, OrderKind,
 };
 use cow_settlement_client::cow_settlement_interface::data::order::OrderAccount;
-use cow_settlement_client::instruction::CreateOrder;
+use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
+use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
 };
 
-use super::{signed_tx, token};
+use super::{buffer, signed_tx, token};
 
 /// Decode the [`OrderAccount`] stored at an order PDA.
 pub fn read_order(svm: &LiteSVM, pda: &Pubkey) -> OrderAccount {
@@ -80,6 +81,65 @@ pub fn create_order_pda(
         .expect("create_order should succeed");
 }
 
+/// Place `intent` as a self order through `CreateSelfOrder`: an
+/// order owned by the state PDA, funded by `payer` and gated by the self-order
+/// `authority`, which co-signs.
+fn create_self_order_pda(
+    svm: &mut LiteSVM,
+    program_id: &Pubkey,
+    payer: &Keypair,
+    authority: &Keypair,
+    intent: &OrderIntent,
+) {
+    let ix = CreateSelfOrder {
+        program_id: *program_id,
+        authority: authority.pubkey(),
+        created_by: payer.pubkey(),
+        intent,
+    };
+    // Fee-paid by `payer`, co-signed by the self-order `authority`.
+    let tx = signed_tx(svm, payer, authority, ix);
+    svm.send_transaction(tx)
+        .expect("create_self_order should succeed");
+}
+
+/// How an [`OrderBuilder`] sources one side of an order.
+enum TokenSource {
+    /// A fresh account of a freshly generated mint (the default).
+    FreshMint,
+    /// A fresh account of the given mint.
+    Mint(Pubkey),
+    /// The given existing account.
+    Account(Pubkey),
+}
+
+impl TokenSource {
+    /// Resolve this source into the `(mint, token_account)`.
+    fn resolve(
+        self,
+        svm: &mut LiteSVM,
+        program_id: &Pubkey,
+        payer: &Keypair,
+        use_buffer: bool,
+    ) -> (Pubkey, Pubkey) {
+        let create_account = |svm: &mut LiteSVM, mint: &Pubkey| {
+            if use_buffer {
+                buffer::ensure_buffer_exists(svm, program_id, payer, mint)
+            } else {
+                token::create_token_account(svm, payer, mint, &payer.pubkey())
+            }
+        };
+        match self {
+            TokenSource::Account(account) => (token::mint_of(svm, &account), account),
+            TokenSource::Mint(mint) => (mint, create_account(svm, &mint)),
+            TokenSource::FreshMint => {
+                let mint = token::create_mint(svm, payer);
+                (mint, create_account(svm, &mint))
+            }
+        }
+    }
+}
+
 /// Builder that mints a valid settleable order on-chain and returns its intent.
 /// If nothing else is specified, it uses default parameters to build the order.
 /// Individual parameters can be changed before building the order.
@@ -87,13 +147,17 @@ pub fn create_order_pda(
 /// `build` always creates real sell and buy token accounts. Each side gets its
 /// own freshly generated mint, so the two differ unless a test pins one with
 /// [`OrderBuilder::sell_mint`] / [`OrderBuilder::buy_mint`].
+///
+/// Calling [`OrderBuilder::self_order`] switches `build` to place a self order
+/// instead of a regular one.
 pub struct OrderBuilder<'a> {
     svm: &'a mut LiteSVM,
     program_id: &'a Pubkey,
     payer: &'a Keypair,
     intent: OrderIntent,
-    sell_mint: Option<Pubkey>,
-    buy_mint: Option<Pubkey>,
+    sell: TokenSource,
+    buy: TokenSource,
+    self_order_authority: Option<&'a Keypair>,
 }
 
 impl<'a> OrderBuilder<'a> {
@@ -106,8 +170,9 @@ impl<'a> OrderBuilder<'a> {
             program_id,
             payer,
             intent,
-            sell_mint: None,
-            buy_mint: None,
+            sell: TokenSource::FreshMint,
+            buy: TokenSource::FreshMint,
+            self_order_authority: None,
         }
     }
 
@@ -148,14 +213,29 @@ impl<'a> OrderBuilder<'a> {
     }
 
     /// Pin the mint of the order's sell token account. Defaults to a fresh mint.
+    /// Overrides any prior [`sell_token_account`](OrderBuilder::sell_token_account).
     pub fn sell_mint(mut self, mint: &Pubkey) -> Self {
-        self.sell_mint = Some(*mint);
+        self.sell = TokenSource::Mint(*mint);
         self
     }
 
     /// Pin the mint of the order's buy token account. Defaults to a fresh mint.
     pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
-        self.buy_mint = Some(*mint);
+        self.buy = TokenSource::Mint(*mint);
+        self
+    }
+
+    /// Pin the order's sell token account with an existing account, instead of
+    /// creating a fresh one for this order. The account's mint becomes the sell
+    /// mint, so this overrides any prior [`sell_mint`](OrderBuilder::sell_mint).
+    pub fn sell_token_account(mut self, account: &Pubkey) -> Self {
+        self.sell = TokenSource::Account(*account);
+        self
+    }
+
+    /// This will be a self order, not a normal order.
+    pub fn self_order(mut self, authority: &'a Keypair) -> Self {
+        self.self_order_authority = Some(authority);
         self
     }
 
@@ -165,18 +245,26 @@ impl<'a> OrderBuilder<'a> {
             program_id,
             payer,
             mut intent,
-            sell_mint,
-            buy_mint,
+            sell,
+            buy,
+            self_order_authority,
         } = self;
-        let sell_mint = sell_mint.unwrap_or_else(|| token::create_mint(svm, payer));
-        intent.sell_mint = sell_mint;
-        intent.sell_token_account =
-            token::create_token_account(svm, payer, &sell_mint, &payer.pubkey());
-        let buy_mint = buy_mint.unwrap_or_else(|| token::create_mint(svm, payer));
-        intent.buy_mint = buy_mint;
-        intent.buy_token_account =
-            token::create_token_account(svm, payer, &buy_mint, &payer.pubkey());
-        create_order_pda(svm, program_id, payer, &intent);
+        // The buy side always uses a fresh payer-owned treasury; only a
+        // self order's sell side draws from a buffer.
+        (intent.buy_mint, intent.buy_token_account) = buy.resolve(svm, program_id, payer, false);
+        (intent.sell_mint, intent.sell_token_account) =
+            sell.resolve(svm, program_id, payer, self_order_authority.is_some());
+
+        match self_order_authority {
+            None => {
+                intent.owner = payer.pubkey();
+                create_order_pda(svm, program_id, payer, &intent);
+            }
+            Some(authority) => {
+                intent.owner = find_state_pda(program_id).0;
+                create_self_order_pda(svm, program_id, payer, authority, &intent);
+            }
+        }
         intent
     }
 }

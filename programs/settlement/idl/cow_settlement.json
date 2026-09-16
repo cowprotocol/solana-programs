@@ -81,9 +81,9 @@
           "type": "pubkey"
         },
         {
-          "name": "withdrawal_authority",
+          "name": "self_order_authority",
           "docs": [
-            "The initial holder of the WithdrawalAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
+            "The initial holder of the SelfOrderAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
           ],
           "type": "pubkey"
         }
@@ -199,6 +199,90 @@
           "signer": true,
           "docs": [
             "Funds the new order PDA's rent."
+          ]
+        },
+        {
+          "name": "order_pda",
+          "writable": true,
+          "docs": [
+            "See the seed-derivation note above; cannot be auto-derived by IDL-driven tooling."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "intent",
+          "type": {
+            "defined": {
+              "name": "OrderIntent"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_self_order",
+      "docs": [
+        "Create an order on behalf of the state PDA. Used to sell fees accumulated in the buffer accounts through a regular settlement.",
+        "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The self-order authority signs instead, and the program forces intent.owner to be the state PDA, so a self order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
+        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe.",
+        "The intent's created_on_chain flag must be set: this instruction implements that authentication scheme, and an intent flagged for off-chain Ed25519 authentication is rejected."
+      ],
+      "discriminator": [
+        10
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "docs": [
+            "Must match the self_order_authority recorded in the state PDA; authorizes the order without paying rent."
+          ]
+        },
+        {
+          "name": "created_by",
+          "writable": true,
+          "signer": true,
+          "docs": [
+            "Funds the new order PDA's rent and is recorded as the order's created_by, so ReclaimOrder refunds it there. May be the same account as authority."
+          ]
+        },
+        {
+          "name": "state_pda",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  51,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              }
+            ]
+          },
+          "docs": [
+            "Names the self-order authority the signer is checked against and is the owner every self order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
           ]
         },
         {
@@ -753,7 +837,7 @@
             "type": "pubkey"
           },
           {
-            "name": "withdrawal_authority",
+            "name": "self_order_authority",
             "type": "pubkey"
           }
         ]
@@ -855,7 +939,7 @@
             "name": "ReclaimAuthority"
           },
           {
-            "name": "WithdrawalAuthority"
+            "name": "SelfOrderAuthority"
           }
         ]
       }
@@ -900,7 +984,7 @@
     {
       "code": 7,
       "name": "OwnerMismatch",
-      "msg": "CreateOrder instruction wasn't signed by the created OrderIntent owner."
+      "msg": "An order-creation instruction's intent owner isn't the owner it must have: the signer for CreateOrder, the settlement state PDA for CreateSelfOrder."
     },
     {
       "code": 8,
@@ -1071,6 +1155,11 @@
       "code": 41,
       "name": "InvalidTokenProgram",
       "msg": "The token program for a given token or mint is not supported."
+    },
+    {
+      "code": 42,
+      "name": "UnauthorizedSelfOrder",
+      "msg": "CreateSelfOrder's self-order-authority account isn't a signer, or doesn't match the self_order_authority recorded in the settlement state PDA, so it may not create self orders."
     }
   ]
 }

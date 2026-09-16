@@ -25,10 +25,10 @@ use crate::SettlementInstruction;
 /// [`crate::pda::state::find_state_pda`]; the program derives the bump itself
 /// and rejects any other address.
 ///
-/// `manager`, `reclaim_authority`, and `withdrawal_authority` are recorded
+/// `manager`, `reclaim_authority`, and `self_order_authority` are recorded
 /// verbatim in the state PDA's data: the account authorized to add and remove
 /// solvers, the account authorized to reclaim rent for buffers, and the account
-/// authorized to place fee-withdrawal orders. See
+/// authorized to place self orders. See
 /// [`crate::data::state::StateAccount`].
 ///
 /// The state account is owned by the settlement program. This instruction
@@ -36,7 +36,7 @@ use crate::SettlementInstruction;
 /// exists.
 ///
 /// Wire format: `[discriminator=3, manager (32 bytes), reclaim_authority (32
-/// bytes), withdrawal_authority (32 bytes)]`, 97 bytes. Required accounts:
+/// bytes), self_order_authority (32 bytes)]`, 97 bytes. Required accounts:
 /// `[payer (W,S), state_pda (W), system_program (R)]`. The system program must
 /// be available for the `CreateAccount` CPI but doesn't need to sit at that
 /// specific position.
@@ -46,7 +46,7 @@ pub struct Initialize {
     pub state_pda: Pubkey,
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
-    pub withdrawal_authority: Pubkey,
+    pub self_order_authority: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
@@ -54,7 +54,7 @@ impl From<Initialize> for Instruction {
         let mut data = vec![SettlementInstruction::Initialize.discriminator()];
         data.extend_from_slice(&builder.manager.to_bytes());
         data.extend_from_slice(&builder.reclaim_authority.to_bytes());
-        data.extend_from_slice(&builder.withdrawal_authority.to_bytes());
+        data.extend_from_slice(&builder.self_order_authority.to_bytes());
         Instruction {
             program_id: builder.program_id,
             accounts: vec![
@@ -73,7 +73,7 @@ pub struct InitializeInput<'a, A> {
     pub state_pda: &'a A,
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
-    pub withdrawal_authority: Pubkey,
+    pub self_order_authority: Pubkey,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
@@ -83,7 +83,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
         let authorities: &[u8; 3 * size_of::<Pubkey>()] = instruction_data
             .try_into()
             .map_err(|_| ProgramError::InvalidInstructionData)?;
-        let (manager, reclaim_authority, withdrawal_authority) = array_refs![
+        let (manager, reclaim_authority, self_order_authority) = array_refs![
             authorities,
             size_of::<Pubkey>(),
             size_of::<Pubkey>(),
@@ -91,7 +91,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
         ];
         let manager = Pubkey::new_from_array(*manager);
         let reclaim_authority = Pubkey::new_from_array(*reclaim_authority);
-        let withdrawal_authority = Pubkey::new_from_array(*withdrawal_authority);
+        let self_order_authority = Pubkey::new_from_array(*self_order_authority);
 
         // Accounts: [payer (W,S), state_pda (W), system_program (R)]. The system
         // program needs to be present for the `CreateAccount` CPI but doesn't
@@ -105,7 +105,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
             state_pda,
             manager,
             reclaim_authority,
-            withdrawal_authority,
+            self_order_authority,
         })
     }
 }
@@ -131,7 +131,7 @@ pub mod fixtures {
             state_pda: zero,
             reclaim_authority: zero,
             manager: zero,
-            withdrawal_authority: zero,
+            self_order_authority: zero,
         })
         .data
     }
@@ -156,14 +156,14 @@ mod tests {
         let state_pda = fake_account(pubkey_from_seed("state pda"));
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let manager = pubkey_from_seed("manager");
-        let withdrawal_authority = pubkey_from_seed("withdrawal authority");
+        let self_order_authority = pubkey_from_seed("self-order authority");
         let data = Instruction::from(Initialize {
             program_id,
             payer: *payer.address(),
             state_pda: *state_pda.address(),
             manager,
             reclaim_authority,
-            withdrawal_authority,
+            self_order_authority,
         })
         .data;
 
@@ -175,14 +175,14 @@ mod tests {
             state_pda: parsed_state_pda,
             manager: parsed_manager,
             reclaim_authority: parsed_reclaim_authority,
-            withdrawal_authority: parsed_withdrawal_authority,
+            self_order_authority: parsed_self_order_authority,
         } = InitializeInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(parsed_payer.address(), payer.address());
         assert_eq!(parsed_state_pda.address(), state_pda.address());
         assert_eq!(parsed_manager, manager);
         assert_eq!(parsed_reclaim_authority, reclaim_authority);
-        assert_eq!(parsed_withdrawal_authority, withdrawal_authority);
+        assert_eq!(parsed_self_order_authority, self_order_authority);
     }
 
     #[test]
@@ -225,7 +225,7 @@ mod tests {
         let state_pda = pubkey_from_seed("state pda");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let manager = pubkey_from_seed("manager");
-        let withdrawal_authority = pubkey_from_seed("withdrawal authority");
+        let self_order_authority = pubkey_from_seed("self-order authority");
 
         let Instruction { data, .. } = Initialize {
             program_id,
@@ -233,21 +233,21 @@ mod tests {
             state_pda,
             reclaim_authority,
             manager,
-            withdrawal_authority,
+            self_order_authority,
         }
         .into();
         assert_eq!(data.len(), 1 + 3 * core::mem::size_of::<Pubkey>());
         assert_eq!(data[0], SettlementInstruction::Initialize.discriminator());
         assert_eq!(&data[1..33], &manager.to_bytes());
         assert_eq!(&data[33..65], &reclaim_authority.to_bytes());
-        assert_eq!(&data[65..], &withdrawal_authority.to_bytes());
+        assert_eq!(&data[65..], &self_order_authority.to_bytes());
     }
 
     #[test]
     fn instruction_data_regression() {
         let manager = Pubkey::new_from_array([0x11; 32]);
         let reclaim_authority = Pubkey::new_from_array([0x22; 32]);
-        let withdrawal_authority = Pubkey::new_from_array([0x33; 32]);
+        let self_order_authority = Pubkey::new_from_array([0x33; 32]);
 
         let Instruction { data, .. } = Initialize {
             program_id: pubkey_from_seed("program id"),
@@ -255,7 +255,7 @@ mod tests {
             state_pda: pubkey_from_seed("state pda"),
             manager,
             reclaim_authority,
-            withdrawal_authority,
+            self_order_authority,
         }
         .into();
 
@@ -273,7 +273,7 @@ mod tests {
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            // withdrawal_authority
+            // self_order_authority
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
@@ -289,7 +289,7 @@ mod tests {
         let state_pda = pubkey_from_seed("state pda");
         let manager = pubkey_from_seed("manager");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
-        let withdrawal_authority = pubkey_from_seed("withdrawal authority");
+        let self_order_authority = pubkey_from_seed("self-order authority");
 
         let Instruction { accounts, .. } = Initialize {
             program_id,
@@ -297,7 +297,7 @@ mod tests {
             state_pda,
             reclaim_authority,
             manager,
-            withdrawal_authority,
+            self_order_authority,
         }
         .into();
 
