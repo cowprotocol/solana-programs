@@ -5,7 +5,7 @@ use std::ops::Deref;
 use cow_settlement_interface::{
     data::{
         intent::{OrderIntent, OrderKind},
-        order::{EncodedOrderAccount, OrderAccount},
+        order::{write_amounts, EncodedOrderAccount, OrderAccount},
     },
     instruction::{
         settle::{
@@ -343,15 +343,16 @@ fn process_order(
         push.amount,
     )?;
 
-    let updated: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
-        amount_withdrawn,
-        amount_received,
-        ..account
-    })
-    .into();
+    // Settling only moves the two cumulative amounts, so overwrite them in the
+    // account's existing bytes rather than re-encoding the whole order (which
+    // would re-serialize the unchanged intent on every settled order).
     // A copied `AccountView` handle writes through to the same runtime account.
     let mut order_pda = *order_pda;
-    order_pda.try_borrow_mut()?.copy_from_slice(&updated);
+    let mut data = order_pda.try_borrow_mut()?;
+    let bytes: &mut [u8; EncodedOrderAccount::SIZE] = (&mut data[..])
+        .try_into()
+        .map_err(|_| ProgramError::InvalidAccountData)?;
+    write_amounts(bytes, amount_withdrawn, amount_received);
 
     Ok(())
 }

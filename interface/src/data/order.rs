@@ -205,6 +205,41 @@ pub fn write_account(
     *intent_slot = *encoded_intent;
 }
 
+/// Overwrites just the two cumulative amount fields of an already-encoded
+/// account in place, leaving every other byte (discriminator, bump, cancelled,
+/// `created_by`, and the whole intent slot) untouched.
+///
+/// Settling an order only ever moves these two counters, so this avoids
+/// re-encoding the unchanged intent on every fill. It splits the buffer with
+/// the same widths [`write_account`] uses, so the two agree on where the
+/// amounts live by construction.
+pub fn write_amounts(
+    buffer: &mut [u8; EncodedOrderAccount::SIZE],
+    amount_withdrawn: u64,
+    amount_received: u64,
+) {
+    let (
+        _discriminator,
+        _bump,
+        _cancelled,
+        amount_withdrawn_slot,
+        amount_received_slot,
+        _created_by,
+        _intent,
+    ) = mut_array_refs![
+        buffer,
+        EncodedOrderAccount::W_DISCRIMINATOR,
+        EncodedOrderAccount::W_BUMP,
+        EncodedOrderAccount::W_CANCELLED,
+        EncodedOrderAccount::W_AMOUNT_WITHDRAWN,
+        EncodedOrderAccount::W_AMOUNT_RECEIVED,
+        EncodedOrderAccount::W_CREATED_BY,
+        EncodedOrderAccount::W_INTENT
+    ];
+    *amount_withdrawn_slot = amount_withdrawn.to_le_bytes();
+    *amount_received_slot = amount_received.to_le_bytes();
+}
+
 impl From<EncodedOrderAccount> for [u8; EncodedOrderAccount::SIZE] {
     fn from(encoded: EncodedOrderAccount) -> Self {
         encoded.0
@@ -646,6 +681,27 @@ mod tests {
         });
 
         assert_eq!(direct, via_order_account);
+    }
+
+    #[test]
+    fn write_amounts_matches_a_full_reencode_of_the_two_fields() {
+        let account = sample_account(false);
+        let mut buffer: [u8; EncodedOrderAccount::SIZE] =
+            EncodedOrderAccount::from(account.clone()).into();
+
+        let amount_withdrawn = 0xdead_beef_dead_beef;
+        let amount_received = 0x0123_4567_89ab_cdef;
+        write_amounts(&mut buffer, amount_withdrawn, amount_received);
+
+        // Writing the amounts in place must be indistinguishable from decoding,
+        // replacing the two fields, and re-encoding the whole account.
+        let expected: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+            amount_withdrawn,
+            amount_received,
+            ..account
+        })
+        .into();
+        assert_eq!(buffer, expected);
     }
 
     // Property-based tests, non-deterministic.
