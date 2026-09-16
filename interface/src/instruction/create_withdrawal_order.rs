@@ -11,21 +11,17 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 
 /// Builder for a `CreateWithdrawalOrder` instruction.
 ///
-/// Allocates a per-order PDA (see [`crate::pda::order`]) for an order owned by
+/// Allocates an [order PDA](`crate::pda::order`) for an order owned by
 /// the settlement state PDA, so the fees that accumulate in the buffer accounts
-/// can be sold through a regular settlement. The PDA's storage layout is the
-/// same as any other order's, [`crate::data::order::EncodedOrderAccount`].
+/// can be sold through a regular settlement.
 ///
-/// Unlike [`CreateOrder`](crate::instruction::create_order::CreateOrder), the
-/// order isn't authenticated by its owner's signature: the owner is the
-/// settlement state PDA, which has no key. Instead the instruction is gated by
-/// the [`WithdrawalAuthority`](crate::Role::WithdrawalAuthority), a privileged
-/// account that signs it. The program forces `intent.owner` to be the state
-/// PDA, so a withdrawal order can only sell funds stored in the buffers.
-/// Otherwise, the order this function created is a normal order and settles
-/// through the standard `BeginSettle`/`FinalizeSettle` flow.
+/// Similar to [`CreateOrder`](crate::instruction::create_order::CreateOrder),
+/// but the instruction is gated by the
+/// [`WithdrawalAuthority`](crate::Role::WithdrawalAuthority), and doesn't need
+/// the owner's signature. The program forces `intent.owner` to be the state
+/// PDA. The order this function created is a normal order and settles through
+/// the standard `BeginSettle`/`FinalizeSettle` flow.
 ///
-/// The withdrawal authority is trusted to choose sound order parameters.
 /// The only enforced parameters are `created_on_chain` (should be true) and
 /// the owner (should be the state PDA).
 ///
