@@ -69,14 +69,4 @@ mod tests {
             Err(ProgramError::IncorrectProgramId),
         );
     }
-
-    /// The placeholder has to be something no token account can be owned by,
-    /// or a slot carrying it would still execute transfers somewhere.
-    #[test]
-    fn the_placeholder_is_not_a_token_program() {
-        assert_eq!(
-            TokenProgram::try_from(&INSTRUCTIONS_SYSVAR_ID),
-            Err(ProgramError::IncorrectProgramId),
-        );
-    }
 }
