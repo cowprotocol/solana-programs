@@ -41,7 +41,7 @@ describe("createWithdrawalOrder", () => {
     // the intent, the same as it does for createOrder.
     const instruction = await getCreateWithdrawalOrderInstructionAsync({
       authority: withdrawalAuthority,
-      payer,
+      createdBy: payer,
       intent,
     });
     await sendInstruction(svm, payer, instruction, "createWithdrawalOrder");

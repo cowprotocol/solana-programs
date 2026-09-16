@@ -94,7 +94,7 @@ fn create_withdrawal_order_pda(
     let ix = CreateWithdrawalOrder {
         program_id: *program_id,
         authority: authority.pubkey(),
-        payer: payer.pubkey(),
+        created_by: payer.pubkey(),
         intent,
     };
     // Fee-paid by `payer`, co-signed by the withdrawal `authority`.

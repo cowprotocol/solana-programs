@@ -68,7 +68,7 @@ fn rejects_a_caller_that_is_not_the_withdrawal_authority() {
     let ix = CreateWithdrawalOrder {
         program_id: params.program_id,
         authority: impostor.pubkey(),
-        payer: params.payer.pubkey(),
+        created_by: params.payer.pubkey(),
         intent: &intent,
     };
     let result = send_with_signers(&mut svm, &params.payer, &[&impostor], &[ix.into()]);
@@ -84,7 +84,7 @@ fn rejects_an_order_not_owned_by_the_state_pda() {
     let ix = CreateWithdrawalOrder {
         program_id: params.program_id,
         authority: params.withdrawal.pubkey(),
-        payer: params.payer.pubkey(),
+        created_by: params.payer.pubkey(),
         intent: &intent,
     };
     let result = send_with_signers(&mut svm, &params.payer, &[&params.withdrawal], &[ix.into()]);

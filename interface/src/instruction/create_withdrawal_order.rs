@@ -25,18 +25,18 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// The only enforced parameters are `created_on_chain` (should be true) and
 /// the owner (should be the state PDA).
 ///
-/// `payer` funds the new order PDA's rent and is recorded as its `created_by`
-/// address, so `ReclaimOrder` refunds the rent there.
+/// `created_by` funds the new order PDA's rent and will get the rent back when
+/// executing `ReclaimOrder`.
 ///
 /// Wire format: `[discriminator=10, ..intent bytes]`,
 /// `1 + EncodedOrderIntent::SIZE` bytes. Required accounts:
-/// `[authority (S), payer (W,S), state_pda (R), order_pda (W),
+/// `[authority (S), created_by (W,S), state_pda (R), order_pda (W),
 /// system_program (R)]`. The system program needs to be available but doesn't
 /// need to sit at that specific position, unlike the others.
 pub struct CreateWithdrawalOrder {
     pub program_id: Pubkey,
     pub authority: Pubkey,
-    pub payer: Pubkey,
+    pub created_by: Pubkey,
     pub state_pda: Pubkey,
     pub order_pda: Pubkey,
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
@@ -52,7 +52,7 @@ impl From<CreateWithdrawalOrder> for Instruction {
             program_id: builder.program_id,
             accounts: vec![
                 AccountMeta::new_readonly(builder.authority, true),
-                AccountMeta::new(builder.payer, true),
+                AccountMeta::new(builder.created_by, true),
                 AccountMeta::new_readonly(builder.state_pda, false),
                 AccountMeta::new(builder.order_pda, false),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
@@ -66,7 +66,7 @@ impl From<CreateWithdrawalOrder> for Instruction {
 pub struct CreateWithdrawalOrderInput<'a, A> {
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
     pub authority: &'a A,
-    pub payer: &'a A,
+    pub created_by: &'a A,
     pub state_pda: &'a A,
     pub order_pda: &'a A,
 }
@@ -80,18 +80,18 @@ impl<'a, A> InstructionInputParsing<'a, A> for CreateWithdrawalOrderInput<'a, A>
             .try_into()
             .map_err(|_| ProgramError::InvalidInstructionData)?;
 
-        // Accounts: [authority (S), payer (W,S), state_pda (R), order_pda (W),
+        // Accounts: [authority (S), created_by (W,S), state_pda (R), order_pda (W),
         // system_program (R)]. We check that there are five accounts because
         // the instruction needs to specify `SYSTEM_PROGRAM_ID` as one of them
         // but it doesn't have to be the fifth one.
-        let [authority, payer, state_pda, order_pda, _system_program, ..] = accounts else {
+        let [authority, created_by, state_pda, order_pda, _system_program, ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
         Ok(Self {
             intent_bytes,
             authority,
-            payer,
+            created_by,
             state_pda,
             order_pda,
         })
@@ -108,7 +108,7 @@ pub mod fixtures {
     use super::{CreateWithdrawalOrder, EncodedOrderIntent, Instruction};
     use crate::data::intent::OrderIntent;
 
-    /// Number of accounts `CreateWithdrawalOrder` expects: authority, payer, state
+    /// Number of accounts `CreateWithdrawalOrder` expects: authority, created_by, state
     /// PDA, order PDA, and the system program.
     pub const NUM_ACCOUNTS: usize = 5;
 
@@ -119,7 +119,7 @@ pub mod fixtures {
         Instruction::from(CreateWithdrawalOrder {
             program_id: zero,
             authority: zero,
-            payer: zero,
+            created_by: zero,
             state_pda: zero,
             order_pda: zero,
             intent_bytes: (&EncodedOrderIntent::from(intent)).into(),
@@ -153,7 +153,7 @@ mod tests {
     fn create_withdrawal_order_input_parses_valid_input() {
         let program_id = pubkey_from_seed("program id");
         let authority = pubkey_from_seed("authority");
-        let payer = pubkey_from_seed("payer");
+        let created_by = pubkey_from_seed("created_by");
         let state_pda = pubkey_from_seed("state pda");
         let order_pda = pubkey_from_seed("order pda");
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
@@ -162,7 +162,7 @@ mod tests {
         let data = Instruction::from(CreateWithdrawalOrder {
             program_id,
             authority,
-            payer,
+            created_by,
             state_pda,
             order_pda,
             intent_bytes,
@@ -170,7 +170,7 @@ mod tests {
         .data;
         let accounts = [
             fake_account(authority),
-            fake_account(payer),
+            fake_account(created_by),
             fake_account(state_pda),
             fake_account(order_pda),
             fake_account(pubkey_from_seed("system program")),
@@ -179,14 +179,14 @@ mod tests {
         let CreateWithdrawalOrderInput {
             intent_bytes: derived_intent_bytes,
             authority: derived_authority,
-            payer: derived_payer,
+            created_by: derived_created_by,
             state_pda: derived_state_pda,
             order_pda: derived_order_pda,
         } = CreateWithdrawalOrderInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(derived_intent_bytes, intent_bytes);
         assert_eq!(*derived_authority.address(), authority);
-        assert_eq!(*derived_payer.address(), payer);
+        assert_eq!(*derived_created_by.address(), created_by);
         assert_eq!(*derived_state_pda.address(), state_pda);
         assert_eq!(*derived_order_pda.address(), order_pda);
     }
@@ -231,7 +231,7 @@ mod tests {
         let Instruction { data, .. } = CreateWithdrawalOrder {
             program_id: pubkey_from_seed("program id"),
             authority: pubkey_from_seed("authority"),
-            payer: pubkey_from_seed("payer"),
+            created_by: pubkey_from_seed("created_by"),
             state_pda: pubkey_from_seed("state pda"),
             order_pda: pubkey_from_seed("order pda"),
             intent_bytes,
@@ -250,7 +250,7 @@ mod tests {
     fn instruction_data_has_expected_accounts() {
         let program_id = pubkey_from_seed("program id");
         let authority = pubkey_from_seed("authority");
-        let payer = pubkey_from_seed("payer");
+        let created_by = pubkey_from_seed("created_by");
         let state_pda = pubkey_from_seed("state pda");
         let order_pda = pubkey_from_seed("order pda");
         let intent_bytes = [0u8; EncodedOrderIntent::SIZE];
@@ -258,7 +258,7 @@ mod tests {
         let Instruction { accounts, .. } = CreateWithdrawalOrder {
             program_id,
             authority,
-            payer,
+            created_by,
             state_pda,
             order_pda,
             intent_bytes,
@@ -266,11 +266,11 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 5);
-        // authority gates the order without paying rent; payer funds the new
+        // authority gates the order without paying rent; created_by funds the new
         // PDA's rent; state_pda is only read; order_pda is created. The system
         // program is only referenced.
         assert_readonly_signer(&accounts[0], authority);
-        assert_writable_signer(&accounts[1], payer);
+        assert_writable_signer(&accounts[1], created_by);
         assert_readonly_nonsigner(&accounts[2], state_pda);
         assert_writable_nonsigner(&accounts[3], order_pda);
         assert_readonly_nonsigner(&accounts[4], SYSTEM_PROGRAM_ID);

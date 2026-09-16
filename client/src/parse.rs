@@ -122,7 +122,7 @@ mod tests {
             SettlementInstruction::CreateWithdrawalOrder => CreateWithdrawalOrder {
                 program_id,
                 authority: payer,
-                payer,
+                created_by: payer,
                 intent: &intent,
             }
             .into(),
