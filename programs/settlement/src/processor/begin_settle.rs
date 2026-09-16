@@ -291,7 +291,7 @@ fn process_order(
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
     // If its a native SOL buy order, the validation is a bit different.
-    match intent.buy_mint {
+    match intent.buy_mint() {
         BuyMint::NativeSol => validate_state_pda(program_id, push.source_buffer, push.bump)?,
         BuyMint::Token(mint) => {
             validate_buffer_pda(program_id, push.source_buffer, &mint, push.bump)?;

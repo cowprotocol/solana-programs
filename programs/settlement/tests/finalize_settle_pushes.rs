@@ -316,7 +316,7 @@ fn rejects_invalid_buy_token_account() {
         &mut svm,
         &program_id,
         &payer,
-        &intent.buy_mint.address(),
+        &intent.buy_mint().address(),
         1_000,
     );
     let orders = [FinalizedIntent {
@@ -354,7 +354,7 @@ fn rejects_buy_token_account_owned_by_wrong_program() {
         &mut svm,
         &program_id,
         &payer,
-        &intent.buy_mint.address(),
+        &intent.buy_mint().address(),
         1_000,
     );
     let orders = [FinalizedIntent {

@@ -13,7 +13,7 @@ use cow_settlement_client::cow_settlement_interface::{
     data::intent::{OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
     pda::{buffer::find_buffer_pda, state::find_state_pda},
-    token_program::BuyMint,
+    token_program::{BuyMint, NATIVE_SOL_MINT},
     Instruction, SettlementError,
 };
 use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
@@ -191,7 +191,7 @@ fn happy_path_state_pda_receiver_still_works() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let intent = OrderIntent {
-        buy_mint: BuyMint::NativeSol,
+        buy_mint: NATIVE_SOL_MINT.into(),
         buy_token_account: state_pda,
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };

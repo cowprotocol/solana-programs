@@ -4,7 +4,6 @@ use cow_settlement_client::{
     cow_settlement_interface::{
         data::intent::{Flags, OrderIntent, OrderKind},
         pda::order::find_order_pda,
-        token_program::BuyMint,
     },
     instruction::CreateOrder,
 };
@@ -161,7 +160,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         sell_token_account: sell.ta,
         sell_mint: sell.mint,
         buy_token_account: buy.ta,
-        buy_mint: BuyMint::from(buy.mint),
+        buy_mint: buy.mint.into(),
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,

@@ -53,7 +53,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let (state_pda, state_bump) = find_state_pda(&builder.program_id);
         for &i in &orders {
             let intent = builder.orders[i].intent;
-            let (source, bump) = match intent.buy_mint {
+            let (source, bump) = match intent.buy_mint() {
                 BuyMint::NativeSol => (state_pda, state_bump),
                 BuyMint::Token(mint) => find_buffer_pda(&builder.program_id, &mint),
             };
@@ -87,13 +87,14 @@ mod tests {
             settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID},
             InstructionInputParsing,
         },
+        token_program::NATIVE_SOL_MINT,
     };
 
     #[test]
     fn native_sol_order_pushes_from_the_state_pda() {
         let program_id = pubkey_from_seed("program id");
         let intent = OrderIntent {
-            buy_mint: BuyMint::NativeSol,
+            buy_mint: NATIVE_SOL_MINT.into(),
             buy_token_account: pubkey_from_seed("recipient wallet"),
             ..OrderIntent::default()
         };
@@ -166,7 +167,7 @@ mod tests {
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump) = match order.intent.buy_mint {
+                    let (buffer, bump) = match order.intent.buy_mint() {
                         BuyMint::NativeSol => find_state_pda(&program_id),
                         BuyMint::Token(mint) => find_buffer_pda(&program_id, &mint),
                     };

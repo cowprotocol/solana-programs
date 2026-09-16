@@ -32,6 +32,7 @@ pub enum BuyMint {
 
 impl BuyMint {
     /// The mint address the encoding carries for this payout.
+    #[inline]
     #[must_use]
     pub const fn address(self) -> Pubkey {
         match self {
@@ -45,6 +46,7 @@ impl From<Pubkey> for BuyMint {
     /// Resolves an encoded `buy_mint` address: [`NATIVE_SOL_MINT`] is the
     /// native SOL sentinel, every other address names a token mint. Total, so
     /// no `buy_mint` byte pattern can fail to decode.
+    #[inline]
     fn from(mint: Pubkey) -> Self {
         if mint == NATIVE_SOL_MINT {
             Self::NativeSol
@@ -55,8 +57,62 @@ impl From<Pubkey> for BuyMint {
 }
 
 impl From<BuyMint> for Pubkey {
+    #[inline]
     fn from(buy_mint: BuyMint) -> Self {
         buy_mint.address()
+    }
+}
+
+/// The `buy_mint` as it sits inside a stored [`OrderIntent`](crate::data::intent::OrderIntent):
+/// a bare 32-byte address whose meaning is only reachable by resolving it to a
+/// [`BuyMint`]. There is no way to read the native-vs-token distinction without
+/// going through that conversion, so callers can't accidentally treat the
+/// address as a plain mint.
+///
+/// Keeping the field a single address (rather than the [`BuyMint`] enum itself)
+/// is what makes decoding an intent a flat copy: no tag to write, no
+/// native-SOL comparison, and no enum to materialize once per settled order.
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct EncodedBuyMint(Pubkey);
+
+impl EncodedBuyMint {
+    /// The raw 32-byte encoding. Crate-internal so only the codec serializes it;
+    /// outside code must resolve to a [`BuyMint`] to learn what it names.
+    #[inline]
+    pub(crate) const fn to_bytes(&self) -> [u8; 32] {
+        self.0.to_bytes()
+    }
+
+    /// Wrap raw encoded bytes without interpreting them.
+    #[inline]
+    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(Pubkey::new_from_array(bytes))
+    }
+}
+
+impl From<Pubkey> for EncodedBuyMint {
+    /// Store a mint address as-is; the native-SOL sentinel is a valid address
+    /// like any other and is only recognized on the way out, via [`BuyMint`].
+    #[inline]
+    fn from(mint: Pubkey) -> Self {
+        Self(mint)
+    }
+}
+
+impl From<BuyMint> for EncodedBuyMint {
+    #[inline]
+    fn from(buy_mint: BuyMint) -> Self {
+        Self(buy_mint.address())
+    }
+}
+
+impl From<&EncodedBuyMint> for BuyMint {
+    /// The only way to interpret an [`EncodedBuyMint`]: resolve the stored
+    /// address to the payout it names. By reference, so it reads an intent's
+    /// `buy_mint` without moving or cloning it.
+    #[inline]
+    fn from(encoded: &EncodedBuyMint) -> Self {
+        BuyMint::from(encoded.0)
     }
 }
 

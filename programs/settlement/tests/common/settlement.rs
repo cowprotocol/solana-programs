@@ -92,7 +92,7 @@ pub fn stage_order(
             amount,
         })
         .collect();
-    match intent.buy_mint {
+    match intent.buy_mint() {
         BuyMint::NativeSol => {
             state::fund_with_lamports(svm, program_id, amount_out);
         }

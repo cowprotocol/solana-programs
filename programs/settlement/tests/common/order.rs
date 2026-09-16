@@ -23,7 +23,7 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
         sell_token_account: Pubkey::new_from_array([0x22; 32]),
         sell_mint: Pubkey::new_from_array([0x33; 32]),
         buy_token_account: Pubkey::new_from_array([0x44; 32]),
-        buy_mint: BuyMint::Token(Pubkey::new_from_array([0x55; 32])),
+        buy_mint: Pubkey::new_from_array([0x55; 32]).into(),
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,
@@ -51,7 +51,7 @@ pub fn settlable_intent(
         sell_token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
         sell_mint,
         buy_token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
-        buy_mint: BuyMint::Token(buy_mint),
+        buy_mint: buy_mint.into(),
         ..sample_intent(owner, salt)
     }
 }
@@ -169,7 +169,7 @@ impl<'a> OrderBuilder<'a> {
         intent.sell_token_account =
             token::create_token_account(svm, payer, &sell_mint, &payer.pubkey());
         let buy_mint = buy_mint.unwrap_or_else(|| BuyMint::Token(token::create_mint(svm, payer)));
-        intent.buy_mint = buy_mint;
+        intent.buy_mint = buy_mint.into();
         intent.buy_token_account = match buy_mint {
             BuyMint::NativeSol => unique_pubkey(),
             BuyMint::Token(mint) => token::create_token_account(svm, payer, &mint, &payer.pubkey()),

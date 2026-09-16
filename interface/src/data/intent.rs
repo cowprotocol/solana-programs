@@ -21,7 +21,7 @@ use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::token_program::BuyMint;
+use crate::token_program::{BuyMint, EncodedBuyMint};
 
 /// Direction of the trade. The discriminants are the values the `kind` bit of
 /// the encoded flags byte takes.
@@ -131,10 +131,11 @@ pub struct OrderIntent {
     /// account rather than a token account.
     pub buy_token_account: Pubkey,
 
-    /// What the buy side pays out: a token mint, or native SOL. Encoded as the
-    /// single mint address [`BuyMint::address`] gives, so the variant is a
-    /// property of the bytes rather than something layered on top of them.
-    pub buy_mint: BuyMint,
+    /// What the buy side pays out, held as an [`EncodedBuyMint`]: the raw mint
+    /// address, interpretable only by resolving it to a [`BuyMint`] through the
+    /// `buy_mint()` accessor. Storing the bare address keeps decoding a flat
+    /// copy instead of materializing the enum on every settled order.
+    pub buy_mint: EncodedBuyMint,
 
     /// Amount of the sell token. For `Sell` orders this is the exact
     /// amount to be sold (subject to `partially_fillable`); for `Buy`
@@ -259,7 +260,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *sell_token = intent.sell_token_account.to_bytes();
         *sell_mint = intent.sell_mint.to_bytes();
         *buy_token = intent.buy_token_account.to_bytes();
-        *buy_mint = intent.buy_mint.address().to_bytes();
+        *buy_mint = intent.buy_mint.to_bytes();
         *sell_amount = intent.sell_amount.to_le_bytes();
         *buy_amount = intent.buy_amount.to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
@@ -310,7 +311,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             sell_token_account: Pubkey::new_from_array(*sell_token),
             sell_mint: Pubkey::new_from_array(*sell_mint),
             buy_token_account: Pubkey::new_from_array(*buy_token),
-            buy_mint: BuyMint::from(Pubkey::new_from_array(*buy_mint)),
+            buy_mint: EncodedBuyMint::from_bytes(*buy_mint),
             sell_amount: u64::from_le_bytes(*sell_amount),
             buy_amount: u64::from_le_bytes(*buy_amount),
             valid_to: u32::from_le_bytes(*valid_to),
@@ -335,6 +336,14 @@ impl OrderIntent {
     pub fn uid(&self) -> Hash {
         EncodedOrderIntent::from(self).hash()
     }
+
+    /// Interpret the stored `buy_mint` address as a [`BuyMint`]: the native-SOL
+    /// sentinel or a token mint. Derived on access, so the decoded intent holds
+    /// just the raw address and the two payout paths stay an exhaustive match.
+    #[inline]
+    pub fn buy_mint(&self) -> BuyMint {
+        BuyMint::from(&self.buy_mint)
+    }
 }
 
 #[cfg(any(test, feature = "test-fixtures"))]
@@ -355,7 +364,7 @@ pub mod fixtures {
             sell_token_account: Pubkey::new_from_array([0x22; 32]),
             sell_mint: Pubkey::new_from_array([0x33; 32]),
             buy_token_account: Pubkey::new_from_array([0x44; 32]),
-            buy_mint: BuyMint::Token(Pubkey::new_from_array([0x55; 32])),
+            buy_mint: Pubkey::new_from_array([0x55; 32]).into(),
             sell_amount: 0x0123_4567_89ab_cdef,
             buy_amount: 0xfedc_ba98_7654_3210,
             valid_to: 0xdead_beef,
@@ -437,7 +446,9 @@ pub mod fixtures {
                         sell_token_account: Pubkey::new_from_array(sell_tok),
                         sell_mint: Pubkey::new_from_array(sell_mint),
                         buy_token_account: Pubkey::new_from_array(buy_tok),
-                        buy_mint,
+                        // `arb_buy_mint` yields a `BuyMint`; store it as the
+                        // encoded address the field holds.
+                        buy_mint: buy_mint.into(),
                         sell_amount,
                         buy_amount,
                         valid_to,
@@ -498,10 +509,8 @@ mod tests {
             size_of_val(&intent.buy_token_account)
         );
         assert_eq!(
-            // The enum's own size says nothing about the wire; the address it
-            // encodes to is the field's width.
             EncodedOrderIntent::WIDTH_BUY_MINT,
-            size_of_val(&intent.buy_mint.address())
+            size_of_val(&intent.buy_mint)
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,

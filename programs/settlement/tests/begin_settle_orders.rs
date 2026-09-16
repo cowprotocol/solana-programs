@@ -127,7 +127,7 @@ fn settle_and_pay_amounts(
                 svm,
                 program_id,
                 payer,
-                &order.intent.buy_mint.address(),
+                &order.intent.buy_mint().address(),
                 amount,
             );
             FinalizedIntent {
@@ -365,7 +365,7 @@ fn rejects_sell_token_owner_mismatch() {
         sell_token_account: sell_token,
         sell_mint,
         buy_token_account: buy_token,
-        buy_mint: BuyMint::Token(buy_mint),
+        buy_mint: buy_mint.into(),
         ..sample_intent(payer.pubkey(), 1)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
@@ -523,7 +523,7 @@ fn rejects_orders_in_wrong_address_order() {
         .iter()
         .map(|(_, intent)| {
             (
-                find_buffer_pda(&program_id, &intent.buy_mint.address()),
+                find_buffer_pda(&program_id, &intent.buy_mint().address()),
                 intent.buy_token_account,
             )
         })
