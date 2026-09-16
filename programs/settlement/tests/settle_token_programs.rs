@@ -374,7 +374,7 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
     }];
     let blockhash = svm.latest_blockhash();
 
-    let verify_narrowed = |only_token_program| {
+    let settle_tx = |only_token_program| {
         let initialized = [InitializedIntent {
             intent: &intent,
             pulls: &pulls,
