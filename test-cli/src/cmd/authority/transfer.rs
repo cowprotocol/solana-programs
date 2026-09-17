@@ -1,27 +1,14 @@
 use anyhow::Context as _;
-use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
+use clap::{Args as ClapArgs, ValueEnum};
 use cow_settlement_client::{
     cow_settlement_interface::{pda::state::find_state_pda, Pubkey, Role},
     instruction::TransferAuthority,
 };
 use solana_sdk::{signature::Signer, transaction::Transaction};
 
+use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
-
-use super::Context;
-
-#[derive(Parser)]
-pub struct AuthorityArgs {
-    #[command(subcommand)]
-    command: AuthorityCommand,
-}
-
-#[derive(Subcommand)]
-enum AuthorityCommand {
-    #[command(about = "Transfer a role to a new authority")]
-    Transfer(TransferArgs),
-}
 
 /// Defines `RoleArg`, a `clap`-parseable copy of the interface's [`Role`].
 macro_rules! role_arg {
@@ -66,13 +53,7 @@ pub struct TransferArgs {
     signer: Option<String>,
 }
 
-pub fn run(ctx: Context, args: AuthorityArgs) -> anyhow::Result<()> {
-    match args.command {
-        AuthorityCommand::Transfer(args) => transfer(ctx, args),
-    }
-}
-
-fn transfer(ctx: Context, args: TransferArgs) -> anyhow::Result<()> {
+pub fn run(ctx: Context, args: TransferArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
     let signer = read_keypair_or(args.signer, &ctx.payer)?;
     let signer_pubkey = signer.pubkey();
