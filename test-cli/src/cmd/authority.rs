@@ -4,11 +4,9 @@ use cow_settlement_client::{
     cow_settlement_interface::{pda::state::find_state_pda, Pubkey, Role},
     instruction::TransferAuthority,
 };
-use solana_sdk::{
-    signature::{read_keypair_file, Signer},
-    transaction::Transaction,
-};
+use solana_sdk::{signature::Signer, transaction::Transaction};
 
+use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
 
 use super::Context;
@@ -76,16 +74,7 @@ pub fn run(ctx: Context, args: AuthorityArgs) -> anyhow::Result<()> {
 
 fn transfer(ctx: Context, args: TransferArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    // Without `--signer` the payer authorizes the transfer, so reuse the
-    // keypair the context already holds instead of reading a file again.
-    let from_file = args
-        .signer
-        .map(|path| {
-            read_keypair_file(&path)
-                .map_err(|e| anyhow::anyhow!("failed to read signer keypair from {path}: {e}"))
-        })
-        .transpose()?;
-    let signer = from_file.as_ref().unwrap_or(&ctx.payer);
+    let signer = read_keypair_or(args.signer, &ctx.payer)?;
     let signer_pubkey = signer.pubkey();
     let role = Role::from(args.role);
 
@@ -103,7 +92,7 @@ fn transfer(ctx: Context, args: TransferArgs) -> anyhow::Result<()> {
     let tx = Transaction::new_signed_with_payer(
         &[ix.into()],
         Some(&payer),
-        &[&ctx.payer, signer],
+        &[&ctx.payer, &*signer],
         blockhash,
     );
     let sig = ctx
