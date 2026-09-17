@@ -1,55 +1,42 @@
 use anyhow::Context as _;
-use clap::{Args as ClapArgs, Parser, Subcommand};
+use clap::Args as ClapArgs;
 use cow_settlement_client::{
     cow_settlement_interface::{pda::state::find_state_pda, Pubkey},
-    instruction::AddSolver,
+    instruction::RemoveSolver,
 };
 use solana_sdk::{signature::Signer, transaction::Transaction};
 
+use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
 
-use super::Context;
-
-#[derive(Parser)]
-pub struct SolverArgs {
-    #[command(subcommand)]
-    command: SolverCommand,
-}
-
-#[derive(Subcommand)]
-enum SolverCommand {
-    #[command(about = "Authorize a solver to settle orders")]
-    Add(AddArgs),
-}
-
 #[derive(ClapArgs)]
-pub struct AddArgs {
-    /// Address of the solver to authorize
+pub struct RemoveArgs {
+    /// Address of the solver to revoke
     solver: Pubkey,
 
     /// Path to the manager keypair, which authorizes the change and must sign
-    /// it (defaults to the payer keypair, which always funds the state PDA's
-    /// growth)
+    /// it (defaults to the payer keypair)
     #[arg(long)]
     manager: Option<String>,
+
+    /// Account that receives the rent freed by removing the solver (defaults to
+    /// the payer)
+    #[arg(long)]
+    rent_recipient: Option<Pubkey>,
 }
 
-pub fn run(ctx: Context, args: SolverArgs) -> anyhow::Result<()> {
-    match args.command {
-        SolverCommand::Add(args) => add(ctx, args),
-    }
-}
-
-fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
+pub fn run(ctx: Context, args: RemoveArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
     let manager = read_keypair_or(args.manager, &ctx.payer)?;
     let manager_pubkey = manager.pubkey();
+    // The freed rent lands on the payer unless another recipient is named.
+    let rent_recipient = args.rent_recipient.unwrap_or(payer);
 
-    let ix = AddSolver {
+    let ix = RemoveSolver {
         program_id: ctx.program_id,
         manager: manager_pubkey,
-        payer,
+        rent_recipient,
         solver: args.solver,
     };
 
@@ -71,8 +58,9 @@ fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     let (state_pda, _) = find_state_pda(&ctx.program_id);
     print_summary(&[
         ("signature", &sig),
-        ("added solver", &args.solver),
+        ("removed solver", &args.solver),
         ("manager", &manager_pubkey),
+        ("rentRecipient", &rent_recipient),
         ("statePda", &state_pda),
     ]);
 
