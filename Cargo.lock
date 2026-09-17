@@ -913,6 +913,7 @@ dependencies = [
  "derive_more",
  "hex-literal",
  "num_enum",
+ "pastey",
  "proptest",
  "solana-account-view",
  "solana-address 2.6.1",

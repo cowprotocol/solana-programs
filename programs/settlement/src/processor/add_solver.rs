@@ -2,8 +2,9 @@
 //!
 //! Inserts a solver into the sorted solver list that follows the state PDA
 //! header, keeping it sorted so the list stays binary-searchable. Only the
-//! manager may authorize it. The account grows by one solver, so the `payer`
-//! funds the extra rent through a `Transfer` before the account is resized.
+//! solver authority may authorize it. The account grows by one solver, so the
+//! `payer` funds the extra rent through a `Transfer` before the account is
+//! resized.
 
 use cow_settlement_interface::{
     data::state::StateAccount,
@@ -24,7 +25,7 @@ pub fn process_add_solver(
     instruction_data: &[u8],
 ) -> ProgramResult {
     let AddSolverInput {
-        manager,
+        authority,
         payer,
         state_pda,
         solver,
@@ -32,11 +33,12 @@ pub fn process_add_solver(
 
     check_state_pda(program_id, state_pda)?;
 
-    // Only the manager may change the solver list. Attaching validates the
-    // account; `grown_len` is the size it must reach to hold one more solver.
+    // Only the solver authority may change the solver list. Attaching validates
+    // the account; `grown_len` is the size it must reach to hold one more solver.
     let new_len = {
         let state = StateAccount::attach(state_pda.try_borrow()?)?;
-        if !manager.is_signer() || manager.address() != &state.authority(Role::Manager) {
+        if !authority.is_signer() || authority.address() != &state.authority(Role::SolverAuthority)
+        {
             return Err(SettlementError::UnauthorizedSolverManagement.into());
         }
         state

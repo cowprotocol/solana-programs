@@ -115,9 +115,9 @@ pub enum SettlementError {
     /// `TransferAuthority`'s signer is neither the manager nor the current
     /// holder of the role being transferred, so it may not transfer it.
     UnauthorizedAuthorityTransfer = 34,
-    /// `AddSolver`/`RemoveSolver`'s manager account isn't a signer, or doesn't
-    /// match the `manager` recorded in the settlement state PDA, so it may not
-    /// change the solver list.
+    /// `AddSolver`/`RemoveSolver`'s solver-authority account isn't a signer, or
+    /// doesn't match the `solver_authority` recorded in the settlement state
+    /// PDA, so it may not change the solver list.
     UnauthorizedSolverManagement = 35,
     /// `AddSolver`'s solver is already in the state PDA's solver list.
     SolverAlreadyExists = 36,

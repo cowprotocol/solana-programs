@@ -105,6 +105,7 @@ mod tests {
     fn base_init_args() -> StateInitArgs {
         StateInitArgs {
             manager: pubkey_from_seed("base_init_args's unused manager"),
+            solver_authority: pubkey_from_seed("base_init_args's unused solver authority"),
             reclaim_authority: AUTHORITY,
             self_order_authority: pubkey_from_seed("base_init_args's unused self-order authority"),
         }

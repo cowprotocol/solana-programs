@@ -150,6 +150,7 @@ macro_rules! authority_transfer_tests {
 
 authority_transfer_tests! {
     manager holds Manager and controls all authorities,
+    solver_authority holds SolverAuthority,
     reclaim holds ReclaimAuthority,
     self_order holds SelfOrderAuthority,
 }

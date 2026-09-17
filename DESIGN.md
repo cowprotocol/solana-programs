@@ -33,7 +33,8 @@ The state PDA is created once, after deployment, by the `Initialize` instruction
 
 The program grant privileged roles to specific accounts (_authorities_). They are:
 
-- Manager: the account that can add and remove solvers. It can also update the address of all other roles.
+- Manager: the account that can update the address of all other roles.
+- Solver Authority: the account that can add and remove solvers.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
 - Self-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
 
@@ -63,15 +64,15 @@ Solver authentication is managed by the settlement program.
 There are two roles for authentication:
 
 - The _solvers_, accounts that can execute settlements and withdraw from the buffers.
-- The _manager_, an account that can add and remove solvers, as well as transfer its own role to another account.
+- The _solver authority_, an account that can add and remove solvers, as well as transfer its own role to another account.
 
 The settlement program state PDA stores the state used for authentication.
 
-On settlement program deployment, the program state is initialized with a fixed initial manager, controlled by CoW Core as mandated by CoW DAO, and an empty list of solvers.
+On settlement program deployment, the program state is initialized with fixed initial authorities, controlled by CoW Core as mandated by CoW DAO, and an empty list of solvers.
 
 Differences with Ethereum:
 
-- There's no dedicated authenticator contract, the settlement program performs the role of the authenticator contract. This also means that the authenticator isn't upgradable: there's no `owner`, only a `manager`.
+- There's no dedicated authenticator contract, the settlement program performs the role of the authenticator contract. This also means that the authenticator isn't upgradable: there's no `owner`, only a set of authorities.
 
 Limitation:
 

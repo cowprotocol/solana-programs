@@ -18,6 +18,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_pubkey();
+    let solver_authority = unique_pubkey();
     let reclaim_authority = unique_pubkey();
     let self_order_authority = unique_pubkey();
 
@@ -27,6 +28,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         program_id,
         payer: payer.pubkey(),
         manager,
+        solver_authority,
         reclaim_authority,
         self_order_authority,
     };
@@ -47,6 +49,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         decoded,
         DecodedStateAccount {
             manager,
+            solver_authority,
             reclaim_authority,
             self_order_authority,
         },
@@ -76,6 +79,7 @@ fn initializes_state_pda_when_address_is_prefunded() {
             program_id,
             payer: payer.pubkey(),
             manager: unique_pubkey(),
+            solver_authority: unique_pubkey(),
             reclaim_authority: unique_pubkey(),
             self_order_authority: unique_pubkey(),
         };
@@ -96,8 +100,9 @@ fn funding_payer_can_differ_from_fee_payer() {
     let ix = Initialize {
         program_id,
         payer: funder.pubkey(),
-        reclaim_authority: unique_pubkey(),
         manager: unique_pubkey(),
+        solver_authority: unique_pubkey(),
+        reclaim_authority: unique_pubkey(),
         self_order_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
@@ -124,8 +129,9 @@ fn rejects_arbitrary_wrong_state_pda() {
         program_id,
         payer: payer.pubkey(),
         state_pda: wrong_pda,
-        reclaim_authority: unique_pubkey(),
         manager: unique_pubkey(),
+        solver_authority: unique_pubkey(),
+        reclaim_authority: unique_pubkey(),
         self_order_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
@@ -142,8 +148,9 @@ fn rejects_initializing_twice() {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
-            reclaim_authority: unique_pubkey(),
             manager: unique_pubkey(),
+            solver_authority: unique_pubkey(),
+            reclaim_authority: unique_pubkey(),
             self_order_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)

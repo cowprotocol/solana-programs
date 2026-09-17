@@ -30,11 +30,11 @@ pub struct AddArgs {
     /// Address of the solver to authorize
     solver: Pubkey,
 
-    /// Path to the manager keypair, which authorizes the change and must sign
-    /// it (defaults to the payer keypair, which always funds the state PDA's
-    /// growth)
+    /// Path to the solver-authority keypair, which authorizes the change and
+    /// must sign it (defaults to the payer keypair, which always funds the
+    /// state PDA's growth)
     #[arg(long)]
-    manager: Option<String>,
+    solver_authority: Option<String>,
 }
 
 pub fn run(ctx: Context, args: SolverArgs) -> anyhow::Result<()> {
@@ -45,21 +45,22 @@ pub fn run(ctx: Context, args: SolverArgs) -> anyhow::Result<()> {
 
 fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    // Without `--manager` the payer manages the program, so reuse the keypair
-    // the context already holds instead of reading a file again.
+    // Without `--solver-authority` the payer manages solvers, so reuse the
+    // keypair the context already holds instead of reading a file again.
     let from_file = args
-        .manager
+        .solver_authority
         .map(|path| {
-            read_keypair_file(&path)
-                .map_err(|e| anyhow::anyhow!("failed to read manager keypair from {path}: {e}"))
+            read_keypair_file(&path).map_err(|e| {
+                anyhow::anyhow!("failed to read solver-authority keypair from {path}: {e}")
+            })
         })
         .transpose()?;
-    let manager = from_file.as_ref().unwrap_or(&ctx.payer);
-    let manager_pubkey = manager.pubkey();
+    let solver_authority = from_file.as_ref().unwrap_or(&ctx.payer);
+    let solver_authority_pubkey = solver_authority.pubkey();
 
     let ix = AddSolver {
         program_id: ctx.program_id,
-        manager: manager_pubkey,
+        authority: solver_authority_pubkey,
         payer,
         solver: args.solver,
     };
@@ -71,7 +72,7 @@ fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     let tx = Transaction::new_signed_with_payer(
         &[ix.into()],
         Some(&payer),
-        &[&ctx.payer, manager],
+        &[&ctx.payer, solver_authority],
         blockhash,
     );
     let sig = ctx
@@ -83,7 +84,7 @@ fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     print_summary(&[
         ("signature", &sig),
         ("added solver", &args.solver),
-        ("manager", &manager_pubkey),
+        ("solverAuthority", &solver_authority_pubkey),
         ("statePda", &state_pda),
     ]);
 

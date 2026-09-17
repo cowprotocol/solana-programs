@@ -2,7 +2,7 @@
 //!
 //! Removes a solver from the sorted solver list that follows the state PDA
 //! header, shifting the tail left to close the gap and shrinking the account.
-//! Only the manager may authorize it, and the freed rent is paid to
+//! Only the solver authority may authorize it, and the freed rent is paid to
 //! `rent_recipient`. The refund is a direct lamport move out of the
 //! program-owned state PDA, so no system program is involved.
 
@@ -25,7 +25,7 @@ pub fn process_remove_solver(
     instruction_data: &[u8],
 ) -> ProgramResult {
     let RemoveSolverInput {
-        manager,
+        authority,
         rent_recipient,
         state_pda,
         solver,
@@ -36,7 +36,8 @@ pub fn process_remove_solver(
     let mut state_pda = *state_pda;
     let new_len = {
         let mut state = StateAccount::attach(state_pda.try_borrow_mut()?)?;
-        if !manager.is_signer() || *manager.address() != state.authority(Role::Manager) {
+        if !authority.is_signer() || *authority.address() != state.authority(Role::SolverAuthority)
+        {
             return Err(SettlementError::UnauthorizedSolverManagement.into());
         }
         state.remove_solver(&solver)?
@@ -114,17 +115,18 @@ mod tests {
                 raw_absent in any::<[u8; 32]>(),
             ) {
                 prop_assume!(!raw_solvers.contains(&raw_absent));
-                let manager = header.manager;
+                let authority = header.solver_authority;
                 let stored: Vec<Pubkey> =
                     raw_solvers.into_iter().map(Pubkey::new_from_array).collect();
                 let absent = Pubkey::new_from_array(raw_absent);
 
-                // Mock the three accounts the handler parses. Only the manager
-                // signer and the state PDA carry meaning here; the rent recipient
-                // is never touched, since the reject happens before the refund.
+                // Mock the three accounts the handler parses. Only the solver
+                // authority signer and the state PDA carry meaning here; the rent
+                // recipient is never touched, since the reject happens before the
+                // refund.
                 let (state_pda_address, _bump) = find_state_pda(&PROGRAM_ID);
                 let mut accounts = [
-                    fake_signer(manager),
+                    fake_signer(authority),
                     fake_account(pubkey_from_seed("rent recipient")),
                     fake_account_owned_by(
                         state_pda_address,
@@ -135,7 +137,7 @@ mod tests {
 
                 let data = Instruction::from(RemoveSolver {
                     program_id: *PROGRAM_ID,
-                    manager,
+                    authority,
                     rent_recipient: pubkey_from_seed("rent recipient"),
                     state_pda: state_pda_address,
                     solver: absent,
