@@ -1,7 +1,8 @@
 //! Order PDA seed and address derivation.
 //!
-//! The body stored at this address is [`crate::data::order::EncodedOrderAccount`];
-//! the UID feeding the seeds is [`crate::data::intent::EncodedOrderIntent::hash`].
+//! The body stored at this address is read through
+//! [`crate::data::order::OrderAccount`]; the UID feeding the seeds is
+//! [`crate::data::intent::EncodedOrderIntent::hash`].
 //!
 //! Any account derived from [`crate::pda::order::find_order_pda`] that has
 //! already been created on-chain can be considered safe to use.
