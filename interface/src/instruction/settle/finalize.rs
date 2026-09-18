@@ -62,12 +62,15 @@ pub fn finalize_push_data(
 
 /// Builder for a `FinalizeSettle` instruction pushing the funds described by the
 /// parallel lists:
-/// - `source_buffers[i]` is the buffer token account the funds come from,
+/// - `source_buffers[i]` is the account the funds come from: the buffer token
+///   account of the order's buy mint, or the settlement state PDA itself for an
+///   order buying native SOL, whose lamports no token account holds,
 /// - `destinations[i]` is the account the funds go to (an order's buy token
 ///   account),
 /// - `bumps[i]` is the canonical bump of `source_buffers[i]`, so the program
-///   re-derives the buffer PDA with one hash instead of searching,
-/// - `amounts[i]` is the amount to push.
+///   re-derives that PDA with one hash instead of searching,
+/// - `amounts[i]` is the amount to push, in the buy mint's units or in lamports
+///   for a native SOL push.
 ///
 /// This instruction comes in pair with a `BeginSettle` instruction. The slices
 /// are assumed to be built in parallel with the order information specified in
@@ -151,7 +154,8 @@ impl From<FinalizeSettle<'_>> for Instruction {
 
 /// A single fund push parsed from `FinalizeSettle`: move `amount` from
 /// `source_buffer` to `destination`. `bump` is `source_buffer`'s claimed
-/// canonical buffer bump, which the program re-derives against.
+/// canonical bump — of the buy mint's buffer PDA, or of the state PDA for a
+/// native SOL push — which the program re-derives against.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Push<'a, A> {
     pub source_buffer: &'a A,

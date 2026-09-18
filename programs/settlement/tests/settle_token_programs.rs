@@ -9,7 +9,10 @@ use crate::common::{
     token_2022::Extensions,
     unique_pubkey,
 };
-use cow_settlement_client::cow_settlement_interface::{data::intent::OrderIntent, Instruction};
+use cow_settlement_client::cow_settlement_interface::{
+    data::intent::{BuyAsset, OrderIntent},
+    Instruction,
+};
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenProgram,
 };
@@ -25,7 +28,7 @@ mod common;
 /// What each order in a settlement sells and buys: `amount_in` of its sell
 /// token pulled out, `amount_out` of its buy token pushed in.
 struct Settled<'a> {
-    intent: &'a OrderIntent,
+    intent: &'a OrderIntent<BuyAsset>,
     amount_in: u64,
     amount_out: u64,
 }
@@ -109,7 +112,7 @@ fn order_across(
     salt: u8,
     sell_program: &Pubkey,
     buy_program: &Pubkey,
-) -> OrderIntent {
+) -> OrderIntent<BuyAsset> {
     // Bare mints: what these tests vary is which program a token lives under,
     // and a transfer-fee mint would refuse the unchecked `Transfer` the program
     // settles with before the crossing under test got a chance to matter.
@@ -365,7 +368,13 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
         &intent.sell_token_account,
         AMOUNT,
     );
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, AMOUNT);
+    buffer::ensure_funded(
+        &mut svm,
+        &program_id,
+        &payer,
+        &Pubkey::from(intent.buy_mint),
+        AMOUNT,
+    );
     let destination =
         token::create_token_account(&mut svm, &payer, &intent.sell_mint, &unique_pubkey());
     let pulls = [Pull {

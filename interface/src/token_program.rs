@@ -4,6 +4,16 @@ use crate::Pubkey;
 use solana_program_error::ProgramError;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
+/// The address an `OrderIntent` uses as `buy_mint` to trade native SOL rather than a token.
+pub const NATIVE_SOL_MINT: Pubkey = solana_system_interface::program::ID;
+
+/// Whether `mint` names native SOL; see
+/// [`NATIVE_SOL_MINT`].
+#[must_use]
+pub fn is_native_sol(mint: &Pubkey) -> bool {
+    mint == &NATIVE_SOL_MINT
+}
+
 /// A token program a token-moving instruction accepts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TokenProgram {
@@ -60,6 +70,19 @@ mod tests {
                 "{program:?} should resolve from {address}",
             );
         }
+    }
+
+    #[test]
+    fn native_sol_mint_is_the_system_program() {
+        assert!(is_native_sol(&NATIVE_SOL_MINT));
+        for program in TokenProgram::ALL {
+            assert!(!is_native_sol(&program.address()));
+        }
+    }
+
+    #[test]
+    fn an_spl_mint_is_not_native_sol() {
+        assert!(!is_native_sol(&pubkey_from_seed("some mint")));
     }
 
     #[test]

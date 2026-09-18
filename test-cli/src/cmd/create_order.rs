@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser};
 use cow_settlement_client::{
     cow_settlement_interface::{
-        data::intent::{Flags, OrderIntent, OrderKind},
+        data::intent::{BuyAsset, Flags, OrderIntent, OrderKind},
         pda::order::find_order_pda,
     },
     instruction::CreateOrder,
@@ -160,7 +160,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         sell_token_account: sell.ta,
         sell_mint: sell.mint,
         buy_token_account: buy.ta,
-        buy_mint: buy.mint,
+        buy_mint: BuyAsset::Token(buy.mint),
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,

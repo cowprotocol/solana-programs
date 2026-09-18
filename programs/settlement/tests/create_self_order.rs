@@ -11,7 +11,9 @@ use crate::common::{
 };
 use cow_settlement_client::instruction::CreateSelfOrder;
 use cow_settlement_interface::{
-    data::order::OrderAccount, pda::order::find_order_pda, SettlementError,
+    data::{intent::fixtures, order::OrderAccount},
+    pda::order::find_order_pda,
+    SettlementError,
 };
 use solana_sdk::signer::Signer;
 
@@ -48,7 +50,11 @@ fn places_an_order_owned_by_the_state_pda() {
         intent: decoded_intent,
         bump: decoded_bump,
     } = OrderAccount::try_from(&account.data[..]).expect("the order PDA must decode");
-    assert_eq!(decoded_intent, intent, "the stored intent must match");
+    assert_eq!(
+        decoded_intent,
+        fixtures::decoded_intent(&intent),
+        "the stored intent must match"
+    );
     assert_eq!(
         decoded_intent.owner, params.state_pda,
         "the program must force the order's owner to the state PDA"

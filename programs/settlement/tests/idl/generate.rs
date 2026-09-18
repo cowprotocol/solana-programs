@@ -258,6 +258,10 @@ fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
         // `Flags` packs three fields into a single byte, which the IDL's type
         // grammar can't express. The byte is what the wire carries.
         ("OrderIntent", "flags") => Some(("flags".to_string(), json!("u8"))),
+        // The buy side is generic in Rust so that a client has to spell out
+        // whether it's buying tokens or lamports. Every spelling of it encodes
+        // to the one mint the wire carries.
+        ("OrderIntent", "buy_mint") => Some(("buy_mint".to_string(), json!("pubkey"))),
         _ => None,
     }
 }

@@ -13,8 +13,8 @@ use pinocchio::{
 use pinocchio_token::instructions::Transfer;
 
 use crate::processor::utils::{
-    auth::with_state_pda_signer, cpi::is_cpi_call, settle::validate_counterpart,
-    token::owning_token_program,
+    auth::with_state_pda_signer, cpi::is_cpi_call, lamports::move_lamports,
+    settle::validate_counterpart, token::owning_token_program,
 };
 
 pub fn process_finalize_settle(
@@ -51,15 +51,16 @@ pub fn process_finalize_settle(
 }
 
 /// Push each order's proceeds out of the settlement's buffers, signing each
-/// transfer as the canonical state PDA (the buffers' SPL authority).
+/// transfer as the canonical state PDA (the buffers' SPL authority), or out of
+/// the state PDA's own lamports for an order paid in native SOL.
 ///
 /// Validating the pushes is done in `BeginSettle`. It does so by checking:
 /// 1. the `destination` matches the `buy_token_account` in the OrderIntent
-/// 2. the sending buffer in the instruction is derived from the `buy_mint` in
-///    the OrderIntent
+/// 2. the sending account in the instruction is the one holding the
+///    settlement's funds for the `buy_mint` in the OrderIntent
 ///
-/// So ultimately, we are relying that the SPL token program rejects a transfer
-/// whose source and destination mints differ
+/// So ultimately, for an SPL push we are relying that the SPL token program
+/// rejects a transfer whose source and destination mints differ.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(
     state_pda_account: &AccountView,
@@ -67,18 +68,25 @@ fn push_funds<'a>(
     pushes: Pushes<'a, AccountView>,
 ) -> ProgramResult {
     for push in pushes.iter() {
-        let token_program = owning_token_program(push.destination)
-            .map_err(|_| SettlementError::InvalidTokenProgram)?;
-        Transfer::new(
-            push.source_buffer,
-            push.destination,
-            state_pda_account,
-            push.amount,
-        )
-        .invoke_signed_with_unverified_program(
-            core::slice::from_ref(state_pda_signer),
-            &token_program.address(),
-        )?;
+        // Pay out native SOL?
+        if push.source_buffer.address() == state_pda_account.address() {
+            let mut source = *push.source_buffer;
+            let mut destination = *push.destination;
+            move_lamports(&mut source, &mut destination, push.amount)?;
+        } else {
+            let token_program = owning_token_program(push.destination)
+                .map_err(|_| SettlementError::InvalidTokenProgram)?;
+            Transfer::new(
+                push.source_buffer,
+                push.destination,
+                state_pda_account,
+                push.amount,
+            )
+            .invoke_signed_with_unverified_program(
+                core::slice::from_ref(state_pda_signer),
+                &token_program.address(),
+            )?;
+        }
     }
 
     Ok(())

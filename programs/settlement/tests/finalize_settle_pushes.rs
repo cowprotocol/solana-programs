@@ -315,11 +315,17 @@ fn rejects_invalid_buy_token_account() {
     let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
     // The mint account is a convenient invalid account we can use
     let intent = OrderIntent {
-        buy_token_account: settlable.buy_mint,
+        buy_token_account: Pubkey::from(settlable.buy_mint),
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
+    buffer::ensure_funded(
+        &mut svm,
+        &program_id,
+        &payer,
+        &Pubkey::from(intent.buy_mint),
+        1_000,
+    );
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
@@ -349,7 +355,13 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy_mint, 1_000);
+    buffer::ensure_funded(
+        &mut svm,
+        &program_id,
+        &payer,
+        &Pubkey::from(intent.buy_mint),
+        1_000,
+    );
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,

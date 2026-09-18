@@ -3,11 +3,14 @@
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
 };
-use cow_settlement_interface::{data::intent::OrderIntent, Instruction};
+use cow_settlement_interface::{
+    data::intent::{BuyAsset, OrderIntent},
+    Instruction,
+};
 use litesvm::LiteSVM;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
-use super::{buffer, token, unique_pubkey};
+use super::{buffer, state, token, unique_pubkey};
 
 /// Positions of the two instructions in the `[BeginSettle, FinalizeSettle]` pair
 /// the settlement tests build: begin first, finalize right after it. Each
@@ -52,7 +55,7 @@ pub fn build_settlement(
 /// hand back the result in one piece.
 #[derive(Clone)]
 pub struct StagedOrder {
-    pub intent: OrderIntent,
+    pub intent: OrderIntent<BuyAsset>,
     pub pulls: Vec<Pull>,
     pub amount_out: u64,
 }
@@ -69,7 +72,7 @@ pub fn stage_order(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
-    intent: &OrderIntent,
+    intent: &OrderIntent<BuyAsset>,
     pulls: &[u64],
     amount_out: u64,
 ) -> StagedOrder {
@@ -93,7 +96,15 @@ pub fn stage_order(
             amount,
         })
         .collect();
-    buffer::ensure_funded(svm, program_id, payer, &intent.buy_mint, amount_out);
+    match intent.buy_mint {
+        // Lamports are paid out of the state PDA itself; no buffer holds them.
+        BuyAsset::NativeSol => {
+            state::fund_with_lamports(svm, program_id, amount_out);
+        }
+        BuyAsset::Token(mint) => {
+            buffer::ensure_funded(svm, program_id, payer, &mint, amount_out);
+        }
+    }
 
     StagedOrder {
         intent: intent.clone(),

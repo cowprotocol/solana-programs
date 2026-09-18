@@ -494,7 +494,7 @@ fn reclaim_mid_settlement_succeeds() {
     let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, SETTLED_SELL_AMOUNT);
     let pull_destination = staged.pulls[0].destination;
     let buy_token_account = staged.intent.buy_token_account;
-    let buffer_pda = buffer::buffer_pda(&program_id, &staged.intent.buy_mint);
+    let buffer_pda = buffer::buffer_pda(&program_id, &Pubkey::from(staged.intent.buy_mint));
     let pda_rent = svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE);
 
     let reclaim = ReclaimOrder {
