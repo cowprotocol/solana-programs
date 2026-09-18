@@ -141,6 +141,62 @@ pub enum SettlementError {
     UnauthorizedSelfOrder = 42,
 }
 
+/// Decodes an on-chain `ProgramError::Custom` code back into the error, for
+/// consumers reading simulation results and transaction metadata. An unknown
+/// code (a newer program) is returned unchanged.
+impl TryFrom<u32> for SettlementError {
+    type Error = u32;
+
+    fn try_from(code: u32) -> Result<Self, u32> {
+        match code {
+            0 => Ok(Self::FinalizeBeforeInitialize),
+            1 => Ok(Self::BeginFinalizePairOverlap),
+            2 => Ok(Self::MissingCounterpartInstruction),
+            3 => Ok(Self::CounterpartIsExternal),
+            4 => Ok(Self::InvalidCounterpartDiscriminator),
+            5 => Ok(Self::InvalidCounterpartCounterpart),
+            6 => Ok(Self::MismatchedCounterpartDiscriminator),
+            7 => Ok(Self::OwnerMismatch),
+            8 => Ok(Self::AccountNotDerivable),
+            9 => Ok(Self::OrdersNotStrictlyIncreasing),
+            10 => Ok(Self::SellTokenAccountMismatch),
+            11 => Ok(Self::SellTokenAccountInvalid),
+            12 => Ok(Self::SellTokenOwnerMismatch),
+            13 => Ok(Self::AccountCountNotMatchingOrderCount),
+            14 => Ok(Self::CalledViaCpi),
+            15 => Ok(Self::OrderCancelled),
+            16 => Ok(Self::OrderExpired),
+            17 => Ok(Self::TransferCountMismatch),
+            18 => Ok(Self::StateAccountMismatch),
+            19 => Ok(Self::AccountCountNotMatchingPushCount),
+            20 => Ok(Self::SettledOrderPushCountMismatch),
+            21 => Ok(Self::PushDestinationMismatch),
+            22 => Ok(Self::PushSourceNotBuffer),
+            23 => Ok(Self::SellMintMismatch),
+            24 => Ok(Self::LimitPriceViolated),
+            25 => Ok(Self::PullAmountOverflow),
+            26 => Ok(Self::FillExceedsOrderAmount),
+            27 => Ok(Self::OrderNotExactlyFilled),
+            28 => Ok(Self::AmountWithdrawnOverflow),
+            29 => Ok(Self::AmountReceivedOverflow),
+            30 => Ok(Self::OrderNotReclaimable),
+            31 => Ok(Self::ReclaimRecipientMismatch),
+            32 => Ok(Self::ReclaimAuthorityMismatch),
+            33 => Ok(Self::ReclaimBufferNotCanonical),
+            34 => Ok(Self::UnauthorizedAuthorityTransfer),
+            35 => Ok(Self::UnauthorizedSolverManagement),
+            36 => Ok(Self::SolverAlreadyExists),
+            37 => Ok(Self::UnauthorizedSolver),
+            38 => Ok(Self::SolverNotFound),
+            39 => Ok(Self::OrderCreatedOnChainMismatch),
+            40 => Ok(Self::BufferSizeUnavailable),
+            41 => Ok(Self::InvalidTokenProgram),
+            42 => Ok(Self::UnauthorizedSelfOrder),
+            unknown => Err(unknown),
+        }
+    }
+}
+
 impl From<SettlementError> for u32 {
     fn from(e: SettlementError) -> Self {
         e as u32
@@ -156,5 +212,21 @@ impl From<SettlementError> for solana_program_error::ProgramError {
 impl From<SettlementError> for solana_instruction_error::InstructionError {
     fn from(e: SettlementError) -> Self {
         Self::Custom(e.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The discriminants are contiguous, so the whole range must decode and
+    /// round-trip, and the first code past it must not.
+    #[test]
+    fn custom_codes_round_trip() {
+        for code in 0..=42 {
+            let error = SettlementError::try_from(code).unwrap();
+            assert_eq!(u32::from(error), code);
+        }
+        assert_eq!(SettlementError::try_from(43), Err(43));
     }
 }
