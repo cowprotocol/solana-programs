@@ -45,7 +45,7 @@ jobs:
             flow=manual-release
             tag="$GITHUB_REF_NAME"
           elif [ -n "$INPUT_TAG" ]; then
-            flow=tagged-dispatch
+            flow=manual-rerun
             # The input is free text, unlike a `release` event's ref, so
             # check the release actually exists.
             tag="$INPUT_TAG"
@@ -103,9 +103,7 @@ jobs:
           persist-credentials: false
 
       # The tests live in ci.yml, so confirm they passed for this exact commit
-      # before shipping it. Checked here rather than in `build` because
-      # auto-release.yml dispatches on the same push that starts CI, so CI is
-      # still running then; by the time this job is approved it has finished.
+      # before shipping it.
       - name: CI must have passed for the released commit
         env:
           GH_TOKEN: ${{ github.token }}

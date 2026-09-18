@@ -139,7 +139,7 @@ cargo publish
 
 ### Publishing the Node.js client
 
-The TS/JS client ([`@cowprotocol/solana-settlement-client`](programs/settlement/idl/client/js/README.md)) is published automatically, with a manual approval step, when a GitHub release is cut — see [`publish-npm.yml`](.github/workflows/publish-npm.yml) and [`auto-release.yml`](.github/workflows/auto-release.yml) for the details.
+The TS/JS client ([`@cowprotocol/solana-settlement-client`](programs/settlement/idl/client/js/README.md)) is published by [`publish-npm.yml`](.github/workflows/publish-npm.yml) when a GitHub release is cut, after a manual approval.
 
 ### Devnet example
 
@@ -171,17 +171,18 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair ../deployer-keypair.json <solver-address>`).
 - Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
-- Create a PR with the changes and wait for approval, then merge it. Merging automatically creates a GitHub release (tag `v$VERSION`, e.g. `v0.42.0`) and [publishes the npm package](#publishing-the-nodejs-client).
+- Create a PR with the changes and wait for approval.
 - [Publish the IDL](#publishing-the-idl).
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
 - [Publish the cargo packages](#publishing-the-cargo-packages).
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42". This also [publishes the npm package](#publishing-the-nodejs-client).
 
 ### Patch update
 
 - Create a new branch based off the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
 - [Bump the crate version](#bumping-the-crate-version) by a patch version.
 - Commit the code changes resulting from the changes above.
-- Create a PR with the changes and wait for approval, then merge it. Merging automatically creates a GitHub release (tag `v$VERSION`, e.g. `v0.42.1`) and [publishes the npm package](#publishing-the-nodejs-client).
+- Create a PR with the changes and wait for approval.
 - [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
 - [Publish the IDL](#publishing-the-idl), if changed.
