@@ -51,7 +51,7 @@ pub struct ResolvedToken {
     /// The actual mint data
     pub mint_data: Mint,
     /// The token program owning both `mint` and `ta` — one of
-    /// [`token_program::SUPPORTED_TOKEN_PROGRAMS`]. Any instruction touching
+    /// [`TokenProgram::ALL`]. Any instruction touching
     /// `ta` has to be built against it, so it travels with the resolved token
     /// rather than being assumed.
     pub token_program: Pubkey,
