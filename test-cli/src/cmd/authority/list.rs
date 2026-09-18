@@ -20,7 +20,6 @@ pub fn run(ctx: Context) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to decode state account {state_pda}: {e:?}"))?;
 
     print_summary(&[
-        ("statePda", &state_pda),
         ("manager", &manager),
         ("reclaimAuthority", &reclaim_authority),
         ("selfOrderAuthority", &self_order_authority),

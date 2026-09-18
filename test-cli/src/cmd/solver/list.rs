@@ -15,7 +15,6 @@ pub fn run(ctx: Context) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to decode state account {state_pda}: {e:?}"))?;
     let solvers: Vec<_> = state.solvers().collect();
 
-    println!("statePda: {state_pda}");
     println!("solvers: {}", solvers.len());
     for solver in solvers {
         println!("  {solver}");
