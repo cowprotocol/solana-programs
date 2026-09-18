@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use super::Context;
 
 mod add;
+mod list;
 mod remove;
 
 use add::AddArgs;
@@ -20,11 +21,14 @@ enum SolverCommand {
     Add(AddArgs),
     #[command(about = "Revoke a solver's authorization to settle orders")]
     Remove(RemoveArgs),
+    #[command(about = "List the authorized solvers")]
+    List,
 }
 
 pub fn run(ctx: Context, args: SolverArgs) -> anyhow::Result<()> {
     match args.command {
         SolverCommand::Add(args) => add::run(ctx, args),
         SolverCommand::Remove(args) => remove::run(ctx, args),
+        SolverCommand::List => list::run(ctx),
     }
 }
