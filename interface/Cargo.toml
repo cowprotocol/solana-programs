@@ -35,6 +35,7 @@ spl-token-2022-interface.workspace = true
 
 [dev-dependencies]
 hex-literal.workspace = true
+pastey.workspace = true
 proptest.workspace = true
 
 [features]

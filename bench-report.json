@@ -39,8 +39,10 @@
     "transfer_authority/manager_can_transfer_manager": 4,
     "transfer_authority/manager_can_transfer_reclaim_authority": 4,
     "transfer_authority/manager_can_transfer_self_order_authority": 4,
+    "transfer_authority/manager_can_transfer_solver_authority": 4,
     "transfer_authority/reclaim_authority_can_transfer_itself": 4,
-    "transfer_authority/self_order_authority_can_transfer_itself": 4
+    "transfer_authority/self_order_authority_can_transfer_itself": 4,
+    "transfer_authority/solver_authority_can_transfer_itself": 4
   },
   "compute_units": {
     "add_solver/add_with_many_existing_solvers": 5073,
@@ -53,13 +55,13 @@
     "create_buffers/max_buffers_in_one_instruction_token_2022": 232026,
     "create_order/happy_path_creates_order_pda_with_expected_body": 3506,
     "create_self_order/places_an_order_owned_by_the_state_pda": 12601,
-    "initialize/happy_path_initializes_state_pda_with_expected_data": 4546,
-    "reclaim_buffer/funded_buffer_is_skipped": 4850,
-    "reclaim_buffer/funded_buffer_is_skipped_token_2022": 4860,
-    "reclaim_buffer/happy_path_reclaims_empty_buffer_to_the_authority_itself": 6013,
-    "reclaim_buffer/happy_path_reclaims_empty_buffer_to_the_authority_itself_token_2022": 7501,
-    "reclaim_buffer/max_buffers_in_one_instruction": 131929,
-    "reclaim_buffer/max_buffers_in_one_instruction_token_2022": 176569,
+    "initialize/happy_path_initializes_state_pda_with_expected_data": 4562,
+    "reclaim_buffer/funded_buffer_is_skipped": 10850,
+    "reclaim_buffer/funded_buffer_is_skipped_token_2022": 10860,
+    "reclaim_buffer/happy_path_reclaims_empty_buffer_to_the_authority_itself": 12013,
+    "reclaim_buffer/happy_path_reclaims_empty_buffer_to_the_authority_itself_token_2022": 13501,
+    "reclaim_buffer/max_buffers_in_one_instruction": 139429,
+    "reclaim_buffer/max_buffers_in_one_instruction_token_2022": 184069,
     "reclaim_buffer/reclaims_multiple_buffers_skipping_funded": 13640,
     "reclaim_buffer/reclaims_multiple_buffers_skipping_funded_token_2022": 15138,
     "reclaim_order/happy_path_expired_returns_lamports_and_closes_pda": 2202,
@@ -79,11 +81,13 @@
     "settle/settles_a_single_order": 12558,
     "settle/settles_multiple_orders": 23251,
     "settle/settling_a_self_order_withdraws_the_buffered_fees": 13688,
-    "transfer_authority/manager_can_transfer_manager": 3172,
-    "transfer_authority/manager_can_transfer_reclaim_authority": 3176,
-    "transfer_authority/manager_can_transfer_self_order_authority": 3175,
-    "transfer_authority/reclaim_authority_can_transfer_itself": 3186,
-    "transfer_authority/self_order_authority_can_transfer_itself": 3184
+    "transfer_authority/manager_can_transfer_manager": 3183,
+    "transfer_authority/manager_can_transfer_reclaim_authority": 3183,
+    "transfer_authority/manager_can_transfer_self_order_authority": 3182,
+    "transfer_authority/manager_can_transfer_solver_authority": 3183,
+    "transfer_authority/reclaim_authority_can_transfer_itself": 3194,
+    "transfer_authority/self_order_authority_can_transfer_itself": 3192,
+    "transfer_authority/solver_authority_can_transfer_itself": 3194
   },
   "transaction_bytes": {
     "add_solver/add_with_many_existing_solvers": 366,
@@ -96,7 +100,7 @@
     "create_buffers/max_buffers_in_one_instruction_token_2022": 295,
     "create_order/happy_path_creates_order_pda_with_expected_body": 452,
     "create_self_order/places_an_order_owned_by_the_state_pda": 581,
-    "initialize/happy_path_initializes_state_pda_with_expected_data": 333,
+    "initialize/happy_path_initializes_state_pda_with_expected_data": 366,
     "reclaim_buffer/funded_buffer_is_skipped": 400,
     "reclaim_buffer/funded_buffer_is_skipped_token_2022": 400,
     "reclaim_buffer/happy_path_reclaims_empty_buffer_to_the_authority_itself": 400,
@@ -125,7 +129,9 @@
     "transfer_authority/manager_can_transfer_manager": 333,
     "transfer_authority/manager_can_transfer_reclaim_authority": 333,
     "transfer_authority/manager_can_transfer_self_order_authority": 333,
+    "transfer_authority/manager_can_transfer_solver_authority": 333,
     "transfer_authority/reclaim_authority_can_transfer_itself": 333,
-    "transfer_authority/self_order_authority_can_transfer_itself": 333
+    "transfer_authority/self_order_authority_can_transfer_itself": 333,
+    "transfer_authority/solver_authority_can_transfer_itself": 333
   }
 }

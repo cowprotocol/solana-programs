@@ -25,26 +25,27 @@ use crate::SettlementInstruction;
 /// [`crate::pda::state::find_state_pda`]; the program derives the bump itself
 /// and rejects any other address.
 ///
-/// `manager`, `reclaim_authority`, and `self_order_authority` are recorded
-/// verbatim in the state PDA's data: the account authorized to add and remove
-/// solvers, the account authorized to reclaim rent for buffers, and the account
-/// authorized to place self orders. See
+/// All input accounts are recorded verbatim in the state PDA's data: the
+/// account authorized to transfer any role, the account authorized to add and
+/// remove solvers, the account authorized to reclaim rent for buffers, and the
+/// account authorized to place self orders. See
 /// [`crate::data::state::StateAccount`].
 ///
 /// The state account is owned by the settlement program. This instruction
 /// succeeds only once: a second call fails because the account already
 /// exists.
 ///
-/// Wire format: `[discriminator=3, manager (32 bytes), reclaim_authority (32
-/// bytes), self_order_authority (32 bytes)]`, 97 bytes. Required accounts:
-/// `[payer (W,S), state_pda (W), system_program (R)]`. The system program must
-/// be available for the `CreateAccount` CPI but doesn't need to sit at that
-/// specific position.
+/// Wire format: `[discriminator=3, manager (32 bytes), solver_authority (32
+/// bytes), reclaim_authority (32 bytes), self_order_authority (32 bytes)]`, 129
+/// bytes. Required accounts: `[payer (W,S), state_pda (W), system_program (R)]`.
+/// The system program must be available for the `CreateAccount` CPI but doesn't
+/// need to sit at that specific position.
 pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,
     pub state_pda: Pubkey,
     pub manager: Pubkey,
+    pub solver_authority: Pubkey,
     pub reclaim_authority: Pubkey,
     pub self_order_authority: Pubkey,
 }
@@ -53,6 +54,7 @@ impl From<Initialize> for Instruction {
     fn from(builder: Initialize) -> Self {
         let mut data = vec![SettlementInstruction::Initialize.discriminator()];
         data.extend_from_slice(&builder.manager.to_bytes());
+        data.extend_from_slice(&builder.solver_authority.to_bytes());
         data.extend_from_slice(&builder.reclaim_authority.to_bytes());
         data.extend_from_slice(&builder.self_order_authority.to_bytes());
         Instruction {
@@ -72,6 +74,7 @@ pub struct InitializeInput<'a, A> {
     pub payer: &'a A,
     pub state_pda: &'a A,
     pub manager: Pubkey,
+    pub solver_authority: Pubkey,
     pub reclaim_authority: Pubkey,
     pub self_order_authority: Pubkey,
 }
@@ -80,16 +83,18 @@ impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::Initialize;
 
     fn parse_body(instruction_data: &[u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
-        let authorities: &[u8; 3 * size_of::<Pubkey>()] = instruction_data
+        let authorities: &[u8; 4 * size_of::<Pubkey>()] = instruction_data
             .try_into()
             .map_err(|_| ProgramError::InvalidInstructionData)?;
-        let (manager, reclaim_authority, self_order_authority) = array_refs![
+        let (manager, solver_authority, reclaim_authority, self_order_authority) = array_refs![
             authorities,
+            size_of::<Pubkey>(),
             size_of::<Pubkey>(),
             size_of::<Pubkey>(),
             size_of::<Pubkey>()
         ];
         let manager = Pubkey::new_from_array(*manager);
+        let solver_authority = Pubkey::new_from_array(*solver_authority);
         let reclaim_authority = Pubkey::new_from_array(*reclaim_authority);
         let self_order_authority = Pubkey::new_from_array(*self_order_authority);
 
@@ -104,6 +109,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
             payer,
             state_pda,
             manager,
+            solver_authority,
             reclaim_authority,
             self_order_authority,
         })
@@ -129,8 +135,9 @@ pub mod fixtures {
             program_id: zero,
             payer: zero,
             state_pda: zero,
-            reclaim_authority: zero,
             manager: zero,
+            solver_authority: zero,
+            reclaim_authority: zero,
             self_order_authority: zero,
         })
         .data
@@ -154,14 +161,16 @@ mod tests {
         let program_id = Address::new_unique();
         let payer = fake_account(pubkey_from_seed("payer"));
         let state_pda = fake_account(pubkey_from_seed("state pda"));
-        let reclaim_authority = pubkey_from_seed("reclaim authority");
         let manager = pubkey_from_seed("manager");
+        let solver_authority = pubkey_from_seed("solver authority");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
         let self_order_authority = pubkey_from_seed("self-order authority");
         let data = Instruction::from(Initialize {
             program_id,
             payer: *payer.address(),
             state_pda: *state_pda.address(),
             manager,
+            solver_authority,
             reclaim_authority,
             self_order_authority,
         })
@@ -174,6 +183,7 @@ mod tests {
             payer: parsed_payer,
             state_pda: parsed_state_pda,
             manager: parsed_manager,
+            solver_authority: parsed_solver_authority,
             reclaim_authority: parsed_reclaim_authority,
             self_order_authority: parsed_self_order_authority,
         } = InitializeInput::parse(&data, &accounts).expect("parse should succeed");
@@ -181,6 +191,7 @@ mod tests {
         assert_eq!(parsed_payer.address(), payer.address());
         assert_eq!(parsed_state_pda.address(), state_pda.address());
         assert_eq!(parsed_manager, manager);
+        assert_eq!(parsed_solver_authority, solver_authority);
         assert_eq!(parsed_reclaim_authority, reclaim_authority);
         assert_eq!(parsed_self_order_authority, self_order_authority);
     }
@@ -223,44 +234,49 @@ mod tests {
         let program_id = pubkey_from_seed("program id");
         let payer = pubkey_from_seed("payer");
         let state_pda = pubkey_from_seed("state pda");
-        let reclaim_authority = pubkey_from_seed("reclaim authority");
         let manager = pubkey_from_seed("manager");
+        let solver_authority = pubkey_from_seed("solver authority");
+        let reclaim_authority = pubkey_from_seed("reclaim authority");
         let self_order_authority = pubkey_from_seed("self-order authority");
 
         let Instruction { data, .. } = Initialize {
             program_id,
             payer,
             state_pda,
-            reclaim_authority,
             manager,
+            solver_authority,
+            reclaim_authority,
             self_order_authority,
         }
         .into();
-        assert_eq!(data.len(), 1 + 3 * core::mem::size_of::<Pubkey>());
+        assert_eq!(data.len(), 1 + 4 * core::mem::size_of::<Pubkey>());
         assert_eq!(data[0], SettlementInstruction::Initialize.discriminator());
         assert_eq!(&data[1..33], &manager.to_bytes());
-        assert_eq!(&data[33..65], &reclaim_authority.to_bytes());
-        assert_eq!(&data[65..], &self_order_authority.to_bytes());
+        assert_eq!(&data[33..65], &solver_authority.to_bytes());
+        assert_eq!(&data[65..97], &reclaim_authority.to_bytes());
+        assert_eq!(&data[97..], &self_order_authority.to_bytes());
     }
 
     #[test]
     fn instruction_data_regression() {
         let manager = Pubkey::new_from_array([0x11; 32]);
-        let reclaim_authority = Pubkey::new_from_array([0x22; 32]);
-        let self_order_authority = Pubkey::new_from_array([0x33; 32]);
+        let solver_authority = Pubkey::new_from_array([0x22; 32]);
+        let reclaim_authority = Pubkey::new_from_array([0x33; 32]);
+        let self_order_authority = Pubkey::new_from_array([0x44; 32]);
 
         let Instruction { data, .. } = Initialize {
             program_id: pubkey_from_seed("program id"),
             payer: pubkey_from_seed("payer"),
             state_pda: pubkey_from_seed("state pda"),
             manager,
+            solver_authority,
             reclaim_authority,
             self_order_authority,
         }
         .into();
 
         #[rustfmt::skip]
-        let expected: [u8; 1 + 3 * core::mem::size_of::<Pubkey>()] = [
+        let expected: [u8; 1 + 4 * core::mem::size_of::<Pubkey>()] = [
             // discriminator (Initialize = 3)
             0x03,
             // manager
@@ -268,16 +284,21 @@ mod tests {
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+            // solver_authority
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             // reclaim_authority
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             // self_order_authority
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
+            0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
         ];
         assert_eq!(data, expected);
     }
@@ -288,6 +309,7 @@ mod tests {
         let payer = pubkey_from_seed("payer");
         let state_pda = pubkey_from_seed("state pda");
         let manager = pubkey_from_seed("manager");
+        let solver_authority = pubkey_from_seed("solver authority");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let self_order_authority = pubkey_from_seed("self-order authority");
 
@@ -295,8 +317,9 @@ mod tests {
             program_id,
             payer,
             state_pda,
-            reclaim_authority,
             manager,
+            solver_authority,
+            reclaim_authority,
             self_order_authority,
         }
         .into();

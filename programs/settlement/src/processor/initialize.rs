@@ -18,6 +18,7 @@ pub fn process_initialize(
         payer,
         state_pda,
         manager,
+        solver_authority,
         reclaim_authority,
         self_order_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
@@ -43,6 +44,7 @@ pub fn process_initialize(
         state_pda.try_borrow_mut()?,
         &StateInitArgs {
             manager,
+            solver_authority,
             reclaim_authority,
             self_order_authority,
         },

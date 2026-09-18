@@ -8,6 +8,7 @@ use solana_program_error::ProgramError;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecodedStateAccount {
     pub manager: Pubkey,
+    pub solver_authority: Pubkey,
     pub reclaim_authority: Pubkey,
     pub self_order_authority: Pubkey,
 }
@@ -19,6 +20,7 @@ impl TryFrom<&[u8]> for DecodedStateAccount {
         let state = StateAccount::attach(bytes)?;
         Ok(Self {
             manager: state.authority(Role::Manager),
+            solver_authority: state.authority(Role::SolverAuthority),
             reclaim_authority: state.authority(Role::ReclaimAuthority),
             self_order_authority: state.authority(Role::SelfOrderAuthority),
         })
@@ -40,10 +42,12 @@ mod tests {
     #[test]
     fn decodes_the_header() {
         let manager = pubkey_from_seed("manager");
+        let solver_authority = pubkey_from_seed("solver authority");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let self_order_authority = pubkey_from_seed("self-order authority");
         let bytes = state_bytes(&StateInitArgs {
             manager,
+            solver_authority,
             reclaim_authority,
             self_order_authority,
         });
@@ -53,6 +57,7 @@ mod tests {
             decoded,
             DecodedStateAccount {
                 manager,
+                solver_authority,
                 reclaim_authority,
                 self_order_authority,
             },
@@ -71,6 +76,7 @@ mod tests {
     fn rejects_too_short_account() {
         let bytes = state_bytes(&StateInitArgs {
             manager: pubkey_from_seed("manager"),
+            solver_authority: pubkey_from_seed("solver authority"),
             reclaim_authority: pubkey_from_seed("reclaim authority"),
             self_order_authority: pubkey_from_seed("self-order authority"),
         });

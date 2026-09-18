@@ -10,9 +10,11 @@ use solana_program_error::ProgramError;
 #[repr(u8)]
 #[num_enum(error_type(name = ProgramError, constructor = Role::unknown_role))]
 pub enum Role {
-    /// The account authorized to add and remove solvers and to transfer roles.
-    /// It is the highest authority: it may transfer any role.
+    /// The account authorized to transfer roles. It is the highest authority: it
+    /// may transfer any role.
     Manager = 0,
+    /// The account authorized to add and remove solvers.
+    SolverAuthority,
     /// The account authorized to close buffer accounts and reclaim their rent,
     /// choosing where that rent goes.
     ReclaimAuthority,
@@ -24,8 +26,9 @@ pub enum Role {
 
 impl Role {
     /// Every [`Role`] variant, in discriminant order.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
         Role::Manager,
+        Role::SolverAuthority,
         Role::ReclaimAuthority,
         Role::SelfOrderAuthority,
     ];
