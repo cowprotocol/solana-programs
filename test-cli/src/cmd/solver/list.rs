@@ -13,11 +13,9 @@ pub fn run(ctx: Context) -> anyhow::Result<()> {
         .with_context(|| format!("failed to fetch state account {state_pda}"))?;
     let state = StateAccount::attach(data.as_slice())
         .map_err(|e| anyhow::anyhow!("failed to decode state account {state_pda}: {e:?}"))?;
-    let solvers: Vec<_> = state.solvers().collect();
 
-    println!("solvers: {}", solvers.len());
-    for solver in solvers {
-        println!("  {solver}");
+    for solver in state.solvers() {
+        println!("{solver}");
     }
 
     Ok(())
