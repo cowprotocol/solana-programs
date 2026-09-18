@@ -50,11 +50,10 @@ pub struct ResolvedToken {
     pub mint: Pubkey,
     /// The actual mint data
     pub mint_data: Mint,
-    /// The token program owning both `mint` and `ta` — one of
-    /// [`TokenProgram::ALL`]. Any instruction touching
+    /// The token program owning both `mint` and `ta`. Any instruction touching
     /// `ta` has to be built against it, so it travels with the resolved token
     /// rather than being assumed.
-    pub token_program: Pubkey,
+    pub token_program: TokenProgram,
     /// `Some(owner)` when `ta` does not yet exist on-chain. Call with the
     /// transaction fee payer to build the instruction that creates it.
     create_ata: Option<Pubkey>,
@@ -69,7 +68,7 @@ impl ResolvedToken {
             payer,
             &owner,
             &self.mint,
-            &self.token_program,
+            &self.token_program.address(),
         ))
     }
 }
@@ -164,7 +163,7 @@ pub fn interpret_token_from_user_input(
         let ta = get_associated_token_address_with_program_id(
             owner,
             token_account_or_mint,
-            &token_program,
+            &token_program.address(),
         );
         Ok(ResolvedToken {
             ta,
@@ -190,7 +189,7 @@ fn resolve_from_mint(
     mint: &Pubkey,
 ) -> anyhow::Result<ResolvedToken> {
     let (token_program, mint_data) = fetch_mint(rpc, mint)?;
-    let ta = get_associated_token_address_with_program_id(owner, mint, &token_program);
+    let ta = get_associated_token_address_with_program_id(owner, mint, &token_program.address());
 
     Ok(ResolvedToken {
         ta,
@@ -203,10 +202,9 @@ fn resolve_from_mint(
 
 /// The token program owning `account`, rejecting anything the settlement
 /// program cannot move tokens with.
-fn token_program_of(account: &Account) -> anyhow::Result<Pubkey> {
+fn token_program_of(account: &Account) -> anyhow::Result<TokenProgram> {
     let owner = *account.owner();
-    TokenProgram::try_from(&owner).context(format!("{owner} is not a supported token program"))?;
-    Ok(owner)
+    TokenProgram::try_from(&owner).context(format!("{owner} is not a supported token program"))
 }
 
 /// Used to set `create_ata` on `ResolvedToken`. Returns the ATA `owner` when the
@@ -228,7 +226,7 @@ fn determine_create_ata(
 }
 
 /// Fetch `mint` and return the token program owning it alongside its decoded state.
-fn fetch_mint(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<(Pubkey, Mint)> {
+fn fetch_mint(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<(TokenProgram, Mint)> {
     let account = rpc
         .get_account(mint)
         .with_context(|| format!("mint account {mint} not found"))?;
@@ -357,7 +355,7 @@ mod tests {
                 owner: program.address(),
                 ..Default::default()
             };
-            assert_eq!(token_program_of(&account).unwrap(), program.address());
+            assert_eq!(token_program_of(&account).unwrap(), program);
         }
     }
 

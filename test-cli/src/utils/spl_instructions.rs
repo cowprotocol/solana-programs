@@ -27,7 +27,7 @@ pub fn wrap_sol(
     ));
 
     ixs.push(
-        token_ix::sync_native(&wsol.token_program, &wsol.ta)
+        token_ix::sync_native(&wsol.token_program.address(), &wsol.ta)
             .context("failed to build SyncNative instruction")?,
     );
 
@@ -45,7 +45,7 @@ pub fn approve(
     let (settlement_pda, _) = find_state_pda(program_id);
 
     token_ix::approve(
-        &token.token_program,
+        &token.token_program.address(),
         &token.ta,
         &settlement_pda,
         owner,

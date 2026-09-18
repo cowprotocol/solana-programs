@@ -245,7 +245,7 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
 fn tally_and_register_buffer(
     ctx: &Context,
     tally: &mut HashMap<Pubkey, u64>,
-    mint_buffers_to_create: &mut HashMap<Pubkey, HashSet<Pubkey>>,
+    mint_buffers_to_create: &mut HashMap<TokenProgram, HashSet<Pubkey>>,
     token: &ResolvedToken,
     amount: u64,
 ) -> anyhow::Result<()> {
@@ -281,7 +281,7 @@ fn prepare_setup_ixs(
 ) -> anyhow::Result<()> {
     let mut sell_amount_pulled: HashMap<Pubkey, u64> = HashMap::new();
     let mut buy_amount_pushed: HashMap<Pubkey, u64> = HashMap::new();
-    let mut mint_buffers_to_create: HashMap<Pubkey, HashSet<Pubkey>> = HashMap::new();
+    let mut mint_buffers_to_create: HashMap<TokenProgram, HashSet<Pubkey>> = HashMap::new();
 
     for intent in intents {
         // for both the buy and sell token: we need to tally the total transfer amounts
@@ -309,7 +309,7 @@ fn prepare_setup_ixs(
             CreateBuffers {
                 program_id: ctx.program_id,
                 payer: ctx.payer.pubkey(),
-                token_program: TokenProgram::try_from(&token_program)?,
+                token_program,
                 mints: &mints.into_iter().collect::<Vec<_>>(),
             }
             .into(),
