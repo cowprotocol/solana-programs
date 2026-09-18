@@ -137,6 +137,10 @@ Then, all packages can published in one go:
 cargo publish
 ```
 
+### Publishing the Node.js client
+
+The TS/JS client ([`@cowprotocol/solana-settlement-client`](programs/settlement/idl/client/js/README.md)) is published by [`publish-npm.yml`](.github/workflows/publish-npm.yml) when a GitHub release is cut, after a manual approval.
+
 ### Devnet example
 
 ```sh
@@ -171,7 +175,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - [Publish the IDL](#publishing-the-idl).
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
 - [Publish the cargo packages](#publishing-the-cargo-packages).
-- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42". This also [publishes the npm package](#publishing-the-nodejs-client).
 
 ### Patch update
 
@@ -186,7 +190,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 
 ### Bumping the crate version
 
-You need to update Cargo's toml and lock file.
+You need to update Cargo's toml and lock file, and the npm package's version (kept in lockstep so a release tag maps to one version everywhere).
 Here is a list of commands to help bumping all relevant strings:
 
 ```sh
