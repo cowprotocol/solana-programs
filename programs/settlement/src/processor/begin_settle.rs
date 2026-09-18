@@ -5,7 +5,7 @@ use std::ops::Deref;
 use cow_settlement_interface::{
     data::{
         intent::{OrderIntent, OrderKind},
-        order::{EncodedOrderAccount, OrderAccount},
+        order::{FillAmounts, OrderAccount},
     },
     instruction::{
         settle::{
@@ -266,12 +266,16 @@ fn process_order(
 
     // Decode the order body and prove its provenance: `load_from_pda` checks
     // that `order_pda` is the canonical order PDA for the intent it stores.
-    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
-    let intent = &account.intent;
-
-    if account.cancelled {
-        return Err(SettlementError::OrderCancelled.into());
-    }
+    // Read the fields the settlement needs, then drop the borrow before the
+    // pull CPIs and the amount write-back below touch the account.
+    let (intent, prior_fill) = {
+        let order = OrderAccount::load_from_pda(order_pda, program_id)?;
+        if order.cancelled()? {
+            return Err(SettlementError::OrderCancelled.into());
+        }
+        (order.intent()?, order.filled_amounts())
+    };
+    let intent = &intent;
 
     if now > i64::from(intent.valid_to) {
         return Err(SettlementError::OrderExpired.into());
@@ -330,24 +334,17 @@ fn process_order(
             )?;
     }
 
-    validate_limit_price(intent, amount_in, push.amount)?;
-    let (amount_withdrawn, amount_received) = validated_final_amounts(
-        intent,
-        account.amount_withdrawn,
-        account.amount_received,
-        amount_in,
-        push.amount,
-    )?;
+    let settled = FillAmounts {
+        withdrawn: amount_in,
+        received: push.amount,
+    };
+    validate_limit_price(intent, &settled)?;
+    let final_amounts = validated_final_amounts(intent, prior_fill, settled)?;
 
-    let updated: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
-        amount_withdrawn,
-        amount_received,
-        ..account
-    })
-    .into();
     // A copied `AccountView` handle writes through to the same runtime account.
     let mut order_pda = *order_pda;
-    order_pda.try_borrow_mut()?.copy_from_slice(&updated);
+    let mut data = order_pda.try_borrow_mut()?;
+    OrderAccount::attach(&mut data[..])?.set_amounts(final_amounts);
 
     Ok(())
 }
@@ -359,9 +356,9 @@ fn process_order(
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn validate_limit_price(
     intent: &OrderIntent,
-    amount_in: u64,
-    amount_out: u64,
+    settled: &FillAmounts,
 ) -> Result<(), SettlementError> {
+    let (amount_in, amount_out) = (settled.withdrawn, settled.received);
     // Limit price: the executed price must be at least the order's limit, that is,
     //   amount_out >= amount_in * (buy_amount / sell_amount),
     // rearranged division-free to avoid rounding.
@@ -388,21 +385,21 @@ fn validate_limit_price(
 /// bounded by the limit price.
 fn validated_final_amounts(
     intent: &OrderIntent,
-    amount_withdrawn: u64,
-    amount_received: u64,
-    amount_in: u64,
-    amount_out: u64,
-) -> Result<(u64, u64), SettlementError> {
-    let amount_withdrawn = amount_withdrawn
-        .checked_add(amount_in)
+    prior: FillAmounts,
+    settled: FillAmounts,
+) -> Result<FillAmounts, SettlementError> {
+    let withdrawn = prior
+        .withdrawn
+        .checked_add(settled.withdrawn)
         .ok_or(SettlementError::AmountWithdrawnOverflow)?;
-    let amount_received = amount_received
-        .checked_add(amount_out)
+    let received = prior
+        .received
+        .checked_add(settled.received)
         .ok_or(SettlementError::AmountReceivedOverflow)?;
 
     let (filled, order_amount) = match intent.flags.kind {
-        OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
-        OrderKind::Buy => (amount_received, intent.buy_amount),
+        OrderKind::Sell => (withdrawn, intent.sell_amount),
+        OrderKind::Buy => (received, intent.buy_amount),
     };
     if filled != order_amount && !intent.flags.partially_fillable {
         return Err(SettlementError::OrderNotExactlyFilled);
@@ -410,7 +407,10 @@ fn validated_final_amounts(
         return Err(SettlementError::FillExceedsOrderAmount);
     }
 
-    Ok((amount_withdrawn, amount_received))
+    Ok(FillAmounts {
+        withdrawn,
+        received,
+    })
 }
 
 #[cfg(test)]
@@ -505,7 +505,13 @@ mod tests {
             }
             .build();
             assert_eq!(
-                validate_limit_price(&intent, a_in, a_out),
+                validate_limit_price(
+                    &intent,
+                    &FillAmounts {
+                        withdrawn: a_in,
+                        received: a_out
+                    }
+                ),
                 Ok(()),
                 "in={a_in} out={a_out} sell={sell} buy={buy}",
             );
@@ -550,7 +556,13 @@ mod tests {
             }
             .build();
             assert_eq!(
-                validate_limit_price(&intent, a_in, a_out),
+                validate_limit_price(
+                    &intent,
+                    &FillAmounts {
+                        withdrawn: a_in,
+                        received: a_out
+                    }
+                ),
                 Err(SettlementError::LimitPriceViolated),
                 "in={a_in} out={a_out} sell={sell} buy={buy}",
             );
@@ -731,21 +743,27 @@ mod tests {
 
         for case in cases {
             let intent = case.build();
-            let expected = (
-                case.withdrawn
+            let expected = FillAmounts {
+                withdrawn: case
+                    .withdrawn
                     .checked_add(case.amount_in)
                     .expect("no overflow"),
-                case.received
+                received: case
+                    .received
                     .checked_add(case.amount_out)
                     .expect("no overflow"),
-            );
+            };
             assert_eq!(
                 validated_final_amounts(
                     &intent,
-                    case.withdrawn,
-                    case.received,
-                    case.amount_in,
-                    case.amount_out,
+                    FillAmounts {
+                        withdrawn: case.withdrawn,
+                        received: case.received,
+                    },
+                    FillAmounts {
+                        withdrawn: case.amount_in,
+                        received: case.amount_out,
+                    },
                 ),
                 Ok(expected),
                 "{case:?}",
@@ -945,10 +963,14 @@ mod tests {
             assert_eq!(
                 validated_final_amounts(
                     &intent,
-                    case.withdrawn,
-                    case.received,
-                    case.amount_in,
-                    case.amount_out,
+                    FillAmounts {
+                        withdrawn: case.withdrawn,
+                        received: case.received,
+                    },
+                    FillAmounts {
+                        withdrawn: case.amount_in,
+                        received: case.amount_out,
+                    },
                 ),
                 Err(error),
                 "{case:?}",
@@ -965,7 +987,13 @@ mod tests {
             amount_in in any::<u64>(),
             push_amount in any::<u64>(),
         ) {
-            let _ = validate_limit_price(&intent, amount_in, push_amount);
+            let _ = validate_limit_price(
+                &intent,
+                &FillAmounts {
+                    withdrawn: amount_in,
+                    received: push_amount,
+                },
+            );
         }
     }
 

@@ -40,9 +40,14 @@ pub const INTENT_RS: Source = Source {
     text: include_str!("../../../../interface/src/data/intent.rs"),
 };
 
-pub const ORDER_RS: Source = Source {
-    display: "interface/src/data/order.rs",
-    text: include_str!("../../../../interface/src/data/order.rs"),
+// The on-chain order account's byte layout lives in
+// `interface/src/data/order.rs` as the zero-copy `OrderAccount` accessor, a
+// tuple struct with no named fields for `syn` to read. Its field-by-field
+// mirror is the client's decoded snapshot, so the IDL account layout is read
+// from there.
+pub const CLIENT_ORDER_RS: Source = Source {
+    display: "client/src/pda/order.rs",
+    text: include_str!("../../../../client/src/pda/order.rs"),
 };
 
 pub const STATE_RS: Source = Source {

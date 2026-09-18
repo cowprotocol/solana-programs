@@ -2,7 +2,7 @@
 //!
 //! Allocates a per-order PDA (see [`crate::pda::order`]) and writes the
 //! initial body bytes; the PDA's storage layout lives in
-//! [`crate::data::order::EncodedOrderAccount`].
+//! [`crate::data::order`].
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;

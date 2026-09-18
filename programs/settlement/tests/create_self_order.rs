@@ -10,9 +10,8 @@ use crate::common::{
     send_with_signers, setup_init, signed_tx, unique_keypair,
 };
 use cow_settlement_client::instruction::CreateSelfOrder;
-use cow_settlement_interface::{
-    data::order::OrderAccount, pda::order::find_order_pda, SettlementError,
-};
+use cow_settlement_client::pda::order::DecodedOrderAccount;
+use cow_settlement_interface::{pda::order::find_order_pda, SettlementError};
 use solana_sdk::signer::Signer;
 
 mod common;
@@ -40,14 +39,14 @@ fn places_an_order_owned_by_the_state_pda() {
         account.owner, params.program_id,
         "the order PDA must be owned by the settlement program"
     );
-    let OrderAccount {
+    let DecodedOrderAccount {
         cancelled,
         amount_withdrawn,
         amount_received,
         created_by,
         intent: decoded_intent,
         bump: decoded_bump,
-    } = OrderAccount::try_from(&account.data[..]).expect("the order PDA must decode");
+    } = DecodedOrderAccount::try_from(&account.data[..]).expect("the order PDA must decode");
     assert_eq!(decoded_intent, intent, "the stored intent must match");
     assert_eq!(
         decoded_intent.owner, params.state_pda,
