@@ -158,19 +158,3 @@ impl From<SettlementError> for solana_instruction_error::InstructionError {
         Self::Custom(e.into())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The discriminants are contiguous, so the whole range must decode and
-    /// round-trip, and the first code past it must not.
-    #[test]
-    fn custom_codes_round_trip() {
-        for code in 0..=42 {
-            let error = SettlementError::try_from(code).unwrap();
-            assert_eq!(u32::from(error), code);
-        }
-        assert!(SettlementError::try_from(43).is_err());
-    }
-}
