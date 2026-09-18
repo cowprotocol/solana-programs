@@ -40,6 +40,7 @@ pub fn build_settlement(
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
+        only_token_program: None,
         orders: &begin_orders,
     };
     vec![begin.into(), finalize.into()]
@@ -131,11 +132,13 @@ pub fn build_staged_settlement(
         solver: *solver,
         finalize_ix_index: finalize_index(between.len()),
         auction_id: 0,
+        only_token_program: None,
         orders: &begin_orders,
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &finalize_orders,
     };
 

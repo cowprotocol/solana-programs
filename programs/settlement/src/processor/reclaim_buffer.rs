@@ -16,7 +16,7 @@ use pinocchio_token::instructions::CloseAccount;
 
 use crate::processor::utils::{
     auth::with_state_pda_signer,
-    token::{read_token_account, validate_token_program},
+    token::{owning_token_program, read_token_account},
 };
 
 pub fn process_reclaim_buffer(
@@ -28,12 +28,8 @@ pub fn process_reclaim_buffer(
         state_pda,
         reclaim_authority,
         reclaim_recipient,
-        token_program,
         buffers,
     } = ReclaimBufferInput::parse(instruction_data, accounts)?;
-
-    let token_program = validate_token_program(token_program)?;
-    let token_program_id = token_program.address();
 
     with_state_pda_signer(program_id, state_pda, |state_signer| {
         let reclaim_authority_pubkey: Pubkey =
@@ -51,6 +47,9 @@ pub fn process_reclaim_buffer(
                 return Err(SettlementError::ReclaimBufferNotCanonical.into());
             }
 
+            // A buffer is closed by the program that owns it, which is the one
+            // that created it in the first place.
+            let token_program = owning_token_program(buffer_pda)?;
             let amount = read_token_account(token_program, buffer_pda)?.amount;
 
             // A token account can't be closed while it still holds a balance, and this
@@ -63,7 +62,7 @@ pub fn process_reclaim_buffer(
             CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
                 .invoke_signed_with_unverified_program(
                     core::slice::from_ref(state_signer),
-                    &token_program_id,
+                    &token_program.address(),
                 )?;
         }
 
@@ -73,8 +72,9 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::state::{StateAccount, StateInitArgs, WIDTH_HEADER};
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
+    use cow_settlement_interface::data::state::fixtures::state_account_bytes;
+    use cow_settlement_interface::data::state::{StateInitArgs, WIDTH_HEADER};
+    use cow_settlement_interface::fixtures::{pubkey_from_seed, PROGRAM_ID, STATE_PDA};
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
@@ -82,7 +82,6 @@ mod tests {
     use cow_settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
-    use cow_settlement_interface::pda::state::state_pda_seeds;
     use cow_settlement_interface::token_program::TokenProgram;
     use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use pinocchio::error::ProgramError;
@@ -90,7 +89,6 @@ mod tests {
 
     use super::*;
     const AUTHORITY: Address = Address::new_from_array([101; 32]);
-    const MANAGER: Address = Address::new_from_array([102; 32]);
     const UNRELATED: Address = Address::new_from_array([254; 32]);
     const SPL_TOKEN_PROGRAM_ID: Address = TokenProgram::SplToken.address();
 
@@ -99,23 +97,16 @@ mod tests {
     const NUM_ACCOUNTS: usize = NUM_SHARED_ACCOUNTS + 2;
 
     // Positions within [`base_accounts`], for the tests that swap one entry.
-    const STATE_PDA: usize = 0;
+    const STATE_ACCOUNT: usize = 0;
     const RECLAIM_AUTHORITY: usize = 1;
-    const TOKEN_PROGRAM: usize = 3;
     const BUFFER_PDA: usize = 4;
-
-    /// State account bytes for planting a well-formed state PDA in tests.
-    fn state_account_bytes(init_args: &StateInitArgs) -> [u8; WIDTH_HEADER] {
-        let mut bytes = [0u8; WIDTH_HEADER];
-        StateAccount::initialize(&mut bytes[..], init_args).expect("header fits");
-        bytes
-    }
 
     /// The [`StateInitArgs`] planted by [`base_accounts`].
     fn base_init_args() -> StateInitArgs {
         StateInitArgs {
-            manager: MANAGER,
+            manager: pubkey_from_seed("base_init_args's unused manager"),
             reclaim_authority: AUTHORITY,
+            self_order_authority: pubkey_from_seed("base_init_args's unused self-order authority"),
         }
     }
 
@@ -136,17 +127,16 @@ mod tests {
     fn base_accounts() -> [AccountView; NUM_ACCOUNTS] {
         let recipient: Address = Address::new_from_array([1; 32]);
         let mint: Address = Address::new_from_array([2; 32]);
-        let state_pda = Address::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0;
 
         [
-            fake_account_with_data(state_pda, &state_account_bytes(&base_init_args())), // state PDA
+            fake_account_with_data(*STATE_PDA, &state_account_bytes(&base_init_args(), &[])), // state PDA
             fake_signer(AUTHORITY),             // reclaim authority
             fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
             fake_account_owned_by(
                 find_buffer_pda(&PROGRAM_ID, &mint).0,
                 SPL_TOKEN_PROGRAM_ID,
-                &empty_buffer_data(mint, state_pda),
+                &empty_buffer_data(mint, *STATE_PDA),
             ), // buffer PDA
             fake_account(mint),                 // mint
         ]
@@ -179,18 +169,22 @@ mod tests {
             .unwrap_or_else(|err| panic!("reclaim buffer happy path should succeed: {err}"));
     }
 
+    /// The buffer's own owner is what says which program closes it, so one
+    /// owned by neither token program is refused: there is nothing to close it
+    /// with.
     #[test]
-    fn process_reclaim_buffer_rejects_wrong_token_program() {
+    fn process_reclaim_buffer_rejects_a_buffer_under_an_unrelated_program() {
         let mut accounts = base_accounts();
-        accounts[TOKEN_PROGRAM] = fake_account(UNRELATED);
+        let buffer_pda = *accounts[BUFFER_PDA].address();
+        accounts[BUFFER_PDA] = fake_account_owned_by(buffer_pda, UNRELATED, &[]);
         assert_rejects(accounts, ProgramError::IncorrectProgramId);
     }
 
     #[test]
     fn process_reclaim_buffer_rejects_wrong_state_pda() {
         let mut accounts = base_accounts();
-        accounts[STATE_PDA] =
-            fake_account_with_data(UNRELATED, &state_account_bytes(&base_init_args()));
+        accounts[STATE_ACCOUNT] =
+            fake_account_with_data(UNRELATED, &state_account_bytes(&base_init_args(), &[]));
         assert_rejects(accounts, SettlementError::StateAccountMismatch.into());
     }
 
@@ -201,8 +195,8 @@ mod tests {
         // The canonical state PDA address, but nothing was ever written there:
         // the account carries no data at all. Its `reclaim_authority` is
         // unknowable, so no caller can be authorized.
-        let state_pda = *accounts[STATE_PDA].address();
-        accounts[STATE_PDA] = fake_account(state_pda);
+        let state_pda = *accounts[STATE_ACCOUNT].address();
+        accounts[STATE_ACCOUNT] = fake_account(state_pda);
 
         assert_rejects(accounts, ProgramError::InvalidAccountData);
     }
@@ -213,8 +207,8 @@ mod tests {
 
         // Allocated to the right size but never initialized: its leading byte
         // isn't the state discriminator, so it isn't a valid state account.
-        let state_pda = *accounts[STATE_PDA].address();
-        accounts[STATE_PDA] = fake_account_with_data(state_pda, &[0; WIDTH_HEADER]);
+        let state_pda = *accounts[STATE_ACCOUNT].address();
+        accounts[STATE_ACCOUNT] = fake_account_with_data(state_pda, &[0; WIDTH_HEADER]);
 
         assert_rejects(accounts, ProgramError::InvalidAccountData);
     }
@@ -243,6 +237,9 @@ mod tests {
         assert_rejects(accounts, SettlementError::ReclaimBufferNotCanonical.into());
     }
 
+    /// A buffer that was never created is owned by the system program, so it
+    /// is refused as an account no token program can close rather than read as
+    /// a malformed token account.
     #[test]
     fn process_reclaim_buffer_rejects_uninitialized_buffer_pda() {
         let mut accounts = base_accounts();
@@ -250,6 +247,6 @@ mod tests {
         let buffer_pda = *accounts[BUFFER_PDA].address();
         accounts[BUFFER_PDA] = fake_account(buffer_pda);
 
-        assert_rejects(accounts, ProgramError::InvalidAccountData);
+        assert_rejects(accounts, ProgramError::IncorrectProgramId);
     }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@cowprotocol/solana-settlement-client",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "TypeScript/JavaScript client for the CoW Protocol Solana settlement program, generated from its IDL.",
   "type": "module",
   "packageManager": "pnpm@11.25.0",

@@ -10,7 +10,7 @@ use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 use crate::common::{
     assert_instruction_error_at, register_solver,
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
-    setup_init, to_instruction_error, unique_keypair,
+    setup_init, unique_keypair,
 };
 
 mod common;
@@ -24,11 +24,13 @@ fn noop_settlement(program_id: &Pubkey, solver: &Pubkey) -> Vec<Instruction> {
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
         auction_id: 0,
+        only_token_program: None,
         orders: &[],
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &[],
     };
     vec![begin.into(), finalize.into()]
@@ -84,7 +86,7 @@ fn unregistered_solver_may_not_settle() {
     assert_instruction_error_at(
         BEGIN_INDEX,
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        to_instruction_error(SettlementError::UnauthorizedSolver),
+        SettlementError::UnauthorizedSolver,
     );
 }
 
@@ -99,6 +101,7 @@ fn non_signing_solver_may_not_settle() {
         solver: solver.pubkey(),
         finalize_ix_index: 0,
         auction_id: 0,
+        only_token_program: None,
         orders: &[],
     }
     .into();
@@ -119,6 +122,6 @@ fn non_signing_solver_may_not_settle() {
     assert_instruction_error_at(
         BEGIN_INDEX,
         svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
-        to_instruction_error(SettlementError::UnauthorizedSolver),
+        SettlementError::UnauthorizedSolver,
     );
 }

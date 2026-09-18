@@ -898,7 +898,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "cow-settlement-client"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cow-settlement-interface",
  "proptest",
@@ -907,7 +907,7 @@ dependencies = [
 
 [[package]]
 name = "cow-settlement-interface"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "arrayref",
  "derive_more",
@@ -918,6 +918,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-hash 4.5.0",
  "solana-instruction",
+ "solana-instruction-error",
  "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-sdk-ids",
@@ -928,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "cow-test-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3318,7 +3319,7 @@ dependencies = [
 
 [[package]]
 name = "settlement"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "arrayref",
  "bincode",
@@ -3327,6 +3328,7 @@ dependencies = [
  "jsonschema",
  "litesvm",
  "litesvm-token",
+ "pastey",
  "pinocchio",
  "pinocchio-system",
  "pinocchio-token",
@@ -3341,6 +3343,7 @@ dependencies = [
  "solana-sdk",
  "solana-sha256-hasher",
  "solana-system-interface 3.2.0",
+ "spl-associated-token-account-interface",
  "spl-token-2022-interface 3.1.1",
  "syn 2.0.119",
 ]
@@ -5942,7 +5945,7 @@ dependencies = [
 
 [[package]]
 name = "test-cpi-caller"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "pinocchio",
 ]

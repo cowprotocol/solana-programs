@@ -96,7 +96,7 @@ There are two distinct flows depending on whether this is a first-time deploy or
 Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
 
 ```sh
-just deploy ../program-keypair.json ../deployer-keypair.json
+just deploy "../deploy-v$VERSION.json" ../deployer-keypair.json
 ```
 
 ### Upgrading an existing program
@@ -107,7 +107,7 @@ just deploy ../program-keypair.json ../deployer-keypair.json
 Pass the **program's public key (address)** as the first argument. The deployer wallet must already be the upgrade authority:
 
 ```sh
-just deploy FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb ../deployer-keypair.json
+just deploy <program-address> ../deployer-keypair.json
 ```
 
 `just deploy` finishes by running `initialize` to create the program's state PDA.
@@ -122,7 +122,7 @@ Since we use verified builds, we can have our program marked as verified on vari
 To do so, run this once the program is deployed and the matching source is pushed to the public repository:
 
 ```sh
-just verify FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb ../deployer-keypair.json <optional-commit-hash>
+just verify <program-address> ../deployer-keypair.json <optional-commit-hash>
 ```
 
 The first argument is the program address, the second is the upgrade authority keypair (it signs the on-chain verification PDA) and the third is an optional `<commit-hash>` for the verification, and it uses the current `HEAD` otherwise.
@@ -145,10 +145,10 @@ The TS/JS client ([`@cowprotocol/solana-settlement-client`](programs/settlement/
 
 ```sh
 solana config set --url devnet
-just deploy FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb ~/solana-keys/deployer.json
+just deploy <program-address> ~/solana-keys/deployer.json
 ```
 
-The deployer for the canonical devnet program (`FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb`) is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
+The deployer for the canonical devnet program is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
 
 ## Alpha releases
 
@@ -160,29 +160,31 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 
 ### Breaking change
 
-- Check out the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
+- Create a new branch based off the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
 - [Bump the crate version](#bumping-the-crate-version) *by at least a minor version*.
 - Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
 - Store the newly generated account in 1password (under "Settlement account by version").
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
+- Update the state PDA bytes in the IDL (use the test to see the bytes to change).
 - Commit the code changes resulting from the steps above (excluding the key of the generated account).
 - Switch your network to mainnet (`solana config set --url mainnet-beta`). You should try out the next steps before the PR on devnet first, but switch to mainnet for the actual release.
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
-- [Publish the IDL](#publishing-the-idl).
-- Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --help`).
+- Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair ../deployer-keypair.json <solver-address>`).
 - Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval, then merge it. Merging automatically creates a GitHub release (tag `v$VERSION`, e.g. `v0.42.0`) and [publishes the npm package](#publishing-the-nodejs-client).
+- [Publish the IDL](#publishing-the-idl).
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
 ### Patch update
 
-- Check out the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
+- Create a new branch based off the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
 - [Bump the crate version](#bumping-the-crate-version) by a patch version.
 - Commit the code changes resulting from the changes above.
 - Create a PR with the changes and wait for approval, then merge it. Merging automatically creates a GitHub release (tag `v$VERSION`, e.g. `v0.42.1`) and [publishes the npm package](#publishing-the-nodejs-client).
 - [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
+- [Publish the IDL](#publishing-the-idl), if changed.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 
 ### Bumping the crate version
@@ -192,11 +194,15 @@ Here is a list of commands to help bumping all relevant strings:
 
 ```sh
 export VERSION=0.42.1337
+# Rust workspace crate
 perl -i -pe '
   s/^version = ".*"/version = "$ENV{VERSION}"/;
   s/(path = "[^"]*", version = )"[^"]*"/$1"$ENV{VERSION}"/;
 ' ./Cargo.toml
-perl -i -pe 's/^(\s*"version": )".*"/$1"$ENV{VERSION}"/' ./programs/settlement/idl/client/js/package.json
+# IDL metadata
+perl -i -pe 's/^(\s*)"version": "[^"]*"/$1"version": "$ENV{VERSION}"/' \
+  ./programs/settlement/idl/cow_settlement.json \
+  ./programs/settlement/idl/client/js/package.json
 just build
 ```
 

@@ -8,10 +8,10 @@ const address = (byte: number) => getAddressDecoder().decode(new Uint8Array(32).
 // Same as used in Rust (interface/src/data/intent.rs)
 const SAMPLE_INTENT: OrderIntentArgs = {
   owner: address(0x11),
-  buyTokenAccount: address(0x22),
-  buyMint: address(0x33),
-  sellTokenAccount: address(0x44),
-  sellMint: address(0x55),
+  sellTokenAccount: address(0x22),
+  sellMint: address(0x33),
+  buyTokenAccount: address(0x44),
+  buyMint: address(0x55),
   sellAmount: 0x0123_4567_89ab_cdefn,
   buyAmount: 0xfedc_ba98_7654_3210n,
   validTo: 0xdead_beef,

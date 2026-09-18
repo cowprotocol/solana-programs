@@ -3,7 +3,7 @@
 pub use solana_instruction::{AccountMeta, Instruction};
 pub use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("FYp8R5K4B3B1Kfr7QuWzMz4TwoT7wptjYtxgCrY5sRXb");
+solana_pubkey::declare_id!("C7PXyLpLQBh3Ce7e9DNj3rDVUvwqa5orDwQG5hs1rfNi");
 
 pub mod data;
 pub mod error;
@@ -24,6 +24,7 @@ pub use role::Role;
 pub mod fixtures {
     use std::sync::LazyLock;
 
+    use crate::pda::state::state_pda_seeds;
     use crate::Pubkey;
 
     /// Deterministically generate a [`Pubkey`] by hashing a seed string, for
@@ -36,4 +37,9 @@ pub mod fixtures {
     /// doesn't define its own. This is an arbitrary placeholder, not the
     /// declared on-chain id.
     pub static PROGRAM_ID: LazyLock<Pubkey> = LazyLock::new(|| pubkey_from_seed("program id"));
+
+    /// The canonical settlement state PDA for [`PROGRAM_ID`], shared so handler
+    /// tests don't each re-derive it.
+    pub static STATE_PDA: LazyLock<Pubkey> =
+        LazyLock::new(|| Pubkey::find_program_address(&state_pda_seeds(), &PROGRAM_ID).0);
 }

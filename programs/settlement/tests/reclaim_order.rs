@@ -19,10 +19,10 @@ use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
     buffer, create_account_at,
-    order::OrderBuilder,
+    order::{read_order, OrderBuilder},
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder},
-    signed_tx, to_instruction_error, token, unique_keypair, unique_pubkey,
+    signed_tx, token, unique_keypair, unique_pubkey,
 };
 
 mod common;
@@ -48,12 +48,6 @@ fn encode_and_derive(
     let bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
     let (pda, _) = find_order_pda(program_id, &encoded.hash());
     (bytes, pda)
-}
-
-/// Decode the order stored in an order PDA.
-fn read_order(svm: &LiteSVM, pda: &Pubkey) -> OrderAccount {
-    let account = svm.get_account(pda).expect("order PDA must exist");
-    OrderAccount::try_from(&account.data[..]).expect("order PDA must decode")
 }
 
 /// Directly overwrite the body stored in an order PDA.
@@ -264,7 +258,7 @@ fn rejects_when_order_not_yet_expired() {
     let tx = signed_tx(&svm, &owner, &owner, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        to_instruction_error(SettlementError::OrderNotReclaimable),
+        SettlementError::OrderNotReclaimable,
     );
 }
 
@@ -283,7 +277,7 @@ fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
 
     assert_instruction_error(
         perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
-        to_instruction_error(SettlementError::OrderNotReclaimable),
+        SettlementError::OrderNotReclaimable,
     );
 }
 
@@ -314,7 +308,7 @@ fn off_chain_order_is_reclaimable_only_once_expired() {
 
     assert_instruction_error(
         perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
-        to_instruction_error(SettlementError::OrderNotReclaimable),
+        SettlementError::OrderNotReclaimable,
     );
     assert!(
         svm.get_account(&pda).is_some(),
@@ -417,7 +411,7 @@ fn rejects_when_reclaim_recipient_mismatch() {
     let tx = signed_tx(&svm, &owner, &owner, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        to_instruction_error(SettlementError::ReclaimRecipientMismatch),
+        SettlementError::ReclaimRecipientMismatch,
     );
 }
 
@@ -464,7 +458,7 @@ fn rejects_reclaim_of_a_partially_filled_order() {
     let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, PARTIAL_FILL);
 
     let instructions = build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![]);
-    send(&mut svm, &solver, instructions).expect("a partial settlement should succeed");
+    send(&mut svm, &solver, &instructions).expect("a partial settlement should succeed");
     assert_eq!(
         read_order(&svm, &order_pda).amount_withdrawn,
         PARTIAL_FILL,
@@ -480,7 +474,7 @@ fn rejects_reclaim_of_a_partially_filled_order() {
     let tx = signed_tx(&svm, &payer, &payer, ix);
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
-        to_instruction_error(SettlementError::OrderNotReclaimable),
+        SettlementError::OrderNotReclaimable,
     );
     assert!(
         svm.get_account(&order_pda).is_some(),
@@ -515,7 +509,7 @@ fn reclaim_mid_settlement_succeeds() {
     // The `payer` that created the order signs nothing here and pays no fee (the
     // solver does), so its balance moves by the returned rent alone.
     let payer_before = common::lamports(&svm, &payer.pubkey());
-    send(&mut svm, &solver, instructions)
+    send(&mut svm, &solver, &instructions)
         .expect("reclaiming a just-filled order mid-settlement should succeed");
 
     assert!(

@@ -113,13 +113,6 @@ pub struct OrderIntent {
     /// signer; for on-chain creation it must be the transaction signer.
     pub owner: Pubkey,
 
-    /// Token account that receives the buy-side proceeds. Implicitly
-    /// encodes the recipient.
-    pub buy_token_account: Pubkey,
-
-    /// Mint of the buy token.
-    pub buy_mint: Pubkey,
-
     /// Token account the sell-side funds are pulled from. Implicitly
     /// encodes the spender. The settlement state PDA must hold the SPL
     /// `delegate` on this account for the order to be settleable.
@@ -129,6 +122,13 @@ pub struct OrderIntent {
 
     /// Mint of the sell token.
     pub sell_mint: Pubkey,
+
+    /// Token account that receives the buy-side proceeds. Implicitly
+    /// encodes the recipient.
+    pub buy_token_account: Pubkey,
+
+    /// Mint of the buy token.
+    pub buy_mint: Pubkey,
 
     /// Amount of the sell token. For `Sell` orders this is the exact
     /// amount to be sold (subject to `partially_fillable`); for `Buy`
@@ -165,7 +165,7 @@ pub struct OrderIntent {
 ///                                                                                                                                                                           flags ────┐
 /// ┌───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────┬───────┬───┬┬───────────────────────────────┐
 /// │                               │                               │                               │                               │                               │sell_  │buy_   │val││                               │
-/// │             owner             │       buy_token_account       │           buy_mint            │      sell_token_account       │           sell_mint           │       │       │id_││           app_data            │
+/// │             owner             │      sell_token_account       │           sell_mint           │       buy_token_account       │           buy_mint            │       │       │id_││           app_data            │
 /// │                               │                               │                               │                               │                               │amount │amount │to ││                               │
 /// └───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────┴───────┴───┴┴───────────────────────────────┘
 /// 0                               32                              64                              96                              128                             160     168     176 180                           213
@@ -178,10 +178,10 @@ pub struct EncodedOrderIntent([u8; Self::SIZE]);
 impl EncodedOrderIntent {
     // Per-field widths, derived from the `OrderIntent` field types.
     const WIDTH_OWNER: usize = size_of::<Pubkey>();
-    const WIDTH_BUY_TOKEN: usize = size_of::<Pubkey>();
-    const WIDTH_BUY_MINT: usize = size_of::<Pubkey>();
     const WIDTH_SELL_TOKEN: usize = size_of::<Pubkey>();
     const WIDTH_SELL_MINT: usize = size_of::<Pubkey>();
+    const WIDTH_BUY_TOKEN: usize = size_of::<Pubkey>();
+    const WIDTH_BUY_MINT: usize = size_of::<Pubkey>();
     const WIDTH_SELL_AMOUNT: usize = size_of::<u64>();
     const WIDTH_BUY_AMOUNT: usize = size_of::<u64>();
     const WIDTH_VALID_TO: usize = size_of::<u32>();
@@ -227,10 +227,10 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         let mut out = [0u8; Self::SIZE];
         let (
             owner,
-            buy_token,
-            buy_mint,
             sell_token,
             sell_mint,
+            buy_token,
+            buy_mint,
             sell_amount,
             buy_amount,
             valid_to,
@@ -239,10 +239,10 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         ) = mut_array_refs![
             &mut out,
             EncodedOrderIntent::WIDTH_OWNER,
-            EncodedOrderIntent::WIDTH_BUY_TOKEN,
-            EncodedOrderIntent::WIDTH_BUY_MINT,
             EncodedOrderIntent::WIDTH_SELL_TOKEN,
             EncodedOrderIntent::WIDTH_SELL_MINT,
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
+            EncodedOrderIntent::WIDTH_BUY_MINT,
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
             EncodedOrderIntent::WIDTH_BUY_AMOUNT,
             EncodedOrderIntent::WIDTH_VALID_TO,
@@ -250,10 +250,10 @@ impl From<&OrderIntent> for EncodedOrderIntent {
             EncodedOrderIntent::WIDTH_APP_DATA
         ];
         *owner = intent.owner.to_bytes();
-        *buy_token = intent.buy_token_account.to_bytes();
-        *buy_mint = intent.buy_mint.to_bytes();
         *sell_token = intent.sell_token_account.to_bytes();
         *sell_mint = intent.sell_mint.to_bytes();
+        *buy_token = intent.buy_token_account.to_bytes();
+        *buy_mint = intent.buy_mint.to_bytes();
         *sell_amount = intent.sell_amount.to_le_bytes();
         *buy_amount = intent.buy_amount.to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
@@ -276,10 +276,10 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
 
         let (
             owner,
-            buy_token,
-            buy_mint,
             sell_token,
             sell_mint,
+            buy_token,
+            buy_mint,
             sell_amount,
             buy_amount,
             valid_to,
@@ -288,10 +288,10 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
         ) = array_refs![
             bytes,
             EncodedOrderIntent::WIDTH_OWNER,
-            EncodedOrderIntent::WIDTH_BUY_TOKEN,
-            EncodedOrderIntent::WIDTH_BUY_MINT,
             EncodedOrderIntent::WIDTH_SELL_TOKEN,
             EncodedOrderIntent::WIDTH_SELL_MINT,
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
+            EncodedOrderIntent::WIDTH_BUY_MINT,
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
             EncodedOrderIntent::WIDTH_BUY_AMOUNT,
             EncodedOrderIntent::WIDTH_VALID_TO,
@@ -301,10 +301,10 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
 
         Ok(OrderIntent {
             owner: Pubkey::new_from_array(*owner),
-            buy_token_account: Pubkey::new_from_array(*buy_token),
-            buy_mint: Pubkey::new_from_array(*buy_mint),
             sell_token_account: Pubkey::new_from_array(*sell_token),
             sell_mint: Pubkey::new_from_array(*sell_mint),
+            buy_token_account: Pubkey::new_from_array(*buy_token),
+            buy_mint: Pubkey::new_from_array(*buy_mint),
             sell_amount: u64::from_le_bytes(*sell_amount),
             buy_amount: u64::from_le_bytes(*buy_amount),
             valid_to: u32::from_le_bytes(*valid_to),
@@ -346,10 +346,10 @@ pub mod fixtures {
     pub fn sample_intent(flags: Flags) -> OrderIntent {
         OrderIntent {
             owner: Pubkey::new_from_array([0x11; 32]),
-            buy_token_account: Pubkey::new_from_array([0x22; 32]),
-            buy_mint: Pubkey::new_from_array([0x33; 32]),
-            sell_token_account: Pubkey::new_from_array([0x44; 32]),
-            sell_mint: Pubkey::new_from_array([0x55; 32]),
+            sell_token_account: Pubkey::new_from_array([0x22; 32]),
+            sell_mint: Pubkey::new_from_array([0x33; 32]),
+            buy_token_account: Pubkey::new_from_array([0x44; 32]),
+            buy_mint: Pubkey::new_from_array([0x55; 32]),
             sell_amount: 0x0123_4567_89ab_cdef,
             buy_amount: 0xfedc_ba98_7654_3210,
             valid_to: 0xdead_beef,
@@ -403,10 +403,10 @@ pub mod fixtures {
             .prop_map(
                 |(
                     owner,
-                    buy_tok,
-                    buy_mint,
                     sell_tok,
                     sell_mint,
+                    buy_tok,
+                    buy_mint,
                     sell_amount,
                     buy_amount,
                     valid_to,
@@ -415,10 +415,10 @@ pub mod fixtures {
                 )| {
                     OrderIntent {
                         owner: Pubkey::new_from_array(owner),
-                        buy_token_account: Pubkey::new_from_array(buy_tok),
-                        buy_mint: Pubkey::new_from_array(buy_mint),
                         sell_token_account: Pubkey::new_from_array(sell_tok),
                         sell_mint: Pubkey::new_from_array(sell_mint),
+                        buy_token_account: Pubkey::new_from_array(buy_tok),
+                        buy_mint: Pubkey::new_from_array(buy_mint),
                         sell_amount,
                         buy_amount,
                         valid_to,
@@ -467,20 +467,20 @@ mod tests {
 
         assert_eq!(EncodedOrderIntent::WIDTH_OWNER, size_of_val(&intent.owner));
         assert_eq!(
-            EncodedOrderIntent::WIDTH_BUY_TOKEN,
-            size_of_val(&intent.buy_token_account)
-        );
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_BUY_MINT,
-            size_of_val(&intent.buy_mint)
-        );
-        assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_TOKEN,
             size_of_val(&intent.sell_token_account)
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_MINT,
             size_of_val(&intent.sell_mint)
+        );
+        assert_eq!(
+            EncodedOrderIntent::WIDTH_BUY_TOKEN,
+            size_of_val(&intent.buy_token_account)
+        );
+        assert_eq!(
+            EncodedOrderIntent::WIDTH_BUY_MINT,
+            size_of_val(&intent.buy_mint)
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
@@ -628,22 +628,22 @@ mod tests {
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
             0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
-            // buy_token_account ([0x22; 32])
+            // sell_token_account ([0x22; 32])
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
             0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-            // buy_mint ([0x33; 32])
+            // sell_mint ([0x33; 32])
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
             0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
-            // sell_token_account ([0x44; 32])
+            // buy_token_account ([0x44; 32])
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
             0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44,
-            // sell_mint ([0x55; 32])
+            // buy_mint ([0x55; 32])
             0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
             0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
             0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
