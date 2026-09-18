@@ -6,6 +6,8 @@ use cow_settlement_interface::{
     Instruction, Pubkey,
 };
 
+use super::begin_settle::TokenProgram;
+
 /// A settled order whose proceeds are pushed to it: `intent` identifies the
 /// order (its `buy_token_account` is the push destination and its `buy_mint`
 /// selects the canonical source buffer) and `amount` is the quantity to push.
@@ -29,6 +31,12 @@ pub struct FinalizedIntent<'a> {
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub begin_ix_index: u16,
+    /// By default, a settlement support both token programs at the same time.
+    /// If you know you only need a single token program, you can make the byte
+    /// size of the settlement transaction a bit smaller and reduce the total
+    /// accounts used in the transaction by specifying the
+    /// only token program you need here.
+    pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [FinalizedIntent<'a>],
 }
 
@@ -65,6 +73,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             program_id: builder.program_id,
             state_pda,
             begin_ix_index: builder.begin_ix_index,
+            only_token_program: builder.only_token_program,
             source_buffers: &source_buffers,
             destinations: &destinations,
             bumps: &bumps,
@@ -83,7 +92,7 @@ mod tests {
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
-            settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, SPL_TOKEN_PROGRAM_ID},
+            settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID},
             InstructionInputParsing,
         },
     };
@@ -103,6 +112,7 @@ mod tests {
                 intent: &intent,
                 amount: 1_337,
             }],
+            only_token_program: None,
         });
 
         let accounts: Vec<_> = ix
@@ -148,6 +158,7 @@ mod tests {
             let ix = Instruction::from(FinalizeSettle {
                 program_id,
                 begin_ix_index,
+                only_token_program: None,
                 orders: &orders,
             });
 
@@ -195,10 +206,6 @@ mod tests {
             );
             let (state_pda, _bump) = find_state_pda(&program_id);
             prop_assert_eq!(parsed.state_pda_account.address(), &state_pda);
-            prop_assert_eq!(
-                parsed.token_program_account.address(),
-                &SPL_TOKEN_PROGRAM_ID,
-            );
 
             let parsed_pushes: Vec<_> = parsed.pushes.iter().collect();
             prop_assert_eq!(parsed_pushes.len(), expected.len());

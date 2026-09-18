@@ -6,9 +6,9 @@ use cow_settlement_interface::{
     Instruction, Pubkey,
 };
 
-// Reexport the interface's `Pull` so the client provides all the types a caller
-// needs to build a settlement.
-pub use cow_settlement_interface::instruction::settle::Pull;
+// Reexport the interface's `Pull` and `TokenProgram` so the client provides
+// all the types a caller needs to build a settlement.
+pub use cow_settlement_interface::instruction::settle::{Pull, TokenProgram};
 
 /// An order ready to be settled, together with the funds to pull from it:
 /// `intent` identifies the order and `pulls` lists the [`Pull`]s to make from
@@ -26,6 +26,12 @@ pub struct BeginSettle<'a> {
     /// The off-chain auction this settlement executes, carried so it can be tied
     /// back to its auction off-chain.
     pub auction_id: i64,
+    /// By default, a settlement support both token programs at the same time.
+    /// If you know you only need a single token program, you can make the byte
+    /// size of the settlement transaction a bit smaller and reduce the total
+    /// accounts used in the transaction by specifying the
+    /// only token program you need here.
+    pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [InitializedIntent<'a>],
 }
 
@@ -47,6 +53,7 @@ impl From<BeginSettle<'_>> for Instruction {
             solver: builder.solver,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
+            only_token_program: builder.only_token_program,
             order_pdas: &order_pdas,
             sell_token_accounts: &sell_token_accounts,
             pulls: &pull_lists,
@@ -90,6 +97,7 @@ mod tests {
                 solver: pubkey_from_seed("solver"),
                 finalize_ix_index,
                 auction_id: 0,
+                only_token_program: None,
                 orders: &orders,
             });
 

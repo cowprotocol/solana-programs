@@ -7,29 +7,15 @@
 //! close it, and put a different mint at the same address.
 
 use cow_settlement_interface::token_program::TokenProgram;
-use litesvm::LiteSVM;
-use solana_sdk::{
-    instruction::Instruction,
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-};
-use solana_system_interface::instruction::create_account as system_create_account;
+use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
 use spl_token_2022_interface::{
     extension::{transfer_fee::instruction::initialize_transfer_fee_config, ExtensionType},
-    instruction::{
-        close_account, initialize_mint2, initialize_mint_close_authority,
-        initialize_non_transferable_mint,
-    },
+    instruction::{initialize_mint_close_authority, initialize_non_transferable_mint},
     state::{Account, Mint},
 };
 
 /// The Token-2022 program, spelled once so the builders below can take it.
 const TOKEN_2022_PROGRAM_ID: Pubkey = TokenProgram::Token2022.address();
-
-/// Decimals every test mint carries, matching [`super::token::create_mint`] so
-/// a legacy and a Token-2022 mint differ only in their program.
-const DECIMALS: u8 = 8;
 
 /// Transfer-fee parameters for [`Extensions::CloseAuthorityAndTransferFee`].
 /// nothing reads them back, but `InitializeTransferFeeConfig` demands values.
@@ -106,6 +92,14 @@ impl Extensions {
         extensions
     }
 
+    /// The data length the mint itself has to be allocated at. Token-2022
+    /// insists on exactly the length its extensions need, so this is what
+    /// [`super::token::create_mint_at_under`] allocates a mint under it at.
+    pub(crate) fn mint_len(self) -> usize {
+        ExtensionType::try_calculate_account_len::<Mint>(self.mint())
+            .expect("every mint extension used here has a fixed length")
+    }
+
     /// The data length a token account holding the mint has to be allocated at,
     /// which is what `create_buffer` asks the token program for.
     pub fn token_account_len(self) -> usize {
@@ -117,7 +111,7 @@ impl Extensions {
     /// filling every authority they ask for. Token-2022 requires all of them to
     /// run before `InitializeMint`, and insists the mint be allocated at exactly
     /// the length they need.
-    fn initializers(self, mint: &Pubkey, authority: &Pubkey) -> Vec<Instruction> {
+    pub(crate) fn initializers(self, mint: &Pubkey, authority: &Pubkey) -> Vec<Instruction> {
         self.mint()
             .iter()
             .map(|extension| {
@@ -144,74 +138,4 @@ impl Extensions {
             })
             .collect()
     }
-}
-
-/// Create a Token-2022 mint at `mint`'s address carrying `extensions`, with
-/// `payer` as both its mint authority and its close authority, and return the
-/// address. Taking the keypair rather than generating one lets a test close the
-/// mint and put something else back at the same address.
-pub fn create_mint(
-    svm: &mut LiteSVM,
-    payer: &Keypair,
-    mint: &Keypair,
-    extensions: Extensions,
-) -> Pubkey {
-    let space = ExtensionType::try_calculate_account_len::<Mint>(extensions.mint())
-        .expect("every mint extension used here has a fixed length");
-    let mut instructions = vec![system_create_account(
-        &payer.pubkey(),
-        &mint.pubkey(),
-        svm.minimum_balance_for_rent_exemption(space),
-        space as u64,
-        &TOKEN_2022_PROGRAM_ID,
-    )];
-    instructions.extend(extensions.initializers(&mint.pubkey(), &payer.pubkey()));
-    instructions.push(
-        initialize_mint2(
-            &TOKEN_2022_PROGRAM_ID,
-            &mint.pubkey(),
-            &payer.pubkey(),
-            None,
-            DECIMALS,
-        )
-        .expect("initialize_mint2 should build"),
-    );
-
-    let tx = Transaction::new_signed_with_payer(
-        &instructions,
-        Some(&payer.pubkey()),
-        &[payer, mint],
-        svm.latest_blockhash(),
-    );
-    svm.send_transaction(tx)
-        .expect("Token-2022 mint creation should succeed");
-    mint.pubkey()
-}
-
-/// Close `mint`, whose close authority must be `payer`, refunding its rent to
-/// `payer`. Token-2022 hands the emptied account back to the System program, so
-/// the address is free for [`create_mint`] or [`super::token::create_mint_at`]
-/// to claim again.
-pub fn close_mint(svm: &mut LiteSVM, payer: &Keypair, mint: &Pubkey) {
-    let ix = close_account(
-        &TOKEN_2022_PROGRAM_ID,
-        mint,
-        &payer.pubkey(),
-        &payer.pubkey(),
-        &[],
-    )
-    .expect("close_account should build");
-    let tx = Transaction::new_signed_with_payer(
-        &[ix],
-        Some(&payer.pubkey()),
-        &[payer],
-        svm.latest_blockhash(),
-    );
-    svm.send_transaction(tx)
-        .expect("closing the mint should succeed");
-    assert!(
-        svm.get_account(mint)
-            .is_none_or(|account| account.data.is_empty()),
-        "a closed mint must leave no data behind at its address",
-    );
 }

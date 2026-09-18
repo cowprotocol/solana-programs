@@ -1,7 +1,8 @@
-//! Utilities related to the token programs supported by the settlement program.
+//! The token programs settlement transfers may be issued against.
 
 use crate::Pubkey;
 use solana_program_error::ProgramError;
+pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
 /// The address an `OrderIntent` uses as `buy_mint` to trade native SOL rather than a token.
 pub const NATIVE_SOL_MINT: Pubkey = solana_system_interface::program::ID;
@@ -23,8 +24,7 @@ pub enum TokenProgram {
 }
 
 impl TokenProgram {
-    /// Every supported token program, in no particular order. The single list
-    /// [`TryFrom`] resolves addresses against.
+    /// Every supported token program.
     pub const ALL: [Self; 2] = [Self::SplToken, Self::Token2022];
 
     /// The address the program is deployed at.

@@ -6,8 +6,8 @@ The settlement program stores funds through dedicated token accounts (_buffer ac
 
 It uses a dedicated state account to:
 
-- Store the account that can reclaim buffer rent.
-- Manage solver authentication (including fee access by the protocol).
+- Store the [authorities](#authorities) of the protocol.
+- Store the accounts that can execute a settlement (the _solvers_).
 - Act as a token delegate to manage user funds.
 
 Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement    v0.1"]`.
@@ -35,6 +35,7 @@ The program grant privileged roles to specific accounts (_authorities_). They ar
 
 - Manager: the account that can add and remove solvers. It can also update the address of all other roles.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
+- Self-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
 
 ### Updating authorities
 
@@ -80,14 +81,15 @@ Limitation:
 
 Fees accumulate in the buffer accounts after a settlement is concluded.
 
-Any solver can withdraw funds from the protocol’s buffers. Standard protocol fee withdrawal will be managed by a dedicated solver account.
+Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [self-order authority](#authorities).
 
-Withdrawing is triggered by the `CollectFromBuffer` instruction.
+The order is placed through the `CreateSelfOrder` instruction. The self-order authority can specify arbitrary order parameters, as long as the owner is the state PDA and the order is marked as created on-chain.
 
 Differences with Ethereum:
 
-- We don’t want to let the settlement program create orders for itself because, unlike in the EVM, it requires a specific code branch for that. This means that we can't follow the same withdraw mechanism we use right now. Pragmatically, at the start we should use the solver to withdraw the funds to a dedicated "dump" account and create orders to swap all funds to the same token (SOL). We don't plan to improve on this on the current iteration of the program.
-- Withdrawing fees may be done outside of a settlement.
+- Solvers can't access the content of the buffers directly anymore (though they can do so indirectly by creating a dedicated order just to sweep the buffer).
+- `CreateSelfOrder` has a dedicated authority rather than requiring a solver.
+- Creating a fee-withdrawal order is done directly through a dedicated instruction, not indirectly as the result of a call from the settlement context.
 
 ## User delegation (i.e., "approvals")
 

@@ -40,6 +40,7 @@ fn native_sol_settlement(
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         orders,
+        only_token_program: None,
     };
     build_settlement(program_id, solver, orders, finalize)
 }
@@ -291,6 +292,7 @@ fn rejects_a_native_push_from_a_buffer() {
         destinations: &[intent.buy_token_account],
         bumps: &[buffer_bump],
         amounts: &[100],
+        only_token_program: None,
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -321,6 +323,7 @@ fn rejects_a_native_push_with_a_wrong_bump() {
         destinations: &[intent.buy_token_account],
         bumps: &[state_bump ^ 1],
         amounts: &[100],
+        only_token_program: None,
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -351,6 +354,7 @@ fn rejects_a_native_push_to_wrong_destination() {
         destinations: &[unique_pubkey()],
         bumps: &[state_bump],
         amounts: &[100],
+        only_token_program: None,
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);

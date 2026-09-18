@@ -65,6 +65,11 @@ pub const CREATE_ORDER_RS: Source = Source {
     text: include_str!("../../../../interface/src/instruction/create_order.rs"),
 };
 
+pub const CREATE_SELF_ORDER_RS: Source = Source {
+    display: "interface/src/instruction/create_self_order.rs",
+    text: include_str!("../../../../interface/src/instruction/create_self_order.rs"),
+};
+
 pub const BEGIN_SETTLE_RS: Source = Source {
     display: "interface/src/instruction/settle/begin.rs",
     text: include_str!("../../../../interface/src/instruction/settle/begin.rs"),

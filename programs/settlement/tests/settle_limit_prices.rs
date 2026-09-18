@@ -8,14 +8,13 @@
 
 use crate::common::{
     assert_instruction_error_at,
-    order::OrderBuilder,
+    order::{read_order, OrderBuilder},
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX},
     setup_settle_ready, token,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{BuyAsset, OrderIntent, OrderKind},
-    data::order::OrderAccount,
     pda::order::find_order_pda,
     SettlementError,
 };
@@ -32,11 +31,7 @@ mod common;
 /// amount_received)` cumulative fill totals.
 fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent<BuyAsset>) -> (u64, u64) {
     let (order_pda, _bump) = find_order_pda(program_id, &intent.uid());
-    let data = svm
-        .get_account(&order_pda)
-        .expect("the order account exists")
-        .data;
-    let order = OrderAccount::try_from(&data[..]).expect("valid order account");
+    let order = read_order(svm, &order_pda);
     (order.amount_withdrawn, order.amount_received)
 }
 

@@ -8,6 +8,7 @@ use cow_settlement_interface::{
         add_solver::AddSolverInput,
         create_buffer::CreateBufferInput,
         create_order::CreateOrderInput,
+        create_self_order::CreateSelfOrderInput,
         initialize::InitializeInput,
         reclaim_buffer::ReclaimBufferInput,
         reclaim_order::ReclaimOrderInput,
@@ -24,6 +25,7 @@ use solana_program_error::ProgramError;
 pub enum ParsedInstruction<'a, A> {
     Initialize(InitializeInput<'a, A>),
     CreateOrder(CreateOrderInput<'a, A>),
+    CreateSelfOrder(CreateSelfOrderInput<'a, A>),
     CreateBuffer(CreateBufferInput<'a, A>),
     BeginSettle(BeginSettleInput<'a, A>),
     FinalizeSettle(FinalizeSettleInput<'a, A>),
@@ -47,6 +49,9 @@ pub fn parse_instruction<'a, A>(
         SettlementInstruction::CreateOrder => {
             ParsedInstruction::CreateOrder(CreateOrderInput::parse_body(remaining_data, accounts)?)
         }
+        SettlementInstruction::CreateSelfOrder => ParsedInstruction::CreateSelfOrder(
+            CreateSelfOrderInput::parse_body(remaining_data, accounts)?,
+        ),
         SettlementInstruction::CreateBuffer => ParsedInstruction::CreateBuffer(
             CreateBufferInput::parse_body(remaining_data, accounts)?,
         ),
@@ -78,8 +83,8 @@ pub fn parse_instruction<'a, A>(
 mod tests {
     use super::*;
     use crate::instruction::{
-        AddSolver, BeginSettle, CreateBuffers, CreateOrder, FinalizeSettle, Initialize,
-        InitializedIntent, RemoveSolver,
+        AddSolver, BeginSettle, CreateBuffers, CreateOrder, CreateSelfOrder, FinalizeSettle,
+        Initialize, InitializedIntent, RemoveSolver,
     };
     use cow_settlement_interface::{
         data::intent::fixtures::sample_intent,
@@ -104,11 +109,19 @@ mod tests {
                 payer,
                 manager: payer,
                 reclaim_authority: payer,
+                self_order_authority: payer,
             }
             .into(),
             SettlementInstruction::CreateOrder => CreateOrder {
                 program_id,
                 owner: intent.owner,
+                created_by: payer,
+                intent: &intent,
+            }
+            .into(),
+            SettlementInstruction::CreateSelfOrder => CreateSelfOrder {
+                program_id,
+                authority: payer,
                 created_by: payer,
                 intent: &intent,
             }
@@ -125,6 +138,7 @@ mod tests {
                 solver: payer,
                 finalize_ix_index: 1,
                 auction_id: 42,
+                only_token_program: None,
                 orders: &[InitializedIntent {
                     intent: &intent,
                     pulls: &[],
@@ -134,6 +148,7 @@ mod tests {
             SettlementInstruction::FinalizeSettle => FinalizeSettle {
                 program_id,
                 begin_ix_index: 0,
+                only_token_program: None,
                 orders: &[],
             }
             .into(),
@@ -185,6 +200,7 @@ mod tests {
         for expected in [
             SettlementInstruction::Initialize,
             SettlementInstruction::CreateOrder,
+            SettlementInstruction::CreateSelfOrder,
             SettlementInstruction::CreateBuffer,
             SettlementInstruction::BeginSettle,
             SettlementInstruction::FinalizeSettle,
@@ -205,6 +221,7 @@ mod tests {
             let actual = match parsed {
                 ParsedInstruction::Initialize(_) => SettlementInstruction::Initialize,
                 ParsedInstruction::CreateOrder(_) => SettlementInstruction::CreateOrder,
+                ParsedInstruction::CreateSelfOrder(_) => SettlementInstruction::CreateSelfOrder,
                 ParsedInstruction::CreateBuffer(_) => SettlementInstruction::CreateBuffer,
                 ParsedInstruction::BeginSettle(_) => SettlementInstruction::BeginSettle,
                 ParsedInstruction::FinalizeSettle(_) => SettlementInstruction::FinalizeSettle,
