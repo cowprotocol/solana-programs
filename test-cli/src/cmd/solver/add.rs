@@ -1,29 +1,14 @@
 use anyhow::Context as _;
-use clap::{Args as ClapArgs, Parser, Subcommand};
+use clap::Args as ClapArgs;
 use cow_settlement_client::{
     cow_settlement_interface::{pda::state::find_state_pda, Pubkey},
     instruction::AddSolver,
 };
-use solana_sdk::{
-    signature::{read_keypair_file, Signer},
-    transaction::Transaction,
-};
+use solana_sdk::{signature::Signer, transaction::Transaction};
 
+use crate::cmd::Context;
+use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
-
-use super::Context;
-
-#[derive(Parser)]
-pub struct SolverArgs {
-    #[command(subcommand)]
-    command: SolverCommand,
-}
-
-#[derive(Subcommand)]
-enum SolverCommand {
-    #[command(about = "Authorize a solver to settle orders")]
-    Add(AddArgs),
-}
 
 #[derive(ClapArgs)]
 pub struct AddArgs {
@@ -37,24 +22,9 @@ pub struct AddArgs {
     manager: Option<String>,
 }
 
-pub fn run(ctx: Context, args: SolverArgs) -> anyhow::Result<()> {
-    match args.command {
-        SolverCommand::Add(args) => add(ctx, args),
-    }
-}
-
-fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
+pub fn run(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    // Without `--manager` the payer manages the program, so reuse the keypair
-    // the context already holds instead of reading a file again.
-    let from_file = args
-        .manager
-        .map(|path| {
-            read_keypair_file(&path)
-                .map_err(|e| anyhow::anyhow!("failed to read manager keypair from {path}: {e}"))
-        })
-        .transpose()?;
-    let manager = from_file.as_ref().unwrap_or(&ctx.payer);
+    let manager = read_keypair_or(args.manager, &ctx.payer)?;
     let manager_pubkey = manager.pubkey();
 
     let ix = AddSolver {
@@ -71,7 +41,7 @@ fn add(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     let tx = Transaction::new_signed_with_payer(
         &[ix.into()],
         Some(&payer),
-        &[&ctx.payer, manager],
+        &[&ctx.payer, &*manager],
         blockhash,
     );
     let sig = ctx
