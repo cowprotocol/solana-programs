@@ -6,6 +6,7 @@
 use cow_settlement_interface::{
     instruction::{
         add_solver::AddSolverInput,
+        cancel_order::CancelOrderInput,
         create_buffer::CreateBufferInput,
         create_order::CreateOrderInput,
         create_self_order::CreateSelfOrderInput,
@@ -25,6 +26,7 @@ use solana_program_error::ProgramError;
 pub enum ParsedInstruction<'a, A> {
     Initialize(InitializeInput<'a, A>),
     CreateOrder(CreateOrderInput<'a, A>),
+    CancelOrder(CancelOrderInput<'a, A>),
     CreateSelfOrder(CreateSelfOrderInput<'a, A>),
     CreateBuffer(CreateBufferInput<'a, A>),
     BeginSettle(BeginSettleInput<'a, A>),
@@ -48,6 +50,9 @@ pub fn parse_instruction<'a, A>(
         }
         SettlementInstruction::CreateOrder => {
             ParsedInstruction::CreateOrder(CreateOrderInput::parse_body(remaining_data, accounts)?)
+        }
+        SettlementInstruction::CancelOrder => {
+            ParsedInstruction::CancelOrder(CancelOrderInput::parse_body(remaining_data, accounts)?)
         }
         SettlementInstruction::CreateSelfOrder => ParsedInstruction::CreateSelfOrder(
             CreateSelfOrderInput::parse_body(remaining_data, accounts)?,
@@ -83,8 +88,8 @@ pub fn parse_instruction<'a, A>(
 mod tests {
     use super::*;
     use crate::instruction::{
-        AddSolver, BeginSettle, CreateBuffers, CreateOrder, CreateSelfOrder, FinalizeSettle,
-        Initialize, InitializedIntent, RemoveSolver,
+        AddSolver, BeginSettle, CancelOrder, CreateBuffers, CreateOrder, CreateSelfOrder,
+        FinalizeSettle, Initialize, InitializedIntent, RemoveSolver,
     };
     use cow_settlement_interface::{
         data::intent::fixtures::sample_intent,
@@ -113,6 +118,13 @@ mod tests {
             }
             .into(),
             SettlementInstruction::CreateOrder => CreateOrder {
+                program_id,
+                owner: intent.owner,
+                created_by: payer,
+                intent: &intent,
+            }
+            .into(),
+            SettlementInstruction::CancelOrder => CancelOrder {
                 program_id,
                 owner: intent.owner,
                 created_by: payer,
@@ -200,6 +212,7 @@ mod tests {
         for expected in [
             SettlementInstruction::Initialize,
             SettlementInstruction::CreateOrder,
+            SettlementInstruction::CancelOrder,
             SettlementInstruction::CreateSelfOrder,
             SettlementInstruction::CreateBuffer,
             SettlementInstruction::BeginSettle,
@@ -221,6 +234,7 @@ mod tests {
             let actual = match parsed {
                 ParsedInstruction::Initialize(_) => SettlementInstruction::Initialize,
                 ParsedInstruction::CreateOrder(_) => SettlementInstruction::CreateOrder,
+                ParsedInstruction::CancelOrder(_) => SettlementInstruction::CancelOrder,
                 ParsedInstruction::CreateSelfOrder(_) => SettlementInstruction::CreateSelfOrder,
                 ParsedInstruction::CreateBuffer(_) => SettlementInstruction::CreateBuffer,
                 ParsedInstruction::BeginSettle(_) => SettlementInstruction::BeginSettle,

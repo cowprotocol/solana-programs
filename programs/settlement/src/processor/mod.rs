@@ -2,6 +2,7 @@
 
 mod add_solver;
 mod begin_settle;
+mod cancel_order;
 mod create_buffer;
 mod create_order;
 mod create_self_order;
@@ -15,6 +16,7 @@ pub mod utils;
 
 use add_solver::process_add_solver;
 use begin_settle::process_begin_settle;
+use cancel_order::process_cancel_order;
 use create_buffer::process_create_buffer;
 use create_order::process_create_order;
 use create_self_order::process_create_self_order;
@@ -46,6 +48,9 @@ pub fn process_instruction(
         }
         SettlementInstruction::CreateSelfOrder => {
             process_create_self_order(program_id, accounts, instruction_data)
+        }
+        SettlementInstruction::CancelOrder => {
+            process_cancel_order(program_id, accounts, instruction_data)
         }
         SettlementInstruction::Initialize => {
             process_initialize(program_id, accounts, instruction_data)

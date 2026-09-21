@@ -35,12 +35,14 @@ pub fn process_create_order(
         (order_pda, &intent_bytes),
         owner.address(),
         created_by,
+        false,
     )
 }
 
 /// Create a new on-chain order PDA at the specified address, with the given
 /// encoded intent data, owned by the expected order, and flagged as created by
-/// the specified address.
+/// the specified address. `cancelled` is the order's initial state: `false` for
+/// a normal creation, `true` when the order is created already cancelled.
 ///
 /// This function performs all necessary validity checks and reverts if the
 /// order has already been created before.
@@ -49,6 +51,7 @@ pub(crate) fn process_new_onchain_order(
     (order_pda, intent_bytes): (&AccountView, &[u8; EncodedOrderIntent::SIZE]),
     expected_owner: &Address,
     created_by: &AccountView,
+    cancelled: bool,
 ) -> ProgramResult {
     let (intent, intent_uid) = EncodedOrderIntent::decode_and_hash(intent_bytes)?;
 
@@ -80,7 +83,7 @@ pub(crate) fn process_new_onchain_order(
     order::write_account(
         order_data,
         bump,
-        false,
+        cancelled,
         0,
         0,
         created_by.address(),
