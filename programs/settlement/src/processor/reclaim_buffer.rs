@@ -106,7 +106,7 @@ mod tests {
         StateInitArgs {
             manager: pubkey_from_seed("base_init_args's unused manager"),
             reclaim_authority: AUTHORITY,
-            self_order_authority: pubkey_from_seed("base_init_args's unused self-order authority"),
+            sweep_authority: pubkey_from_seed("base_init_args's unused sweep authority"),
         }
     }
 

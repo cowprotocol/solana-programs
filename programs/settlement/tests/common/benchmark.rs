@@ -11,7 +11,7 @@ use std::{env, fmt, fs, io::Write, thread};
 pub enum BenchLabel {
     Initialize,
     CreateOrder,
-    CreateSelfOrder,
+    CreateSweepOrder,
     CreateBuffers,
     ReclaimBuffer,
     ReclaimOrder,
@@ -28,7 +28,7 @@ impl fmt::Display for BenchLabel {
         f.write_str(match self {
             Self::Initialize => "initialize",
             Self::CreateOrder => "create_order",
-            Self::CreateSelfOrder => "create_self_order",
+            Self::CreateSweepOrder => "create_sweep_order",
             Self::CreateBuffers => "create_buffers",
             Self::ReclaimBuffer => "reclaim_buffer",
             Self::ReclaimOrder => "reclaim_order",

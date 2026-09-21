@@ -19,7 +19,7 @@ pub fn process_initialize(
         state_pda,
         manager,
         reclaim_authority,
-        self_order_authority,
+        sweep_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
     // There are no explicit account guards here: `CanonicalPda::create_new`
@@ -44,7 +44,7 @@ pub fn process_initialize(
         &StateInitArgs {
             manager,
             reclaim_authority,
-            self_order_authority,
+            sweep_authority,
         },
     )?;
 
