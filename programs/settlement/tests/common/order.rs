@@ -5,7 +5,7 @@ use cow_settlement_client::cow_settlement_interface::data::intent::{
 };
 use cow_settlement_client::cow_settlement_interface::data::order::OrderAccount;
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
-use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
+use cow_settlement_client::instruction::{CreateOrder, CreateSweepOrder};
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -81,26 +81,26 @@ pub fn create_order_pda(
         .expect("create_order should succeed");
 }
 
-/// Place `intent` as a self order through `CreateSelfOrder`: an
-/// order owned by the state PDA, funded by `payer` and gated by the self-order
+/// Place `intent` as a sweep order through `CreateSweepOrder`: an
+/// order owned by the state PDA, funded by `payer` and gated by the sweep order
 /// `authority`, which co-signs.
-fn create_self_order_pda(
+fn create_sweep_order_pda(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     authority: &Keypair,
     intent: &OrderIntent,
 ) {
-    let ix = CreateSelfOrder {
+    let ix = CreateSweepOrder {
         program_id: *program_id,
         authority: authority.pubkey(),
         created_by: payer.pubkey(),
         intent,
     };
-    // Fee-paid by `payer`, co-signed by the self-order `authority`.
+    // Fee-paid by `payer`, co-signed by the sweep order `authority`.
     let tx = signed_tx(svm, payer, authority, ix);
     svm.send_transaction(tx)
-        .expect("create_self_order should succeed");
+        .expect("create_sweep_order should succeed");
 }
 
 /// How an [`OrderBuilder`] sources one side of an order.
@@ -148,7 +148,7 @@ impl TokenSource {
 /// own freshly generated mint, so the two differ unless a test pins one with
 /// [`OrderBuilder::sell_mint`] / [`OrderBuilder::buy_mint`].
 ///
-/// Calling [`OrderBuilder::self_order`] switches `build` to place a self order
+/// Calling [`OrderBuilder::sweep_order`] switches `build` to place a sweep order
 /// instead of a regular one.
 pub struct OrderBuilder<'a> {
     svm: &'a mut LiteSVM,
@@ -157,7 +157,7 @@ pub struct OrderBuilder<'a> {
     intent: OrderIntent,
     sell: TokenSource,
     buy: TokenSource,
-    self_order_authority: Option<&'a Keypair>,
+    sweep_authority: Option<&'a Keypair>,
 }
 
 impl<'a> OrderBuilder<'a> {
@@ -172,7 +172,7 @@ impl<'a> OrderBuilder<'a> {
             intent,
             sell: TokenSource::FreshMint,
             buy: TokenSource::FreshMint,
-            self_order_authority: None,
+            sweep_authority: None,
         }
     }
 
@@ -233,9 +233,9 @@ impl<'a> OrderBuilder<'a> {
         self
     }
 
-    /// This will be a self order, not a normal order.
-    pub fn self_order(mut self, authority: &'a Keypair) -> Self {
-        self.self_order_authority = Some(authority);
+    /// This will be a sweep order, not a normal order.
+    pub fn sweep_order(mut self, authority: &'a Keypair) -> Self {
+        self.sweep_authority = Some(authority);
         self
     }
 
@@ -247,22 +247,22 @@ impl<'a> OrderBuilder<'a> {
             mut intent,
             sell,
             buy,
-            self_order_authority,
+            sweep_authority,
         } = self;
         // The buy side always uses a fresh payer-owned treasury; only a
-        // self order's sell side draws from a buffer.
+        // sweep order's sell side draws from a buffer.
         (intent.buy_mint, intent.buy_token_account) = buy.resolve(svm, program_id, payer, false);
         (intent.sell_mint, intent.sell_token_account) =
-            sell.resolve(svm, program_id, payer, self_order_authority.is_some());
+            sell.resolve(svm, program_id, payer, sweep_authority.is_some());
 
-        match self_order_authority {
+        match sweep_authority {
             None => {
                 intent.owner = payer.pubkey();
                 create_order_pda(svm, program_id, payer, &intent);
             }
             Some(authority) => {
                 intent.owner = find_state_pda(program_id).0;
-                create_self_order_pda(svm, program_id, payer, authority, &intent);
+                create_sweep_order_pda(svm, program_id, payer, authority, &intent);
             }
         }
         intent

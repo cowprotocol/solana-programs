@@ -1,7 +1,7 @@
-//! Integration tests for placing a `CreateSelfOrder`: an order owned by
-//! the settlement state PDA, gated by the self-order authority, to sell the fees
+//! Integration tests for placing a `CreateSweepOrder`: an order owned by
+//! the settlement state PDA, gated by the sweep authority, to sell the fees
 //! that accumulate in the buffer accounts. Settling such an order is covered in
-//! `settle_self_order.rs`.
+//! `settle_sweep_order.rs`.
 
 use crate::common::{
     assert_instruction_error,
@@ -9,7 +9,7 @@ use crate::common::{
     order::sample_intent,
     send_with_signers, setup_init, signed_tx, unique_keypair,
 };
-use cow_settlement_client::instruction::CreateSelfOrder;
+use cow_settlement_client::instruction::CreateSweepOrder;
 use cow_settlement_interface::{
     data::order::OrderAccount, pda::order::find_order_pda, SettlementError,
 };
@@ -22,15 +22,15 @@ fn places_an_order_owned_by_the_state_pda() {
     let (mut svm, params) = setup_init();
 
     let intent = sample_intent(params.state_pda, 0);
-    let ix = CreateSelfOrder {
+    let ix = CreateSweepOrder {
         program_id: params.program_id,
-        authority: params.self_order.pubkey(),
+        authority: params.sweep_authority.pubkey(),
         created_by: params.payer.pubkey(),
         intent: &intent,
     };
-    let tx = signed_tx(&svm, &params.payer, &params.self_order, ix);
-    send_transaction_metered(&mut svm, tx, BenchLabel::CreateSelfOrder)
-        .expect("create_self_order should succeed");
+    let tx = signed_tx(&svm, &params.payer, &params.sweep_authority, ix);
+    send_transaction_metered(&mut svm, tx, BenchLabel::CreateSweepOrder)
+        .expect("create_sweep_order should succeed");
 
     let (order_pda, bump) = find_order_pda(&params.program_id, &intent.uid());
     let account = svm
@@ -65,20 +65,20 @@ fn places_an_order_owned_by_the_state_pda() {
 }
 
 #[test]
-fn rejects_a_caller_that_is_not_the_self_order_authority() {
+fn rejects_a_caller_that_is_not_the_sweep_authority() {
     let (mut svm, params) = setup_init();
     let intent = sample_intent(params.state_pda, 0);
 
-    // An unrelated signer isn't the self-order authority recorded in state.
+    // An unrelated signer isn't the sweep authority recorded in state.
     let impostor = unique_keypair();
-    let ix = CreateSelfOrder {
+    let ix = CreateSweepOrder {
         program_id: params.program_id,
         authority: impostor.pubkey(),
         created_by: params.payer.pubkey(),
         intent: &intent,
     };
     let result = send_with_signers(&mut svm, &params.payer, &[&impostor], &[ix.into()]);
-    assert_instruction_error(result, SettlementError::UnauthorizedSelfOrder);
+    assert_instruction_error(result, SettlementError::UnauthorizedSweep);
 }
 
 #[test]
@@ -87,13 +87,18 @@ fn rejects_an_order_not_owned_by_the_state_pda() {
     // Owned by an arbitrary account rather than the state PDA.
     let intent = sample_intent(unique_keypair().pubkey(), 0);
 
-    let ix = CreateSelfOrder {
+    let ix = CreateSweepOrder {
         program_id: params.program_id,
-        authority: params.self_order.pubkey(),
+        authority: params.sweep_authority.pubkey(),
         created_by: params.payer.pubkey(),
         intent: &intent,
     };
-    let result = send_with_signers(&mut svm, &params.payer, &[&params.self_order], &[ix.into()]);
+    let result = send_with_signers(
+        &mut svm,
+        &params.payer,
+        &[&params.sweep_authority],
+        &[ix.into()],
+    );
     assert_instruction_error(result, SettlementError::OwnerMismatch);
 }
 
@@ -104,12 +109,17 @@ fn rejects_an_order_not_flagged_as_created_on_chain() {
     let mut intent = sample_intent(params.state_pda, 0);
     intent.flags.created_on_chain = false;
 
-    let ix = CreateSelfOrder {
+    let ix = CreateSweepOrder {
         program_id: params.program_id,
-        authority: params.self_order.pubkey(),
+        authority: params.sweep_authority.pubkey(),
         created_by: params.payer.pubkey(),
         intent: &intent,
     };
-    let result = send_with_signers(&mut svm, &params.payer, &[&params.self_order], &[ix.into()]);
+    let result = send_with_signers(
+        &mut svm,
+        &params.payer,
+        &[&params.sweep_authority],
+        &[ix.into()],
+    );
     assert_instruction_error(result, SettlementError::OrderCreatedOnChainMismatch);
 }

@@ -16,7 +16,7 @@ const codama = createFromRoot(rootNodeFromAnchor(IDL));
 // for every instruction that creates an order at the canonical order PDA.
 codama.update(
   setInstructionAccountDefaultValuesVisitor(
-    ["createOrder", "createSelfOrder"].map((instruction) => ({
+    ["createOrder", "createSweepOrder"].map((instruction) => ({
       instruction,
       account: "orderPda",
       defaultValue: resolverValueNode("resolveOrderPda", {

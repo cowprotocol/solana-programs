@@ -1,8 +1,8 @@
-//! Integration tests for settling a `CreateSelfOrder`. The happy path
+//! Integration tests for settling a `CreateSweepOrder`. The happy path
 //! draws buffered fees out through the ordinary `[BeginSettle, FinalizeSettle]`
 //! pair with no settlement-side code of its own. The confinement test shows the
 //! flip side: because the program forces the order's owner to the state PDA, a
-//! self order can only ever sell an account the state PDA owns, so it can
+//! sweep order can only ever sell an account the state PDA owns, so it can
 //! never reach user funds.
 
 use crate::common::{
@@ -21,7 +21,7 @@ use solana_sdk::signer::Signer;
 mod common;
 
 #[test]
-fn settling_a_self_order_withdraws_the_buffered_fees() {
+fn settling_a_sweep_order_withdraws_the_buffered_fees() {
     let (mut svm, params) = setup_init();
 
     // A registered, funded solver settles the order.
@@ -35,7 +35,7 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     const FEES: u64 = 1_000_000;
     const PROCEEDS: u64 = 500_000;
     let intent = OrderBuilder::new(&mut svm, &params.program_id, &params.payer)
-        .self_order(&params.self_order)
+        .sweep_order(&params.sweep_authority)
         .sell_amount(FEES)
         .buy_amount(PROCEEDS)
         .build();
@@ -69,7 +69,7 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     let instructions =
         build_staged_settlement(&params.program_id, &solver.pubkey(), &[staged], vec![]);
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
-        .expect("settling the self order should succeed");
+        .expect("settling the sweep order should succeed");
 
     // The fees left the buffer for the solver, and the proceeds reached the
     // treasury out of the buy buffer.
@@ -104,14 +104,14 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     assert_eq!(decoded.amount_received, PROCEEDS);
 }
 
-/// Forcing `intent.owner` to be the state PDA means a self order can only
+/// Forcing `intent.owner` to be the state PDA means a sweep order can only
 /// sell an account the state PDA owns.
 /// However, we can still point the order at a user token account instead:
 /// creating it still succeeds (the sell account isn't checked), but settling
-/// reverts, so the self-order authority can never reach funds that aren't
+/// reverts, so the sweep authority can never reach funds that aren't
 /// controlled by the state PDA.
 #[test]
-fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
+fn a_sweep_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
     let (mut svm, params) = setup_init();
 
     let solver = unique_keypair();
@@ -129,11 +129,11 @@ fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
         token::create_token_account(&mut svm, &params.payer, &sell_mint, &victim.pubkey());
     token::mint_to(&mut svm, &params.payer, &sell_mint, &victim_account, FUNDS);
 
-    // A self order owned by the state PDA (as the program forces), but
+    // A sweep order owned by the state PDA (as the program forces), but
     // selling out of the victim's account rather than a buffer. Creation
     // succeeds: the sell account isn't validated until settlement.
     let intent = OrderBuilder::new(&mut svm, &params.program_id, &params.payer)
-        .self_order(&params.self_order)
+        .sweep_order(&params.sweep_authority)
         .sell_token_account(&victim_account)
         .sell_amount(FUNDS)
         .buy_amount(PROCEEDS)

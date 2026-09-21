@@ -28,7 +28,7 @@ pub enum SettlementError {
     MismatchedCounterpartDiscriminator = 6,
     /// An order-creation instruction's intent owner isn't the owner it must
     /// have: the signer for `CreateOrder`, the settlement state PDA for
-    /// `CreateSelfOrder`.
+    /// `CreateSweepOrder`.
     OwnerMismatch = 7,
     /// An account was provided that cannot be derived from the seeds recognized by the program
     AccountNotDerivable = 8,
@@ -135,10 +135,9 @@ pub enum SettlementError {
     BufferSizeUnavailable = 40,
     /// The token program for a given token or mint is not supported.
     InvalidTokenProgram = 41,
-    /// `CreateSelfOrder`'s self-order-authority account isn't a signer, or
-    /// doesn't match the `self_order_authority` recorded in the settlement state
-    /// PDA, so it may not create self orders.
-    UnauthorizedSelfOrder = 42,
+    /// `CreateSweepOrder`'s authority account isn't a signer, or doesn't match
+    /// the sweep authority` recorded in the settlement state PDA.
+    UnauthorizedSweep = 42,
 }
 
 impl From<SettlementError> for u32 {

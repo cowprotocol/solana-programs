@@ -1,4 +1,4 @@
-//! `CreateSelfOrder` instruction builder.
+//! `CreateSweepOrder` instruction builder.
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
@@ -9,7 +9,7 @@ pub use solana_system_interface::program::ID as SYSTEM_PROGRAM_ID;
 use super::InstructionInputParsing;
 use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 
-/// Builder for a `CreateSelfOrder` instruction.
+/// Builder for a `CreateSweepOrder` instruction.
 ///
 /// Allocates an [order PDA](`crate::pda::order`) for an order owned by
 /// the settlement state PDA, so the fees that accumulate in the buffer accounts
@@ -17,7 +17,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 ///
 /// Similar to [`CreateOrder`](crate::instruction::create_order::CreateOrder),
 /// but the instruction is gated by the
-/// [`SelfOrderAuthority`](crate::Role::SelfOrderAuthority), and doesn't need
+/// [`SweepAuthority`](crate::Role::SweepAuthority), and doesn't need
 /// the owner's signature. The program forces `intent.owner` to be the state
 /// PDA. The order this function created is a normal order and settles through
 /// the standard `BeginSettle`/`FinalizeSettle` flow.
@@ -32,7 +32,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// `1 + EncodedOrderIntent::SIZE` bytes. Required accounts:
 /// `[authority (S), created_by (W,S), state_pda (R), order_pda (W),
 /// system_program (R)]`.
-pub struct CreateSelfOrder {
+pub struct CreateSweepOrder {
     pub program_id: Pubkey,
     pub authority: Pubkey,
     pub created_by: Pubkey,
@@ -41,10 +41,10 @@ pub struct CreateSelfOrder {
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
 }
 
-impl From<CreateSelfOrder> for Instruction {
-    fn from(builder: CreateSelfOrder) -> Self {
+impl From<CreateSweepOrder> for Instruction {
+    fn from(builder: CreateSweepOrder) -> Self {
         let mut data = Vec::with_capacity(1 + EncodedOrderIntent::SIZE);
-        data.push(SettlementInstruction::CreateSelfOrder.discriminator());
+        data.push(SettlementInstruction::CreateSweepOrder.discriminator());
         data.extend_from_slice(&builder.intent_bytes);
 
         Instruction {
@@ -61,8 +61,8 @@ impl From<CreateSelfOrder> for Instruction {
     }
 }
 
-/// Parsed inputs of a `CreateSelfOrder` instruction.
-pub struct CreateSelfOrderInput<'a, A> {
+/// Parsed inputs of a `CreateSweepOrder` instruction.
+pub struct CreateSweepOrderInput<'a, A> {
     pub intent_bytes: [u8; EncodedOrderIntent::SIZE],
     pub authority: &'a A,
     pub created_by: &'a A,
@@ -70,8 +70,8 @@ pub struct CreateSelfOrderInput<'a, A> {
     pub order_pda: &'a A,
 }
 
-impl<'a, A> InstructionInputParsing<'a, A> for CreateSelfOrderInput<'a, A> {
-    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateSelfOrder;
+impl<'a, A> InstructionInputParsing<'a, A> for CreateSweepOrderInput<'a, A> {
+    const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::CreateSweepOrder;
 
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         // Body (discriminator already stripped): exactly the intent bytes.
@@ -97,25 +97,25 @@ impl<'a, A> InstructionInputParsing<'a, A> for CreateSelfOrderInput<'a, A> {
     }
 }
 
-/// Test scaffolding for `CreateSelfOrder` parsing and handling, shared by
+/// Test scaffolding for `CreateSweepOrder` parsing and handling, shared by
 /// this crate's tests and the settlement program's via the `test-fixtures`
 /// feature.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
     use solana_address::Address;
 
-    use super::{CreateSelfOrder, EncodedOrderIntent, Instruction};
+    use super::{CreateSweepOrder, EncodedOrderIntent, Instruction};
     use crate::data::intent::OrderIntent;
 
-    /// Number of accounts `CreateSelfOrder` expects: authority, created_by, state
+    /// Number of accounts `CreateSweepOrder` expects: authority, created_by, state
     /// PDA, order PDA, and the system program.
     pub const NUM_ACCOUNTS: usize = 5;
 
-    /// `CreateSelfOrder` instruction data carrying `intent`, with
+    /// `CreateSweepOrder` instruction data carrying `intent`, with
     /// placeholder addresses for failure cases where the addresses don't matter.
-    pub fn self_order_data(intent: &OrderIntent) -> Vec<u8> {
+    pub fn sweep_order_data(intent: &OrderIntent) -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
-        Instruction::from(CreateSelfOrder {
+        Instruction::from(CreateSweepOrder {
             program_id: zero,
             authority: zero,
             created_by: zero,
@@ -129,7 +129,7 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use super::fixtures::{self_order_data, NUM_ACCOUNTS};
+    use super::fixtures::{sweep_order_data, NUM_ACCOUNTS};
     use super::*;
     use crate::data::intent::fixtures::sample_intent;
     use crate::data::intent::OrderIntent;
@@ -141,7 +141,7 @@ mod tests {
     };
     use solana_account_view::AccountView;
 
-    /// A well-formed sample self order intent for these tests. The owner
+    /// A well-formed sample sweep order intent for these tests. The owner
     /// and flags aren't checked at this layer (only the handler does), so any
     /// well-formed intent works.
     fn intent() -> OrderIntent {
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn create_self_order_input_parses_valid_input() {
+    fn create_sweep_order_input_parses_valid_input() {
         let program_id = pubkey_from_seed("program id");
         let authority = pubkey_from_seed("authority");
         let created_by = pubkey_from_seed("created_by");
@@ -158,7 +158,7 @@ mod tests {
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
             (&EncodedOrderIntent::from(&intent())).into();
 
-        let data = Instruction::from(CreateSelfOrder {
+        let data = Instruction::from(CreateSweepOrder {
             program_id,
             authority,
             created_by,
@@ -175,13 +175,13 @@ mod tests {
             fake_account(pubkey_from_seed("system program")),
         ];
 
-        let CreateSelfOrderInput {
+        let CreateSweepOrderInput {
             intent_bytes: derived_intent_bytes,
             authority: derived_authority,
             created_by: derived_created_by,
             state_pda: derived_state_pda,
             order_pda: derived_order_pda,
-        } = CreateSelfOrderInput::parse(&data, &accounts).expect("parse should succeed");
+        } = CreateSweepOrderInput::parse(&data, &accounts).expect("parse should succeed");
 
         assert_eq!(derived_intent_bytes, intent_bytes);
         assert_eq!(*derived_authority.address(), authority);
@@ -191,34 +191,34 @@ mod tests {
     }
 
     #[test]
-    fn create_self_order_input_rejects_short_data() {
-        let mut data = self_order_data(&intent());
+    fn create_sweep_order_input_rejects_short_data() {
+        let mut data = sweep_order_data(&intent());
         data.pop();
         let accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            CreateSelfOrderInput::parse(&data, &accounts).err(),
+            CreateSweepOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
 
     #[test]
-    fn create_self_order_input_rejects_long_data() {
-        let mut data = self_order_data(&intent());
+    fn create_sweep_order_input_rejects_long_data() {
+        let mut data = sweep_order_data(&intent());
         data.push(0); // trailing byte
         let accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            CreateSelfOrderInput::parse(&data, &accounts).err(),
+            CreateSweepOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
 
     #[test]
-    fn create_self_order_input_rejects_missing_accounts() {
-        let data = self_order_data(&intent());
+    fn create_sweep_order_input_rejects_missing_accounts() {
+        let data = sweep_order_data(&intent());
         let mut accounts: Vec<AccountView> = fake_sequential_accounts::<NUM_ACCOUNTS>().into();
         accounts.pop();
         assert_eq!(
-            CreateSelfOrderInput::parse(&data, &accounts).err(),
+            CreateSweepOrderInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -227,7 +227,7 @@ mod tests {
     fn instruction_data_has_expected_layout() {
         let intent_bytes = [0x42u8; EncodedOrderIntent::SIZE];
 
-        let Instruction { data, .. } = CreateSelfOrder {
+        let Instruction { data, .. } = CreateSweepOrder {
             program_id: pubkey_from_seed("program id"),
             authority: pubkey_from_seed("authority"),
             created_by: pubkey_from_seed("created_by"),
@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(data.len(), 1 + EncodedOrderIntent::SIZE);
         assert_eq!(
             data[0],
-            SettlementInstruction::CreateSelfOrder.discriminator()
+            SettlementInstruction::CreateSweepOrder.discriminator()
         );
         assert_eq!(&data[1..], &intent_bytes);
     }
@@ -254,7 +254,7 @@ mod tests {
         let order_pda = pubkey_from_seed("order pda");
         let intent_bytes = [0u8; EncodedOrderIntent::SIZE];
 
-        let Instruction { accounts, .. } = CreateSelfOrder {
+        let Instruction { accounts, .. } = CreateSweepOrder {
             program_id,
             authority,
             created_by,

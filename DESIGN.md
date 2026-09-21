@@ -35,7 +35,7 @@ The program grant privileged roles to specific accounts (_authorities_). They ar
 
 - Manager: the account that can add and remove solvers. It can also update the address of all other roles.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
-- Self-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
+- Sweep Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
 
 ### Updating authorities
 
@@ -81,14 +81,14 @@ Limitation:
 
 Fees accumulate in the buffer accounts after a settlement is concluded.
 
-Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [self-order authority](#authorities).
+Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [sweep authority](#authorities).
 
-The order is placed through the `CreateSelfOrder` instruction. The self-order authority can specify arbitrary order parameters, as long as the owner is the state PDA and the order is marked as created on-chain.
+The order is placed through the `CreateSweepOrder` instruction. The sweep authority can specify arbitrary order parameters, as long as the owner is the state PDA and the order is marked as created on-chain.
 
 Differences with Ethereum:
 
 - Solvers can't access the content of the buffers directly anymore (though they can do so indirectly by creating a dedicated order just to sweep the buffer).
-- `CreateSelfOrder` has a dedicated authority rather than requiring a solver.
+- `CreateSweepOrder` has a dedicated authority rather than requiring a solver.
 - Creating a fee-withdrawal order is done directly through a dedicated instruction, not indirectly as the result of a call from the settlement context.
 
 ## User delegation (i.e., "approvals")
