@@ -6,6 +6,7 @@ use solana_sdk::signer::keypair::Keypair;
 
 use crate::Cli;
 
+pub mod authority;
 pub mod create_order;
 pub mod initialize;
 pub mod settle;

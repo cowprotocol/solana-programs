@@ -1,19 +1,20 @@
 [package]
 name = "cow-settlement-interface"
-description = "Account layouts, PDA derivations, and instruction builders for the CoW Protocol Solana settlement program."
 version.workspace = true
 edition.workspace = true
-license.workspace = true
-readme.workspace = true
-repository.workspace = true
-homepage.workspace = true
+description = "Account layouts, PDA derivations, and instruction builders for the CoW Protocol Solana settlement program."
 documentation = "https://docs.rs/cow-settlement-interface"
+readme.workspace = true
+homepage.workspace = true
+repository.workspace = true
+license.workspace = true
 keywords.workspace = true
-categories = ["cryptography::cryptocurrencies", "finance", "api-bindings"]
+categories = ["api-bindings", "cryptography::cryptocurrencies", "finance"]
 publish = true
 
 [dependencies]
 arrayref.workspace = true
+clap = { workspace = true, optional = true }
 derive_more.workspace = true
 num_enum.workspace = true
 proptest = { workspace = true, optional = true }
@@ -38,6 +39,8 @@ hex-literal.workspace = true
 proptest.workspace = true
 
 [features]
+# Optional extra type derivation to support the `cow` CLI.
+cli = ["dep:clap"]
 # Exposes the test fixtures and proptest strategies under `data::*::fixtures` so
 # other crates can build and fuzz against sample intents and order accounts.
 # Enabled here by `cfg(test)` for this crate's own tests.
