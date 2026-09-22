@@ -206,7 +206,7 @@ fn settle_orders(
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
-    let mut previous: Option<Address> = None;
+    let mut previous: Option<&Address> = None;
 
     let now = Clock::get()?.unix_timestamp;
 
@@ -216,7 +216,7 @@ fn settle_orders(
     let mut pushes = finalize_pushes(finalize_ix)?;
 
     for order in orders.iter() {
-        let order_pda_address = *order.order_pda.address();
+        let order_pda_address = order.order_pda.address();
         if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
         }
