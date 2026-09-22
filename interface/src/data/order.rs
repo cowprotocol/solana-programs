@@ -168,9 +168,13 @@ impl<T: Deref<Target = [u8]>> OrderAccount<T> {
             .expect("body length is guaranteed by any constructor of `OrderAccount`")
     }
 
+    pub fn bump_slice(&self) -> &[u8; 1] {
+        order_slots(self.body()).bump
+    }
+
     /// Canonical bump of the PDA this account lives at.
     pub fn bump(&self) -> u8 {
-        order_slots(self.body()).bump[0]
+        self.bump_slice()[0]
     }
 
     /// Whether the order has been cancelled by its owner. Fails with
@@ -236,7 +240,7 @@ impl<'a> OrderAccount<Ref<'a, [u8]>> {
         if !is_pda_with_signer_seeds(
             order_pda.address(),
             program_id,
-            order_pda_signer_seeds(&order.intent_uid(), &[order.bump()]),
+            order_pda_signer_seeds(&order.intent_uid(), order.bump_slice()),
         ) {
             return Err(SettlementError::AccountNotDerivable.into());
         }

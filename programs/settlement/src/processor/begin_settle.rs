@@ -14,7 +14,7 @@ use cow_settlement_interface::{
         },
         InstructionInputParsing,
     },
-    pda::buffer::validate_buffer_pda,
+    pda::{buffer::validate_buffer_pda, is_pda_with_signer_seeds, order::order_pda_signer_seeds},
     recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -206,7 +206,7 @@ fn settle_orders(
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
-    let mut previous: Option<Address> = None;
+    let mut previous: Option<&Address> = None;
 
     let now = Clock::get()?.unix_timestamp;
 
@@ -216,7 +216,7 @@ fn settle_orders(
     let mut pushes = finalize_pushes(finalize_ix)?;
 
     for order in orders.iter() {
-        let order_pda_address = *order.order_pda.address();
+        let order_pda_address = order.order_pda.address();
         if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
         }
@@ -228,6 +228,7 @@ fn settle_orders(
 
         process_order(
             program_id,
+            order_pda_address,
             order,
             &push,
             now,
@@ -251,6 +252,7 @@ fn settle_orders(
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order(
     program_id: &Address,
+    order_pda_address: &Address,
     order: SettledOrder<'_, AccountView>,
     push: &Push<Address>,
     now: i64,
@@ -268,14 +270,25 @@ fn process_order(
     // that `order_pda` is the canonical order PDA for the intent it stores.
     // Read the fields the settlement needs, then drop the borrow before the
     // pull CPIs and the amount write-back below touch the account.
-    let (intent, prior_fill) = {
-        let order = OrderAccount::load_from_pda(order_pda, program_id)?;
-        if order.cancelled()? {
-            return Err(SettlementError::OrderCancelled.into());
-        }
-        (order.intent()?, order.filled_amounts())
-    };
-    let intent = &intent;
+
+    // A copied `AccountView` handle writes through to the same runtime account.
+    let mut order_pda = *order_pda;
+    let mut data = order_pda.try_borrow_mut()?;
+    let mut order = OrderAccount::attach(&mut data[..])?;
+
+    if order.cancelled()? {
+        return Err(SettlementError::OrderCancelled.into());
+    }
+
+    let intent = &order.intent()?;
+
+    if !is_pda_with_signer_seeds(
+        order_pda_address,
+        program_id,
+        order_pda_signer_seeds(&order.intent_uid(), order.bump_slice()),
+    ) {
+        return Err(SettlementError::AccountNotDerivable.into());
+    }
 
     if now > i64::from(intent.valid_to) {
         return Err(SettlementError::OrderExpired.into());
@@ -339,12 +352,9 @@ fn process_order(
         received: push.amount,
     };
     validate_limit_price(intent, &settled)?;
-    let final_amounts = validated_final_amounts(intent, prior_fill, settled)?;
+    let final_amounts = validated_final_amounts(intent, order.filled_amounts(), settled)?;
 
-    // A copied `AccountView` handle writes through to the same runtime account.
-    let mut order_pda = *order_pda;
-    let mut data = order_pda.try_borrow_mut()?;
-    OrderAccount::attach(&mut data[..])?.set_amounts(final_amounts);
+    order.set_amounts(final_amounts);
 
     Ok(())
 }
