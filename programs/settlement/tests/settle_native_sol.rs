@@ -12,11 +12,12 @@ use crate::common::{
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{BuyAsset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
-    pda::{buffer::find_buffer_pda, state::find_state_pda},
+    pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     token_program::NATIVE_SOL_MINT,
     Instruction, SettlementError,
 };
 use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
+use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{pubkey::Pubkey, signer::Signer, transaction::TransactionError};
 
 mod common;
@@ -393,4 +394,133 @@ fn rejects_a_native_push_to_wrong_destination() {
         send(&mut svm, &solver, &instructions),
         SettlementError::PushDestinationMismatch,
     );
+}
+
+/// Tokens and lamports pushed to the buy token account two orders share.
+const SHARED_SPL_AMOUNT: u64 = 3_000;
+const SHARED_SOL_AMOUNT: u64 = 1_500_000;
+
+/// What a shared-destination settlement is checked against once it has been sent.
+struct SharedDestination {
+    /// The buy token account both orders name.
+    account: Pubkey,
+    /// Its lamport balance before the settlement, which is rent for its own data.
+    rent: u64,
+    /// The buffer the SPL push draws on.
+    buffer: Pubkey,
+    /// The state PDA, and its balance before the settlement.
+    state_pda: Pubkey,
+    funded: u64,
+}
+
+/// The salt that sorts the native order's push `native_first` relative to the
+/// one paying `spl_order_pda`. A finalize pushes in order-PDA order, so the
+/// salt — which is what moves an intent's UID, and with it its PDA — is a
+/// test's only handle on which of two pushes runs first.
+fn salt_ordering_against(
+    program_id: &Pubkey,
+    native_intent: &OrderIntent<BuyAsset>,
+    spl_order_pda: &Pubkey,
+    native_first: bool,
+) -> u8 {
+    (0..=u8::MAX)
+        .find(|&salt| {
+            let intent = OrderIntent {
+                app_data: [salt; 32],
+                ..native_intent.clone()
+            };
+            (&find_order_pda(program_id, &intent.uid()).0 < spl_order_pda) == native_first
+        })
+        .expect("some salt should sort the native order onto the wanted side")
+}
+
+/// Send one settlement carrying an order bought in SPL tokens and an order
+/// bought in native SOL that names the same buy token account, so a single
+/// address is credited both ways. `native_first` picks which push runs first.
+fn send_shared_destination_settlement(
+    native_first: bool,
+) -> (
+    LiteSVM,
+    Result<TransactionMetadata, TransactionError>,
+    SharedDestination,
+) {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let mint = token::create_mint(&mut svm, &payer);
+    let spl_intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_mint(&mint)
+        .build();
+    // Hand-built rather than through `OrderBuilder`, which gives a native buy a
+    // fresh plain address; the point here is to aim one at a real token account.
+    let sol_intent = OrderIntent {
+        buy_mint: BuyAsset::NativeSol,
+        buy_token_account: spl_intent.buy_token_account,
+        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
+    };
+    let spl_order_pda = find_order_pda(&program_id, &spl_intent.uid()).0;
+    let sol_intent = OrderIntent {
+        app_data: [salt_ordering_against(&program_id, &sol_intent, &spl_order_pda, native_first);
+            32],
+        ..sol_intent
+    };
+    create_order_pda(&mut svm, &program_id, &payer, &sol_intent);
+
+    let shared = SharedDestination {
+        account: spl_intent.buy_token_account,
+        rent: lamports(&svm, &spl_intent.buy_token_account),
+        buffer: buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, SHARED_SPL_AMOUNT),
+        state_pda: find_state_pda(&program_id).0,
+        funded: state::fund_with_lamports(&mut svm, &program_id, SHARED_SOL_AMOUNT),
+    };
+
+    let instructions = native_sol_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[
+            FinalizedIntent {
+                intent: &spl_intent,
+                amount: SHARED_SPL_AMOUNT,
+            },
+            FinalizedIntent {
+                intent: &sol_intent,
+                amount: SHARED_SOL_AMOUNT,
+            },
+        ],
+    );
+    let result = send(&mut svm, &solver, &instructions);
+    (svm, result, shared)
+}
+
+/// Paying an order in native SOL into another order's buy token account works
+/// as long as the token push lands first
+#[test]
+fn settles_a_shared_destination_paid_in_tokens_first() {
+    let (svm, result, shared) = send_shared_destination_settlement(false);
+    result.expect("one account should be payable in both tokens and lamports at once");
+
+    assert_eq!(
+        lamports(&svm, &shared.account),
+        shared.rent + SHARED_SOL_AMOUNT
+    );
+    assert_eq!(token::balance(&svm, &shared.account), SHARED_SPL_AMOUNT);
+    assert_eq!(token::balance(&svm, &shared.buffer), 0);
+    assert_eq!(
+        lamports(&svm, &shared.state_pda),
+        shared.funded - SHARED_SOL_AMOUNT
+    );
+}
+
+/// The same settlement with the native push first is rejected outright due to solana instruction behavior.
+#[test]
+fn rejects_a_shared_destination_paid_in_sol_first() {
+    let (svm, result, shared) = send_shared_destination_settlement(true);
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        result,
+        solana_sdk::instruction::InstructionError::UnbalancedInstruction,
+    );
+
+    assert_eq!(lamports(&svm, &shared.account), shared.rent);
+    assert_eq!(token::balance(&svm, &shared.account), 0);
+    assert_eq!(token::balance(&svm, &shared.buffer), SHARED_SPL_AMOUNT);
+    assert_eq!(lamports(&svm, &shared.state_pda), shared.funded);
 }
