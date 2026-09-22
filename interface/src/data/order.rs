@@ -217,6 +217,21 @@ impl<T: Deref<Target = [u8]>> OrderAccount<T> {
     pub fn intent_uid(&self) -> Hash {
         intent::hash_bytes(self.intent_bytes())
     }
+
+    /// Confirm the account lives at its own canonical order PDA: both the UID
+    /// and the bump feeding the derivation come from the stored body, so an
+    /// account planted at the wrong address is rejected. `address` is the
+    /// account this accessor is attached to.
+    pub fn check_pda(&self, address: &Address, program_id: &Address) -> Result<(), ProgramError> {
+        if !is_pda_with_signer_seeds(
+            address,
+            program_id,
+            order_pda_signer_seeds(&self.intent_uid(), &[self.bump()]),
+        ) {
+            return Err(SettlementError::AccountNotDerivable.into());
+        }
+        Ok(())
+    }
 }
 
 impl<'a> OrderAccount<Ref<'a, [u8]>> {
@@ -233,13 +248,7 @@ impl<'a> OrderAccount<Ref<'a, [u8]>> {
         program_id: &Address,
     ) -> Result<Self, ProgramError> {
         let order = Self::from_account(order_pda)?;
-        if !is_pda_with_signer_seeds(
-            order_pda.address(),
-            program_id,
-            order_pda_signer_seeds(&order.intent_uid(), &[order.bump()]),
-        ) {
-            return Err(SettlementError::AccountNotDerivable.into());
-        }
+        order.check_pda(order_pda.address(), program_id)?;
         Ok(order)
     }
 }

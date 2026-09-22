@@ -737,6 +737,53 @@ fn pulls_funds_to_destination() {
     );
 }
 
+/// This test checks a security invariant.
+/// The order account is held mutably borrowed for the entirety of an order's
+/// settlement. In the middle, a transfer CPI takes place.
+/// We confirm here that the CPI reverts if it tries to access the order account
+/// itself.
+#[test]
+fn rejects_pull_targeting_the_order_account() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let sell_mint = token::create_mint(&mut svm, &payer);
+
+    let amount = 2_000_000;
+    let paid = 4_000_000;
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_mint(&sell_mint)
+        .sell_amount(amount)
+        .buy_amount(paid)
+        .build();
+    let sell_token = intent.sell_token_account;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 42_000_000);
+
+    // Point the pull at the order's own PDA rather than a token account.
+    let (order_pda, _) = find_order_pda(&program_id, &intent.uid());
+
+    let instructions = settle_and_pay_amounts(
+        &mut svm,
+        &program_id,
+        &payer,
+        &solver,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[Pull {
+                // Quick and dirty check: the solver sends the funds to the
+                // order PDA. This isn't realistic but serves the purpose of
+                // this test well without involving things like Token2022 and
+                // hooks.
+                destination: order_pda,
+                amount,
+            }],
+        }],
+        &[paid],
+    );
+    assert_begin_error(
+        send(&mut svm, &solver, &instructions),
+        InstructionError::AccountBorrowFailed,
+    );
+}
+
 #[test]
 fn pulls_to_multiple_destinations() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();

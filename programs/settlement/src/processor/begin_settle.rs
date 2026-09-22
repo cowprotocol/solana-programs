@@ -264,17 +264,21 @@ fn process_order(
         amounts,
     } = order;
 
-    // Decode the order body and prove its provenance: `load_from_pda` checks
-    // that `order_pda` is the canonical order PDA for the intent it stores.
-    // Read the fields the settlement needs, then drop the borrow before the
-    // pull CPIs and the amount write-back below touch the account.
-    let (intent, prior_fill) = {
-        let order = OrderAccount::load_from_pda(order_pda, program_id)?;
-        if order.cancelled()? {
-            return Err(SettlementError::OrderCancelled.into());
-        }
-        (order.intent()?, order.filled_amounts())
-    };
+    let mut order_pda = *order_pda;
+    let order_address = *order_pda.address();
+    // We intentionally keep the borrow alive. This is a security feature: for
+    // example, if the token transfer involves a CPI that cancels the order and
+    // recreates it, the transaction reverts. The borrow must live until we
+    // write back.
+    let mut data = order_pda.try_borrow_mut()?;
+    let mut order = OrderAccount::attach(&mut data[..])?;
+
+    order.check_pda(&order_address, program_id)?;
+    if order.cancelled()? {
+        return Err(SettlementError::OrderCancelled.into());
+    }
+    let intent = order.intent()?;
+    let prior_fill = order.filled_amounts();
     let intent = &intent;
 
     if now > i64::from(intent.valid_to) {
@@ -341,10 +345,7 @@ fn process_order(
     validate_limit_price(intent, &settled)?;
     let final_amounts = validated_final_amounts(intent, prior_fill, settled)?;
 
-    // A copied `AccountView` handle writes through to the same runtime account.
-    let mut order_pda = *order_pda;
-    let mut data = order_pda.try_borrow_mut()?;
-    OrderAccount::attach(&mut data[..])?.set_amounts(final_amounts);
+    order.set_amounts(final_amounts);
 
     Ok(())
 }
