@@ -92,7 +92,7 @@ pub(crate) fn process_new_onchain_order(
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
+    use cow_settlement_interface::data::intent::{Flags, OrderIntentAccessor, OrderKind};
     use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
@@ -121,15 +121,16 @@ mod tests {
 
     #[test]
     fn process_create_order_rejects_invalid_encoded_intent() {
-        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
-        let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntent {
+        let intent: OrderIntentAccessor =
+            (&valid_intent_bytes()).try_into().expect("should be valid");
+        let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntentAccessor {
             flags: Flags {
                 kind: OrderKind::Buy,
                 ..intent.flags
             },
             ..intent
         });
-        let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntent {
+        let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntentAccessor {
             flags: Flags {
                 kind: OrderKind::Sell,
                 ..intent.flags
@@ -204,9 +205,10 @@ mod tests {
 
     #[test]
     fn process_create_order_rejects_intent_not_created_on_chain() {
-        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let intent: OrderIntentAccessor =
+            (&valid_intent_bytes()).try_into().expect("should be valid");
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
-            (&EncodedOrderIntent::from(&OrderIntent { ..intent })).into();
+            (&EncodedOrderIntent::from(&OrderIntentAccessor { ..intent })).into();
         let data = default_order_data(&intent_bytes);
         let owner_runtime_account = RuntimeAccount {
             address: DEFAULT_OWNER,

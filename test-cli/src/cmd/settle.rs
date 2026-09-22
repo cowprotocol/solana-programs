@@ -2,10 +2,7 @@ use anyhow::Context as _;
 use clap::Args;
 use cow_settlement_client::{
     cow_settlement_interface::{
-        data::{
-            intent::{BuyAsset, OrderIntent},
-            order::OrderAccount,
-        },
+        data::{intent::OrderIntent, order::OrderAccount},
         pda::buffer::find_buffer_pda,
         token_program::TokenProgram,
         Pubkey,
@@ -81,7 +78,7 @@ impl SettleOutcome {
 
 struct ResolvedIntent {
     /// The original order from the user
-    data: OrderIntent<BuyAsset>,
+    data: OrderIntent,
 
     /// All the information about the sell account's TA and Mint
     sell: ResolvedToken,
@@ -232,10 +229,10 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
         .into_iter()
         .map(|intent| {
             Ok(ResolvedIntent {
-                sell: resolve_from_token_account(&ctx.rpc, &intent.sell_token_account)?,
-                buy: resolve_from_token_account(&ctx.rpc, &intent.buy_token_account)?,
+                sell: resolve_from_token_account(&ctx.rpc, &intent.sell.token_account)?,
+                buy: resolve_from_token_account(&ctx.rpc, &intent.buy.account())?,
 
-                data: intent.classify_buy(),
+                data: intent,
             })
         })
         .collect()
@@ -391,7 +388,7 @@ fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result
             data.len()
         )
     })?;
-    Ok(order_account.intent)
+    Ok(OrderIntent::from(&order_account.intent))
 }
 
 /// Accept either a 64-char hex UID or a base58 pubkey (the PDA directly).

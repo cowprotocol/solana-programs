@@ -16,7 +16,7 @@ use crate::common::{
 };
 use cow_settlement_client::instruction::Pull;
 use cow_settlement_interface::{pda::order::find_order_pda, SettlementError};
-use solana_sdk::{pubkey::Pubkey, signer::Signer};
+use solana_sdk::signer::Signer;
 
 mod common;
 
@@ -45,17 +45,17 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.sell_mint,
+        &intent.sell.mint,
         FEES,
     );
 
     let fee_recipient =
-        token::create_token_account(&mut svm, &params.payer, &intent.sell_mint, &solver.pubkey());
+        token::create_token_account(&mut svm, &params.payer, &intent.sell.mint, &solver.pubkey());
     buffer::ensure_funded(
         &mut svm,
         &params.program_id,
         &params.payer,
-        &Pubkey::from(intent.buy_mint),
+        &intent.buy.mint(),
         PROCEEDS,
     );
     let staged = StagedOrder {
@@ -74,7 +74,7 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     // The fees left the buffer for the solver, and the proceeds reached the
     // treasury out of the buy buffer.
     assert_eq!(
-        token::balance(&svm, &intent.sell_token_account),
+        token::balance(&svm, &intent.sell.token_account),
         0,
         "the fee buffer is drained"
     );
@@ -84,14 +84,14 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         "the solver received the fees"
     );
     assert_eq!(
-        token::balance(&svm, &intent.buy_token_account),
+        token::balance(&svm, &intent.buy.account()),
         PROCEEDS,
         "the treasury received the proceeds"
     );
     assert_eq!(
         token::balance(
             &svm,
-            &buffer::buffer_pda(&params.program_id, &Pubkey::from(intent.buy_mint))
+            &buffer::buffer_pda(&params.program_id, &intent.buy.mint())
         ),
         0,
         "the buy buffer paid out the proceeds"
@@ -147,7 +147,7 @@ fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &Pubkey::from(intent.buy_mint),
+        &intent.buy.mint(),
         PROCEEDS,
     );
     let staged = StagedOrder {

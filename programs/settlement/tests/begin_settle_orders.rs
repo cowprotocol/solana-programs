@@ -38,7 +38,7 @@ use cow_settlement_client::cow_settlement_interface::{
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenProgram,
 };
-use cow_settlement_interface::data::intent::{fixtures, BuyAsset, OrderIntent};
+use cow_settlement_interface::data::intent::{Asset, OrderIntent, TokenAsset};
 use litesvm::LiteSVM;
 use litesvm_token::spl_token::error::TokenError;
 use solana_program_pack::Pack;
@@ -64,7 +64,7 @@ fn assert_begin_error<T>(
 /// Assert the solver's payment clears the order's limit price for the amount
 /// pulled. Guards these happy-path tests against a payment silently chosen
 /// below the limit.
-fn sanity_check_clears_limit<Buy>(intent: &OrderIntent<Buy>, pulled: u64, paid: u64) {
+fn sanity_check_clears_limit(intent: &OrderIntent, pulled: u64, paid: u64) {
     let proceeds = u128::from(paid).strict_mul(u128::from(intent.sell_amount));
     let required = u128::from(intent.buy_amount).strict_mul(u128::from(pulled));
     assert!(
@@ -123,13 +123,7 @@ fn settle_and_pay_amounts(
         .iter()
         .zip(push_amounts)
         .map(|(order, &amount)| {
-            buffer::ensure_funded(
-                svm,
-                program_id,
-                payer,
-                &Pubkey::from(order.intent.buy_mint),
-                amount,
-            );
+            buffer::ensure_funded(svm, program_id, payer, &order.intent.buy.mint(), amount);
             FinalizedIntent {
                 intent: order.intent,
                 amount,
@@ -208,7 +202,7 @@ fn rejects_wrong_stored_bump() {
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: fixtures::decoded_intent(&intent),
+        intent: (&intent).into(),
     })
     .into();
 
@@ -237,8 +231,10 @@ fn rejects_fabricated_program_owned_account() {
 
     let sell_token = token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
     let intent = OrderIntent {
-        sell_token_account: sell_token,
-        sell_mint: mint,
+        sell: TokenAsset {
+            mint,
+            token_account: sell_token,
+        },
         ..sample_intent(payer.pubkey(), 0)
     };
     let (_real_order_pda, bump) = find_order_pda(&program_id, &intent.uid());
@@ -248,7 +244,7 @@ fn rejects_fabricated_program_owned_account() {
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: fixtures::decoded_intent(&intent),
+        intent: (&intent).into(),
     })
     .into();
     // A program-owned account holding a valid order body (canonical bump
@@ -274,7 +270,7 @@ fn rejects_fabricated_program_owned_account() {
         begin_ix_index: 0,
         only_token_program: None,
         source_buffers: &[unique_pubkey()],
-        destinations: &[intent.buy_token_account],
+        destinations: &[intent.buy.account()],
         bumps: &[0],
         amounts: &[0],
     };
@@ -347,7 +343,7 @@ fn rejects_sell_token_account_mismatch() {
     );
     replace_first_matching_account(
         &mut instructions[usize::from(BEGIN_INDEX)],
-        &intent.sell_token_account,
+        &intent.sell.token_account,
         wrong_sell_token,
     );
 
@@ -368,10 +364,14 @@ fn rejects_sell_token_owner_mismatch() {
     let buy_token = token::create_token_account(&mut svm, &payer, &buy_mint, &payer.pubkey());
 
     let intent = OrderIntent {
-        sell_token_account: sell_token,
-        sell_mint,
-        buy_token_account: buy_token,
-        buy_mint: BuyAsset::Token(buy_mint),
+        sell: TokenAsset {
+            mint: sell_mint,
+            token_account: sell_token,
+        },
+        buy: Asset::from(TokenAsset {
+            mint: buy_mint,
+            token_account: buy_token,
+        }),
         ..sample_intent(payer.pubkey(), 1)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
@@ -398,9 +398,13 @@ fn rejects_non_token_sell_account() {
 
     let non_token = unique_pubkey();
 
+    let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 1);
     let intent = OrderIntent {
-        sell_token_account: non_token,
-        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 1)
+        sell: TokenAsset {
+            token_account: non_token,
+            ..settlable.sell
+        },
+        ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
 
@@ -446,8 +450,10 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
     common::create_account_at(&mut svm, sell_token_account, &unique_pubkey(), &data);
 
     let intent = OrderIntent {
-        sell_token_account,
-        sell_mint,
+        sell: TokenAsset {
+            mint: sell_mint,
+            token_account: sell_token_account,
+        },
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 1)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
@@ -479,7 +485,7 @@ fn rejects_sell_token_account_recreated_for_another_mint() {
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let another_mint = token::create_mint(&mut svm, &payer);
-    token::overwrite_token_account(&mut svm, &payer, &intent.sell_token_account, &another_mint);
+    token::overwrite_token_account(&mut svm, &payer, &intent.sell.token_account, &another_mint);
 
     let instructions = settle_and_pay(
         &mut svm,
@@ -570,7 +576,7 @@ fn rejects_orders_in_wrong_address_order() {
     );
     for (order_pda, intent) in orders {
         accounts.push(AccountMeta::new_readonly(order_pda, false));
-        accounts.push(AccountMeta::new(intent.sell_token_account, false));
+        accounts.push(AccountMeta::new(intent.sell.token_account, false));
     }
     let begin = Instruction {
         program_id,
@@ -586,8 +592,8 @@ fn rejects_orders_in_wrong_address_order() {
         .iter()
         .map(|(_, intent)| {
             (
-                find_buffer_pda(&program_id, &Pubkey::from(intent.buy_mint)),
-                intent.buy_token_account,
+                find_buffer_pda(&program_id, &intent.buy.mint()),
+                intent.buy.account(),
             )
         })
         .unzip();
@@ -627,7 +633,7 @@ fn rejects_cancelled_order() {
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: fixtures::decoded_intent(&intent),
+        intent: (&intent).into(),
     })
     .into();
 
@@ -713,7 +719,7 @@ fn pulls_funds_to_destination() {
         .sell_amount(amount)
         .buy_amount(paid)
         .build();
-    let sell_token = intent.sell_token_account;
+    let sell_token = intent.sell.token_account;
     let initial_amount = 42_000_000;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
@@ -751,7 +757,7 @@ fn pulls_to_multiple_destinations() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .sell_mint(&sell_mint)
         .build();
-    let sell_token = intent.sell_token_account;
+    let sell_token = intent.sell.token_account;
     let initial_amount: u64 = 1_000_000;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
     let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
@@ -816,14 +822,14 @@ fn pulls_from_multiple_orders() {
         &mut svm,
         &program_id,
         &payer,
-        &first.sell_token_account,
+        &first.sell.token_account,
         initial_amount_first,
     );
     token::fund_and_delegate(
         &mut svm,
         &program_id,
         &payer,
-        &second.sell_token_account,
+        &second.sell.token_account,
         initial_amount_second,
     );
     let dest_first = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
@@ -864,11 +870,11 @@ fn pulls_from_multiple_orders() {
     assert_eq!(token::balance(&svm, &dest_first), pulled_first);
     assert_eq!(token::balance(&svm, &dest_second), pulled_second);
     assert_eq!(
-        token::balance(&svm, &first.sell_token_account),
+        token::balance(&svm, &first.sell.token_account),
         initial_amount_first - pulled_first
     );
     assert_eq!(
-        token::balance(&svm, &second.sell_token_account),
+        token::balance(&svm, &second.sell.token_account),
         initial_amount_second - pulled_second
     );
 }
@@ -881,7 +887,7 @@ fn rejects_pulls_summing_beyond_u64() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .sell_mint(&sell_mint)
         .build();
-    let sell_token = intent.sell_token_account;
+    let sell_token = intent.sell.token_account;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 1);
     let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
     let dest1 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
@@ -926,7 +932,7 @@ fn zero_pulls_moves_nothing() {
         .sell_mint(&sell_mint)
         .buy_mint(&buy_mint)
         .build();
-    let sell_token = intent.sell_token_account;
+    let sell_token = intent.sell.token_account;
 
     let initial_amount = 42_000_000;
     token::mint_to(&mut svm, &payer, &sell_mint, &sell_token, initial_amount);
@@ -1008,7 +1014,7 @@ fn rejects_a_token_program_the_instruction_doesnt_name() {
         .sell_amount(amount)
         .buy_amount(amount)
         .build();
-    let sell_token = intent.sell_token_account;
+    let sell_token = intent.sell.token_account;
     token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, amount);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
@@ -1055,7 +1061,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
         .sell_mint(&sell_mint)
         .build();
     let amount = 100_000;
-    let sell_token = intent.sell_token_account;
+    let sell_token = intent.sell.token_account;
     // Funds are present but some account other than the state PDA was
     // approved as a delegate.
     token::mint_to(&mut svm, &payer, &sell_mint, &sell_token, 1_000_000);
@@ -1089,7 +1095,7 @@ fn rejects_pull_exceeding_delegation() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .sell_mint(&sell_mint)
         .build();
-    let sell_token = intent.sell_token_account;
+    let sell_token = intent.sell.token_account;
     // Funded generously, but the state PDA is delegated only 100_000.
     let initial_amount = 42_000_000;
     let delegated = 100_000;
@@ -1202,7 +1208,7 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         source_buffers: &[other_buffer],
-        destinations: &[intent.buy_token_account],
+        destinations: &[intent.buy.account()],
         bumps: &[other_bump],
         amounts: &[100],
     };

@@ -1,7 +1,7 @@
 //! Builder for the `BeginSettle` instruction.
 
 use cow_settlement_interface::{
-    data::intent::{BuyAsset, OrderIntent},
+    data::intent::OrderIntent,
     pda::{order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
@@ -12,9 +12,9 @@ pub use cow_settlement_interface::instruction::settle::{Pull, TokenProgram};
 
 /// An order ready to be settled, together with the funds to pull from it:
 /// `intent` identifies the order and `pulls` lists the [`Pull`]s to make from
-/// its sell token account.
+/// its sell account.
 pub struct InitializedIntent<'a> {
-    pub intent: &'a OrderIntent<BuyAsset>,
+    pub intent: &'a OrderIntent,
     pub pulls: &'a [Pull],
 }
 
@@ -43,7 +43,7 @@ impl From<BeginSettle<'_>> for Instruction {
         for order in builder.orders {
             let (order_pda, _bump) = find_order_pda(&builder.program_id, &order.intent.uid());
             order_pdas.push(order_pda);
-            sell_token_accounts.push(order.intent.sell_token_account);
+            sell_token_accounts.push(order.intent.sell.token_account);
             pull_lists.push(order.pulls);
         }
         let (state_pda, _bump) = find_state_pda(&builder.program_id);
@@ -67,7 +67,7 @@ mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_explicit_order_intent,
+        data::intent::fixtures::arb_client_intent,
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
@@ -83,7 +83,7 @@ mod tests {
         #[test]
         fn begin_settle_derives_orders_from_intents(
             finalize_ix_index in any::<u16>(),
-            intents in prop::collection::vec(arb_explicit_order_intent(), 1..=5),
+            intents in prop::collection::vec(arb_client_intent(), 1..=5),
         ) {
             let program_id = pubkey_from_seed("program id");
             // No pulls here: this test only checks that orders are derived and
@@ -102,12 +102,12 @@ mod tests {
             });
 
             // Expected orders: each intent's canonical PDA paired with its sell
-            // token account, sorted by PDA address (the builder's order).
+            // account, sorted by PDA address (the builder's order).
             let mut expected: Vec<(Pubkey, Pubkey)> = intents
                 .iter()
                 .map(|intent| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &intent.uid());
-                    (order_pda, intent.sell_token_account)
+                    (order_pda, intent.sell.token_account)
                 })
                 .collect();
             expected.sort_by_key(|(order_pda, _)| *order_pda);

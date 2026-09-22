@@ -33,10 +33,10 @@ fn reclaim_sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
         valid_to: VALID_TO,
-        ..sample_intent(Flags {
+        ..OrderIntent::from(&sample_intent(Flags {
             created_on_chain: true,
             ..Default::default()
-        })
+        }))
     }
 }
 
@@ -72,7 +72,7 @@ fn hack_write_order(
     let order = patch(OrderAccount {
         bump,
         created_by: *created_by,
-        intent: intent.clone(),
+        intent: intent.into(),
         ..Default::default()
     });
     create_account_at(svm, pda, program_id, &EncodedOrderAccount::from(order)[..]);
@@ -493,8 +493,8 @@ fn reclaim_mid_settlement_succeeds() {
     let (mut svm, program_id, payer, solver) = common::setup_settle_ready();
     let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, SETTLED_SELL_AMOUNT);
     let pull_destination = staged.pulls[0].destination;
-    let buy_token_account = staged.intent.buy_token_account;
-    let buffer_pda = buffer::buffer_pda(&program_id, &Pubkey::from(staged.intent.buy_mint));
+    let buy_token_account = staged.intent.buy.account();
+    let buffer_pda = buffer::buffer_pda(&program_id, &staged.intent.buy.mint());
     let pda_rent = svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE);
 
     let reclaim = ReclaimOrder {

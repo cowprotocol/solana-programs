@@ -14,7 +14,7 @@ use crate::common::{
     setup_settle_ready, token,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::{BuyAsset, OrderIntent, OrderKind},
+    data::intent::{OrderIntent, OrderKind},
     pda::order::find_order_pda,
     SettlementError,
 };
@@ -29,7 +29,7 @@ mod common;
 
 /// Read `intent`'s order PDA and return its persisted `(amount_withdrawn,
 /// amount_received)` cumulative fill totals.
-fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent<BuyAsset>) -> (u64, u64) {
+fn order_fill(svm: &LiteSVM, program_id: &Pubkey, intent: &OrderIntent) -> (u64, u64) {
     let (order_pda, _bump) = find_order_pda(program_id, &intent.uid());
     let order = read_order(svm, &order_pda);
     (order.amount_withdrawn, order.amount_received)
@@ -42,7 +42,7 @@ fn settle(
     program_id: &Pubkey,
     payer: &Keypair,
     solver: &Keypair,
-    intent: &OrderIntent<BuyAsset>,
+    intent: &OrderIntent,
     amount_in: u64,
     amount_out: u64,
 ) -> Result<(), TransactionError> {
@@ -61,7 +61,7 @@ fn settle_all(
     program_id: &Pubkey,
     payer: &Keypair,
     solver: &Keypair,
-    orders: &[(&OrderIntent<BuyAsset>, &[u64], u64)],
+    orders: &[(&OrderIntent, &[u64], u64)],
 ) -> Result<(), TransactionError> {
     let staged: Vec<StagedOrder> = orders
         .iter()
@@ -99,7 +99,7 @@ fn sell_order_succeeds_at_limit_price() {
         1_200_000,
     )
     .expect("a price exactly at the limit should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 1_200_000);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 1_200_000);
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn sell_order_above_limit_price_succeeds() {
         750_000,
     )
     .expect("a better-than-limit price should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 750_000);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 750_000);
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn buy_order_succeeds_at_limit_price() {
         400_000,
     )
     .expect("a price exactly at the limit should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 400_000);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 400_000);
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn buy_order_above_limit_price_succeeds() {
         400_000,
     )
     .expect("a better-than-limit price should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 400_000);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 400_000);
 }
 
 #[test]
@@ -313,7 +313,7 @@ fn multiple_pulls_clearing_the_limit_are_accepted() {
         &[(&intent, &[300_000, 200_000, 100_000], 1_200_000)],
     )
     .expect("a payment clearing the limit for the summed pull should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 1_200_000);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 1_200_000);
 }
 
 #[test]
@@ -467,7 +467,7 @@ fn partially_fillable_order_fills_across_settlements() {
     );
 
     // The buy token account accumulates both settlements' proceeds.
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 2_000_000);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 2_000_000);
 }
 
 #[test]

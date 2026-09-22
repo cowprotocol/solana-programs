@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use cow_settlement_interface::{
     data::{
-        intent::{OrderIntent, OrderKind},
+        intent::{OrderIntentAccessor, OrderKind},
         order::{EncodedOrderAccount, OrderAccount},
     },
     instruction::{
@@ -365,7 +365,7 @@ fn process_order(
 /// settlement never excuses a bad one here.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn validate_limit_price(
-    intent: &OrderIntent,
+    intent: &OrderIntentAccessor,
     amount_in: u64,
     amount_out: u64,
 ) -> Result<(), SettlementError> {
@@ -394,7 +394,7 @@ fn validate_limit_price(
 /// non-`partially_fillable` order must be filled completely. The other side is
 /// bounded by the limit price.
 fn validated_final_amounts(
-    intent: &OrderIntent,
+    intent: &OrderIntentAccessor,
     amount_withdrawn: u64,
     amount_received: u64,
     amount_in: u64,
@@ -448,8 +448,8 @@ mod tests {
     }
 
     impl IntentSpec {
-        fn build(&self) -> OrderIntent {
-            OrderIntent {
+        fn build(&self) -> OrderIntentAccessor {
+            OrderIntentAccessor {
                 sell_amount: self.sell,
                 buy_amount: self.buy,
                 ..sample_intent(Flags {
@@ -577,7 +577,7 @@ mod tests {
     }
 
     impl FillCase {
-        fn build(&self) -> OrderIntent {
+        fn build(&self) -> OrderIntentAccessor {
             self.intent.build()
         }
     }

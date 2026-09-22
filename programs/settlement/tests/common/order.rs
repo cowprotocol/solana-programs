@@ -1,7 +1,7 @@
 //! On-chain order construction shared by the settlement integration tests.
 
 use cow_settlement_client::cow_settlement_interface::data::intent::{
-    BuyAsset, Flags, OrderIntent, OrderKind,
+    Asset, Flags, OrderIntent, OrderKind, TokenAsset,
 };
 use cow_settlement_client::cow_settlement_interface::data::order::OrderAccount;
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
@@ -25,13 +25,17 @@ pub fn read_order(svm: &LiteSVM, pda: &Pubkey) -> OrderAccount {
 /// token accounts and mints.
 /// `salt` is folded into `app_data` so callers can mint several orders that hash
 /// to different UIDs (and therefore different order PDAs).
-pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent<BuyAsset> {
+pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
     OrderIntent {
         owner,
-        sell_token_account: Pubkey::new_from_array([0x22; 32]),
-        sell_mint: Pubkey::new_from_array([0x33; 32]),
-        buy_token_account: Pubkey::new_from_array([0x44; 32]),
-        buy_mint: BuyAsset::Token(Pubkey::new_from_array([0x55; 32])),
+        sell: TokenAsset {
+            token_account: Pubkey::new_from_array([0x22; 32]),
+            mint: Pubkey::new_from_array([0x33; 32]),
+        },
+        buy: Asset::from(TokenAsset {
+            token_account: Pubkey::new_from_array([0x44; 32]),
+            mint: Pubkey::new_from_array([0x55; 32]),
+        }),
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,
@@ -52,14 +56,18 @@ pub fn settlable_intent(
     payer: &Keypair,
     owner: Pubkey,
     salt: u8,
-) -> OrderIntent<BuyAsset> {
+) -> OrderIntent {
     let sell_mint = token::create_mint(svm, payer);
     let buy_mint = token::create_mint(svm, payer);
     OrderIntent {
-        sell_token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
-        sell_mint,
-        buy_token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
-        buy_mint: BuyAsset::Token(buy_mint),
+        sell: TokenAsset {
+            mint: sell_mint,
+            token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
+        },
+        buy: Asset::from(TokenAsset {
+            mint: buy_mint,
+            token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
+        }),
         ..sample_intent(owner, salt)
     }
 }
@@ -69,7 +77,7 @@ pub fn create_order_pda(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     owner: &Keypair,
-    intent: &OrderIntent<BuyAsset>,
+    intent: &OrderIntent,
 ) {
     let ix = CreateOrder {
         program_id: *program_id,
@@ -90,7 +98,7 @@ fn create_self_order_pda(
     program_id: &Pubkey,
     payer: &Keypair,
     authority: &Keypair,
-    intent: &OrderIntent<BuyAsset>,
+    intent: &OrderIntent,
 ) {
     let ix = CreateSelfOrder {
         program_id: *program_id,
@@ -115,14 +123,15 @@ enum TokenSource {
 }
 
 impl TokenSource {
-    /// Resolve this source into the `(mint, token_account)`.
+    /// Resolve this source into the [`TokenAsset`] it names, creating the token
+    /// account it needs.
     fn resolve(
         self,
         svm: &mut LiteSVM,
         program_id: &Pubkey,
         payer: &Keypair,
         use_buffer: bool,
-    ) -> (Pubkey, Pubkey) {
+    ) -> TokenAsset {
         let create_account = |svm: &mut LiteSVM, mint: &Pubkey| {
             if use_buffer {
                 buffer::ensure_buffer_exists(svm, program_id, payer, mint)
@@ -130,37 +139,30 @@ impl TokenSource {
                 token::create_token_account(svm, payer, mint, &payer.pubkey())
             }
         };
-        match self {
+        let (mint, token_account) = match self {
             TokenSource::Account(account) => (token::mint_of(svm, &account), account),
             TokenSource::Mint(mint) => (mint, create_account(svm, &mint)),
             TokenSource::FreshMint => {
                 let mint = token::create_mint(svm, payer);
                 (mint, create_account(svm, &mint))
             }
+        };
+        TokenAsset {
+            mint,
+            token_account,
         }
     }
 
-    /// Resolve this source into the `(buy_asset, buy_token_account)` of an
-    /// order's buy side, which never draws from a buffer.
+    /// Resolve this source into an order's buy side, which never draws from a
+    /// buffer.
     ///
-    /// The setters take a raw mint, the way the wire spells the buy side;
-    /// classifying it here is what decides whether the order needs a token
-    /// account at all, since native SOL is credited as lamports to a plain
-    /// address.
-    fn resolve_buy(
-        self,
-        svm: &mut LiteSVM,
-        program_id: &Pubkey,
-        payer: &Keypair,
-    ) -> (BuyAsset, Pubkey) {
+    /// The setters take a raw mint, the way the wire spells a side; a native
+    /// SOL buy is credited as lamports to a plain address, so it needs no token
+    /// account at all.
+    fn resolve_buy(self, svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> Asset {
         match self {
-            TokenSource::Mint(mint) if is_native_sol(&mint) => {
-                (BuyAsset::NativeSol, unique_pubkey())
-            }
-            source => {
-                let (mint, account) = source.resolve(svm, program_id, payer, false);
-                (BuyAsset::Token(mint), account)
-            }
+            TokenSource::Mint(mint) if is_native_sol(&mint) => Asset::Native(unique_pubkey()),
+            source => source.resolve(svm, program_id, payer, false).into(),
         }
     }
 }
@@ -179,7 +181,7 @@ pub struct OrderBuilder<'a> {
     svm: &'a mut LiteSVM,
     program_id: &'a Pubkey,
     payer: &'a Keypair,
-    intent: OrderIntent<BuyAsset>,
+    intent: OrderIntent,
     sell: TokenSource,
     buy: TokenSource,
     self_order_authority: Option<&'a Keypair>,
@@ -266,7 +268,7 @@ impl<'a> OrderBuilder<'a> {
         self
     }
 
-    pub fn build(self) -> OrderIntent<BuyAsset> {
+    pub fn build(self) -> OrderIntent {
         let Self {
             svm,
             program_id,
@@ -278,9 +280,8 @@ impl<'a> OrderBuilder<'a> {
         } = self;
         // The buy side always uses a fresh payer-owned treasury; only a
         // self order's sell side draws from a buffer.
-        (intent.buy_mint, intent.buy_token_account) = buy.resolve_buy(svm, program_id, payer);
-        (intent.sell_mint, intent.sell_token_account) =
-            sell.resolve(svm, program_id, payer, self_order_authority.is_some());
+        intent.buy = buy.resolve_buy(svm, program_id, payer);
+        intent.sell = sell.resolve(svm, program_id, payer, self_order_authority.is_some());
 
         match self_order_authority {
             None => {

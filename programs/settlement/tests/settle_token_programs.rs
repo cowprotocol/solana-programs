@@ -9,10 +9,7 @@ use crate::common::{
     token_2022::Extensions,
     unique_pubkey,
 };
-use cow_settlement_client::cow_settlement_interface::{
-    data::intent::{BuyAsset, OrderIntent},
-    Instruction,
-};
+use cow_settlement_client::cow_settlement_interface::{data::intent::OrderIntent, Instruction};
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenProgram,
 };
@@ -28,7 +25,7 @@ mod common;
 /// What each order in a settlement sells and buys: `amount_in` of its sell
 /// token pulled out, `amount_out` of its buy token pushed in.
 struct Settled<'a> {
-    intent: &'a OrderIntent<BuyAsset>,
+    intent: &'a OrderIntent,
     amount_in: u64,
     amount_out: u64,
 }
@@ -58,10 +55,10 @@ fn settle_with(
             svm,
             program_id,
             payer,
-            &intent.sell_token_account,
+            &intent.sell.token_account,
             order.amount_in,
         );
-        let sell_mint = token::mint_of(svm, &intent.sell_token_account);
+        let sell_mint = token::mint_of(svm, &intent.sell.token_account);
         let destination = token::create_token_account(svm, payer, &sell_mint, &unique_pubkey());
         let pulls: &[Pull] = Box::leak(Box::new([Pull {
             destination,
@@ -70,7 +67,7 @@ fn settle_with(
         initialized.push(InitializedIntent { intent, pulls });
 
         // Buy side: fund the buffer so the push has something to draw from.
-        let buy_mint = token::mint_of(svm, &intent.buy_token_account);
+        let buy_mint = token::mint_of(svm, &intent.buy.account());
         buffer::ensure_funded(svm, program_id, payer, &buy_mint, order.amount_out);
         finalized.push(FinalizedIntent {
             intent,
@@ -112,7 +109,7 @@ fn order_across(
     salt: u8,
     sell_program: &Pubkey,
     buy_program: &Pubkey,
-) -> OrderIntent<BuyAsset> {
+) -> OrderIntent {
     // Bare mints: what these tests vary is which program a token lives under,
     // and a transfer-fee mint would refuse the unchecked `Transfer` the program
     // settles with before the crossing under test got a chance to matter.
@@ -128,13 +125,10 @@ fn order_across(
     // The order's accounts have to have landed under the programs asked for, or
     // a test meant to settle Token-2022 would quietly be settling legacy tokens.
     assert_eq!(
-        token::program_of(svm, &intent.sell_token_account),
+        token::program_of(svm, &intent.sell.token_account),
         *sell_program,
     );
-    assert_eq!(
-        token::program_of(svm, &intent.buy_token_account),
-        *buy_program,
-    );
+    assert_eq!(token::program_of(svm, &intent.buy.account()), *buy_program,);
     intent
 }
 
@@ -181,11 +175,11 @@ fn settles_orders_under_both_token_programs_simultaneously() {
     )
     .expect("a settlement carrying both programs should settle orders under either");
 
-    assert_eq!(token::balance(&svm, &legacy.buy_token_account), 400);
-    assert_eq!(token::balance(&svm, &token_2022.buy_token_account), 700);
+    assert_eq!(token::balance(&svm, &legacy.buy.account()), 400);
+    assert_eq!(token::balance(&svm, &token_2022.buy.account()), 700);
     // Both sell sides were drained by their own program's transfer.
-    assert_eq!(token::balance(&svm, &legacy.sell_token_account), 0);
-    assert_eq!(token::balance(&svm, &token_2022.sell_token_account), 0);
+    assert_eq!(token::balance(&svm, &legacy.sell.token_account), 0);
+    assert_eq!(token::balance(&svm, &token_2022.sell.token_account), 0);
 }
 
 #[test]
@@ -216,8 +210,8 @@ fn settles_an_order_that_crosses_token_programs() {
     )
     .expect("an order selling under one program and buying under the other should settle");
 
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 250);
-    assert_eq!(token::balance(&svm, &intent.sell_token_account), 0);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 250);
+    assert_eq!(token::balance(&svm, &intent.sell.token_account), 0);
 }
 
 #[test]
@@ -248,7 +242,7 @@ fn settles_token_2022_orders_without_carrying_the_legacy_program() {
     )
     .expect("a Token-2022-only settlement should settle Token-2022 orders");
 
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 300);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 300);
 }
 
 #[test]
@@ -279,7 +273,7 @@ fn settles_legacy_orders_without_carrying_the_token_2022_program() {
     )
     .expect("a legacy-only settlement should not have to carry Token-2022");
 
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 500);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 500);
 }
 
 #[test]
@@ -298,11 +292,11 @@ fn settles_with_the_token_program_slots_swapped() {
         &mut svm,
         &program_id,
         &payer,
-        &intent.sell_token_account,
+        &intent.sell.token_account,
         100,
     );
-    let sell_mint = token::mint_of(&svm, &intent.sell_token_account);
-    let buy_mint = token::mint_of(&svm, &intent.buy_token_account);
+    let sell_mint = token::mint_of(&svm, &intent.sell.token_account);
+    let buy_mint = token::mint_of(&svm, &intent.buy.account());
     buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, 100);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
@@ -344,7 +338,7 @@ fn settles_with_the_token_program_slots_swapped() {
     svm.send_transaction(tx)
         .expect("the slots only name the programs, in either order");
 
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 100);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), 100);
 }
 
 #[test]
@@ -365,18 +359,12 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
         &mut svm,
         &program_id,
         &payer,
-        &intent.sell_token_account,
+        &intent.sell.token_account,
         AMOUNT,
     );
-    buffer::ensure_funded(
-        &mut svm,
-        &program_id,
-        &payer,
-        &Pubkey::from(intent.buy_mint),
-        AMOUNT,
-    );
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy.mint(), AMOUNT);
     let destination =
-        token::create_token_account(&mut svm, &payer, &intent.sell_mint, &unique_pubkey());
+        token::create_token_account(&mut svm, &payer, &intent.sell.mint, &unique_pubkey());
     let pulls = [Pull {
         destination,
         amount: AMOUNT,
@@ -434,5 +422,5 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
     // And the shorter transaction is still one that settles.
     svm.send_transaction(narrowed_2022)
         .expect("a settlement narrowed to the program it uses should settle");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), AMOUNT);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), AMOUNT);
 }

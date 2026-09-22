@@ -10,7 +10,7 @@ use crate::common::{
     setup_settle_ready, state, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::{BuyAsset, OrderIntent, OrderKind},
+    data::intent::{Asset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     token_program::NATIVE_SOL_MINT,
@@ -70,8 +70,8 @@ fn happy_path_sell_tokens_for_native_sol() {
     )
     .expect("a fully filled SOL buy should settle");
 
-    assert_eq!(token::balance(&svm, &intent.sell_token_account), 0);
-    assert_eq!(lamports(&svm, &intent.buy_token_account), 2_000_000);
+    assert_eq!(token::balance(&svm, &intent.sell.token_account), 0);
+    assert_eq!(lamports(&svm, &intent.buy.account()), 2_000_000);
     assert_eq!(lamports(&svm, &state_pda), before - 2_000_000);
 }
 
@@ -138,14 +138,14 @@ fn happy_path_with_many_payouts() {
     let (state_pda, _bump) = find_state_pda(&program_id);
     for (i, intent) in spl_intents.iter().enumerate() {
         assert_eq!(
-            token::balance(&svm, &intent.buy_token_account),
+            token::balance(&svm, &intent.buy.account()),
             spl_amount(i as u8),
             "SPL order {i} should be paid out of the buffer",
         );
     }
     for (i, intent) in sol_intents.iter().enumerate() {
         assert_eq!(
-            lamports(&svm, &intent.buy_token_account),
+            lamports(&svm, &intent.buy.account()),
             sol_amount(i as u8),
             "native order {i} should be paid out of the state PDA",
         );
@@ -191,8 +191,8 @@ fn happy_path_multiple_native_orders_can_settle() {
     send(&mut svm, &solver, &instructions).expect("both native pushes should be paid");
 
     let (state_pda, _bump) = find_state_pda(&program_id);
-    assert_eq!(lamports(&svm, &intent0.buy_token_account), amount0);
-    assert_eq!(lamports(&svm, &intent1.buy_token_account), amount1);
+    assert_eq!(lamports(&svm, &intent0.buy.account()), amount0);
+    assert_eq!(lamports(&svm, &intent1.buy.account()), amount1);
     assert_eq!(lamports(&svm, &state_pda), funded - amount0 - amount1);
 }
 
@@ -215,7 +215,7 @@ fn happy_path_zero_amount() {
     );
     send(&mut svm, &solver, &instructions).expect("a zero-amount native push should succeed");
 
-    assert_eq!(lamports(&svm, &intent.buy_token_account), 0);
+    assert_eq!(lamports(&svm, &intent.buy.account()), 0);
     assert_eq!(lamports(&svm, &state_pda), before);
 }
 
@@ -224,8 +224,7 @@ fn happy_path_state_pda_receiver_still_works() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let intent = OrderIntent {
-        buy_mint: BuyAsset::NativeSol,
-        buy_token_account: state_pda,
+        buy: Asset::Native(state_pda),
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
@@ -273,7 +272,7 @@ fn rejects_a_push_spending_the_state_pdas_rent() {
 
     let (state_pda, _bump) = find_state_pda(&program_id);
     assert_eq!(lamports(&svm, &state_pda), funded);
-    assert_eq!(lamports(&svm, &intent.buy_token_account), 0);
+    assert_eq!(lamports(&svm, &intent.buy.account()), 0);
 }
 
 #[test]
@@ -321,7 +320,7 @@ fn rejects_a_native_push_from_a_buffer() {
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: BEGIN_INDEX.into(),
         source_buffers: &[buffer_pda],
-        destinations: &[intent.buy_token_account],
+        destinations: &[intent.buy.account()],
         bumps: &[buffer_bump],
         amounts: &[100],
         only_token_program: None,
@@ -352,7 +351,7 @@ fn rejects_a_native_push_with_a_wrong_bump() {
         state_pda,
         begin_ix_index: BEGIN_INDEX.into(),
         source_buffers: &[state_pda],
-        destinations: &[intent.buy_token_account],
+        destinations: &[intent.buy.account()],
         bumps: &[state_bump ^ 1],
         amounts: &[100],
         only_token_program: None,
@@ -419,7 +418,7 @@ struct SharedDestination {
 /// test's only handle on which of two pushes runs first.
 fn salt_ordering_against(
     program_id: &Pubkey,
-    native_intent: &OrderIntent<BuyAsset>,
+    native_intent: &OrderIntent,
     spl_order_pda: &Pubkey,
     native_first: bool,
 ) -> u8 {
@@ -452,8 +451,7 @@ fn send_shared_destination_settlement(
     // Hand-built rather than through `OrderBuilder`, which gives a native buy a
     // fresh plain address; the point here is to aim one at a real token account.
     let sol_intent = OrderIntent {
-        buy_mint: BuyAsset::NativeSol,
-        buy_token_account: spl_intent.buy_token_account,
+        buy: Asset::Native(spl_intent.buy.account()),
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };
     let spl_order_pda = find_order_pda(&program_id, &spl_intent.uid()).0;
@@ -465,8 +463,8 @@ fn send_shared_destination_settlement(
     create_order_pda(&mut svm, &program_id, &payer, &sol_intent);
 
     let shared = SharedDestination {
-        account: spl_intent.buy_token_account,
-        rent: lamports(&svm, &spl_intent.buy_token_account),
+        account: spl_intent.buy.account(),
+        rent: lamports(&svm, &spl_intent.buy.account()),
         buffer: buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, SHARED_SPL_AMOUNT),
         state_pda: find_state_pda(&program_id).0,
         funded: state::fund_with_lamports(&mut svm, &program_id, SHARED_SOL_AMOUNT),

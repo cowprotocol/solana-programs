@@ -56,9 +56,9 @@ pub fn process_finalize_settle(
 /// the state PDA's own lamports for an order paid in native SOL.
 ///
 /// Validating the pushes is done in `BeginSettle`. It does so by checking:
-/// 1. the `destination` matches the `buy_token_account` in the OrderIntent
+/// 1. the `destination` matches the `buy_token_account` in the OrderIntentAccessor
 /// 2. the sending account in the instruction is the one holding the
-///    settlement's funds for the `buy_mint` in the OrderIntent
+///    settlement's funds for the `buy_mint` in the OrderIntentAccessor
 ///
 /// So ultimately, for an SPL push we are relying that the SPL token program
 /// rejects a transfer whose source and destination mints differ.

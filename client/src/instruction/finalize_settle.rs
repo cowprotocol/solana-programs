@@ -1,7 +1,7 @@
 //! Builder for the `FinalizeSettle` instruction.
 
 use cow_settlement_interface::{
-    data::intent::{BuyAsset, OrderIntent},
+    data::intent::{Asset, OrderIntent},
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
@@ -9,21 +9,21 @@ use cow_settlement_interface::{
 use super::begin_settle::TokenProgram;
 
 /// A settled order whose proceeds are pushed to it: `intent` identifies the
-/// order (its `buy_token_account` is the push destination and its `buy_mint`
-/// selects the canonical source buffer) and `amount` is the quantity to push.
+/// order (its buy account is the push destination and its buy asset selects the
+/// canonical source buffer) and `amount` is the quantity to push.
 pub struct FinalizedIntent<'a> {
-    pub intent: &'a OrderIntent<BuyAsset>,
+    pub intent: &'a OrderIntent,
     pub amount: u64,
 }
 
 /// Builder for a `FinalizeSettle` instruction pushing each order's proceeds to
 /// its buy token account.
 ///
-/// The destination is the order intent's `buy_token_account` and the source is
-/// the canonical buffer PDA for its `buy_mint` (see [`find_buffer_pda`]), the
-/// only buffer `BeginSettle` accepts as the source of that order's push. An
-/// order buying native SOL ([`BuyAsset::NativeSol`]) has no buffer, so its
-/// source is the settlement state PDA, whose lamports pay it. The
+/// The destination is the order intent's buy account and the source is the
+/// canonical buffer PDA for its buy mint (see [`find_buffer_pda`]), the only
+/// buffer `BeginSettle` accepts as the source of that order's push. An order
+/// buying [`Asset::Native`] SOL has no buffer, so its source is the settlement
+/// state PDA, whose lamports pay it. The
 /// orders are sorted by their canonical order PDA (the same key
 /// [`BeginSettle`](super::begin_settle::BeginSettle) orders its settled-order
 /// list by) so the two instructions present the orders
@@ -60,12 +60,12 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let (state_pda, state_bump) = find_state_pda(&builder.program_id);
         for &i in &orders {
             let intent = builder.orders[i].intent;
-            let (source, bump) = match intent.buy_mint {
-                BuyAsset::NativeSol => (state_pda, state_bump),
-                BuyAsset::Token(mint) => find_buffer_pda(&builder.program_id, &mint),
+            let (source, bump) = match intent.buy {
+                Asset::Native(_) => (state_pda, state_bump),
+                Asset::TokenProgram(token) => find_buffer_pda(&builder.program_id, &token.mint),
             };
             source_buffers.push(source);
-            destinations.push(intent.buy_token_account);
+            destinations.push(intent.buy.account());
             bumps.push(bump);
             amounts.push(builder.orders[i].amount);
         }
@@ -88,7 +88,7 @@ mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_explicit_order_intent,
+        data::intent::fixtures::arb_client_intent,
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
@@ -101,8 +101,7 @@ mod tests {
     fn native_sol_order_pushes_from_the_state_pda() {
         let program_id = pubkey_from_seed("program id");
         let intent = OrderIntent {
-            buy_mint: BuyAsset::NativeSol,
-            buy_token_account: pubkey_from_seed("recipient wallet"),
+            buy: Asset::Native(pubkey_from_seed("recipient wallet")),
             ..OrderIntent::default()
         };
         let ix = Instruction::from(FinalizeSettle {
@@ -130,7 +129,7 @@ mod tests {
         let (state_pda, state_bump) = find_state_pda(&program_id);
         assert_eq!(push.source_buffer.address(), &state_pda);
         assert_eq!(push.bump, state_bump);
-        assert_eq!(push.destination.address(), &intent.buy_token_account);
+        assert_eq!(push.destination.address(), &intent.buy.account());
         assert_eq!(push.amount, 1_337);
     }
 
@@ -143,7 +142,7 @@ mod tests {
         fn finalize_settle_derives_buffers_from_mints(
             begin_ix_index in any::<u16>(),
             cases in prop::collection::vec(
-                (arb_explicit_order_intent(), any::<u64>()),
+                (arb_client_intent(), any::<u64>()),
                 1..=5,
             ),
         ) {
@@ -163,7 +162,7 @@ mod tests {
             });
 
             // Expected pushes: each order's buffer PDA (and its canonical bump),
-            // buy token account, and amount, sorted by the order's canonical PDA
+            // buy account, and amount, sorted by the order's canonical PDA
             // (the builder's order).
             struct ExpectedPush {
                 order_pda: Pubkey,
@@ -176,15 +175,15 @@ mod tests {
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump) = match order.intent.buy_mint {
-                        BuyAsset::NativeSol => find_state_pda(&program_id),
-                        BuyAsset::Token(mint) => find_buffer_pda(&program_id, &mint),
+                    let (buffer, bump) = match order.intent.buy {
+                        Asset::Native(_) => find_state_pda(&program_id),
+                        Asset::TokenProgram(token) => find_buffer_pda(&program_id, &token.mint),
                     };
                     ExpectedPush {
                         order_pda,
                         buffer,
                         bump,
-                        destination: order.intent.buy_token_account,
+                        destination: order.intent.buy.account(),
                         amount: order.amount,
                     }
                 })

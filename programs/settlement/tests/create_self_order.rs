@@ -11,7 +11,7 @@ use crate::common::{
 };
 use cow_settlement_client::instruction::CreateSelfOrder;
 use cow_settlement_interface::{
-    data::{intent::fixtures, order::OrderAccount},
+    data::{intent::OrderIntent, order::OrderAccount},
     pda::order::find_order_pda,
     SettlementError,
 };
@@ -51,8 +51,8 @@ fn places_an_order_owned_by_the_state_pda() {
         bump: decoded_bump,
     } = OrderAccount::try_from(&account.data[..]).expect("the order PDA must decode");
     assert_eq!(
-        decoded_intent,
-        fixtures::decoded_intent(&intent),
+        OrderIntent::from(&decoded_intent),
+        intent,
         "the stored intent must match"
     );
     assert_eq!(

@@ -7,7 +7,7 @@
 //!
 //! - [`OrderAccount`] is the idiomatic Rust representation. Every value is
 //!   valid by construction: `cancelled` is a `bool`, `intent` is a fully
-//!   decoded [`OrderIntent`].
+//!   decoded [`OrderIntentAccessor`].
 //! - [`EncodedOrderAccount`] is its canonical byte representation, that is,
 //!   the exact bytes written to/read from the PDA.
 //!
@@ -28,7 +28,7 @@ use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::data::intent::{self, EncodedOrderIntent, OrderIntent, OrderKind};
+use crate::data::intent::{self, EncodedOrderIntent, OrderIntentAccessor, OrderKind};
 use crate::pda::is_pda_with_signer_seeds;
 use crate::pda::order::order_pda_signer_seeds;
 use crate::{SettlementAccount, SettlementError};
@@ -57,7 +57,7 @@ pub struct OrderAccount {
     pub created_by: Pubkey,
 
     /// The order intent stored in this PDA.
-    pub intent: OrderIntent,
+    pub intent: OrderIntentAccessor,
 }
 
 impl OrderAccount {
@@ -100,7 +100,7 @@ impl OrderAccount {
 /// Returns a tuple. First return value is the amount currently filled, and the second return
 /// value is the amount that has been requested to be filled by the intent.
 pub fn fill_progress(
-    intent: &OrderIntent,
+    intent: &OrderIntentAccessor,
     amount_withdrawn: u64,
     amount_received: u64,
 ) -> (u64, u64) {
@@ -256,7 +256,8 @@ impl TryFrom<[u8; EncodedOrderAccount::SIZE]> for OrderAccount {
             amount_withdrawn: u64::from_le_bytes(*amount_withdrawn),
             amount_received: u64::from_le_bytes(*amount_received),
             created_by: Pubkey::new_from_array(*created_by),
-            intent: OrderIntent::try_from(intent).map_err(|_| ProgramError::InvalidAccountData)?,
+            intent: OrderIntentAccessor::try_from(intent)
+                .map_err(|_| ProgramError::InvalidAccountData)?,
         })
     }
 }
@@ -354,7 +355,7 @@ mod tests {
             amount_received,
             created_by,
             // `OrderAccount` decodes the intent, but the encoded order uses
-            // `EncodedOrderIntent`, not `OrderIntent`.
+            // `EncodedOrderIntent`, not `OrderIntentAccessor`.
             intent: _intent,
         } = sample_account(false);
 
@@ -394,7 +395,7 @@ mod tests {
         let account = |kind, amount_withdrawn, amount_received| OrderAccount {
             amount_withdrawn,
             amount_received,
-            intent: OrderIntent {
+            intent: OrderIntentAccessor {
                 sell_amount: SELL_AMOUNT,
                 buy_amount: BUY_AMOUNT,
                 ..sample_intent(Flags {
@@ -453,7 +454,8 @@ mod tests {
         let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
             encoded_intent.map(|b| b ^ 0x01);
         sample_account_base.intent =
-            OrderIntent::try_from(&bitwise_different_encoded_intent).expect("hack should work");
+            OrderIntentAccessor::try_from(&bitwise_different_encoded_intent)
+                .expect("hack should work");
         let changed_intent: [u8; EncodedOrderAccount::SIZE] =
             EncodedOrderAccount::from(sample_account_base).into();
         assert_eq!(

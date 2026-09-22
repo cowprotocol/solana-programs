@@ -1,15 +1,20 @@
 //! Order intents and their canonical byte representation.
 //!
-//! The intent has two representations:
+//! The intent has three representations:
 //!
-//! - [`OrderIntent`] is the idiomatic Rust representation.
-//! - [`EncodedOrderIntent`] is its canonical byte representation: the only
+//! - [`OrderIntent`] is the idiomatic Rust representation: each side of the
+//!   trade is one [`Asset`], so an account can't be paired with a mint that
+//!   doesn't hold it. Everything outside the settlement program uses it.
+//! - [`OrderIntentAccessor`] mirrors the wire field by field, each mint next to
+//!   its account. Decoding produces it and the settlement program works with
+//!   it, so the program spends no compute classifying fields it only compares.
+//! - [`EncodedOrderIntent`] is the canonical byte representation: the only
 //!   thing sent on the wire and also the data encoding used to generate the
 //!   order UID. There, `kind` and the intent's booleans share a single flags
 //!   byte.
 //!
-//! Conversion is asymmetric: [`EncodedOrderIntent`]`::from(OrderIntent)` is
-//! infallible, but decoding raw bytes via [`OrderIntent`]`::try_from` returns
+//! Conversion is asymmetric: encoding either Rust representation is infallible,
+//! but decoding raw bytes via [`OrderIntentAccessor`]`::try_from` returns
 //! `Result` and rejects a flags byte carrying a bit the encoding doesn't
 //! define.
 
@@ -22,39 +27,6 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::token_program::{is_native_sol, NATIVE_SOL_MINT};
-
-/// Helper struct to define the target asset of an order
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
-pub enum BuyAsset {
-    /// Proceeds are SPL tokens of this mint, and `buy_token_account` is a token
-    /// account holding them.
-    Token(Pubkey),
-
-    /// Proceeds are lamports. `buy_token_account` is a plain account credited directly.
-    #[default]
-    NativeSol,
-}
-
-impl From<BuyAsset> for Pubkey {
-    /// The `buy_mint` the wire carries for this buy side.
-    fn from(buy: BuyAsset) -> Self {
-        match buy {
-            BuyAsset::Token(mint) => mint,
-            BuyAsset::NativeSol => NATIVE_SOL_MINT,
-        }
-    }
-}
-
-impl From<&Pubkey> for BuyAsset {
-    /// Classify an encoded `buy_mint` back into the buy side it names.
-    fn from(buy_mint: &Pubkey) -> Self {
-        if is_native_sol(buy_mint) {
-            Self::NativeSol
-        } else {
-            Self::Token(*buy_mint)
-        }
-    }
-}
 
 /// Direction of the trade. The discriminants are the values the `kind` bit of
 /// the encoded flags byte takes.
@@ -138,11 +110,134 @@ impl TryFrom<[u8; 1]> for Flags {
     }
 }
 
+/// SPL tokens of `mint`, held in `token_account`.
+///
+/// A side of a trade that a token program moves. It's the payload of
+/// [`Asset::TokenProgram`], and a type of its own so a side that can only be
+/// this — an order's sell side — can say so.
+// A default side is a fixture's starting point, never an order anyone should
+// build, so it exists only where the fixtures do. Same for [`Asset`] and
+// [`OrderIntent`], which bottom out here.
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TokenAsset {
+    pub mint: Pubkey,
+    pub token_account: Pubkey,
+}
+
+/// One side of a trade: what moves, and the account it moves through.
+///
+/// The wire spells a side as a `(mint, account)` pair; this is the same pair
+/// with the one combination that isn't a token account named for what it is.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Asset {
+    /// Native SOL, moving as lamports on this plain account rather than
+    /// through a token account.
+    Native(Pubkey),
+
+    /// Tokens moved by a token program.
+    TokenProgram(TokenAsset),
+}
+
+#[cfg(any(test, feature = "test-fixtures"))]
+impl Default for Asset {
+    /// Native SOL on the all-zero address, the side an all-zero encoding
+    /// carries: [`NATIVE_SOL_MINT`] is itself all-zero.
+    fn default() -> Self {
+        Asset::Native(Pubkey::default())
+    }
+}
+
+impl From<TokenAsset> for Asset {
+    fn from(token: TokenAsset) -> Self {
+        Asset::TokenProgram(token)
+    }
+}
+
+impl Asset {
+    /// The mint the wire carries for this side, [`NATIVE_SOL_MINT`] for native
+    /// SOL.
+    pub fn mint(&self) -> Pubkey {
+        match self {
+            Asset::Native(_) => NATIVE_SOL_MINT,
+            Asset::TokenProgram(token) => token.mint,
+        }
+    }
+
+    /// The account this side moves through: the token account, or the plain
+    /// address lamports are credited to.
+    pub fn account(&self) -> Pubkey {
+        match self {
+            Asset::Native(account) => *account,
+            Asset::TokenProgram(token) => token.token_account,
+        }
+    }
+
+    /// Classify the `(mint, account)` pair the wire carries, for callers that
+    /// have a side in that shape rather than a chosen variant.
+    pub fn classify(mint: Pubkey, account: Pubkey) -> Self {
+        if is_native_sol(&mint) {
+            Asset::Native(account)
+        } else {
+            Asset::TokenProgram(TokenAsset {
+                mint,
+                token_account: account,
+            })
+        }
+    }
+}
+
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OrderIntent {
+    /// Account authorized to create and invalidate this order and whose
+    /// signature authenticates it. For off-chain orders this is the Ed25519
+    /// signer; for on-chain creation it must be the transaction signer.
+    pub owner: Pubkey,
+
+    /// What the order sells, and the token account the funds are pulled from.
+    /// That account implicitly encodes the spender: the settlement state PDA
+    /// must hold the SPL `delegate` on it for the order to be settleable, and
+    /// it must be owned by the intent owner. An intent that doesn't satisfy
+    /// this property will be rejected.
+    pub sell: TokenAsset,
+
+    /// What the order buys, and the account that receives the proceeds. That
+    /// account implicitly encodes the recipient
+    pub buy: Asset,
+
+    /// Amount of the sell token. For `Sell` orders this is the exact
+    /// amount to be sold (subject to `partially_fillable`); for `Buy`
+    /// orders it is the maximum the user is willing to spend.
+    pub sell_amount: u64,
+
+    /// Amount of the buy token. For `Buy` orders this is the exact amount
+    /// to be received (subject to `partially_fillable`); for `Sell`
+    /// orders it is the minimum the user is willing to receive.
+    pub buy_amount: u64,
+
+    /// Unix timestamp after which the order expires.
+    /// The order cannot be executed after expiration.
+    pub valid_to: u32,
+
+    /// The settings the encoding packs bit by bit into a single byte; see
+    /// [`Flags`].
+    pub flags: Flags,
+
+    /// Opaque 32 bytes set by the order creator. Not interpreted by the
+    /// settlement program; used off-chain for metadata such as the
+    /// frontend version, slippage hints, or attribution.
+    pub app_data: [u8; 32],
+}
+
 /// Canonical order intent. Also the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds,
 /// and the exact wire format of create_order's `intent` argument. Field order and encoding here are load-bearing: they
 /// must match this program's Rust definition exactly.
+///
+/// One field per wire field: this is the representation the settlement program
+/// decodes into and reads.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub struct OrderIntent<Buy = Pubkey> {
+pub struct OrderIntentAccessor {
     /// Account authorized to create and invalidate this order and whose
     /// signature authenticates it. For off-chain orders this is the Ed25519
     /// signer; for on-chain creation it must be the transaction signer.
@@ -159,15 +254,15 @@ pub struct OrderIntent<Buy = Pubkey> {
     pub sell_mint: Pubkey,
 
     /// Token account that receives the buy-side proceeds. Implicitly
-    /// encodes the recipient. When `buy_mint` is [`NATIVE_SOL_MINT`] the
-    /// proceeds are lamports, so this is a plain account rather than a token
-    /// account.
+    /// encodes the recipient. When `buy_mint` is
+    /// [`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT) the proceeds
+    /// are lamports, so this is a plain account rather than a token account.
     pub buy_token_account: Pubkey,
 
-    /// Mint of the buy token, or [`NATIVE_SOL_MINT`] for an order paid in
-    /// native SOL. Represented as [`BuyAsset`] for boundary use, and `Pubkey`
-    /// for internal program use.
-    pub buy_mint: Buy,
+    /// Mint of the buy token, or
+    /// [`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT) for an order
+    /// paid in native SOL.
+    pub buy_mint: Pubkey,
 
     /// Amount of the sell token. For `Sell` orders this is the exact
     /// amount to be sold (subject to `partially_fillable`); for `Buy`
@@ -234,11 +329,14 @@ impl EncodedOrderIntent {
         hash_bytes(&self.0)
     }
 
-    /// Decode raw bytes to an [`OrderIntent`] and compute the UID in one shot.
-    /// Returns [`ProgramError::InvalidInstructionData`] for a flags byte that
-    /// doesn't encode correctly; every other byte combination decodes.
-    pub fn decode_and_hash(bytes: &[u8; Self::SIZE]) -> Result<(OrderIntent, Hash), ProgramError> {
-        let intent = OrderIntent::try_from(bytes)?;
+    /// Decode raw bytes to an [`OrderIntentAccessor`] and compute the UID in
+    /// one shot. Returns [`ProgramError::InvalidInstructionData`] for a flags
+    /// byte that doesn't encode correctly; every other byte combination
+    /// decodes.
+    pub fn decode_and_hash(
+        bytes: &[u8; Self::SIZE],
+    ) -> Result<(OrderIntentAccessor, Hash), ProgramError> {
+        let intent = OrderIntentAccessor::try_from(bytes)?;
         // The UID is the SHA-256 of the input bytes. Hashing the input
         // (no re-encode) is correct because encode/decode is a bijection on
         // inputs that pass validation. Any normalization added to the `From`
@@ -259,11 +357,8 @@ impl From<&EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
     }
 }
 
-impl<Buy: Into<Pubkey> + Copy> From<&OrderIntent<Buy>> for EncodedOrderIntent {
-    fn from(intent: &OrderIntent<Buy>) -> Self {
-        // The buy side is the one field whose Rust type varies; every spelling
-        // of it lowers to the single mint the wire carries.
-        let buy: Pubkey = intent.buy_mint.into();
+impl From<&OrderIntentAccessor> for EncodedOrderIntent {
+    fn from(intent: &OrderIntentAccessor) -> Self {
         // `mut_array_refs` checks that `SIZE` is consistent with the sum of
         // the widths.
         let mut out = [0u8; Self::SIZE];
@@ -295,7 +390,7 @@ impl<Buy: Into<Pubkey> + Copy> From<&OrderIntent<Buy>> for EncodedOrderIntent {
         *sell_token = intent.sell_token_account.to_bytes();
         *sell_mint = intent.sell_mint.to_bytes();
         *buy_token = intent.buy_token_account.to_bytes();
-        *buy_mint = buy.to_bytes();
+        *buy_mint = intent.buy_mint.to_bytes();
         *sell_amount = intent.sell_amount.to_le_bytes();
         *buy_amount = intent.buy_amount.to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
@@ -305,12 +400,9 @@ impl<Buy: Into<Pubkey> + Copy> From<&OrderIntent<Buy>> for EncodedOrderIntent {
     }
 }
 
-impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent<Pubkey> {
+impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntentAccessor {
     type Error = ProgramError;
 
-    /// Decodes into the wire's own buy-side representation: the raw `buy_mint`,
-    /// never a [`BuyAsset`], so the program spends no compute classifying a
-    /// field most handlers only compare.
     fn try_from(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Result<Self, Self::Error> {
         // It's important that the byte representation of an intent is unique.
         // This function should be injective: there shouldn't be two byte
@@ -344,7 +436,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent<Pubkey> {
             EncodedOrderIntent::WIDTH_APP_DATA
         ];
 
-        Ok(OrderIntent {
+        Ok(OrderIntentAccessor {
             owner: Pubkey::new_from_array(*owner),
             sell_token_account: Pubkey::new_from_array(*sell_token),
             sell_mint: Pubkey::new_from_array(*sell_mint),
@@ -359,50 +451,78 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent<Pubkey> {
     }
 }
 
-impl TryFrom<&EncodedOrderIntent> for OrderIntent<Pubkey> {
+impl TryFrom<&EncodedOrderIntent> for OrderIntentAccessor {
     type Error = ProgramError;
 
     fn try_from(encoded: &EncodedOrderIntent) -> Result<Self, Self::Error> {
-        OrderIntent::try_from(&encoded.0)
+        OrderIntentAccessor::try_from(&encoded.0)
     }
 }
 
-impl<Buy> OrderIntent<Buy> {
-    /// The same intent with its buy side expressed as `buy_mint`. The buy mint
-    /// is the only field whose representation depends on `Buy`, so this is the
-    /// single place the other nine are carried across.
-    ///
-    /// Crate-private: it converts in either direction, and lowering an explicit
-    /// buy side back to a raw mint walks around the choice that buy side exists
-    /// to force. Outside the crate, [`classify_buy`](OrderIntent::classify_buy)
-    /// is the only way across, plus
-    /// [`fixtures::decoded_intent`] for tests.
-    pub(crate) fn with_buy_mint<B>(&self, buy_mint: B) -> OrderIntent<B> {
-        OrderIntent {
-            owner: self.owner,
-            sell_token_account: self.sell_token_account,
-            sell_mint: self.sell_mint,
-            buy_token_account: self.buy_token_account,
-            buy_mint,
-            sell_amount: self.sell_amount,
-            buy_amount: self.buy_amount,
-            valid_to: self.valid_to,
-            flags: self.flags,
-            app_data: self.app_data,
+impl From<&OrderIntent> for OrderIntentAccessor {
+    /// Lays each side out the way the wire spells it.
+    fn from(intent: &OrderIntent) -> Self {
+        OrderIntentAccessor {
+            owner: intent.owner,
+            sell_token_account: intent.sell.token_account,
+            sell_mint: intent.sell.mint,
+            buy_token_account: intent.buy.account(),
+            buy_mint: intent.buy.mint(),
+            sell_amount: intent.sell_amount,
+            buy_amount: intent.buy_amount,
+            valid_to: intent.valid_to,
+            flags: intent.flags,
+            app_data: intent.app_data,
         }
     }
 }
 
-impl OrderIntent<Pubkey> {
-    pub fn classify_buy(&self) -> OrderIntent<BuyAsset> {
-        self.with_buy_mint(BuyAsset::from(&self.buy_mint))
+impl From<&OrderIntentAccessor> for OrderIntent {
+    /// The reverse of the lowering above: the buy side is classified, and the
+    /// sell side is carried across as the pair it already is.
+    ///
+    /// Lowering and classifying back is the identity on every buy side but
+    /// [`Asset::TokenProgram`] naming [`NATIVE_SOL_MINT`], which is a native
+    /// SOL order written the long way: the wire has one encoding for both, and
+    /// this is the side it decodes to. A sell side naming that marker stays a
+    /// [`TokenAsset`] and stays unsettleable, which is what it already was on
+    /// the wire; decoding describes the order, it doesn't vet it.
+    fn from(intent: &OrderIntentAccessor) -> Self {
+        OrderIntent {
+            owner: intent.owner,
+            sell: TokenAsset {
+                mint: intent.sell_mint,
+                token_account: intent.sell_token_account,
+            },
+            buy: Asset::classify(intent.buy_mint, intent.buy_token_account),
+            sell_amount: intent.sell_amount,
+            buy_amount: intent.buy_amount,
+            valid_to: intent.valid_to,
+            flags: intent.flags,
+            app_data: intent.app_data,
+        }
     }
 }
 
-impl<Buy: Into<Pubkey> + Copy> OrderIntent<Buy> {
+impl From<&OrderIntent> for EncodedOrderIntent {
+    fn from(intent: &OrderIntent) -> Self {
+        (&OrderIntentAccessor::from(intent)).into()
+    }
+}
+
+impl OrderIntentAccessor {
     /// SHA-256 of the canonical bytes. Doubles as the order UID and the
     /// middle seed of the order PDA. On SBF this compiles to a single
     /// `sol_sha256` syscall; off-target it goes through the `sha2` crate.
+    pub fn uid(&self) -> Hash {
+        EncodedOrderIntent::from(self).hash()
+    }
+}
+
+impl OrderIntent {
+    /// SHA-256 of the canonical bytes; see
+    /// [`OrderIntentAccessor::uid`]. Both representations encode to the same
+    /// bytes, so both name the same order.
     pub fn uid(&self) -> Hash {
         EncodedOrderIntent::from(self).hash()
     }
@@ -412,7 +532,7 @@ impl<Buy: Into<Pubkey> + Copy> OrderIntent<Buy> {
 pub mod fixtures {
     use proptest::{prelude::*, strategy::Union};
 
-    use super::{BuyAsset, Flags, OrderIntent, OrderKind, Pubkey};
+    use super::{Flags, OrderIntent, OrderIntentAccessor, OrderKind, Pubkey};
 
     /// Every valid [`OrderKind`].
     pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
@@ -420,8 +540,8 @@ pub mod fixtures {
     // Hardcoded but verified in a sanity-check test.
     pub const FLAGS_OFFSET: usize = 180;
 
-    pub fn sample_intent(flags: Flags) -> OrderIntent {
-        OrderIntent {
+    pub fn sample_intent(flags: Flags) -> OrderIntentAccessor {
+        OrderIntentAccessor {
             owner: Pubkey::new_from_array([0x11; 32]),
             sell_token_account: Pubkey::new_from_array([0x22; 32]),
             sell_mint: Pubkey::new_from_array([0x33; 32]),
@@ -463,8 +583,8 @@ pub mod fixtures {
         })
     }
 
-    /// Any valid [`OrderIntent`].
-    pub fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
+    /// Any valid [`OrderIntentAccessor`].
+    pub fn arb_order_intent() -> impl Strategy<Value = OrderIntentAccessor> {
         (
             any::<[u8; 32]>(),
             any::<[u8; 32]>(),
@@ -490,7 +610,7 @@ pub mod fixtures {
                     flags,
                     app,
                 )| {
-                    OrderIntent {
+                    OrderIntentAccessor {
                         owner: Pubkey::new_from_array(owner),
                         sell_token_account: Pubkey::new_from_array(sell_tok),
                         sell_mint: Pubkey::new_from_array(sell_mint),
@@ -512,25 +632,14 @@ pub mod fixtures {
             )
     }
 
-    /// `intent` in the representation the decoder returns, its buy side lowered
-    /// to the one mint the wire carries.
+    /// Any valid [`OrderIntent`], the representation the client builders take.
     ///
-    /// Test-only: production code gets an `OrderIntent<Pubkey>` by decoding
-    /// bytes, never by unpicking a client-side intent. Tests that fabricate an
-    /// on-chain order account, which stores the decoded intent, are the
-    /// exception this exists for.
-    pub fn decoded_intent(intent: &OrderIntent<BuyAsset>) -> OrderIntent<Pubkey> {
-        intent.with_buy_mint(Pubkey::from(intent.buy_mint))
-    }
-
-    /// Any [`OrderIntent`] with its buy side spelled out, the form the client
-    /// instruction builders take. Classifying [`arb_order_intent`] rather than
-    /// drawing a [`BuyAsset`] of its own keeps the mix of buy sides that
-    /// fixture already generates, and never produces the
-    /// `Token(`[`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT)`)`
-    /// spelling no client should write.
-    pub fn arb_explicit_order_intent() -> impl Strategy<Value = OrderIntent<BuyAsset>> {
-        arb_order_intent().prop_map(|intent| intent.classify_buy())
+    /// Classifying [`arb_order_intent`] rather than drawing sides of its own
+    /// keeps the mix of native and token sides that fixture already generates,
+    /// and never produces the `TokenProgram`-with-a-native-mint spelling no
+    /// caller should write.
+    pub fn arb_client_intent() -> impl Strategy<Value = OrderIntent> {
+        arb_order_intent().prop_map(|intent| OrderIntent::from(&intent))
     }
 }
 
@@ -541,10 +650,10 @@ mod tests {
     use super::fixtures::sample_intent;
     use super::*;
 
-    // Every shape an `OrderIntent` can take on its validated axes: the
+    // Every shape an `OrderIntentAccessor` can take on its validated axes: the
     // `created_on_chain` flag bit, the `kind` enum, and the
     // `partially_fillable` flag bit.
-    fn all_flag_shapes() -> impl Iterator<Item = OrderIntent> {
+    fn all_flag_shapes() -> impl Iterator<Item = OrderIntentAccessor> {
         [false, true].into_iter().flat_map(|created_on_chain| {
             fixtures::ALL_ORDER_KINDS.into_iter().flat_map(move |kind| {
                 [false, true].into_iter().map(move |partially_fillable| {
@@ -558,14 +667,14 @@ mod tests {
         })
     }
 
-    // Pin each width to the size of the `OrderIntent` field it encodes. The
+    // Pin each width to the size of the `OrderIntentAccessor` field it encodes. The
     // widths summing to `SIZE` is enforced separately, at compile time, by the
     // `array_refs!` / `mut_array_refs!` invocations in the codec.
     #[test]
     fn widths_match_field_sizes() {
         use core::mem::{size_of, size_of_val};
 
-        // Any `OrderIntent` works: `size_of_val` only consults the field
+        // Any `OrderIntentAccessor` works: `size_of_val` only consults the field
         // type, never the data.
         let intent = sample_intent(Default::default());
 
@@ -770,35 +879,67 @@ mod tests {
     }
 
     #[test]
-    fn buy_asset_lowers_to_the_mint_the_wire_carries() {
+    fn an_asset_lowers_to_the_pair_the_wire_carries() {
         let mint = Pubkey::new_from_array([0x55; 32]);
-        assert_eq!(Pubkey::from(BuyAsset::Token(mint)), mint);
-        assert_eq!(Pubkey::from(BuyAsset::NativeSol), NATIVE_SOL_MINT);
-    }
+        let account = Pubkey::new_from_array([0x44; 32]);
 
-    /// `Token(NATIVE_SOL_MINT)` is the one buy side with no encoding of its
-    /// own: it's a native SOL order, and classifying the bytes back says so.
-    #[test]
-    fn a_token_buy_side_naming_the_native_marker_is_a_native_sol_order() {
+        let token = Asset::from(TokenAsset {
+            mint,
+            token_account: account,
+        });
+        assert_eq!((token.mint(), token.account()), (mint, account));
+
+        let native = Asset::Native(account);
         assert_eq!(
-            Pubkey::from(BuyAsset::Token(NATIVE_SOL_MINT)),
-            NATIVE_SOL_MINT
+            (native.mint(), native.account()),
+            (NATIVE_SOL_MINT, account)
         );
-        assert_eq!(BuyAsset::from(&NATIVE_SOL_MINT), BuyAsset::NativeSol);
     }
 
-    /// The all-zero `buy_mint` of a default intent is the system program's
-    /// address, so the two representations agree on what a default order buys.
     #[test]
-    fn default_intents_agree_on_their_buy_side() {
-        let raw = OrderIntent::default();
-        let explicit = OrderIntent::<BuyAsset>::default();
-        assert_eq!(raw.classify_buy(), explicit);
+    fn a_token_side_naming_the_native_marker_is_native_sol() {
+        let account = Pubkey::new_from_array([0x44; 32]);
+        let spelled_long = Asset::from(TokenAsset {
+            mint: NATIVE_SOL_MINT,
+            token_account: account,
+        });
+        assert_eq!(spelled_long.mint(), NATIVE_SOL_MINT);
+        assert_eq!(
+            Asset::classify(spelled_long.mint(), spelled_long.account()),
+            Asset::Native(account),
+        );
+    }
+
+    #[test]
+    fn default_intents_agree() {
+        let raw = OrderIntentAccessor::default();
+        let client = OrderIntent::default();
+        assert_eq!(OrderIntent::from(&raw), client);
         assert_eq!(
             EncodedOrderIntent::from(&raw),
-            EncodedOrderIntent::from(&explicit)
+            EncodedOrderIntent::from(&client)
         );
-        assert_eq!(explicit.buy_mint, BuyAsset::NativeSol);
+        assert_eq!(client.sell, TokenAsset::default());
+        assert_eq!(client.buy, Asset::Native(Pubkey::default()));
+    }
+
+    #[test]
+    fn a_native_sell_mint_decodes_to_the_pair_it_names() {
+        let token_account = Pubkey::new_from_array([0x22; 32]);
+        let raw = OrderIntentAccessor {
+            sell_mint: NATIVE_SOL_MINT,
+            sell_token_account: token_account,
+            ..sample_intent(Default::default())
+        };
+        let client = OrderIntent::from(&raw);
+        assert_eq!(
+            client.sell,
+            TokenAsset {
+                mint: NATIVE_SOL_MINT,
+                token_account,
+            },
+        );
+        assert_eq!(OrderIntentAccessor::from(&client), raw);
     }
 
     // Property-based tests, non-deterministic.
@@ -807,8 +948,8 @@ mod tests {
 
         use super::*;
         use crate::data::intent::fixtures::{
-            arb_explicit_order_intent, arb_flags_byte, arb_invalid_flags_byte, arb_order_intent,
-            decoded_intent, FLAGS_OFFSET,
+            arb_client_intent, arb_flags_byte, arb_invalid_flags_byte, arb_order_intent,
+            FLAGS_OFFSET,
         };
 
         proptest! {
@@ -825,23 +966,17 @@ mod tests {
                 prop_assert_eq!(uid, encoded.hash());
             }
 
-            // An intent whose buy side is spelled out encodes exactly like the
-            // same intent carrying the raw mint, and decoding then classifying
-            // recovers the spelling the client used: the two representations
-            // are one wire format, and the client-only one costs the program
-            // nothing.
             #[test]
-            fn explicit_buy_side_encodes_like_the_raw_mint(
-                intent in arb_explicit_order_intent(),
-            ) {
-                let raw = decoded_intent(&intent);
+            fn client_intent_encodes_like_the_accessor(intent in arb_client_intent()) {
+                let raw = OrderIntentAccessor::from(&intent);
                 let encoded = EncodedOrderIntent::from(&intent);
                 prop_assert_eq!(&encoded, &EncodedOrderIntent::from(&raw));
+                prop_assert_eq!(intent.uid(), raw.uid());
 
                 let (decoded, _uid) = EncodedOrderIntent::decode_and_hash(&encoded)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(&decoded, &raw);
-                prop_assert_eq!(decoded.classify_buy(), intent);
+                prop_assert_eq!(OrderIntent::from(&decoded), intent);
             }
 
             // For any bytes whose flags slot is valid, `decode_and_hash` and

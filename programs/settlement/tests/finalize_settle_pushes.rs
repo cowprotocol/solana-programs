@@ -21,7 +21,9 @@ use crate::common::{
 use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
 use cow_settlement_client::{
     cow_settlement_interface::{
-        data::intent::OrderIntent, pda::state::find_state_pda, Instruction, SettlementError,
+        data::intent::{Asset, OrderIntent, TokenAsset},
+        pda::state::find_state_pda,
+        Instruction, SettlementError,
     },
     instruction::TokenProgram,
 };
@@ -86,7 +88,7 @@ fn pushes_a_single_order() {
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
         .expect("a single push should be paid");
 
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), amount);
+    assert_eq!(token::balance(&svm, &intent.buy.account()), amount);
     assert_eq!(token::balance(&svm, &buffer_pda), funding - amount);
 }
 
@@ -126,8 +128,8 @@ fn pushes_several_orders_from_one_buffer() {
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
         .expect("several pushes from one buffer should be paid");
 
-    assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
-    assert_eq!(token::balance(&svm, &intent1.buy_token_account), amount1);
+    assert_eq!(token::balance(&svm, &intent0.buy.account()), amount0);
+    assert_eq!(token::balance(&svm, &intent1.buy.account()), amount1);
     assert_eq!(
         token::balance(&svm, &buffer_pda),
         funding - amount0 - amount1,
@@ -168,8 +170,8 @@ fn pushes_several_orders_from_different_buffers() {
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
         .expect("pushes from different buffers should be paid");
 
-    assert_eq!(token::balance(&svm, &intent0.buy_token_account), amount0);
-    assert_eq!(token::balance(&svm, &intent1.buy_token_account), amount1);
+    assert_eq!(token::balance(&svm, &intent0.buy.account()), amount0);
+    assert_eq!(token::balance(&svm, &intent1.buy.account()), amount1);
     assert_eq!(token::balance(&svm, &buffer0), funding - amount0);
     assert_eq!(token::balance(&svm, &buffer1), funding - amount1);
 }
@@ -184,7 +186,7 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
     buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, 1_000);
 
     let another_mint = token::create_mint(&mut svm, &payer);
-    token::overwrite_token_account(&mut svm, &payer, &intent.buy_token_account, &another_mint);
+    token::overwrite_token_account(&mut svm, &payer, &intent.buy.account(), &another_mint);
 
     let instructions = finalize(
         &program_id,
@@ -315,17 +317,14 @@ fn rejects_invalid_buy_token_account() {
     let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
     // The mint account is a convenient invalid account we can use
     let intent = OrderIntent {
-        buy_token_account: Pubkey::from(settlable.buy_mint),
+        buy: Asset::from(TokenAsset {
+            mint: settlable.buy.mint(),
+            token_account: settlable.buy.mint(),
+        }),
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(
-        &mut svm,
-        &program_id,
-        &payer,
-        &Pubkey::from(intent.buy_mint),
-        1_000,
-    );
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy.mint(), 1_000);
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
@@ -345,23 +344,20 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
 
     let fake_token_program = create_account(&mut svm, &payer.pubkey(), &[]);
     let impostor =
-        token::clone_under_new_program(&mut svm, &settlable.buy_token_account, &fake_token_program);
+        token::clone_under_new_program(&mut svm, &settlable.buy.account(), &fake_token_program);
 
     // As above, the impostor passes both instructions' push checks (the push
-    // pays `intent.buy_token_account` from `intent.buy_mint`'s buffer), but its
+    // pays `intent.buy.account()` from `intent.buy.mint()`'s buffer), but its
     // owner is no token program, so there is nothing to issue the push against.
     let intent = OrderIntent {
-        buy_token_account: impostor,
+        buy: Asset::from(TokenAsset {
+            mint: settlable.buy.mint(),
+            token_account: impostor,
+        }),
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(
-        &mut svm,
-        &program_id,
-        &payer,
-        &Pubkey::from(intent.buy_mint),
-        1_000,
-    );
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy.mint(), 1_000);
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,

@@ -25,11 +25,11 @@ mod common;
 fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
-        ..fixtures::sample_intent(Flags {
+        ..OrderIntent::from(&fixtures::sample_intent(Flags {
             created_on_chain: true,
             kind: OrderKind::Sell,
             partially_fillable: false,
-        })
+        }))
     }
 }
 
@@ -82,7 +82,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: owner.pubkey(),
-        intent: intent.clone(),
+        intent: (&intent).into(),
     })
     .into();
     assert_eq!(
@@ -162,7 +162,7 @@ fn creates_order_with_separate_fee_payers() {
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: created_by.pubkey(),
-        intent,
+        intent: (&intent).into(),
     })
     .into();
     assert_eq!(

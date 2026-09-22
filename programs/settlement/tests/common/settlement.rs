@@ -4,7 +4,7 @@ use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
 };
 use cow_settlement_interface::{
-    data::intent::{BuyAsset, OrderIntent},
+    data::intent::{Asset, OrderIntent},
     Instruction,
 };
 use litesvm::LiteSVM;
@@ -55,7 +55,7 @@ pub fn build_settlement(
 /// hand back the result in one piece.
 #[derive(Clone)]
 pub struct StagedOrder {
-    pub intent: OrderIntent<BuyAsset>,
+    pub intent: OrderIntent,
     pub pulls: Vec<Pull>,
     pub amount_out: u64,
 }
@@ -72,7 +72,7 @@ pub fn stage_order(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
-    intent: &OrderIntent<BuyAsset>,
+    intent: &OrderIntent,
     pulls: &[u64],
     amount_out: u64,
 ) -> StagedOrder {
@@ -81,7 +81,7 @@ pub fn stage_order(
         svm,
         program_id,
         payer,
-        &intent.sell_token_account,
+        &intent.sell.token_account,
         amount_in,
     );
     let pulls = pulls
@@ -90,19 +90,18 @@ pub fn stage_order(
             destination: token::create_token_account(
                 svm,
                 payer,
-                &intent.sell_mint,
+                &intent.sell.mint,
                 &unique_pubkey(),
             ),
             amount,
         })
         .collect();
-    match intent.buy_mint {
-        // Lamports are paid out of the state PDA itself; no buffer holds them.
-        BuyAsset::NativeSol => {
+    match intent.buy {
+        Asset::Native(_) => {
             state::fund_with_lamports(svm, program_id, amount_out);
         }
-        BuyAsset::Token(mint) => {
-            buffer::ensure_funded(svm, program_id, payer, &mint, amount_out);
+        Asset::TokenProgram(token) => {
+            buffer::ensure_funded(svm, program_id, payer, &token.mint, amount_out);
         }
     }
 

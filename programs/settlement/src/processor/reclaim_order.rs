@@ -59,7 +59,9 @@ fn is_reclaimable_before_expiry(account: &OrderAccount) -> bool {
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::intent::Flags;
-    use cow_settlement_interface::data::intent::{fixtures::sample_intent, OrderIntent, OrderKind};
+    use cow_settlement_interface::data::intent::{
+        fixtures::sample_intent, OrderIntentAccessor, OrderKind,
+    };
     use cow_settlement_interface::data::order::EncodedOrderAccount;
     use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::{
@@ -115,7 +117,7 @@ mod tests {
         let account = |created_on_chain, cancelled, amount_withdrawn| OrderAccount {
             cancelled,
             amount_withdrawn,
-            intent: OrderIntent {
+            intent: OrderIntentAccessor {
                 sell_amount: SELL_AMOUNT,
                 ..sample_intent(Flags {
                     created_on_chain,

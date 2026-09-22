@@ -4,7 +4,8 @@ use crate::Pubkey;
 use solana_program_error::ProgramError;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
-/// The address an `OrderIntent` uses as `buy_mint` to trade native SOL rather than a token.
+/// The address an encoded intent carries as a mint to trade native SOL rather
+/// than a token; see [`Asset::Native`](crate::data::intent::Asset::Native).
 pub const NATIVE_SOL_MINT: Pubkey = solana_system_interface::program::ID;
 
 /// Whether `mint` names native SOL; see

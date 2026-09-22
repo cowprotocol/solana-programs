@@ -50,7 +50,7 @@ pub fn process_create_self_order(
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::intent::fixtures::sample_intent;
-    use cow_settlement_interface::data::intent::{Flags, OrderIntent};
+    use cow_settlement_interface::data::intent::{Flags, OrderIntentAccessor};
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::StateInitArgs;
     use cow_settlement_interface::fixtures::{pubkey_from_seed, PROGRAM_ID, STATE_PDA};
@@ -84,7 +84,7 @@ mod tests {
     /// Instruction data for an order owned by `owner` with the given
     /// `created_on_chain` flag; the other fields come from [`sample_intent`].
     fn intent_data(owner: Pubkey, created_on_chain: bool) -> Vec<u8> {
-        let intent = OrderIntent {
+        let intent = OrderIntentAccessor {
             owner,
             ..sample_intent(Flags {
                 created_on_chain,
