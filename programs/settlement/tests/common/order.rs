@@ -3,9 +3,9 @@
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Flags, OrderIntent, OrderKind,
 };
-use cow_settlement_client::cow_settlement_interface::data::order::OrderAccount;
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
+use cow_settlement_client::pda::order::DecodedOrderAccount;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -14,10 +14,10 @@ use solana_sdk::{
 
 use super::{buffer, signed_tx, token};
 
-/// Decode the [`OrderAccount`] stored at an order PDA.
-pub fn read_order(svm: &LiteSVM, pda: &Pubkey) -> OrderAccount {
+/// Decode the [`DecodedOrderAccount`] stored at an order PDA.
+pub fn read_order(svm: &LiteSVM, pda: &Pubkey) -> DecodedOrderAccount {
     let account = svm.get_account(pda).expect("order PDA must exist");
-    OrderAccount::try_from(&account.data[..]).expect("order PDA must decode")
+    DecodedOrderAccount::try_from(&account.data[..]).expect("order PDA must decode")
 }
 
 /// A default valid sell order owned by `owner`, using placeholders for all
