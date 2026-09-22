@@ -173,6 +173,13 @@ impl<T: Deref<Target = [u8]>> OrderAccount<T> {
         order_slots(self.body()).bump[0]
     }
 
+    /// The canonical bump as a one-byte slice borrowed in place, ready to feed
+    /// the PDA seeds. Makes it a bit more efficient to write the PDA seeds
+    /// compared to using `bump()` and recreating the slice.
+    pub fn bump_slice(&self) -> &[u8; WIDTH_BUMP] {
+        order_slots(self.body()).bump
+    }
+
     /// Whether the order has been cancelled by its owner. Fails with
     /// [`ProgramError::InvalidAccountData`] if the stored byte is out of range.
     pub fn cancelled(&self) -> Result<bool, ProgramError> {
@@ -226,7 +233,7 @@ impl<T: Deref<Target = [u8]>> OrderAccount<T> {
         if !is_pda_with_signer_seeds(
             address,
             program_id,
-            order_pda_signer_seeds(&self.intent_uid(), &[self.bump()]),
+            order_pda_signer_seeds(&self.intent_uid(), self.bump_slice()),
         ) {
             return Err(SettlementError::AccountNotDerivable.into());
         }
