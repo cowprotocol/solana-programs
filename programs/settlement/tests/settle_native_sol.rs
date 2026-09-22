@@ -74,55 +74,86 @@ fn happy_path_sell_tokens_for_native_sol() {
     assert_eq!(lamports(&svm, &state_pda), before - 2_000_000);
 }
 
-/// A settlement mixing both kinds of push: one order paid out of a buffer, one
-/// paid out of the state PDA's lamports.
+/// A settlement mixing both kinds of push: several orders paid out of a buffer,
+/// interleaved with as many paid out of the state PDA's lamports.
 #[test]
-fn happy_path_with_token_payout() {
+fn happy_path_with_many_payouts() {
+    /// Orders of each payout kind the mixed settlement carries.
+    const MIXED_ORDER_COUNT: u8 = 5;
+
+    // The amount pushed to the `i`th order of each kind. Distinct per order, so
+    // no assertion below passes on a payout that landed in the wrong account.
+    let spl_amount = |i: u8| 3_000 + u64::from(i) * 100;
+    let sol_amount = |i: u8| 1_000_000 + u64::from(i) * 10_000;
+
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let mint = token::create_mint(&mut svm, &payer);
-    let spl_intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&mint)
-        .salt(0)
-        .build();
-    let sol_intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
-        .salt(1)
-        .build();
+    // Salts have to be unique across both sets, since they are what give the
+    // orders distinct UIDs, and so distinct order PDAs.
+    let spl_intents: Vec<_> = (0..MIXED_ORDER_COUNT)
+        .map(|i| {
+            OrderBuilder::new(&mut svm, &program_id, &payer)
+                .buy_mint(&mint)
+                .salt(i)
+                .build()
+        })
+        .collect();
+    let sol_intents: Vec<_> = (0..MIXED_ORDER_COUNT)
+        .map(|i| {
+            OrderBuilder::new(&mut svm, &program_id, &payer)
+                .buy_mint(&NATIVE_SOL_MINT)
+                .salt(MIXED_ORDER_COUNT + i)
+                .build()
+        })
+        .collect();
 
-    let buffer_funding = 10_000;
+    let spl_total: u64 = (0..MIXED_ORDER_COUNT).map(spl_amount).sum();
+    let sol_total: u64 = (0..MIXED_ORDER_COUNT).map(sol_amount).sum();
+    let buffer_funding = spl_total * 2;
     let buffer_pda = buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, buffer_funding);
-    let sol_funding = 4_000_000;
+    let sol_funding = sol_total * 2;
     let funded = state::fund_with_lamports(&mut svm, &program_id, sol_funding);
 
-    let spl_amount = 3_000;
-    let sol_amount = 1_000_000;
-    let instructions = native_sol_settlement(
-        &program_id,
-        &solver.pubkey(),
-        &[
-            FinalizedIntent {
-                intent: &spl_intent,
-                amount: spl_amount,
-            },
-            FinalizedIntent {
-                intent: &sol_intent,
-                amount: sol_amount,
-            },
-        ],
-    );
+    // Interleaved, so the settlement alternates between the two push sources
+    // rather than draining one and then the other.
+    let orders: Vec<FinalizedIntent> = (0..MIXED_ORDER_COUNT)
+        .flat_map(|i| {
+            let index = usize::from(i);
+            [
+                FinalizedIntent {
+                    intent: &spl_intents[index],
+                    amount: spl_amount(i),
+                },
+                FinalizedIntent {
+                    intent: &sol_intents[index],
+                    amount: sol_amount(i),
+                },
+            ]
+        })
+        .collect();
+    let instructions = native_sol_settlement(&program_id, &solver.pubkey(), &orders);
     send(&mut svm, &solver, &instructions).expect("a mixed settlement should be paid");
 
     let (state_pda, _bump) = find_state_pda(&program_id);
-    assert_eq!(
-        token::balance(&svm, &spl_intent.buy_token_account),
-        spl_amount,
-    );
+    for (i, intent) in spl_intents.iter().enumerate() {
+        assert_eq!(
+            token::balance(&svm, &intent.buy_token_account),
+            spl_amount(i as u8),
+            "SPL order {i} should be paid out of the buffer",
+        );
+    }
+    for (i, intent) in sol_intents.iter().enumerate() {
+        assert_eq!(
+            lamports(&svm, &intent.buy_token_account),
+            sol_amount(i as u8),
+            "native order {i} should be paid out of the state PDA",
+        );
+    }
     assert_eq!(
         token::balance(&svm, &buffer_pda),
-        buffer_funding - spl_amount
+        buffer_funding - spl_total
     );
-    assert_eq!(lamports(&svm, &sol_intent.buy_token_account), sol_amount);
-    assert_eq!(lamports(&svm, &state_pda), funded - sol_amount);
+    assert_eq!(lamports(&svm, &state_pda), funded - sol_total);
 }
 
 /// Two orders buying SOL both draw on the one balance, the way two orders

@@ -8,13 +8,14 @@ use cow_settlement_interface::{
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
-    cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
+    cpi::Signer, error::ProgramError, sysvars::instructions::Instructions, AccountView, Address,
+    ProgramResult,
 };
 use pinocchio_token::instructions::Transfer;
 
 use crate::processor::utils::{
-    auth::with_state_pda_signer, cpi::is_cpi_call, lamports::move_lamports,
-    settle::validate_counterpart, token::owning_token_program,
+    auth::with_state_pda_signer, cpi::is_cpi_call, settle::validate_counterpart,
+    token::owning_token_program,
 };
 
 pub fn process_finalize_settle(
@@ -62,17 +63,30 @@ pub fn process_finalize_settle(
 /// So ultimately, for an SPL push we are relying that the SPL token program
 /// rejects a transfer whose source and destination mints differ.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
+#[allow(clippy::arithmetic_side_effects)]
 fn push_funds<'a>(
     state_pda_account: &AccountView,
     state_pda_signer: &Signer,
     pushes: Pushes<'a, AccountView>,
 ) -> ProgramResult {
+    let mut state_deducted_lamports = 0u64;
     for push in pushes.iter() {
         // Pay out native SOL?
         if push.source_buffer.address() == state_pda_account.address() {
-            let mut source = *push.source_buffer;
-            let mut destination = *push.destination;
-            move_lamports(&mut source, &mut destination, push.amount)?;
+            if push.destination.address() != state_pda_account.address() {
+                let mut destination = *push.destination;
+                destination.set_lamports(
+                    destination
+                        .lamports()
+                        .checked_add(push.amount)
+                        .ok_or(ProgramError::ArithmeticOverflow)?,
+                );
+
+                // Using unsafe add here to save a decent bit of CU
+                // If the amount overflows here, it will ultemately lead to a UnbalancedInstruction, and amounts
+                // everywhere else are being checked.
+                state_deducted_lamports += push.amount;
+            }
         } else {
             let token_program = owning_token_program(push.destination)
                 .map_err(|_| SettlementError::InvalidTokenProgram)?;
@@ -87,6 +101,16 @@ fn push_funds<'a>(
                 &token_program.address(),
             )?;
         }
+    }
+
+    if state_deducted_lamports > 0 {
+        let mut state_pda_account = *state_pda_account;
+        state_pda_account.set_lamports(
+            state_pda_account
+                .lamports()
+                .checked_sub(state_deducted_lamports)
+                .ok_or(ProgramError::ArithmeticOverflow)?,
+        );
     }
 
     Ok(())
