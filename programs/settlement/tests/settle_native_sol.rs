@@ -12,12 +12,11 @@ use crate::common::{
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{Asset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
-    pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
+    pda::{buffer::find_buffer_pda, state::find_state_pda},
     token_program::NATIVE_SOL_MINT,
     Instruction, SettlementError,
 };
 use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
-use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{pubkey::Pubkey, signer::Signer, transaction::TransactionError};
 
 mod common;
