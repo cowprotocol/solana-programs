@@ -255,12 +255,12 @@ pub struct OrderIntentAccessor {
 
     /// Token account that receives the buy-side proceeds. Implicitly
     /// encodes the recipient. When `buy_mint` is
-    /// [`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT) the proceeds
+    /// [`NATIVE_SOL_MINT`] the proceeds
     /// are lamports, so this is a plain account rather than a token account.
     pub buy_token_account: Pubkey,
 
     /// Mint of the buy token, or
-    /// [`NATIVE_SOL_MINT`](crate::token_program::NATIVE_SOL_MINT) for an order
+    /// [`NATIVE_SOL_MINT`] for an order
     /// paid in native SOL.
     pub buy_mint: Pubkey,
 
