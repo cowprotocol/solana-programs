@@ -4,10 +4,8 @@ use cow_settlement_client::cow_settlement_interface::{
     pda::order::find_order_pda,
     SettlementError,
 };
-use cow_settlement_interface::data::{
-    intent::Flags,
-    order::{EncodedOrderAccount, OrderAccount},
-};
+use cow_settlement_client::pda::order::DecodedOrderAccount;
+use cow_settlement_interface::data::{intent::Flags, order::SIZE};
 use litesvm::LiteSVM;
 use solana_sdk::{
     clock::Clock,
@@ -51,9 +49,13 @@ fn encode_and_derive(
 }
 
 /// Directly overwrite the body stored in an order PDA.
-fn patch_order(svm: &mut LiteSVM, pda: &Pubkey, patch: impl FnOnce(OrderAccount) -> OrderAccount) {
+fn patch_order(
+    svm: &mut LiteSVM,
+    pda: &Pubkey,
+    patch: impl FnOnce(DecodedOrderAccount) -> DecodedOrderAccount,
+) {
     let mut account = svm.get_account(pda).expect("order PDA must exist");
-    account.data = EncodedOrderAccount::from(patch(read_order(svm, pda))).to_vec();
+    account.data = patch(read_order(svm, pda)).encode().to_vec();
     svm.set_account(*pda, account)
         .expect("set_account should succeed");
 }
@@ -66,16 +68,16 @@ fn hack_write_order(
     program_id: &Pubkey,
     intent: &OrderIntent,
     created_by: &Pubkey,
-    patch: impl FnOnce(OrderAccount) -> OrderAccount,
+    patch: impl FnOnce(DecodedOrderAccount) -> DecodedOrderAccount,
 ) -> Pubkey {
     let (pda, bump) = find_order_pda(program_id, &intent.uid());
-    let order = patch(OrderAccount {
+    let order = patch(DecodedOrderAccount {
         bump,
         created_by: *created_by,
-        intent: intent.into(),
+        intent: intent.clone(),
         ..Default::default()
     });
-    create_account_at(svm, pda, program_id, &EncodedOrderAccount::from(order)[..]);
+    create_account_at(svm, pda, program_id, &order.encode()[..]);
     pda
 }
 
@@ -118,9 +120,7 @@ fn happy_path_expired_returns_lamports_and_closes_pda() {
     let encoded_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
     let (pda, _bump) = find_order_pda(&program_id, &encoded.hash());
 
-    let pda_rent = svm.minimum_balance_for_rent_exemption(
-        cow_settlement_client::cow_settlement_interface::data::order::EncodedOrderAccount::SIZE,
-    );
+    let pda_rent = svm.minimum_balance_for_rent_exemption(SIZE);
 
     // Create the order; `reclaim_recipient` funds the rent (`created_by`).
     let ix = CreateOrder {
@@ -216,7 +216,7 @@ fn happy_path_on_chain_order_fully_filled_is_reclaimable_before_expiry() {
     let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
     // A sell order is full once its whole sell amount has been withdrawn.
-    patch_order(&mut svm, &pda, |order| OrderAccount {
+    patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
         amount_withdrawn: order.intent.sell_amount,
         ..order
     });
@@ -231,7 +231,7 @@ fn happy_path_on_chain_order_cancelled_is_reclaimable_before_expiry() {
 
     let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
-    patch_order(&mut svm, &pda, |order| OrderAccount {
+    patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
         cancelled: true,
         ..order
     });
@@ -270,7 +270,7 @@ fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
     // One token short of a full fill: the order can still be settled, so its
     // PDA has to stay.
-    patch_order(&mut svm, &pda, |order| OrderAccount {
+    patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
         amount_withdrawn: order.intent.sell_amount - 1,
         ..order
     });
@@ -299,7 +299,7 @@ fn off_chain_order_is_reclaimable_only_once_expired() {
     // Cancelled *and* completely filled: the strongest case for early reclaim,
     // and it still has to wait.
     let pda = hack_write_order(&mut svm, &program_id, &intent, &owner.pubkey(), |order| {
-        OrderAccount {
+        DecodedOrderAccount {
             cancelled: true,
             amount_withdrawn: order.intent.sell_amount,
             ..order
@@ -495,7 +495,7 @@ fn reclaim_mid_settlement_succeeds() {
     let pull_destination = staged.pulls[0].destination;
     let buy_token_account = staged.intent.buy.account();
     let buffer_pda = buffer::buffer_pda(&program_id, &staged.intent.buy.mint());
-    let pda_rent = svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE);
+    let pda_rent = svm.minimum_balance_for_rent_exemption(SIZE);
 
     let reclaim = ReclaimOrder {
         program_id,

@@ -783,7 +783,7 @@
     {
       "name": "OrderAccount",
       "docs": [
-        "Idiomatic representation of an order PDA's body."
+        "The body stored in an order PDA."
       ],
       "type": {
         "kind": "struct",

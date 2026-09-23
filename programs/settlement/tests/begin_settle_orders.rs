@@ -27,7 +27,6 @@ use crate::common::{
     setup_settle_ready, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::order::{EncodedOrderAccount, OrderAccount},
     instruction::settle::{
         BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw,
         FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID,
@@ -38,6 +37,7 @@ use cow_settlement_client::cow_settlement_interface::{
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull, TokenProgram,
 };
+use cow_settlement_client::pda::order::DecodedOrderAccount;
 use cow_settlement_interface::data::intent::{Asset, OrderIntent, TokenAsset};
 use litesvm::LiteSVM;
 use litesvm_token::spl_token::error::TokenError;
@@ -196,15 +196,15 @@ fn rejects_wrong_stored_bump() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
 
-    let data: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+    let data = DecodedOrderAccount {
         bump: bump ^ 0x01,
         cancelled: false,
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: (&intent).into(),
-    })
-    .into();
+        intent: intent.clone(),
+    }
+    .encode();
 
     common::create_account_at(&mut svm, order_pda, &program_id, &data);
 
@@ -238,15 +238,15 @@ fn rejects_fabricated_program_owned_account() {
         ..sample_intent(payer.pubkey(), 0)
     };
     let (_real_order_pda, bump) = find_order_pda(&program_id, &intent.uid());
-    let body: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+    let body = DecodedOrderAccount {
         bump,
         cancelled: false,
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: (&intent).into(),
-    })
-    .into();
+        intent: intent.clone(),
+    }
+    .encode();
     // A program-owned account holding a valid order body (canonical bump
     // included), but sitting at an address that isn't the canonical order PDA.
     let fake_order = create_account(&mut svm, &program_id, &body);
@@ -627,15 +627,15 @@ fn rejects_cancelled_order() {
     // clears the provenance check and the cancelled flag is what trips the
     // rejection.
     let (order_pda, bump) = find_order_pda(&program_id, &intent.uid());
-    let data: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+    let data = DecodedOrderAccount {
         bump,
         cancelled: true,
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: payer.pubkey(),
-        intent: (&intent).into(),
-    })
-    .into();
+        intent: intent.clone(),
+    }
+    .encode();
 
     common::create_account_at(&mut svm, order_pda, &program_id, &data);
 
@@ -746,6 +746,53 @@ fn pulls_funds_to_destination() {
     assert_eq!(
         token::delegated_amount(&svm, &sell_token),
         initial_amount - amount
+    );
+}
+
+/// This test checks a security invariant.
+/// The order account is held mutably borrowed for the entirety of an order's
+/// settlement. In the middle, a transfer CPI takes place.
+/// We confirm here that the CPI reverts if it tries to access the order account
+/// itself.
+#[test]
+fn rejects_pull_targeting_the_order_account() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let sell_mint = token::create_mint(&mut svm, &payer);
+
+    let amount = 2_000_000;
+    let paid = 4_000_000;
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_mint(&sell_mint)
+        .sell_amount(amount)
+        .buy_amount(paid)
+        .build();
+    let sell_token = intent.sell.token_account;
+    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 42_000_000);
+
+    // Point the pull at the order's own PDA rather than a token account.
+    let (order_pda, _) = find_order_pda(&program_id, &intent.uid());
+
+    let instructions = settle_and_pay_amounts(
+        &mut svm,
+        &program_id,
+        &payer,
+        &solver,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[Pull {
+                // Quick and dirty check: the solver sends the funds to the
+                // order PDA. This isn't realistic but serves the purpose of
+                // this test well without involving things like Token2022 and
+                // hooks.
+                destination: order_pda,
+                amount,
+            }],
+        }],
+        &[paid],
+    );
+    assert_begin_error(
+        send(&mut svm, &solver, &instructions),
+        InstructionError::AccountBorrowFailed,
     );
 }
 

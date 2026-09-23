@@ -127,7 +127,11 @@ const INSTRUCTIONS: &[Instruction] = &[
 /// The struct types the IDL defines, as `(source, Rust name, IDL name)`. The
 /// two names don't always agree.
 const STRUCT_TYPES: &[(&Source, &str, &str)] = &[
-    (&parse_rust::ORDER_RS, "OrderAccount", "OrderAccount"),
+    (
+        &parse_rust::CLIENT_ORDER_RS,
+        "DecodedOrderAccount",
+        "OrderAccount",
+    ),
     (&parse_rust::STATE_RS, "StateInitArgs", "SettlementState"),
     (&parse_rust::INTENT_RS, "OrderIntentAccessor", "OrderIntent"),
 ];

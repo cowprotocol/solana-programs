@@ -3,7 +3,7 @@
 use cow_settlement_interface::{
     data::{
         intent::EncodedOrderIntent,
-        order::{self, EncodedOrderAccount},
+        order::{self, OrderAccount},
     },
     instruction::{create_order::CreateOrderInput, InstructionInputParsing},
     pda::order::order_pda_seeds,
@@ -65,7 +65,7 @@ pub(crate) fn process_new_onchain_order(
         program_id,
         payer: created_by,
         pda: order_pda,
-        size: EncodedOrderAccount::SIZE as u64,
+        size: order::SIZE as u64,
         owner: program_id,
         seeds: order_pda_seeds(&intent_uid),
     }
@@ -73,19 +73,15 @@ pub(crate) fn process_new_onchain_order(
 
     // A copied `AccountView` handle writes through to the same runtime account.
     let mut order_pda = *order_pda;
-    let mut order_data = order_pda.try_borrow_mut()?;
-    let order_data: &mut [u8; EncodedOrderAccount::SIZE] = (&mut *order_data)
-        .try_into()
-        .map_err(|_| ProgramError::AccountDataTooSmall)?;
-    order::write_account(
-        order_data,
+    OrderAccount::initialize(
+        order_pda.try_borrow_mut()?,
         bump,
         false,
         0,
         0,
         created_by.address(),
         intent_bytes,
-    );
+    )?;
 
     Ok(())
 }

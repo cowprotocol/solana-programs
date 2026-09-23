@@ -2,14 +2,13 @@ use anyhow::Context as _;
 use clap::Args;
 use cow_settlement_client::{
     cow_settlement_interface::{
-        data::{intent::OrderIntent, order::OrderAccount},
-        pda::buffer::find_buffer_pda,
-        token_program::TokenProgram,
+        data::intent::OrderIntent, pda::buffer::find_buffer_pda, token_program::TokenProgram,
         Pubkey,
     },
     instruction::{
         BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
     },
+    pda::order::DecodedOrderAccount,
 };
 use solana_hash::Hash;
 use solana_instruction::Instruction;
@@ -382,13 +381,13 @@ fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result
     let data = rpc
         .get_account_data(&pda)
         .with_context(|| format!("failed to get order account data for {pda}"))?;
-    let order_account = OrderAccount::try_from(data.as_slice()).map_err(|e| {
+    let order_account = DecodedOrderAccount::try_from(data.as_slice()).map_err(|e| {
         anyhow::anyhow!(
             "failed to decode order at {pda} ({} bytes): {e:?}",
             data.len()
         )
     })?;
-    Ok(OrderIntent::from(&order_account.intent))
+    Ok(order_account.intent)
 }
 
 /// Accept either a 64-char hex UID or a base58 pubkey (the PDA directly).

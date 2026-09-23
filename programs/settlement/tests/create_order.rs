@@ -1,12 +1,13 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::{
         intent::{fixtures, EncodedOrderIntent, OrderIntent},
-        order::{EncodedOrderAccount, OrderAccount},
+        order::SIZE,
     },
     instruction::create_order::CreateOrder,
     pda::order::{find_order_pda, order_pda_seeds},
     SettlementError,
 };
+use cow_settlement_client::pda::order::DecodedOrderAccount;
 use cow_settlement_interface::data::intent::{Flags, OrderKind};
 use solana_sdk::{
     instruction::InstructionError,
@@ -72,19 +73,19 @@ fn happy_path_creates_order_pda_with_expected_body() {
     );
     assert_eq!(
         account.data.len(),
-        EncodedOrderAccount::SIZE,
+        SIZE,
         "PDA must be sized to the order body",
     );
 
-    let expected_body: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+    let expected_body = DecodedOrderAccount {
         bump,
         cancelled: false,
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: owner.pubkey(),
-        intent: (&intent).into(),
-    })
-    .into();
+        intent: intent.clone(),
+    }
+    .encode();
     assert_eq!(
         account.data, expected_body,
         "PDA body must match expected layout"
@@ -92,7 +93,7 @@ fn happy_path_creates_order_pda_with_expected_body() {
 
     // Rent-exempt sanity: the PDA must hold exactly the rent minimum for
     // its size.
-    let rent = svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE);
+    let rent = svm.minimum_balance_for_rent_exemption(SIZE);
     assert!(
         account.lamports == rent,
         "PDA must be rent-exempt: {} < {}",
@@ -141,7 +142,7 @@ fn creates_order_with_separate_fee_payers() {
     let owner_after = common::lamports(&svm, &owner.pubkey());
     let created_by_after = common::lamports(&svm, &created_by.pubkey());
 
-    let rent = svm.minimum_balance_for_rent_exemption(EncodedOrderAccount::SIZE);
+    let rent = svm.minimum_balance_for_rent_exemption(SIZE);
 
     // `created_by` funded the new PDA's rent in full.
     assert_eq!(created_by_before - created_by_after, rent);
@@ -156,15 +157,15 @@ fn creates_order_with_separate_fee_payers() {
     let account = svm
         .get_account(&pda)
         .expect("order PDA should exist after create_order");
-    let expected_body: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
+    let expected_body = DecodedOrderAccount {
         bump,
         cancelled: false,
         amount_withdrawn: 0,
         amount_received: 0,
         created_by: created_by.pubkey(),
-        intent: (&intent).into(),
-    })
-    .into();
+        intent,
+    }
+    .encode();
     assert_eq!(
         account.data, expected_body,
         "PDA body must record created_by, not owner"
