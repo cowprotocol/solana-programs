@@ -194,7 +194,6 @@ mod tests {
         }
     }
 
-    // Property-based tests, non-deterministic.
     mod proptest {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
         use cow_settlement_interface::data::intent::fixtures::arb_order_intent;
