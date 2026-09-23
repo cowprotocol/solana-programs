@@ -1,10 +1,7 @@
 //! `ReclaimOrder` instruction handler.
 
 use cow_settlement_interface::{
-    data::{
-        intent::OrderIntentAccessor,
-        order::{fill_progress, FillAmounts, OrderAccount},
-    },
+    data::order::{FillAmounts, OrderAccount},
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
     SettlementError,
 };
@@ -13,6 +10,8 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+
+use crate::processor::utils::intent::{fill_progress, OrderIntentAccessor};
 
 pub fn process_reclaim_order(
     program_id: &pinocchio::Address,
@@ -28,7 +27,7 @@ pub fn process_reclaim_order(
     // the lamport transfer and `close` below touch the account.
     let (created_by, reclaimable, valid_to) = {
         let order = OrderAccount::load_from_pda(order_pda, program_id)?;
-        let intent = order.intent()?;
+        let intent = OrderIntentAccessor::from_order(&order)?;
         let reclaimable =
             is_reclaimable_before_expiry(&intent, order.cancelled()?, order.filled_amounts());
         (order.created_by(), reclaimable, intent.valid_to())

@@ -3338,6 +3338,7 @@ dependencies = [
  "serde_json",
  "solana-address-lookup-table-interface",
  "solana-compute-budget",
+ "solana-hash 4.5.0",
  "solana-instruction",
  "solana-instructions-sysvar 4.0.0",
  "solana-program-pack",

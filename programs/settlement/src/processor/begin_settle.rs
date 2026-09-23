@@ -2,7 +2,6 @@
 
 use std::ops::Deref;
 
-use cow_settlement_interface::data::intent::OrderIntentAccessor;
 use cow_settlement_interface::{
     data::{
         intent::{Flags, OrderKind},
@@ -35,6 +34,7 @@ use pinocchio_token::instructions::Transfer;
 use crate::processor::utils::{
     auth::{check_state_pda, require_solver, with_state_pda_signer_from_bump},
     cpi::is_cpi_call,
+    intent::OrderIntentAccessor,
     settle::validate_counterpart,
     token::{owning_token_program, read_token_account},
 };
@@ -280,7 +280,7 @@ fn process_order(
     if order.cancelled()? {
         return Err(SettlementError::OrderCancelled.into());
     }
-    let intent = order.intent()?;
+    let intent = OrderIntentAccessor::from_order(&order)?;
     let prior_fill = order.filled_amounts();
     let intent = &intent;
 
