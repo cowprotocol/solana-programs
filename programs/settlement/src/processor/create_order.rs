@@ -11,7 +11,7 @@ use cow_settlement_interface::{
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
-use crate::processor::utils::pda::CanonicalPda;
+use crate::processor::utils::{intent::OrderIntentAccessor, pda::CanonicalPda};
 
 pub fn process_create_order(
     program_id: &Address,
@@ -50,14 +50,15 @@ pub(crate) fn process_new_onchain_order(
     expected_owner: &Address,
     created_by: &AccountView,
 ) -> ProgramResult {
-    let (intent, intent_uid) = EncodedOrderIntent::decode_and_hash(intent_bytes)?;
+    let intent = OrderIntentAccessor::attach(intent_bytes)?;
+    let intent_uid = intent.uid();
 
-    if expected_owner != &intent.owner {
+    if expected_owner.as_array() != intent.owner() {
         return Err(SettlementError::OwnerMismatch.into());
     }
     // The intent commits to how it's authenticated, and this is the on-chain
     // creation flow.
-    if !intent.flags.created_on_chain {
+    if !intent.flags().created_on_chain {
         return Err(SettlementError::OrderCreatedOnChainMismatch.into());
     }
 
@@ -117,7 +118,8 @@ mod tests {
 
     #[test]
     fn process_create_order_rejects_invalid_encoded_intent() {
-        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let valid_bytes = valid_intent_bytes();
+        let intent = OrderIntent::try_from(&valid_bytes).expect("should be valid");
         let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntent {
             flags: Flags {
                 kind: OrderKind::Buy,
@@ -200,7 +202,8 @@ mod tests {
 
     #[test]
     fn process_create_order_rejects_intent_not_created_on_chain() {
-        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let valid_bytes = valid_intent_bytes();
+        let intent = OrderIntent::try_from(&valid_bytes).expect("should be valid");
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
             (&EncodedOrderIntent::from(&OrderIntent { ..intent })).into();
         let data = default_order_data(&intent_bytes);
