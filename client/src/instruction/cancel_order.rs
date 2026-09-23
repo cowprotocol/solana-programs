@@ -10,7 +10,6 @@ pub struct CancelOrder<'a> {
     pub program_id: Pubkey,
     pub owner: Pubkey,
     pub created_by: Pubkey,
-    /// The order to cancel.
     pub intent: &'a OrderIntent,
 }
 
