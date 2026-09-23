@@ -64,7 +64,7 @@ pub enum SettlementInstruction {
     /// Cancels an order so it can no longer be settled. Only the order owner
     /// may cancel.
     /// If the order PDA doesn't exist yet, it's created already cancelled. For
-    /// this, a separate account needs to pay the rent and sign.
+    /// this, some arbitrary account needs to pay the rent and sign.
     CancelOrder = 11,
 }
 
