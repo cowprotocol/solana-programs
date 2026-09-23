@@ -122,6 +122,7 @@ struct OrderIntent {
 	sell_token_account: Pubkey
 	sell_mint: Pubkey
 	buy_token_account: Pubkey
+	// Set this to the system program to buy native SOL (lamports) and deposit it to the provided buy_token_account.
 	buy_mint: Pubkey
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
@@ -316,11 +317,6 @@ Differences with Ethereum:
 - Interactions aren’t executed from the context of the settlement program but from the context of the solver as completely separate instructions.
   - Notably: a solver doesn’t have to set approvals from the settlement contract to on-chain contracts. Once solver privileges are removed, there’s no way for old solvers to access the buffers anymore, unlike in the current Ethereum contract.
 - Fund transfers are explicit instead of being automatically done as part of the order inclusion. These transfers aren’t automatically done to the buffers, they may go to different accounts.
-
-## Buying SOL
-
-Setting the `OrderIntent`'s `buy_mint` to the system program will cause
-native SOL tokens to be sent out to the provided `buy_token_account` through the state PDA.
 
 ## Selling SOL (a.k.a. ETH flow)
 
