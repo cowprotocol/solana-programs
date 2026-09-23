@@ -323,7 +323,7 @@ impl<T: DerefMut<Target = [u8]>> OrderAccount<T> {
     /// order writes back the same value.
     pub fn set_cancelled(&mut self) {
         let slots = order_slots_mut(self.body_mut());
-        *slots.cancelled = [true as u8];
+        *slots.cancelled = [true.into()];
     }
 }
 
@@ -522,6 +522,23 @@ mod tests {
 
         // Indistinguishable from re-stamping the whole account with just the
         // cancelled flag set: every other byte is untouched.
+        let expected = sample_order_fields(true).encode();
+        assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn set_cancelled_on_cancelled_order_is_a_no_op() {
+        let mut bytes = sample_order_bytes(true);
+
+        let mut account = OrderAccount::attach(&mut bytes[..]).expect("sample must attach");
+        assert!(
+            account.cancelled().expect("valid cancelled"),
+            "sanity check: order starts cancelled"
+        );
+        account.set_cancelled();
+
+        // Idempotent: re-stamping an already-cancelled order leaves every byte
+        // unchanged.
         let expected = sample_order_fields(true).encode();
         assert_eq!(bytes, expected);
     }
