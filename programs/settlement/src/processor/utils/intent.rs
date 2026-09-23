@@ -207,19 +207,34 @@ mod tests {
             // matches the owned intent's.
             #[test]
             fn accessor_reads_the_encoded_fields(intent in arb_order_intent()) {
+
+                let OrderIntent {
+                    owner,
+                    sell_token_account,
+                    sell_mint,
+                    buy_token_account,
+                    buy_mint,
+                    sell_amount,
+                    buy_amount,
+                    valid_to,
+                    flags,
+                    app_data: _,
+                } = intent;
+
                 let encoded = EncodedOrderIntent::from(&intent);
                 let accessor = OrderIntentAccessor::attach(&encoded)
                     .map_err(|e| TestCaseError::fail(format!("attach failed: {e:?}")))?;
-                prop_assert_eq!(accessor.owner(), intent.owner.as_array());
-                prop_assert_eq!(accessor.sell_token_account(), intent.sell_token_account.as_array());
-                prop_assert_eq!(accessor.sell_mint(), intent.sell_mint.as_array());
-                prop_assert_eq!(accessor.buy_token_account(), intent.buy_token_account.as_array());
-                prop_assert_eq!(accessor.buy_mint(), intent.buy_mint.as_array());
-                prop_assert_eq!(accessor.sell_amount(), intent.sell_amount);
-                prop_assert_eq!(accessor.buy_amount(), intent.buy_amount);
-                prop_assert_eq!(accessor.valid_to(), intent.valid_to);
-                prop_assert_eq!(accessor.flags(), intent.flags);
+
                 prop_assert_eq!(accessor.uid(), intent.uid());
+                prop_assert_eq!(accessor.owner(), owner.as_array());
+                prop_assert_eq!(accessor.sell_token_account(), sell_token_account.as_array());
+                prop_assert_eq!(accessor.sell_mint(), sell_mint.as_array());
+                prop_assert_eq!(accessor.buy_token_account(), buy_token_account.as_array());
+                prop_assert_eq!(accessor.buy_mint(), buy_mint.as_array());
+                prop_assert_eq!(accessor.sell_amount(), sell_amount);
+                prop_assert_eq!(accessor.buy_amount(), buy_amount);
+                prop_assert_eq!(accessor.valid_to(), valid_to);
+                prop_assert_eq!(accessor.flags(), flags);
             }
         }
     }
