@@ -1,7 +1,7 @@
 //! Zero-copy access to an order intent's canonical bytes.
 
 use cow_settlement_interface::data::{
-    intent::{hash_bytes, intent_slots, EncodedOrderIntent, Flags, OrderKind},
+    intent::{check_bytes, hash_bytes, intent_slots, EncodedOrderIntent, Flags, OrderKind},
     order::{FillAmounts, OrderAccount},
 };
 use pinocchio::error::ProgramError;
@@ -22,7 +22,7 @@ impl<'a> OrderIntentAccessor<'a> {
     /// reserved bit; every other byte combination attaches.
     #[inline]
     pub fn attach(bytes: &'a [u8; EncodedOrderIntent::SIZE]) -> Result<Self, ProgramError> {
-        Flags::try_from(*intent_slots(bytes).flags)?;
+        check_bytes(bytes)?;
         Ok(Self(bytes))
     }
 

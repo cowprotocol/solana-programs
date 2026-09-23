@@ -196,6 +196,15 @@ impl EncodedOrderIntent {
     }
 }
 
+/// Given a slice of intent bytes, verify that it can encode a valid intent.
+#[must_use = "ignoring the result skips the validation"]
+#[inline]
+pub fn check_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Result<(), ProgramError> {
+    Flags::try_from(*intent_slots(bytes).flags)?;
+
+    Ok(())
+}
+
 pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
     solana_sha256_hasher::hashv(&[bytes.as_slice()])
 }
