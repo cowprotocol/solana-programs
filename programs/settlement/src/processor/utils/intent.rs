@@ -137,8 +137,8 @@ mod tests {
         bytes[INTENT_OFFSET + FLAGS_OFFSET] = 0xff;
         let order = OrderAccount::attach(&bytes[..]).expect("attach ignores the intent slot");
         assert_eq!(
-            OrderIntentAccessor::from_order(&order),
-            Err(ProgramError::InvalidAccountData)
+            OrderIntentAccessor::from_order(&order).err(),
+            Some(ProgramError::InvalidAccountData)
         );
     }
 
@@ -189,7 +189,9 @@ mod tests {
 
     mod proptest {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
-        use cow_settlement_interface::{data::intent::fixtures::arb_order_intent, token_program::NATIVE_SOL_MINT};
+        use cow_settlement_interface::{
+            data::intent::fixtures::arb_order_intent, token_program::NATIVE_SOL_MINT,
+        };
 
         use super::*;
 

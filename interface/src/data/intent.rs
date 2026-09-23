@@ -431,8 +431,14 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
         let slots = intent_slots(bytes);
         Ok(OrderIntent {
             owner: Pubkey::new_from_array(*slots.owner),
-            sell: TokenAsset { mint: Pubkey::new_from_array(*slots.sell_mint), token_account: Pubkey::new_from_array(*slots.sell_token) },
-            buy: Asset::classify(Pubkey::new_from_array(*slots.buy_mint), Pubkey::new_from_array(*slots.buy_token)),
+            sell: TokenAsset {
+                mint: Pubkey::new_from_array(*slots.sell_mint),
+                token_account: Pubkey::new_from_array(*slots.sell_token),
+            },
+            buy: Asset::classify(
+                Pubkey::new_from_array(*slots.buy_mint),
+                Pubkey::new_from_array(*slots.buy_token),
+            ),
             sell_amount: u64::from_le_bytes(*slots.sell_amount),
             buy_amount: u64::from_le_bytes(*slots.buy_amount),
             valid_to: u32::from_le_bytes(*slots.valid_to),
@@ -883,7 +889,10 @@ mod tests {
         let encoded = EncodedOrderIntent::from(&intent);
         assert_eq!(intent_slots(&encoded).sell_mint, NATIVE_SOL_MINT.as_array());
         assert_eq!(intent_slots(&encoded).sell_token, &[0x22; 32]);
-        assert_eq!(OrderIntent::try_from(&*encoded).expect("must decode"), intent);
+        assert_eq!(
+            OrderIntent::try_from(&*encoded).expect("must decode"),
+            intent
+        );
     }
 
     // Property-based tests, non-deterministic.
