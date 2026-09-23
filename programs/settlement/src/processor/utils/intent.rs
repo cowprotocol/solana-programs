@@ -13,7 +13,7 @@ use solana_hash::Hash;
 ///
 /// The flags byte is the only one that can fail to decode, so [`Self::attach`]
 /// validates it; every getter, [`Self::flags`] included, is infallible.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct OrderIntentAccessor<'a>(&'a [u8; EncodedOrderIntent::SIZE]);
 
 impl<'a> OrderIntentAccessor<'a> {
@@ -137,8 +137,8 @@ mod tests {
         bytes[INTENT_OFFSET + FLAGS_OFFSET] = 0xff;
         let order = OrderAccount::attach(&bytes[..]).expect("attach ignores the intent slot");
         assert_eq!(
-            OrderIntentAccessor::from_order(&order),
-            Err(ProgramError::InvalidAccountData)
+            OrderIntentAccessor::from_order(&order).err(),
+            Some(ProgramError::InvalidAccountData)
         );
     }
 
