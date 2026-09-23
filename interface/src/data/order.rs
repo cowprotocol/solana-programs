@@ -527,6 +527,23 @@ mod tests {
     }
 
     #[test]
+    fn set_cancelled_on_cancelled_order_is_a_no_op() {
+        let mut bytes = sample_order_bytes(true);
+
+        let mut account = OrderAccount::attach(&mut bytes[..]).expect("sample must attach");
+        assert!(
+            account.cancelled().expect("valid cancelled"),
+            "sanity check: order starts cancelled"
+        );
+        account.set_cancelled();
+
+        // Idempotent: re-stamping an already-cancelled order leaves every byte
+        // unchanged.
+        let expected = sample_order_fields(true).encode();
+        assert_eq!(bytes, expected);
+    }
+
+    #[test]
     fn fill_progress_tracks_the_exact_side_only() {
         const SELL_AMOUNT: u64 = 1_000;
         const BUY_AMOUNT: u64 = 2_000;
