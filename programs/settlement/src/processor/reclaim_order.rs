@@ -1,10 +1,7 @@
 //! `ReclaimOrder` instruction handler.
 
 use cow_settlement_interface::{
-    data::{
-        intent::OrderIntent,
-        order::{fill_progress, FillAmounts, OrderAccount},
-    },
+    data::order::{FillAmounts, OrderAccount},
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
     SettlementError,
 };
@@ -13,6 +10,8 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+
+use crate::processor::utils::intent::{fill_progress, OrderIntentAccessor};
 
 pub fn process_reclaim_order(
     program_id: &pinocchio::Address,
@@ -28,10 +27,10 @@ pub fn process_reclaim_order(
     // the lamport transfer and `close` below touch the account.
     let (created_by, reclaimable, valid_to) = {
         let order = OrderAccount::load_from_pda(order_pda, program_id)?;
-        let intent = order.intent()?;
+        let intent = OrderIntentAccessor::from_order(&order)?;
         let reclaimable =
             is_reclaimable_before_expiry(&intent, order.cancelled()?, order.filled_amounts());
-        (order.created_by(), reclaimable, intent.valid_to)
+        (order.created_by(), reclaimable, intent.valid_to())
     };
 
     if reclaim_recipient.address() != &created_by {
@@ -63,8 +62,12 @@ pub fn process_reclaim_order(
 }
 
 /// Determines whether the order may be reclaimed despite being unexpired
-fn is_reclaimable_before_expiry(intent: &OrderIntent, cancelled: bool, fill: FillAmounts) -> bool {
-    intent.flags.created_on_chain
+fn is_reclaimable_before_expiry(
+    intent: &OrderIntentAccessor,
+    cancelled: bool,
+    fill: FillAmounts,
+) -> bool {
+    intent.flags().created_on_chain
         && (cancelled || {
             let (filled, order_amount) = fill_progress(intent, fill);
             filled >= order_amount
@@ -74,7 +77,9 @@ fn is_reclaimable_before_expiry(intent: &OrderIntent, cancelled: bool, fill: Fil
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::intent::Flags;
-    use cow_settlement_interface::data::intent::{fixtures::sample_intent, OrderIntent, OrderKind};
+    use cow_settlement_interface::data::intent::{
+        fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
+    };
     use cow_settlement_interface::data::order::fixtures::OrderFields;
     use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::{
@@ -128,12 +133,14 @@ mod tests {
     fn early_reclaim_conditions() {
         const SELL_AMOUNT: u64 = 1_000;
 
-        let intent = |created_on_chain| OrderIntent {
-            sell_amount: SELL_AMOUNT,
-            ..sample_intent(Flags {
-                created_on_chain,
-                kind: OrderKind::Sell,
-                partially_fillable: true,
+        let intent = |created_on_chain| {
+            EncodedOrderIntent::from(&OrderIntent {
+                sell_amount: SELL_AMOUNT,
+                ..sample_intent(Flags {
+                    created_on_chain,
+                    kind: OrderKind::Sell,
+                    partially_fillable: true,
+                })
             })
         };
 
@@ -153,9 +160,10 @@ mod tests {
             (true, false, SELL_AMOUNT - 1, false),
         ];
         for (created_on_chain, cancelled, amount_withdrawn, expected) in cases {
+            let encoded = intent(created_on_chain);
             assert_eq!(
                 is_reclaimable_before_expiry(
-                    &intent(created_on_chain),
+                    &OrderIntentAccessor::attach(&encoded).expect("sample must attach"),
                     cancelled,
                     FillAmounts {
                         withdrawn: amount_withdrawn,
