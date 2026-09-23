@@ -195,6 +195,47 @@ fn happy_path_multiple_native_orders_can_settle() {
     assert_eq!(lamports(&svm, &state_pda), funded - amount0 - amount1);
 }
 
+/// Two orders paying out to the same address both land there: the second
+/// credit adds to the first rather than overwriting it.
+#[test]
+fn happy_path_native_orders_sharing_a_destination() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let destination = unique_pubkey();
+    let intent0 = OrderIntent {
+        buy: Asset::Native(destination),
+        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
+    };
+    let intent1 = OrderIntent {
+        buy: Asset::Native(destination),
+        ..settlable_intent(&mut svm, &payer, payer.pubkey(), 1)
+    };
+    create_order_pda(&mut svm, &program_id, &payer, &intent0);
+    create_order_pda(&mut svm, &program_id, &payer, &intent1);
+    let funded = state::fund_with_lamports(&mut svm, &program_id, 9_000_000);
+
+    let amount0 = 1_000_000;
+    let amount1 = 2_000_000;
+    let instructions = native_sol_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[
+            FinalizedIntent {
+                intent: &intent0,
+                amount: amount0,
+            },
+            FinalizedIntent {
+                intent: &intent1,
+                amount: amount1,
+            },
+        ],
+    );
+    send(&mut svm, &solver, &instructions).expect("both pushes to one destination should be paid");
+
+    let (state_pda, _bump) = find_state_pda(&program_id);
+    assert_eq!(lamports(&svm, &destination), amount0 + amount1);
+    assert_eq!(lamports(&svm, &state_pda), funded - amount0 - amount1);
+}
+
 #[test]
 fn happy_path_zero_amount() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
