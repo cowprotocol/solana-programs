@@ -323,7 +323,7 @@ impl<T: DerefMut<Target = [u8]>> OrderAccount<T> {
     /// order writes back the same value.
     pub fn set_cancelled(&mut self) {
         let slots = order_slots_mut(self.body_mut());
-        *slots.cancelled = [true as u8];
+        *slots.cancelled = [true.into()];
     }
 }
 
