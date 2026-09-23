@@ -89,14 +89,7 @@ impl<'a> OrderIntentAccessor<'a> {
             .unwrap_or_else(|_| unreachable!("attach rejects reserved bits"))
     }
 
-    /// SHA-256 of the canonical bytes. Doubles as the order UID and the
-    /// middle seed of the order PDA. On SBF this compiles to a single
-    /// `sol_sha256` syscall; off-target it goes through the `sha2` crate.
-    ///
-    /// Hashing the attached bytes (no re-encode) is correct because
-    /// encode/decode is a bijection on bytes that pass [`Self::attach`]. Any
-    /// normalization added to the encoding later would break this and the UID
-    /// would silently diverge from `OrderIntent::uid()`.
+    /// Compute the UID of the order, which is the sha256 hash of its bytes.
     pub fn uid(&self) -> Hash {
         hash_bytes(self.0)
     }
