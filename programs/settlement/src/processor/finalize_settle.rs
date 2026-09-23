@@ -62,8 +62,8 @@ pub fn process_finalize_settle(
 /// So ultimately, for an SPL push we are relying that the SPL token program
 /// rejects a transfer whose source and destination mints differ.
 ///
-/// We use two separate loops to effectively separate the SPL Token payments 
-/// from the native payments. This is because its not practically possible to perform 
+/// We use two separate loops to effectively separate the SPL Token payments
+/// from the native payments. This is because its not practically possible to perform
 /// lamport math (move_lamports) prior to executing a CPI (the SPL Transfer call)
 /// with the same input account. Doing so results in a `UnbalancedInstruction` revert.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
