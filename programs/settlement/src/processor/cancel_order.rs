@@ -8,6 +8,7 @@ use cow_settlement_interface::{
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::processor::create_order::process_new_onchain_order;
+use crate::processor::utils::intent::OrderIntentAccessor;
 
 pub fn process_cancel_order(
     program_id: &Address,
@@ -29,7 +30,8 @@ pub fn process_cancel_order(
         // The order already exists: flip its cancelled flag in place.
         let mut order_pda = *order_pda;
         let mut order = OrderAccount::load_from_pda_mut(&mut order_pda, program_id)?;
-        if owner.address() != &order.intent()?.owner {
+        let intent = OrderIntentAccessor::from_order(&order)?;
+        if owner.address().as_array() != intent.owner() {
             return Err(SettlementError::OwnerMismatch.into());
         }
         order.set_cancelled();
