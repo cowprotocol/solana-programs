@@ -224,6 +224,7 @@ pub struct IntentSlots<'a> {
 
 /// Split an intent's bytes into its named slots.
 #[inline]
+#[doc(hidden)]
 pub fn intent_slots(bytes: &[u8; EncodedOrderIntent::SIZE]) -> IntentSlots<'_> {
     let (
         owner,
