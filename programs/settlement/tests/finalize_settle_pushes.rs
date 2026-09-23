@@ -316,15 +316,16 @@ fn rejects_invalid_buy_token_account() {
 
     let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
     // The mint account is a convenient invalid account we can use
+    let settlable_buy_mint = settlable.buy.mint().expect("intent must be token program");
     let intent = OrderIntent {
         buy: Asset::from(TokenAsset {
-            mint: settlable.buy.mint(),
-            token_account: settlable.buy.mint(),
+            mint: settlable_buy_mint,
+            token_account: settlable_buy_mint,
         }),
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy.mint(), 1_000);
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &settlable_buy_mint, 1_000);
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
@@ -349,15 +350,16 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
     // As above, the impostor passes both instructions' push checks (the push
     // pays `intent.buy.account()` from `intent.buy.mint()`'s buffer), but its
     // owner is no token program, so there is nothing to issue the push against.
+    let settlable_buy_mint = settlable.buy.mint().expect("intent must be token program");
     let intent = OrderIntent {
         buy: Asset::from(TokenAsset {
-            mint: settlable.buy.mint(),
+            mint: settlable_buy_mint,
             token_account: impostor,
         }),
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy.mint(), 1_000);
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &settlable_buy_mint, 1_000);
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,

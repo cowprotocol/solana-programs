@@ -123,7 +123,17 @@ fn settle_and_pay_amounts(
         .iter()
         .zip(push_amounts)
         .map(|(order, &amount)| {
-            buffer::ensure_funded(svm, program_id, payer, &order.intent.buy.mint(), amount);
+            buffer::ensure_funded(
+                svm,
+                program_id,
+                payer,
+                &order
+                    .intent
+                    .buy
+                    .mint()
+                    .expect("intent must be token program"),
+                amount,
+            );
             FinalizedIntent {
                 intent: order.intent,
                 amount,
@@ -592,7 +602,10 @@ fn rejects_orders_in_wrong_address_order() {
         .iter()
         .map(|(_, intent)| {
             (
-                find_buffer_pda(&program_id, &intent.buy.mint()),
+                find_buffer_pda(
+                    &program_id,
+                    &intent.buy.mint().expect("intent must be token program"),
+                ),
                 intent.buy.account(),
             )
         })

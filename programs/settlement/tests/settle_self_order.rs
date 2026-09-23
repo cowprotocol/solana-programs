@@ -55,7 +55,10 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.buy.mint(),
+        &intent
+            .buy
+            .mint()
+            .expect("intent must buy with token program"),
         PROCEEDS,
     );
     let staged = StagedOrder {
@@ -91,7 +94,13 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     assert_eq!(
         token::balance(
             &svm,
-            &buffer::buffer_pda(&params.program_id, &intent.buy.mint())
+            &buffer::buffer_pda(
+                &params.program_id,
+                &intent
+                    .buy
+                    .mint()
+                    .expect("intent must buy with token program")
+            )
         ),
         0,
         "the buy buffer paid out the proceeds"
@@ -147,7 +156,10 @@ fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.buy.mint(),
+        &intent
+            .buy
+            .mint()
+            .expect("intent must buy with token program"),
         PROCEEDS,
     );
     let staged = StagedOrder {

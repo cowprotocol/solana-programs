@@ -163,13 +163,18 @@ impl From<TokenAsset> for Asset {
     }
 }
 
+/// Returned by [`Asset::mint`] for native SOL, which moves as lamports and has
+/// no mint.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeSolHasNoMint;
+
 impl Asset {
-    /// The mint the wire carries for this side, [`NATIVE_SOL_MINT`] for native
-    /// SOL.
-    pub fn mint(&self) -> Pubkey {
+    /// The mint of a token side. Native SOL has none: its wire marker is
+    /// [`NATIVE_SOL_MINT`], not a mint.
+    pub fn mint(&self) -> Result<Pubkey, NativeSolHasNoMint> {
         match self {
-            Asset::Native(_) => NATIVE_SOL_MINT,
-            Asset::TokenProgram(token) => token.mint,
+            Asset::Native(_) => Err(NativeSolHasNoMint),
+            Asset::TokenProgram(token) => Ok(token.mint),
         }
     }
 
@@ -502,7 +507,11 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *sell_token = intent.sell.token_account.to_bytes();
         *sell_mint = intent.sell.mint.to_bytes();
         *buy_token = intent.buy.account().to_bytes();
-        *buy_mint = intent.buy.mint().to_bytes();
+        *buy_mint = match intent.buy {
+            Asset::Native(_) => NATIVE_SOL_MINT,
+            Asset::TokenProgram(token) => token.mint,
+        }
+        .to_bytes();
         *sell_amount = intent.sell_amount.to_le_bytes();
         *buy_amount = intent.buy_amount.to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
@@ -717,7 +726,7 @@ mod tests {
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_BUY_MINT,
-            size_of_val(&intent.buy.mint())
+            size_of_val(&NATIVE_SOL_MINT)
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
@@ -907,29 +916,49 @@ mod tests {
         let mint = Pubkey::new_from_array([0x55; 32]);
         let account = Pubkey::new_from_array([0x44; 32]);
 
+        for (buy, expected_mint) in [
+            (
+                Asset::from(TokenAsset {
+                    mint,
+                    token_account: account,
+                }),
+                mint,
+            ),
+            (Asset::Native(account), NATIVE_SOL_MINT),
+        ] {
+            let encoded = EncodedOrderIntent::from(&OrderIntent {
+                buy,
+                ..sample_intent(Default::default())
+            });
+            let accessor = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
+            assert_eq!(
+                (accessor.buy_mint(), accessor.buy_token_account()),
+                (expected_mint.as_array(), account.as_array())
+            );
+        }
+    }
+
+    #[test]
+    fn only_a_token_side_has_a_mint() {
+        let mint = Pubkey::new_from_array([0x55; 32]);
+        let account = Pubkey::new_from_array([0x44; 32]);
         let token = Asset::from(TokenAsset {
             mint,
             token_account: account,
         });
-        assert_eq!((token.mint(), token.account()), (mint, account));
-
-        let native = Asset::Native(account);
-        assert_eq!(
-            (native.mint(), native.account()),
-            (NATIVE_SOL_MINT, account)
-        );
+        assert_eq!(token.mint(), Ok(mint));
+        assert_eq!(Asset::Native(account).mint(), Err(NativeSolHasNoMint));
     }
 
     #[test]
     fn a_token_side_naming_the_native_marker_is_native_sol() {
         let account = Pubkey::new_from_array([0x44; 32]);
-        let spelled_long = Asset::from(TokenAsset {
+        let spelled_long = TokenAsset {
             mint: NATIVE_SOL_MINT,
             token_account: account,
-        });
-        assert_eq!(spelled_long.mint(), NATIVE_SOL_MINT);
+        };
         assert_eq!(
-            Asset::classify(spelled_long.mint(), spelled_long.account()),
+            Asset::classify(spelled_long.mint, spelled_long.token_account),
             Asset::Native(account),
         );
     }
@@ -994,7 +1023,10 @@ mod tests {
                 prop_assert_eq!(accessor.sell_token_account(), intent.sell.token_account.as_array());
                 prop_assert_eq!(accessor.sell_mint(), intent.sell.mint.as_array());
                 prop_assert_eq!(accessor.buy_token_account(), &intent.buy.account().to_bytes());
-                prop_assert_eq!(accessor.buy_mint(), &intent.buy.mint().to_bytes());
+                prop_assert_eq!(
+                    accessor.buy_mint(),
+                    &intent.buy.mint().unwrap_or(NATIVE_SOL_MINT).to_bytes()
+                );
                 prop_assert_eq!(accessor.sell_amount(), intent.sell_amount);
                 prop_assert_eq!(accessor.buy_amount(), intent.buy_amount);
                 prop_assert_eq!(accessor.valid_to(), intent.valid_to);

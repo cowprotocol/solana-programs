@@ -362,7 +362,16 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
         &intent.sell.token_account,
         AMOUNT,
     );
-    buffer::ensure_funded(&mut svm, &program_id, &payer, &intent.buy.mint(), AMOUNT);
+    buffer::ensure_funded(
+        &mut svm,
+        &program_id,
+        &payer,
+        &intent
+            .buy
+            .mint()
+            .expect("intent must buy with token program"),
+        AMOUNT,
+    );
     let destination =
         token::create_token_account(&mut svm, &payer, &intent.sell.mint, &unique_pubkey());
     let pulls = [Pull {
