@@ -79,27 +79,19 @@ impl From<Flags> for [u8; 1] {
     }
 }
 
-impl Flags {
-    /// Rejects a flags byte carrying any reserved bit with
+impl TryFrom<[u8; 1]> for Flags {
+    type Error = ProgramError;
+
+    /// Decodes a flags byte, rejecting any reserved bit with
     /// [`ProgramError::InvalidInstructionData`]. A reserved bit carries no
     /// meaning to this version of the program, so accepting it would give the
     /// same flags several encodings, and with them several UIDs.
-    pub fn check(bytes: [u8; 1]) -> Result<(), ProgramError> {
+    fn try_from(bytes: [u8; 1]) -> Result<Self, Self::Error> {
         let [byte] = bytes;
         if byte & !Self::DEFINED != 0 {
             return Err(ProgramError::InvalidInstructionData);
         }
-        Ok(())
-    }
-
-    /// Reads the flags out of a flags byte, ignoring reserved bits: only call
-    /// it on a byte [`Self::check`] accepted. Each field is computed
-    /// independently, so once inlined the ones a caller doesn't read compile
-    /// away.
-    #[inline]
-    pub fn unpack(bytes: [u8; 1]) -> Self {
-        let [byte] = bytes;
-        Flags {
+        Ok(Flags {
             created_on_chain: byte & Self::CREATED_ON_CHAIN != 0,
             kind: if byte & Self::KIND == 0 {
                 OrderKind::Sell
@@ -107,7 +99,7 @@ impl Flags {
                 OrderKind::Buy
             },
             partially_fillable: byte & Self::PARTIALLY_FILLABLE != 0,
-        }
+        })
     }
 }
 
@@ -328,7 +320,6 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
         // as valid or it might be possible to replay the same order more
         // than once.
         let slots = intent_slots(bytes);
-        Flags::check(*slots.flags)?;
         Ok(OrderIntent {
             owner: Pubkey::new_from_array(*slots.owner),
             sell_token_account: Pubkey::new_from_array(*slots.sell_token),
@@ -338,7 +329,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
             sell_amount: u64::from_le_bytes(*slots.sell_amount),
             buy_amount: u64::from_le_bytes(*slots.buy_amount),
             valid_to: u32::from_le_bytes(*slots.valid_to),
-            flags: Flags::unpack(*slots.flags),
+            flags: Flags::try_from(*slots.flags)?,
             app_data: *slots.app_data,
         })
     }

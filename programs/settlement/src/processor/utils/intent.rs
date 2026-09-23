@@ -22,7 +22,7 @@ impl<'a> OrderIntentAccessor<'a> {
     /// reserved bit; every other byte combination attaches.
     #[inline]
     pub fn attach(bytes: &'a [u8; EncodedOrderIntent::SIZE]) -> Result<Self, ProgramError> {
-        Flags::check(*intent_slots(bytes).flags)?;
+        Flags::try_from(*intent_slots(bytes).flags)?;
         Ok(Self(bytes))
     }
 
@@ -80,12 +80,13 @@ impl<'a> OrderIntentAccessor<'a> {
         u32::from_le_bytes(*intent_slots(self.0).valid_to)
     }
 
-    /// The settings packed in the flags byte. The byte is unpacked on every
+    /// The settings packed in the flags byte. The byte is decoded on every
     /// call rather than once in [`Self::attach`], so a caller only pays for
     /// the flags it reads.
     #[inline]
     pub fn flags(&self) -> Flags {
-        Flags::unpack(*intent_slots(self.0).flags)
+        Flags::try_from(*intent_slots(self.0).flags)
+            .unwrap_or_else(|_| unreachable!("attach rejects reserved bits"))
     }
 
     /// SHA-256 of the canonical bytes. Doubles as the order UID and the

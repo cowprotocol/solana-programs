@@ -125,7 +125,7 @@ mod tests {
                 kind: OrderKind::Buy,
                 ..intent.flags
             },
-            ..intent.clone()
+            ..intent
         });
         let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntent {
             flags: Flags {
