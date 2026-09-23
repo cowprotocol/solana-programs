@@ -63,9 +63,9 @@ pub fn process_finalize_settle(
 /// rejects a transfer whose source and destination mints differ.
 ///
 /// We use two separate loops to effectively separate the SPL Token payments
-/// from the native payments. This is because its not practically possible to perform
-/// lamport math (move_lamports) prior to executing a CPI (the SPL Transfer call)
-/// with the same input account. Doing so results in a `UnbalancedInstruction` revert.
+/// from the native payments. This is because the SVM doesn't allow CPIs (in our
+/// case, the SPL Transfer call) if the lamport count for an account involved
+/// in the CPI changed before it (it reverts with `UnbalancedInstruction`).
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(
     state_pda_account: &AccountView,
