@@ -23,7 +23,7 @@ impl From<CancelOrder<'_>> for Instruction {
             owner: builder.owner,
             created_by: builder.created_by,
             order_pda,
-            intent_bytes,
+            intent_bytes: Some(intent_bytes),
         }
         .into()
     }

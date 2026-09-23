@@ -83,7 +83,7 @@ fn cancels_existing_active_order() {
         owner: owner.pubkey(),
         created_by: unrelated.pubkey(),
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     };
     let tx = Transaction::new_signed_with_payer(
         &[cancel.into()],
@@ -131,7 +131,7 @@ fn cancels_existing_order_without_created_by_signature() {
         owner: owner.pubkey(),
         created_by,
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     });
     for meta in &mut cancel.accounts {
         if meta.pubkey == created_by {
@@ -148,6 +148,73 @@ fn cancels_existing_order_without_created_by_signature() {
         account.data,
         expected_cancelled_body(&intent, bump, owner.pubkey()),
         "account data doesn't match after cancellation"
+    );
+}
+
+#[test]
+fn cancels_existing_order_without_intent_bytes() {
+    let (mut svm, program_id, owner) = common::setup();
+
+    let intent = sample_intent(owner.pubkey(), 0);
+    let (_encoded, pda, bump) = encode_and_derive(&intent, &program_id);
+
+    create_order_pda(&mut svm, &program_id, &owner, &intent);
+    assert!(!read_order(&svm, &pda).cancelled, "order must start active");
+
+    // Omit the intent bytes entirely: for an order that already exists, the
+    // instruction recovers its data from the PDA. `created_by` is unused here
+    // and doesn't sign in this mode.
+    let cancel = CancelOrder {
+        program_id,
+        owner: owner.pubkey(),
+        created_by: unique_pubkey(),
+        order_pda: pda,
+        intent_bytes: None,
+    };
+    svm.send_transaction(signed_tx(&svm, &owner, &owner, cancel))
+        .expect("cancelling an existing order must not require its intent bytes");
+
+    // The recovered order is cancelled and otherwise byte-for-byte its old self,
+    // including the original creator.
+    let account = svm.get_account(&pda).expect("order PDA must remain");
+    assert_eq!(
+        account.data,
+        expected_cancelled_body(&intent, bump, owner.pubkey()),
+        "recovering from the PDA must cancel it while preserving its stored body"
+    );
+}
+
+#[test]
+fn rejects_intentless_cancellation_of_nonexistent_order() {
+    let (mut svm, program_id, owner) = common::setup();
+
+    let intent = sample_intent(owner.pubkey(), 0);
+    let (_encoded, pda, _bump) = encode_and_derive(&intent, &program_id);
+    assert!(
+        svm.get_account(&pda).is_none(),
+        "the order must not exist yet"
+    );
+
+    // With neither intent bytes nor an existing PDA there's nothing to recover
+    // and nothing to create from, so the cancellation must be rejected rather
+    // than leaving an order behind.
+    let cancel = CancelOrder {
+        program_id,
+        owner: owner.pubkey(),
+        created_by: unique_pubkey(),
+        order_pda: pda,
+        intent_bytes: None,
+    };
+    let err = svm
+        .send_transaction(signed_tx(&svm, &owner, &owner, cancel))
+        .expect_err("an intent-less cancellation of a missing order must be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, InstructionError::UninitializedAccount),
+    );
+    assert!(
+        svm.get_account(&pda).is_none(),
+        "a rejected cancellation must not leave a PDA behind"
     );
 }
 
@@ -171,7 +238,7 @@ fn creates_cancelled_pda_for_nonexistent_order() {
         owner: owner.pubkey(),
         created_by: created_by.pubkey(),
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     };
     let tx = Transaction::new_signed_with_payer(
         &[cancel.into()],
@@ -208,7 +275,7 @@ fn a_cancelled_order_cannot_be_uncancelled_by_creating_it() {
         owner: owner.pubkey(),
         created_by: owner.pubkey(),
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     };
     svm.send_transaction(signed_tx(&svm, &owner, &owner, cancel))
         .expect("cancel_order should create the order already cancelled");
@@ -262,7 +329,7 @@ fn creating_cancelled_order_requires_created_by_signature() {
         owner: owner.pubkey(),
         created_by,
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     });
     for meta in &mut cancel.accounts {
         if meta.pubkey == created_by {
@@ -295,7 +362,7 @@ fn cancelling_is_idempotent() {
         owner: owner.pubkey(),
         created_by: owner.pubkey(),
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     };
 
     // First cancellation creates the order cancelled.
@@ -338,7 +405,7 @@ fn rejects_cancellation_by_non_owner() {
         owner: attacker.pubkey(),
         created_by: attacker.pubkey(),
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     };
     let err = svm
         .send_transaction(signed_tx(&svm, &attacker, &attacker, cancel))
@@ -372,7 +439,7 @@ fn rejects_cancellation_when_owner_does_not_sign() {
         owner: owner.pubkey(),
         created_by: owner.pubkey(),
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     });
     for meta in &mut cancel.accounts {
         if meta.pubkey == owner.pubkey() {
@@ -428,7 +495,7 @@ fn rejects_nonexistent_off_chain_intent() {
         owner: owner.pubkey(),
         created_by: owner.pubkey(),
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     };
     let err = svm
         .send_transaction(signed_tx(&svm, &owner, &owner, cancel))
@@ -458,7 +525,7 @@ fn rejects_arbitrary_wrong_pda() {
         owner: owner.pubkey(),
         created_by: owner.pubkey(),
         order_pda: wrong_pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     };
     let tx = signed_tx(&svm, &owner, &owner, cancel);
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
