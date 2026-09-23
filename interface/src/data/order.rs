@@ -31,7 +31,7 @@ use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::data::intent::{self, EncodedOrderIntent, OrderIntentAccessor, OrderKind};
+use crate::data::intent::{self, EncodedOrderIntent};
 use crate::pda::is_pda_with_signer_seeds;
 use crate::pda::order::order_pda_signer_seeds;
 use crate::{SettlementAccount, SettlementError};
@@ -129,18 +129,6 @@ pub struct FillAmounts {
     pub received: u64,
 }
 
-/// Extract the values relevant for understanding the fill of an order.
-/// Returns a tuple. First return value is the amount currently filled, and the
-/// second return value is the amount that has been requested to be filled by
-/// the intent.
-#[inline]
-pub fn fill_progress(intent: &OrderIntentAccessor, fill: FillAmounts) -> (u64, u64) {
-    match intent.flags().kind {
-        OrderKind::Sell => (fill.withdrawn, intent.sell_amount()),
-        OrderKind::Buy => (fill.received, intent.buy_amount()),
-    }
-}
-
 /// A zero-copy accessor over an order account's canonical byte representation.
 ///
 /// `T` is the borrow backing it, anything that dereferences to the account's
@@ -210,14 +198,6 @@ impl<T: Deref<Target = [u8]>> OrderAccount<T> {
     /// The verbatim [`EncodedOrderIntent`] bytes stored in the account.
     pub fn intent_bytes(&self) -> &[u8; EncodedOrderIntent::SIZE] {
         order_slots(self.body()).intent
-    }
-
-    /// Attach to the stored intent in place. Fails with
-    /// [`ProgramError::InvalidAccountData`] if any intent byte the intent
-    /// accessor rejects is out of range.
-    pub fn intent(&self) -> Result<OrderIntentAccessor<'_>, ProgramError> {
-        OrderIntentAccessor::attach(self.intent_bytes())
-            .map_err(|_| ProgramError::InvalidAccountData)
     }
 
     /// The order UID: the hash of the intent's canonical bytes. Computed over
@@ -405,8 +385,8 @@ mod tests {
         DISCRIMINATOR_OFFSET, INTENT_OFFSET,
     };
     use super::*;
-    use crate::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
-    use crate::data::intent::{Flags, OrderIntent};
+    use crate::data::intent::fixtures::FLAGS_OFFSET;
+    use crate::data::intent::OrderIntent;
 
     #[test]
     fn widths_match_order_fields() {
@@ -458,7 +438,7 @@ mod tests {
             );
             assert_eq!(order.created_by(), created_by);
             assert_eq!(
-                OrderIntent::from(&order.intent().expect("valid intent")),
+                OrderIntent::try_from(order.intent_bytes()).expect("valid intent"),
                 intent
             );
             assert_eq!(order.intent_uid(), intent.uid());
@@ -498,51 +478,6 @@ mod tests {
     }
 
     #[test]
-    fn fill_progress_tracks_the_exact_side_only() {
-        const SELL_AMOUNT: u64 = 1_000;
-        const BUY_AMOUNT: u64 = 2_000;
-
-        let intent = |kind| {
-            EncodedOrderIntent::from(&OrderIntent {
-                sell_amount: SELL_AMOUNT,
-                buy_amount: BUY_AMOUNT,
-                ..sample_intent(Flags {
-                    kind,
-                    ..Default::default()
-                })
-            })
-        };
-
-        // (kind, withdrawn, received, expected)
-        let cases = [
-            (OrderKind::Sell, SELL_AMOUNT, 0, true), // fully filled SELL order (stolen money, generally impossible)
-            (OrderKind::Buy, 0, BUY_AMOUNT, true),   // fully filled BUY order (free money)
-            (OrderKind::Sell, u64::MAX, 0, true), // sell fill past the intent amount (should be impossible)
-            (OrderKind::Sell, u64::MAX, u64::MAX, true), // sell fill past the intent amount (should be impossible)
-            (OrderKind::Buy, 0, u64::MAX, true),         // buy fill past the intent amount
-            (OrderKind::Buy, u64::MAX, u64::MAX, true),  // buy fill past the intent amount
-            (OrderKind::Sell, 0, 0, false),              // unfilled order
-            (OrderKind::Sell, SELL_AMOUNT - 1, BUY_AMOUNT, false), // not fully filled SELL order
-            (OrderKind::Buy, SELL_AMOUNT, BUY_AMOUNT - 1, false), // not fully filled BUY order with fully filled sell side (generally should be impossible)
-        ];
-        for (kind, withdrawn, received, expected) in cases {
-            let encoded = intent(kind);
-            let (filled, order_amount) = fill_progress(
-                &OrderIntentAccessor::attach(&encoded).expect("sample must attach"),
-                FillAmounts {
-                    withdrawn,
-                    received,
-                },
-            );
-            assert_eq!(
-                filled >= order_amount,
-                expected,
-                "{kind:?} order withdrawn={withdrawn} received={received}",
-            );
-        }
-    }
-
-    #[test]
     fn sanity_check_offsets() {
         fn first_differing_byte(lhs: &[u8], rhs: &[u8]) -> Option<usize> {
             lhs.iter().zip(rhs).position(|(l, r)| l != r)
@@ -565,10 +500,8 @@ mod tests {
         // its `created_on_chain` flag bits, never a reserved one.
         let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
             encoded_intent.map(|b| b ^ 0x01);
-        let changed_intent_field = OrderIntent::from(
-            &OrderIntentAccessor::attach(&bitwise_different_encoded_intent)
-                .expect("hack should work"),
-        );
+        let changed_intent_field =
+            OrderIntent::try_from(&bitwise_different_encoded_intent).expect("hack should work");
         let changed_intent = OrderFields {
             intent: changed_intent_field,
             ..sample_order_fields(false)
@@ -613,16 +546,6 @@ mod tests {
                 OrderAccount::attach(&bytes[..]).expect("attach ignores the cancelled byte");
             assert_eq!(order.cancelled(), Err(ProgramError::InvalidAccountData));
         }
-    }
-
-    #[test]
-    fn intent_propagates_invalid_intent() {
-        let mut bytes = sample_order_bytes(false);
-        // Set a reserved bit of the flags byte inside the intent slot: the
-        // intent decoder rejects it and the read surfaces `InvalidAccountData`.
-        bytes[INTENT_OFFSET + FLAGS_OFFSET] = 0xff;
-        let order = OrderAccount::attach(&bytes[..]).expect("attach ignores the intent slot");
-        assert_eq!(order.intent(), Err(ProgramError::InvalidAccountData));
     }
 
     mod load_from_pda {
@@ -726,7 +649,7 @@ mod tests {
                 prop_assert_eq!(order.created_by(), created_by);
                 prop_assert_eq!(order.intent_uid(), intent.uid());
                 prop_assert_eq!(
-                    OrderIntent::from(&order.intent().expect("valid intent")),
+                    OrderIntent::try_from(order.intent_bytes()).expect("valid intent"),
                     intent
                 );
             }
@@ -754,11 +677,8 @@ mod tests {
                     amount_withdrawn: filled.withdrawn,
                     amount_received: filled.received,
                     created_by: order.created_by(),
-                    intent: OrderIntent::from(
-                        &order
-                            .intent()
-                            .map_err(|e| TestCaseError::fail(format!("intent: {e:?}")))?,
-                    ),
+                    intent: OrderIntent::try_from(order.intent_bytes())
+                        .map_err(|e| TestCaseError::fail(format!("intent: {e:?}")))?,
                 }
                 .encode();
                 prop_assert_eq!(reencoded, bytes);

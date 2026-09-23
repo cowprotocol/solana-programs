@@ -51,7 +51,8 @@ impl TryFrom<&[u8]> for DecodedOrderAccount {
             amount_withdrawn: filled.withdrawn,
             amount_received: filled.received,
             created_by: order.created_by(),
-            intent: (&order.intent()?).into(),
+            intent: OrderIntent::try_from(order.intent_bytes())
+                .map_err(|_| ProgramError::InvalidAccountData)?,
         })
     }
 }

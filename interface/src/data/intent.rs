@@ -1,20 +1,17 @@
 //! Order intents and their canonical byte representation.
 //!
-//! The intent has three representations:
+//! The intent has two representations:
 //!
 //! - [`OrderIntent`] is the idiomatic Rust representation. Everything outside
 //!   the settlement program uses it.
-//! - [`OrderIntentAccessor`] is a zero-copy accessor over the encoded bytes,
-//!   reading the wire field by field. The settlement program works with it, so
-//!   it spends no compute copying fields it only compares.
 //! - [`EncodedOrderIntent`] is the canonical byte representation: the only
 //!   thing sent on the wire and also the data encoding used to generate the
 //!   order UID. There, `kind` and the intent's booleans share a single flags
 //!   byte.
 //!
 //! Conversion is asymmetric: encoding an [`OrderIntent`] is infallible, but
-//! attaching to raw bytes via [`OrderIntentAccessor::attach`] returns `Result`
-//! and rejects a flags byte carrying a bit the encoding doesn't define.
+//! decoding raw bytes returns `Result` and rejects a flags byte carrying a bit
+//! the encoding doesn't define.
 
 use core::mem::size_of;
 
@@ -87,8 +84,7 @@ impl Flags {
     /// [`ProgramError::InvalidInstructionData`]. A reserved bit carries no
     /// meaning to this version of the program, so accepting it would give the
     /// same flags several encodings, and with them several UIDs.
-    #[inline]
-    fn check(bytes: [u8; 1]) -> Result<(), ProgramError> {
+    pub fn check(bytes: [u8; 1]) -> Result<(), ProgramError> {
         let [byte] = bytes;
         if byte & !Self::DEFINED != 0 {
             return Err(ProgramError::InvalidInstructionData);
@@ -100,8 +96,8 @@ impl Flags {
     /// it on a byte [`Self::check`] accepted. Each field is computed
     /// independently, so once inlined the ones a caller doesn't read compile
     /// away.
-    #[inline(always)]
-    fn unpack(bytes: [u8; 1]) -> Self {
+    #[inline]
+    pub fn unpack(bytes: [u8; 1]) -> Self {
         let [byte] = bytes;
         Flags {
             created_on_chain: byte & Self::CREATED_ON_CHAIN != 0,
@@ -206,23 +202,6 @@ impl EncodedOrderIntent {
     pub fn hash(&self) -> Hash {
         hash_bytes(&self.0)
     }
-
-    /// Attach an [`OrderIntentAccessor`] to raw bytes and compute the UID in
-    /// one shot. Returns [`ProgramError::InvalidInstructionData`] for a flags
-    /// byte that doesn't encode correctly; every other byte combination
-    /// decodes.
-    pub fn decode_and_hash(
-        bytes: &[u8; Self::SIZE],
-    ) -> Result<(OrderIntentAccessor<'_>, Hash), ProgramError> {
-        let intent = OrderIntentAccessor::attach(bytes)?;
-        // The UID is the SHA-256 of the input bytes. Hashing the input
-        // (no re-encode) is correct because encode/decode is a bijection on
-        // inputs that pass validation. Any normalization added to the `From`
-        // or `TryFrom` impls later would break this and the UID would silently
-        // diverge from `OrderIntent::uid()`.
-        let uid = hash_bytes(bytes);
-        Ok((intent, uid))
-    }
 }
 
 pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
@@ -236,23 +215,24 @@ impl From<&EncodedOrderIntent> for [u8; EncodedOrderIntent::SIZE] {
 }
 
 /// A borrowed view over an intent's bytes, split into named slots so each
-/// field can be named.
-struct IntentSlots<'a> {
-    owner: &'a [u8; EncodedOrderIntent::WIDTH_OWNER],
-    sell_token: &'a [u8; EncodedOrderIntent::WIDTH_SELL_TOKEN],
-    sell_mint: &'a [u8; EncodedOrderIntent::WIDTH_SELL_MINT],
-    buy_token: &'a [u8; EncodedOrderIntent::WIDTH_BUY_TOKEN],
-    buy_mint: &'a [u8; EncodedOrderIntent::WIDTH_BUY_MINT],
-    sell_amount: &'a [u8; EncodedOrderIntent::WIDTH_SELL_AMOUNT],
-    buy_amount: &'a [u8; EncodedOrderIntent::WIDTH_BUY_AMOUNT],
-    valid_to: &'a [u8; EncodedOrderIntent::WIDTH_VALID_TO],
-    flags: &'a [u8; EncodedOrderIntent::WIDTH_FLAGS],
-    app_data: &'a [u8; EncodedOrderIntent::WIDTH_APP_DATA],
+/// field can be named. The slots hold raw encoded bytes, not decoded values.
+#[doc(hidden)]
+pub struct IntentSlots<'a> {
+    pub owner: &'a [u8; EncodedOrderIntent::WIDTH_OWNER],
+    pub sell_token: &'a [u8; EncodedOrderIntent::WIDTH_SELL_TOKEN],
+    pub sell_mint: &'a [u8; EncodedOrderIntent::WIDTH_SELL_MINT],
+    pub buy_token: &'a [u8; EncodedOrderIntent::WIDTH_BUY_TOKEN],
+    pub buy_mint: &'a [u8; EncodedOrderIntent::WIDTH_BUY_MINT],
+    pub sell_amount: &'a [u8; EncodedOrderIntent::WIDTH_SELL_AMOUNT],
+    pub buy_amount: &'a [u8; EncodedOrderIntent::WIDTH_BUY_AMOUNT],
+    pub valid_to: &'a [u8; EncodedOrderIntent::WIDTH_VALID_TO],
+    pub flags: &'a [u8; EncodedOrderIntent::WIDTH_FLAGS],
+    pub app_data: &'a [u8; EncodedOrderIntent::WIDTH_APP_DATA],
 }
 
 /// Split an intent's bytes into its named slots.
 #[inline]
-fn intent_slots(bytes: &[u8; EncodedOrderIntent::SIZE]) -> IntentSlots<'_> {
+pub fn intent_slots(bytes: &[u8; EncodedOrderIntent::SIZE]) -> IntentSlots<'_> {
     let (
         owner,
         sell_token,
@@ -288,105 +268,6 @@ fn intent_slots(bytes: &[u8; EncodedOrderIntent::SIZE]) -> IntentSlots<'_> {
         valid_to,
         flags,
         app_data,
-    }
-}
-
-/// A zero-copy accessor over an intent's canonical bytes, one getter per wire
-/// field. The settlement program reads intents through it, so it spends no
-/// compute copying fields it only compares.
-///
-/// The flags byte is the only one that can fail to decode, so [`Self::attach`]
-/// validates it; every getter, [`Self::flags`] included, is infallible.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OrderIntentAccessor<'a>(&'a [u8; EncodedOrderIntent::SIZE]);
-
-impl<'a> OrderIntentAccessor<'a> {
-    /// Wrap an intent's bytes. Fails with
-    /// [`ProgramError::InvalidInstructionData`] if the flags byte sets a
-    /// reserved bit; every other byte combination attaches.
-    #[inline]
-    pub fn attach(bytes: &'a [u8; EncodedOrderIntent::SIZE]) -> Result<Self, ProgramError> {
-        // It's important that the byte representation of an intent is unique.
-        // This function should be injective: there shouldn't be two byte
-        // sequences that decode to the same order intent.
-        // If this were to happen, then the user intent may not be recognized
-        // as valid or it might be possible to replay the same order more
-        // than once.
-        Flags::check(*intent_slots(bytes).flags)?;
-        Ok(Self(bytes))
-    }
-
-    /// Account authorized to create and invalidate this order and whose
-    /// signature authenticates it; see [`OrderIntent::owner`].
-    #[inline]
-    pub fn owner(&self) -> &'a [u8; 32] {
-        intent_slots(self.0).owner
-    }
-
-    /// Token account the sell-side funds are pulled from; see
-    /// [`OrderIntent::sell_token_account`].
-    #[inline]
-    pub fn sell_token_account(&self) -> &'a [u8; 32] {
-        intent_slots(self.0).sell_token
-    }
-
-    /// Mint of the sell token.
-    #[inline]
-    pub fn sell_mint(&self) -> &'a [u8; 32] {
-        intent_slots(self.0).sell_mint
-    }
-
-    /// Token account that receives the buy-side proceeds; see
-    /// [`OrderIntent::buy_token_account`].
-    #[inline]
-    pub fn buy_token_account(&self) -> &'a [u8; 32] {
-        intent_slots(self.0).buy_token
-    }
-
-    /// Mint of the buy token.
-    #[inline]
-    pub fn buy_mint(&self) -> &'a [u8; 32] {
-        intent_slots(self.0).buy_mint
-    }
-
-    /// Amount of the sell token; see [`OrderIntent::sell_amount`].
-    #[inline]
-    pub fn sell_amount(&self) -> u64 {
-        u64::from_le_bytes(*intent_slots(self.0).sell_amount)
-    }
-
-    /// Amount of the buy token; see [`OrderIntent::buy_amount`].
-    #[inline]
-    pub fn buy_amount(&self) -> u64 {
-        u64::from_le_bytes(*intent_slots(self.0).buy_amount)
-    }
-
-    /// Unix timestamp after which the order expires.
-    #[inline]
-    pub fn valid_to(&self) -> u32 {
-        u32::from_le_bytes(*intent_slots(self.0).valid_to)
-    }
-
-    /// The settings packed in the flags byte. The byte is unpacked on every
-    /// call rather than once in [`Self::attach`], so a caller only pays for
-    /// the flags it reads.
-    #[inline(always)]
-    pub fn flags(&self) -> Flags {
-        Flags::unpack(*intent_slots(self.0).flags)
-    }
-
-    /// Opaque 32 bytes set by the order creator.
-    #[inline]
-    pub fn app_data(&self) -> [u8; 32] {
-        *intent_slots(self.0).app_data
-    }
-
-    /// SHA-256 of the canonical bytes. Doubles as the order UID and the
-    /// middle seed of the order PDA. On SBF this compiles to a single
-    /// `sol_sha256` syscall; off-target it goes through the `sha2` crate.
-    #[inline]
-    pub fn uid(&self) -> Hash {
-        hash_bytes(self.0)
     }
 }
 
@@ -433,26 +314,39 @@ impl From<&OrderIntent> for EncodedOrderIntent {
     }
 }
 
-impl From<&OrderIntentAccessor<'_>> for OrderIntent {
-    fn from(intent: &OrderIntentAccessor<'_>) -> Self {
-        OrderIntent {
-            owner: Pubkey::new_from_array(*intent.owner()),
-            sell_token_account: Pubkey::new_from_array(*intent.sell_token_account()),
-            sell_mint: Pubkey::new_from_array(*intent.sell_mint()),
-            buy_token_account: Pubkey::new_from_array(*intent.buy_token_account()),
-            buy_mint: Pubkey::new_from_array(*intent.buy_mint()),
-            sell_amount: intent.sell_amount(),
-            buy_amount: intent.buy_amount(),
-            valid_to: intent.valid_to(),
-            flags: intent.flags(),
-            app_data: intent.app_data(),
-        }
+impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
+    type Error = ProgramError;
+
+    /// Decode an intent's canonical bytes. Fails with
+    /// [`ProgramError::InvalidInstructionData`] if the flags byte sets a
+    /// reserved bit; every other byte combination decodes.
+    fn try_from(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Result<Self, Self::Error> {
+        // It's important that the byte representation of an intent is unique.
+        // This function should be injective: there shouldn't be two byte
+        // sequences that decode to the same order intent.
+        // If this were to happen, then the user intent may not be recognized
+        // as valid or it might be possible to replay the same order more
+        // than once.
+        let slots = intent_slots(bytes);
+        Flags::check(*slots.flags)?;
+        Ok(OrderIntent {
+            owner: Pubkey::new_from_array(*slots.owner),
+            sell_token_account: Pubkey::new_from_array(*slots.sell_token),
+            sell_mint: Pubkey::new_from_array(*slots.sell_mint),
+            buy_token_account: Pubkey::new_from_array(*slots.buy_token),
+            buy_mint: Pubkey::new_from_array(*slots.buy_mint),
+            sell_amount: u64::from_le_bytes(*slots.sell_amount),
+            buy_amount: u64::from_le_bytes(*slots.buy_amount),
+            valid_to: u32::from_le_bytes(*slots.valid_to),
+            flags: Flags::unpack(*slots.flags),
+            app_data: *slots.app_data,
+        })
     }
 }
 
 impl OrderIntent {
-    /// SHA-256 of the canonical bytes; see [`OrderIntentAccessor::uid`]. Both
-    /// representations read the same bytes, so both name the same order.
+    /// SHA-256 of the canonical bytes. Doubles as the order UID and the
+    /// middle seed of the order PDA.
     pub fn uid(&self) -> Hash {
         EncodedOrderIntent::from(self).hash()
     }
@@ -685,23 +579,8 @@ mod tests {
     fn roundtrip_all_kind_and_flag_combinations() {
         for intent in all_flag_shapes() {
             let encoded = EncodedOrderIntent::from(&intent);
-            let (decoded, _uid) =
-                EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
-            assert_eq!(OrderIntent::from(&decoded), intent);
-        }
-    }
-
-    // Locks the bijection invariant called out in `decode_and_hash`: the
-    // UID computed over the raw input bytes must equal the hash of the
-    // canonical re-encoding. If anything ever normalizes during
-    // encode/decode, this test fails.
-    #[test]
-    fn decode_and_hash_uid_matches_encoded_hash() {
-        for intent in all_flag_shapes() {
-            let encoded = EncodedOrderIntent::from(&intent);
-            let (_intent, uid) =
-                EncodedOrderIntent::decode_and_hash(&encoded).expect("example must decode");
-            assert_eq!(uid, encoded.hash());
+            let decoded = OrderIntent::try_from(&*encoded).expect("example must decode");
+            assert_eq!(decoded, intent);
         }
     }
 
@@ -711,7 +590,7 @@ mod tests {
         let mut bytes: [u8; EncodedOrderIntent::SIZE] = *encoded;
         for flags in u8::MIN..=u8::MAX {
             bytes[FLAGS_OFFSET] = flags;
-            let decoded = EncodedOrderIntent::decode_and_hash(&bytes);
+            let decoded = OrderIntent::try_from(&bytes);
             if flags & !Flags::DEFINED != 0 {
                 assert_eq!(
                     decoded.err(),
@@ -803,49 +682,26 @@ mod tests {
 
         proptest! {
             // For any `OrderIntent`, encoding an intent into an encoded
-            // intent and then decoding it with `decode_and_hash()` returns
-            // the same intent plus a UID that matches the encoded bytes'
-            // hash.
+            // intent and then decoding it returns the same intent.
             #[test]
             fn intent_roundtrip(intent in arb_order_intent()) {
                 let encoded = EncodedOrderIntent::from(&intent);
-                let (decoded, uid) = EncodedOrderIntent::decode_and_hash(&encoded)
+                let decoded = OrderIntent::try_from(&*encoded)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
-                prop_assert_eq!(OrderIntent::from(&decoded), intent);
-                prop_assert_eq!(uid, encoded.hash());
+                prop_assert_eq!(decoded, intent);
             }
 
-            // For any `OrderIntent`, each accessor getter reads back the wire
-            // field the encoding wrote.
-            #[test]
-            fn accessor_reads_the_encoded_fields(intent in arb_order_intent()) {
-                let encoded = EncodedOrderIntent::from(&intent);
-                let accessor = OrderIntentAccessor::attach(&encoded)
-                    .map_err(|e| TestCaseError::fail(format!("attach failed: {e:?}")))?;
-                prop_assert_eq!(accessor.owner(), intent.owner.as_array());
-                prop_assert_eq!(accessor.sell_token_account(), intent.sell_token_account.as_array());
-                prop_assert_eq!(accessor.sell_mint(), intent.sell_mint.as_array());
-                prop_assert_eq!(accessor.buy_token_account(), intent.buy_token_account.as_array());
-                prop_assert_eq!(accessor.buy_mint(), intent.buy_mint.as_array());
-                prop_assert_eq!(accessor.sell_amount(), intent.sell_amount);
-                prop_assert_eq!(accessor.buy_amount(), intent.buy_amount);
-                prop_assert_eq!(accessor.valid_to(), intent.valid_to);
-                prop_assert_eq!(accessor.flags(), intent.flags);
-                prop_assert_eq!(accessor.app_data(), intent.app_data);
-                prop_assert_eq!(accessor.uid(), intent.uid());
-            }
-
-            // For any bytes whose flags slot is valid, `decode_and_hash` and
-            // then re-encoding produces back the original bytes.
+            // For any bytes whose flags slot is valid, decoding and then
+            // re-encoding produces back the original bytes.
             #[test]
             fn bytes_roundtrip(
                 mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
                 flags in arb_flags_byte(),
             ) {
                 bytes[FLAGS_OFFSET] = flags;
-                let (intent, _uid) = EncodedOrderIntent::decode_and_hash(&bytes)
+                let intent = OrderIntent::try_from(&bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
-                prop_assert_eq!(*EncodedOrderIntent::from(&OrderIntent::from(&intent)), bytes);
+                prop_assert_eq!(*EncodedOrderIntent::from(&intent), bytes);
             }
 
             // Symmetric: any bytes whose flags byte carries a reserved bit
@@ -857,7 +713,7 @@ mod tests {
             ) {
                 bytes[FLAGS_OFFSET] = bad_flags;
                 prop_assert_eq!(
-                    EncodedOrderIntent::decode_and_hash(&bytes),
+                    OrderIntent::try_from(&bytes),
                     Err(ProgramError::InvalidInstructionData),
                 );
             }
