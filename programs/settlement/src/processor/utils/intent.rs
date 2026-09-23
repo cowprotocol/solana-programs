@@ -210,6 +210,7 @@ mod tests {
                     buy_amount,
                     valid_to,
                     flags,
+                    // Unused by program, so not a declared function on the accessor
                     app_data: _,
                 } = intent;
 
