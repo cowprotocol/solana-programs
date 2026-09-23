@@ -355,6 +355,54 @@ fn rejects_cancellation_by_non_owner() {
     );
 }
 
+#[test]
+fn rejects_cancellation_when_owner_does_not_sign() {
+    let (mut svm, program_id, owner) = common::setup();
+
+    let intent = sample_intent(owner.pubkey(), 0);
+    let (encoded, pda, _bump) = encode_and_derive(&intent, &program_id);
+
+    create_order_pda(&mut svm, &program_id, &owner, &intent);
+    let before = svm.get_account(&pda).expect("order PDA must exist");
+
+    // The owner keeps its slot but its signature is stripped. Cancellation
+    // authenticates the owner, so an unsigned request must be rejected.
+    let mut cancel = Instruction::from(CancelOrder {
+        program_id,
+        owner: owner.pubkey(),
+        created_by: owner.pubkey(),
+        order_pda: pda,
+        intent_bytes: encoded,
+    });
+    for meta in &mut cancel.accounts {
+        if meta.pubkey == owner.pubkey() {
+            assert!(
+                meta.is_signer,
+                "sanity check failed: owner is expected to be a signer"
+            );
+            meta.is_signer = false;
+        }
+    }
+
+    // A separate fee payer submits, since the owner now signs nothing.
+    let fee_payer = unique_keypair();
+    svm.airdrop(&fee_payer.pubkey(), 1_000_000_000)
+        .expect("airdrop to fee_payer should succeed");
+    let err = svm
+        .send_transaction(signed_tx(&svm, &fee_payer, &fee_payer, cancel))
+        .expect_err("cancelling without the owner's signature must be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::InstructionError(0, InstructionError::MissingRequiredSignature),
+    );
+
+    let after = svm.get_account(&pda).expect("order PDA must still exist");
+    assert_eq!(
+        before, after,
+        "a rejected cancellation must not change the order"
+    );
+}
+
 // This is a bit tricky: right now, there's no way to cancel off-chain (i.e.,
 // signature-based) orders that haven't been created on-chain jet. On the other
 // hand, there's no way to create off-chain orders at this point, so for now
