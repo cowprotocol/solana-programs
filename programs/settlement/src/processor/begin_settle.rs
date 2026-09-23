@@ -265,15 +265,11 @@ fn process_order(
     } = order;
 
     let mut order_pda = *order_pda;
-    let order_address = *order_pda.address();
     // We intentionally keep the borrow alive. This is a security feature: for
     // example, if the token transfer involves a CPI that cancels the order and
     // recreates it, the transaction reverts. The borrow must live until we
     // write back.
-    let mut data = order_pda.try_borrow_mut()?;
-    let mut order = OrderAccount::attach(&mut data[..])?;
-
-    order.check_pda(&order_address, program_id)?;
+    let mut order = OrderAccount::load_from_pda_mut(&mut order_pda, program_id)?;
     if order.cancelled()? {
         return Err(SettlementError::OrderCancelled.into());
     }

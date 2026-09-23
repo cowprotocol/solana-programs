@@ -276,8 +276,6 @@ fn rejects_recreating_order_with_a_different_creator() {
         .expect("first create_order should succeed");
     let before = svm.get_account(&pda).expect("order PDA should exist");
 
-    svm.expire_blockhash();
-
     // The second call uses a different `created_by`, but the order already
     // exists, so it must be rejected and leave the stored order (including its
     // `created_by`) byte-for-byte unchanged.
