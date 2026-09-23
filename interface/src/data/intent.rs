@@ -143,16 +143,24 @@ impl Default for Asset {
     }
 }
 
-impl From<TokenAsset> for Asset {
-    fn from(token: TokenAsset) -> Self {
-        Asset::TokenProgram(token)
-    }
-}
-
 /// Returned by [`Asset::mint`] for native SOL, which moves as lamports and has
 /// no mint.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeSolHasNoMint;
+
+impl TryFrom<TokenAsset> for Asset {
+    type Error = NativeSolHasNoMint;
+
+    /// Rejects a `token` naming [`NATIVE_SOL_MINT`]: that's native SOL, and
+    /// wrapping it as a token side would encode an asset that decodes back as
+    /// [`Asset::Native`].
+    fn try_from(token: TokenAsset) -> Result<Self, Self::Error> {
+        if Self::is_native_sol(token.mint.as_array()) {
+            return Err(NativeSolHasNoMint);
+        }
+        Ok(Asset::TokenProgram(token))
+    }
+}
 
 impl Asset {
     /// Whether the mint bytes `mint` name native SOL; see
@@ -788,10 +796,11 @@ mod tests {
 
         for (buy, expected_mint) in [
             (
-                Asset::from(TokenAsset {
+                Asset::try_from(TokenAsset {
                     mint,
                     token_account: account,
-                }),
+                })
+                .expect("not native SOL"),
                 mint,
             ),
             (Asset::Native(account), NATIVE_SOL_MINT),
@@ -809,10 +818,11 @@ mod tests {
     fn only_a_token_side_has_a_mint() {
         let mint = Pubkey::new_from_array([0x55; 32]);
         let account = Pubkey::new_from_array([0x44; 32]);
-        let token = Asset::from(TokenAsset {
+        let token = Asset::try_from(TokenAsset {
             mint,
             token_account: account,
-        });
+        })
+        .expect("not native SOL");
         assert_eq!(token.mint(), Ok(mint));
         assert_eq!(Asset::Native(account).mint(), Err(NativeSolHasNoMint));
     }
@@ -843,6 +853,15 @@ mod tests {
             Asset::classify(spelled_long.mint, spelled_long.token_account),
             Asset::Native(account),
         );
+    }
+
+    #[test]
+    fn a_token_side_naming_the_native_marker_is_not_a_token_asset() {
+        let token = TokenAsset {
+            mint: NATIVE_SOL_MINT,
+            token_account: Pubkey::new_from_array([0x44; 32]),
+        };
+        assert_eq!(Asset::try_from(token), Err(NativeSolHasNoMint));
     }
 
     #[test]

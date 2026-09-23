@@ -318,10 +318,11 @@ fn rejects_invalid_buy_token_account() {
     // The mint account is a convenient invalid account we can use
     let settlable_buy_mint = settlable.buy.mint().expect("intent must be token program");
     let intent = OrderIntent {
-        buy: Asset::from(TokenAsset {
+        buy: Asset::try_from(TokenAsset {
             mint: settlable_buy_mint,
             token_account: settlable_buy_mint,
-        }),
+        })
+        .expect("not native SOL"),
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
@@ -352,10 +353,11 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
     // owner is no token program, so there is nothing to issue the push against.
     let settlable_buy_mint = settlable.buy.mint().expect("intent must be token program");
     let intent = OrderIntent {
-        buy: Asset::from(TokenAsset {
+        buy: Asset::try_from(TokenAsset {
             mint: settlable_buy_mint,
             token_account: impostor,
-        }),
+        })
+        .expect("not native SOL"),
         ..settlable
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);

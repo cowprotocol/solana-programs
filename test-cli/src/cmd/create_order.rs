@@ -161,10 +161,11 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
             mint: sell.mint,
             token_account: sell.ta,
         },
-        buy: Asset::from(TokenAsset {
+        buy: Asset::try_from(TokenAsset {
             mint: buy.mint,
             token_account: buy.ta,
-        }),
+        })
+        .map_err(|_| anyhow::anyhow!("buy mint {} is the native SOL marker", buy.mint))?,
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,

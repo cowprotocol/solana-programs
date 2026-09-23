@@ -378,10 +378,11 @@ fn rejects_sell_token_owner_mismatch() {
             mint: sell_mint,
             token_account: sell_token,
         },
-        buy: Asset::from(TokenAsset {
+        buy: Asset::try_from(TokenAsset {
             mint: buy_mint,
             token_account: buy_token,
-        }),
+        })
+        .expect("not native SOL"),
         ..sample_intent(payer.pubkey(), 1)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);

@@ -31,10 +31,11 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
             token_account: Pubkey::new_from_array([0x22; 32]),
             mint: Pubkey::new_from_array([0x33; 32]),
         },
-        buy: Asset::from(TokenAsset {
+        buy: Asset::try_from(TokenAsset {
             token_account: Pubkey::new_from_array([0x44; 32]),
             mint: Pubkey::new_from_array([0x55; 32]),
-        }),
+        })
+        .expect("not native SOL"),
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,
@@ -63,10 +64,11 @@ pub fn settlable_intent(
             mint: sell_mint,
             token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
         },
-        buy: Asset::from(TokenAsset {
+        buy: Asset::try_from(TokenAsset {
             mint: buy_mint,
             token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
-        }),
+        })
+        .expect("not native SOL"),
         ..sample_intent(owner, salt)
     }
 }
@@ -163,7 +165,10 @@ impl TokenSource {
             TokenSource::Mint(mint) if Asset::is_native_sol(mint.as_array()) => {
                 Asset::Native(unique_pubkey())
             }
-            source => source.resolve(svm, program_id, payer, false).into(),
+            source => source
+                .resolve(svm, program_id, payer, false)
+                .try_into()
+                .expect("native SOL is handled above"),
         }
     }
 }
