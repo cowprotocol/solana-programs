@@ -37,6 +37,7 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
 /// Confirm `address` matches the settlement state PDA for `program_id` and
 /// `bump`. Takes the bump as given, so it costs one derivation where
 /// [`find_state_pda`] searches.
+#[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_state_pda(
     program_id: &Address,

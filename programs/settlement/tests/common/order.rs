@@ -161,7 +161,9 @@ impl TokenSource {
     /// account at all.
     fn resolve_buy(self, svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> Asset {
         match self {
-            TokenSource::Mint(mint) if is_native_sol(&mint) => Asset::Native(unique_pubkey()),
+            TokenSource::Mint(mint) if is_native_sol(mint.as_array()) => {
+                Asset::Native(unique_pubkey())
+            }
             source => source.resolve(svm, program_id, payer, false).into(),
         }
     }

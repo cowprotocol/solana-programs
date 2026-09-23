@@ -31,10 +31,10 @@ fn reclaim_sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
         valid_to: VALID_TO,
-        ..OrderIntent::from(&sample_intent(Flags {
+        ..sample_intent(Flags {
             created_on_chain: true,
             ..Default::default()
-        }))
+        })
     }
 }
 

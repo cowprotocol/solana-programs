@@ -88,7 +88,7 @@ mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_client_intent,
+        data::intent::fixtures::arb_order_intent,
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
@@ -142,7 +142,7 @@ mod tests {
         fn finalize_settle_derives_buffers_from_mints(
             begin_ix_index in any::<u16>(),
             cases in prop::collection::vec(
-                (arb_client_intent(), any::<u64>()),
+                (arb_order_intent(), any::<u64>()),
                 1..=5,
             ),
         ) {

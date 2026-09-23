@@ -81,7 +81,7 @@ mod tests {
                 amount_withdrawn,
                 amount_received,
                 created_by,
-                intent: (&intent).into(),
+                intent,
             }
         }
     }

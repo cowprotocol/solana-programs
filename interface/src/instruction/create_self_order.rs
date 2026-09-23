@@ -105,7 +105,7 @@ pub mod fixtures {
     use solana_address::Address;
 
     use super::{CreateSelfOrder, EncodedOrderIntent, Instruction};
-    use crate::data::intent::OrderIntentAccessor;
+    use crate::data::intent::OrderIntent;
 
     /// Number of accounts `CreateSelfOrder` expects: authority, created_by, state
     /// PDA, order PDA, and the system program.
@@ -113,7 +113,7 @@ pub mod fixtures {
 
     /// `CreateSelfOrder` instruction data carrying `intent`, with
     /// placeholder addresses for failure cases where the addresses don't matter.
-    pub fn self_order_data(intent: &OrderIntentAccessor) -> Vec<u8> {
+    pub fn self_order_data(intent: &OrderIntent) -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
         Instruction::from(CreateSelfOrder {
             program_id: zero,
@@ -132,7 +132,7 @@ mod tests {
     use super::fixtures::{self_order_data, NUM_ACCOUNTS};
     use super::*;
     use crate::data::intent::fixtures::sample_intent;
-    use crate::data::intent::OrderIntentAccessor;
+    use crate::data::intent::OrderIntent;
     use crate::fixtures::pubkey_from_seed;
     use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
     use crate::instruction::tests::{
@@ -144,7 +144,7 @@ mod tests {
     /// A well-formed sample self order intent for these tests. The owner
     /// and flags aren't checked at this layer (only the handler does), so any
     /// well-formed intent works.
-    fn intent() -> OrderIntentAccessor {
+    fn intent() -> OrderIntent {
         sample_intent(Default::default())
     }
 

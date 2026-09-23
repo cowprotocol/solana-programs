@@ -8,11 +8,12 @@ pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 /// than a token; see [`Asset::Native`](crate::data::intent::Asset::Native).
 pub const NATIVE_SOL_MINT: Pubkey = solana_system_interface::program::ID;
 
-/// Whether `mint` names native SOL; see
+/// Whether the mint bytes `mint` name native SOL; see
 /// [`NATIVE_SOL_MINT`].
+#[inline]
 #[must_use]
-pub fn is_native_sol(mint: &Pubkey) -> bool {
-    mint == &NATIVE_SOL_MINT
+pub fn is_native_sol(mint: &[u8; 32]) -> bool {
+    mint == NATIVE_SOL_MINT.as_array()
 }
 
 /// A token program a token-moving instruction accepts.
@@ -75,15 +76,15 @@ mod tests {
 
     #[test]
     fn native_sol_mint_is_the_system_program() {
-        assert!(is_native_sol(&NATIVE_SOL_MINT));
+        assert!(is_native_sol(NATIVE_SOL_MINT.as_array()));
         for program in TokenProgram::ALL {
-            assert!(!is_native_sol(&program.address()));
+            assert!(!is_native_sol(program.address().as_array()));
         }
     }
 
     #[test]
     fn an_spl_mint_is_not_native_sol() {
-        assert!(!is_native_sol(&pubkey_from_seed("some mint")));
+        assert!(!is_native_sol(pubkey_from_seed("some mint").as_array()));
     }
 
     #[test]

@@ -26,11 +26,11 @@ mod common;
 fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
-        ..OrderIntent::from(&fixtures::sample_intent(Flags {
+        ..fixtures::sample_intent(Flags {
             created_on_chain: true,
             kind: OrderKind::Sell,
             partially_fillable: false,
-        }))
+        })
     }
 }
 

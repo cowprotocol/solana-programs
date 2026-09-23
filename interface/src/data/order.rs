@@ -133,10 +133,11 @@ pub struct FillAmounts {
 /// Returns a tuple. First return value is the amount currently filled, and the
 /// second return value is the amount that has been requested to be filled by
 /// the intent.
+#[inline]
 pub fn fill_progress(intent: &OrderIntentAccessor, fill: FillAmounts) -> (u64, u64) {
-    match intent.flags.kind {
-        OrderKind::Sell => (fill.withdrawn, intent.sell_amount),
-        OrderKind::Buy => (fill.received, intent.buy_amount),
+    match intent.flags().kind {
+        OrderKind::Sell => (fill.withdrawn, intent.sell_amount()),
+        OrderKind::Buy => (fill.received, intent.buy_amount()),
     }
 }
 
@@ -211,10 +212,11 @@ impl<T: Deref<Target = [u8]>> OrderAccount<T> {
         order_slots(self.body()).intent
     }
 
-    /// Decode the stored intent. Fails with [`ProgramError::InvalidAccountData`]
-    /// if any intent byte the intent decoder rejects is out of range.
-    pub fn intent(&self) -> Result<OrderIntentAccessor, ProgramError> {
-        OrderIntentAccessor::try_from(self.intent_bytes())
+    /// Attach to the stored intent in place. Fails with
+    /// [`ProgramError::InvalidAccountData`] if any intent byte the intent
+    /// accessor rejects is out of range.
+    pub fn intent(&self) -> Result<OrderIntentAccessor<'_>, ProgramError> {
+        OrderIntentAccessor::attach(self.intent_bytes())
             .map_err(|_| ProgramError::InvalidAccountData)
     }
 
@@ -315,8 +317,9 @@ impl<T: DerefMut<Target = [u8]>> OrderAccount<T> {
 pub mod fixtures {
     use proptest::prelude::*;
 
-    use super::{EncodedOrderIntent, OrderAccount, OrderIntentAccessor, Pubkey, SIZE};
+    use super::{EncodedOrderIntent, OrderAccount, Pubkey, SIZE};
     use crate::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use crate::data::intent::OrderIntent;
 
     // Hardcoded but verified in a sanity-check test.
     pub const DISCRIMINATOR_OFFSET: usize = 0;
@@ -332,7 +335,7 @@ pub mod fixtures {
         pub amount_withdrawn: u64,
         pub amount_received: u64,
         pub created_by: Pubkey,
-        pub intent: OrderIntentAccessor,
+        pub intent: OrderIntent,
     }
 
     impl OrderFields {
@@ -403,7 +406,7 @@ mod tests {
     };
     use super::*;
     use crate::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
-    use crate::data::intent::Flags;
+    use crate::data::intent::{Flags, OrderIntent};
 
     #[test]
     fn widths_match_order_fields() {
@@ -417,7 +420,7 @@ mod tests {
             amount_received,
             created_by,
             // Stored encoded, so its width matches `EncodedOrderIntent`, not the
-            // decoded `OrderIntentAccessor`.
+            // decoded `OrderIntent`.
             intent: _intent,
         } = sample_order_fields(false);
 
@@ -454,7 +457,10 @@ mod tests {
                 }
             );
             assert_eq!(order.created_by(), created_by);
-            assert_eq!(order.intent().expect("valid intent"), intent);
+            assert_eq!(
+                OrderIntent::from(&order.intent().expect("valid intent")),
+                intent
+            );
             assert_eq!(order.intent_uid(), intent.uid());
         }
     }
@@ -496,12 +502,14 @@ mod tests {
         const SELL_AMOUNT: u64 = 1_000;
         const BUY_AMOUNT: u64 = 2_000;
 
-        let intent = |kind| OrderIntentAccessor {
-            sell_amount: SELL_AMOUNT,
-            buy_amount: BUY_AMOUNT,
-            ..sample_intent(Flags {
-                kind,
-                ..Default::default()
+        let intent = |kind| {
+            EncodedOrderIntent::from(&OrderIntent {
+                sell_amount: SELL_AMOUNT,
+                buy_amount: BUY_AMOUNT,
+                ..sample_intent(Flags {
+                    kind,
+                    ..Default::default()
+                })
             })
         };
 
@@ -518,8 +526,9 @@ mod tests {
             (OrderKind::Buy, SELL_AMOUNT, BUY_AMOUNT - 1, false), // not fully filled BUY order with fully filled sell side (generally should be impossible)
         ];
         for (kind, withdrawn, received, expected) in cases {
+            let encoded = intent(kind);
             let (filled, order_amount) = fill_progress(
-                &intent(kind),
+                &OrderIntentAccessor::attach(&encoded).expect("sample must attach"),
                 FillAmounts {
                     withdrawn,
                     received,
@@ -556,8 +565,10 @@ mod tests {
         // its `created_on_chain` flag bits, never a reserved one.
         let bitwise_different_encoded_intent: [u8; EncodedOrderIntent::SIZE] =
             encoded_intent.map(|b| b ^ 0x01);
-        let changed_intent_field = OrderIntentAccessor::try_from(&bitwise_different_encoded_intent)
-            .expect("hack should work");
+        let changed_intent_field = OrderIntent::from(
+            &OrderIntentAccessor::attach(&bitwise_different_encoded_intent)
+                .expect("hack should work"),
+        );
         let changed_intent = OrderFields {
             intent: changed_intent_field,
             ..sample_order_fields(false)
@@ -714,7 +725,10 @@ mod tests {
                 );
                 prop_assert_eq!(order.created_by(), created_by);
                 prop_assert_eq!(order.intent_uid(), intent.uid());
-                prop_assert_eq!(order.intent().expect("valid intent"), intent);
+                prop_assert_eq!(
+                    OrderIntent::from(&order.intent().expect("valid intent")),
+                    intent
+                );
             }
 
             // For any bytes whose `cancelled` byte and intent flags are valid,
@@ -740,9 +754,11 @@ mod tests {
                     amount_withdrawn: filled.withdrawn,
                     amount_received: filled.received,
                     created_by: order.created_by(),
-                    intent: order
-                        .intent()
-                        .map_err(|e| TestCaseError::fail(format!("intent: {e:?}")))?,
+                    intent: OrderIntent::from(
+                        &order
+                            .intent()
+                            .map_err(|e| TestCaseError::fail(format!("intent: {e:?}")))?,
+                    ),
                 }
                 .encode();
                 prop_assert_eq!(reencoded, bytes);

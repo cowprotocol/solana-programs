@@ -67,7 +67,7 @@ mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_client_intent,
+        data::intent::fixtures::arb_order_intent,
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
@@ -83,7 +83,7 @@ mod tests {
         #[test]
         fn begin_settle_derives_orders_from_intents(
             finalize_ix_index in any::<u16>(),
-            intents in prop::collection::vec(arb_client_intent(), 1..=5),
+            intents in prop::collection::vec(arb_order_intent(), 1..=5),
         ) {
             let program_id = pubkey_from_seed("program id");
             // No pulls here: this test only checks that orders are derived and

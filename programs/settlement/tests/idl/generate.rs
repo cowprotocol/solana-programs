@@ -133,7 +133,7 @@ const STRUCT_TYPES: &[(&Source, &str, &str)] = &[
         "OrderAccount",
     ),
     (&parse_rust::STATE_RS, "StateInitArgs", "SettlementState"),
-    (&parse_rust::INTENT_RS, "OrderIntentAccessor", "OrderIntent"),
+    (&parse_rust::INTENT_RS, "OrderIntent", "OrderIntent"),
 ];
 
 /// The enum types the IDL defines, as `(source, name)`.
@@ -261,7 +261,7 @@ fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
         )),
         // `Flags` packs three fields into a single byte, which the IDL's type
         // grammar can't express. The byte is what the wire carries.
-        ("OrderIntentAccessor", "flags") => Some(("flags".to_string(), json!("u8"))),
+        ("OrderIntent", "flags") => Some(("flags".to_string(), json!("u8"))),
         // The intent is stored in the wire's own shape; the IDL knows that
         // shape as `OrderIntent`, the name it gives the encoding everywhere
         // else.
@@ -273,15 +273,33 @@ fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
     }
 }
 
+/// A Rust field the wire spells as several fields, as those fields in wire
+/// order.
+fn field_expansion(owner: &str, field: &str) -> Option<Vec<(String, Value)>> {
+    match (owner, field) {
+        // Each side of an `OrderIntent` is one Rust value; the wire spells it
+        // as its account followed by its mint.
+        ("OrderIntent", "sell" | "buy") => Some(vec![
+            (format!("{field}_token_account"), json!("pubkey")),
+            (format!("{field}_mint"), json!("pubkey")),
+        ]),
+        _ => None,
+    }
+}
+
 /// A struct as an IDL `types[]` entry's `type`: `{"kind": "struct", "fields":
 /// [...]}`, with the fields in declaration order, which is the order they're
-/// laid out on the wire, and [`field_override`] applied to each.
+/// laid out on the wire, and [`field_expansion`] or [`field_override`] applied
+/// to each.
 fn struct_type(rust_struct: &syn::ItemStruct, rust_name: &str) -> Value {
     let fields: Vec<Value> = rust_struct
         .fields
         .iter()
-        .map(|field| {
+        .flat_map(|field| {
             let name = parse_rust::field_name(field, rust_name);
+            if let Some(expanded) = field_expansion(rust_name, &name) {
+                return expanded;
+            }
             let (name, ty) = match field_override(rust_name, &name) {
                 Some(overridden) => overridden,
                 None => {
@@ -289,8 +307,9 @@ fn struct_type(rust_struct: &syn::ItemStruct, rust_name: &str) -> Value {
                     (name, ty)
                 }
             };
-            json!({ "name": name, "type": ty })
+            vec![(name, ty)]
         })
+        .map(|(name, ty)| json!({ "name": name, "type": ty }))
         .collect();
     json!({ "kind": "struct", "fields": fields })
 }

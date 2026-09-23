@@ -846,11 +846,9 @@
     {
       "name": "OrderIntent",
       "docs": [
-        "Canonical order intent. Also the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds,",
-        "and the exact wire format of create_order's `intent` argument. Field order and encoding here are load-bearing: they",
-        "must match this program's Rust definition exactly.",
-        "One field per wire field: this is the representation the settlement program",
-        "decodes into and reads."
+        "Order intent. Its canonical encoding, `EncodedOrderIntent`, is the exact wire format of create_order's `intent`",
+        "argument and the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds. Field order",
+        "and encoding here are load-bearing: they must match this program's Rust definition exactly."
       ],
       "type": {
         "kind": "struct",

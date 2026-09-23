@@ -50,21 +50,19 @@ pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&buffer_pda_seeds(mint.as_array()), program_id)
 }
 
-/// Confirm `buffer` matches the derived buffer PDA for `mint` and `bump`.
+/// Confirm `buffer` matches the derived buffer PDA for the mint bytes `mint`
+/// and `bump`.
+#[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_buffer_pda(
     program_id: &Address,
     buffer: &Address,
-    mint: &Address,
+    mint: &[u8; 32],
     bump: u8,
 ) -> Result<(), ProgramError> {
-    is_pda_with_signer_seeds(
-        buffer,
-        program_id,
-        buffer_pda_signer_seeds(&mint.to_bytes(), &[bump]),
-    )
-    .then_some(())
-    .ok_or(SettlementError::PushSourceNotBuffer.into())
+    is_pda_with_signer_seeds(buffer, program_id, buffer_pda_signer_seeds(mint, &[bump]))
+        .then_some(())
+        .ok_or(SettlementError::PushSourceNotBuffer.into())
 }
 
 #[cfg(test)]
@@ -97,7 +95,7 @@ mod tests {
         let (pda, bump) = find_buffer_pda(&program_id, &mint);
 
         let buffer = crate::instruction::fixtures::fake_account(pda);
-        validate_buffer_pda(&program_id, buffer.address(), &mint, bump)
+        validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump)
             .expect("the canonical buffer PDA must be accepted");
     }
 
@@ -109,7 +107,7 @@ mod tests {
 
         // An account sitting at some other address is not the buffer.
         let buffer = crate::instruction::fixtures::fake_account(Pubkey::new_unique());
-        let err = validate_buffer_pda(&program_id, buffer.address(), &mint, bump)
+        let err = validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump)
             .expect_err("a non-canonical address must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
@@ -122,7 +120,7 @@ mod tests {
 
         // The address is canonical but the carried bump doesn't derive it.
         let buffer = crate::instruction::fixtures::fake_account(pda);
-        let err = validate_buffer_pda(&program_id, buffer.address(), &mint, bump ^ 1)
+        let err = validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump ^ 1)
             .expect_err("a wrong bump must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }

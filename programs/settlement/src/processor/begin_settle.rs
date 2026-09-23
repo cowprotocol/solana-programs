@@ -5,7 +5,7 @@ use std::ops::Deref;
 use cow_settlement_interface::data::intent::OrderIntentAccessor;
 use cow_settlement_interface::{
     data::{
-        intent::OrderKind,
+        intent::{Flags, OrderKind},
         order::{FillAmounts, OrderAccount},
     },
     instruction::{
@@ -284,12 +284,12 @@ fn process_order(
     let prior_fill = order.filled_amounts();
     let intent = &intent;
 
-    if now > i64::from(intent.valid_to) {
+    if now > i64::from(intent.valid_to()) {
         return Err(SettlementError::OrderExpired.into());
     }
 
     // The push paying this order must send to the order's buy token account.
-    if push.destination != &intent.buy_token_account {
+    if push.destination.as_array() != intent.buy_token_account() {
         return Err(SettlementError::PushDestinationMismatch.into());
     }
 
@@ -298,15 +298,16 @@ fn process_order(
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
     // If its a native SOL buy order, the validation is a bit different.
-    if is_native_sol(&intent.buy_mint) {
+    let buy_mint = intent.buy_mint();
+    if is_native_sol(buy_mint) {
         validate_state_pda(program_id, push.source_buffer, push.bump)?;
     } else {
-        validate_buffer_pda(program_id, push.source_buffer, &intent.buy_mint, push.bump)?;
+        validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;
     }
 
     // The sell token account must be the one named in the intent, owned by
     // the intent owner: an order can only sell funds its own owner controls.
-    if sell_token_account.address() != &intent.sell_token_account {
+    if sell_token_account.address().as_array() != intent.sell_token_account() {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
     // The pulls below move this account's tokens, so they are issued against
@@ -321,12 +322,12 @@ fn process_order(
     // is left borrowing the account when the transfers below touch it.
     let sell_token = read_token_account(token_program, sell_token_account)
         .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
-    if sell_token.owner != intent.owner {
+    if sell_token.owner.as_array() != intent.owner() {
         return Err(SettlementError::SellTokenOwnerMismatch.into());
     }
     // Like the buy side, the account could have been recreated for another
     // mint after the order was created.
-    if sell_token.mint != intent.sell_mint {
+    if sell_token.mint.as_array() != intent.sell_mint() {
         return Err(SettlementError::SellMintMismatch.into());
     }
 
@@ -373,10 +374,10 @@ fn validate_limit_price(
     // rearranged division-free to avoid rounding.
     // Every factor is a `u64`, so each product is at most `u64::MAX^2 < u128::MAX`.
     let lhs = u128::from(amount_out)
-        .checked_mul(u128::from(intent.sell_amount))
+        .checked_mul(u128::from(intent.sell_amount()))
         .expect("u64 * u64 always fits in u128");
     let rhs = u128::from(amount_in)
-        .checked_mul(u128::from(intent.buy_amount))
+        .checked_mul(u128::from(intent.buy_amount()))
         .expect("u64 * u64 always fits in u128");
     if lhs < rhs {
         return Err(SettlementError::LimitPriceViolated);
@@ -406,11 +407,16 @@ fn validated_final_amounts(
         .checked_add(settled.received)
         .ok_or(SettlementError::AmountReceivedOverflow)?;
 
-    let (filled, order_amount) = match intent.flags.kind {
-        OrderKind::Sell => (withdrawn, intent.sell_amount),
-        OrderKind::Buy => (received, intent.buy_amount),
+    let Flags {
+        kind,
+        partially_fillable,
+        ..
+    } = intent.flags();
+    let (filled, order_amount) = match kind {
+        OrderKind::Sell => (withdrawn, intent.sell_amount()),
+        OrderKind::Buy => (received, intent.buy_amount()),
     };
-    if filled != order_amount && !intent.flags.partially_fillable {
+    if filled != order_amount && !partially_fillable {
         return Err(SettlementError::OrderNotExactlyFilled);
     } else if filled > order_amount {
         return Err(SettlementError::FillExceedsOrderAmount);
@@ -426,7 +432,7 @@ fn validated_final_amounts(
 mod tests {
     use super::*;
     use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
-    use cow_settlement_interface::data::intent::Flags;
+    use cow_settlement_interface::data::intent::{EncodedOrderIntent, Flags, OrderIntent};
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
     use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
@@ -450,8 +456,8 @@ mod tests {
     }
 
     impl IntentSpec {
-        fn build(&self) -> OrderIntentAccessor {
-            OrderIntentAccessor {
+        fn build(&self) -> EncodedOrderIntent {
+            EncodedOrderIntent::from(&OrderIntent {
                 sell_amount: self.sell,
                 buy_amount: self.buy,
                 ..sample_intent(Flags {
@@ -459,7 +465,7 @@ mod tests {
                     kind: self.kind,
                     partially_fillable: self.partially_fillable,
                 })
-            }
+            })
         }
     }
 
@@ -506,13 +512,14 @@ mod tests {
             buy,
         } in cases
         {
-            let intent = IntentSpec {
+            let encoded = IntentSpec {
                 sell,
                 buy,
                 kind: OrderKind::Sell,
                 partially_fillable: true,
             }
             .build();
+            let intent = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
             assert_eq!(
                 validate_limit_price(
                     &intent,
@@ -557,13 +564,14 @@ mod tests {
             buy,
         } in cases
         {
-            let intent = IntentSpec {
+            let encoded = IntentSpec {
                 sell,
                 buy,
                 kind: OrderKind::Sell,
                 partially_fillable: true,
             }
             .build();
+            let intent = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
             assert_eq!(
                 validate_limit_price(
                     &intent,
@@ -591,7 +599,7 @@ mod tests {
     }
 
     impl FillCase {
-        fn build(&self) -> OrderIntentAccessor {
+        fn build(&self) -> EncodedOrderIntent {
             self.intent.build()
         }
     }
@@ -751,7 +759,8 @@ mod tests {
         ];
 
         for case in cases {
-            let intent = case.build();
+            let encoded = case.build();
+            let intent = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
             let expected = FillAmounts {
                 withdrawn: case
                     .withdrawn
@@ -968,7 +977,8 @@ mod tests {
         ];
 
         for (case, error) in cases {
-            let intent = case.build();
+            let encoded = case.build();
+            let intent = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
             assert_eq!(
                 validated_final_amounts(
                     &intent,
@@ -996,8 +1006,9 @@ mod tests {
             amount_in in any::<u64>(),
             push_amount in any::<u64>(),
         ) {
+            let encoded = EncodedOrderIntent::from(&intent);
             let _ = validate_limit_price(
-                &intent,
+                &OrderIntentAccessor::attach(&encoded).expect("valid intent attaches"),
                 &FillAmounts {
                     withdrawn: amount_in,
                     received: push_amount,
