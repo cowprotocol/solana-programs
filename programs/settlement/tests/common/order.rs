@@ -4,7 +4,6 @@ use cow_settlement_client::cow_settlement_interface::data::intent::{
     Asset, Flags, OrderIntent, OrderKind, TokenAsset,
 };
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
-use cow_settlement_client::cow_settlement_interface::token_program::is_native_sol;
 use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
 use litesvm::LiteSVM;
@@ -161,7 +160,7 @@ impl TokenSource {
     /// account at all.
     fn resolve_buy(self, svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> Asset {
         match self {
-            TokenSource::Mint(mint) if is_native_sol(mint.as_array()) => {
+            TokenSource::Mint(mint) if Asset::is_native_sol(mint.as_array()) => {
                 Asset::Native(unique_pubkey())
             }
             source => source.resolve(svm, program_id, payer, false).into(),

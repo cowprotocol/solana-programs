@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use cow_settlement_interface::{
     data::{
-        intent::{Flags, OrderKind},
+        intent::{Asset, Flags, OrderKind},
         order::{FillAmounts, OrderAccount},
     },
     instruction::{
@@ -15,9 +15,7 @@ use cow_settlement_interface::{
         InstructionInputParsing,
     },
     pda::{buffer::validate_buffer_pda, state::validate_state_pda},
-    recover_discriminator,
-    token_program::is_native_sol,
-    SettlementError, SettlementInstruction,
+    recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
     cpi::Signer,
@@ -299,7 +297,7 @@ fn process_order(
     // mints must match.
     // If its a native SOL buy order, the "source buffer" should be the state pda.
     let buy_mint = intent.buy_mint();
-    if is_native_sol(buy_mint) {
+    if Asset::is_native_sol(buy_mint) {
         validate_state_pda(push.source_buffer, state_account.address())?;
     } else {
         validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;
