@@ -64,7 +64,7 @@ pub fn finalize_push_data(
 /// parallel lists:
 /// - `source_buffers[i]` is the account the funds come from: the buffer token
 ///   account of the order's buy mint, or the settlement state PDA itself for an
-///   order buying native SOL, whose lamports no token account holds,
+///   order buying native SOL,
 /// - `destinations[i]` is the account the funds go to (an order's buy token
 ///   account),
 /// - `bumps[i]` is the canonical bump of `source_buffers[i]`, so the program
