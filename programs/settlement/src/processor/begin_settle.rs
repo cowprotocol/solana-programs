@@ -297,10 +297,10 @@ fn process_order(
     // This effectively transitively verifies `intent.buy_token_account`
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
-    // If its a native SOL buy order, the validation is a bit different.
+    // If its a native SOL buy order, the "source buffer" should be the state pda.
     let buy_mint = intent.buy_mint();
     if is_native_sol(buy_mint) {
-        validate_state_pda(program_id, push.source_buffer, push.bump)?;
+        validate_state_pda(push.source_buffer, state_account.address())?;
     } else {
         validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;
     }

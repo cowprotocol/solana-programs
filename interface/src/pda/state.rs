@@ -14,7 +14,7 @@ use solana_address::Address;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::pda::{is_pda_with_signer_seeds, SETTLEMENT_SEED};
+use crate::pda::SETTLEMENT_SEED;
 use crate::SettlementError;
 
 /// Canonical seed components for the settlement state PDA.
@@ -40,13 +40,14 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
 #[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_state_pda(
-    program_id: &Address,
-    address: &Address,
-    bump: u8,
+    source_buffer: &Address,
+    state_pda: &Address,
 ) -> Result<(), ProgramError> {
-    is_pda_with_signer_seeds(address, program_id, state_pda_signer_seeds(&[bump]))
-        .then_some(())
-        .ok_or(SettlementError::PushSourceNotStatePda.into())
+    if source_buffer != state_pda {
+        Err(SettlementError::PushSourceNotStatePda.into())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -60,33 +61,18 @@ mod tests {
     }
 
     #[test]
-    fn accepts_a_valid_address() {
-        let program_id = Pubkey::new_unique();
-        let (pda, bump) = find_state_pda(&program_id);
+    fn accepts_the_state_pda() {
+        let (pda, _) = find_state_pda(&Pubkey::new_unique());
 
-        validate_state_pda(&program_id, &pda, bump)
-            .expect("the canonical state PDA must be accepted");
+        validate_state_pda(&pda, &pda).expect("the state PDA itself must be accepted");
     }
 
     #[test]
-    fn rejects_an_invalid_address() {
-        let program_id = Pubkey::new_unique();
-        let (_, bump) = find_state_pda(&program_id);
+    fn rejects_any_other_address() {
+        let (pda, _) = find_state_pda(&Pubkey::new_unique());
 
-        // An address unrelated to the program is not the state PDA.
-        let err = validate_state_pda(&program_id, &Pubkey::new_unique(), bump)
-            .expect_err("a non-canonical address must be rejected");
-        assert_eq!(err, SettlementError::PushSourceNotStatePda.into());
-    }
-
-    #[test]
-    fn rejects_a_wrong_bump() {
-        let program_id = Pubkey::new_unique();
-        let (pda, bump) = find_state_pda(&program_id);
-
-        // The address is canonical but the carried bump doesn't derive it.
-        let err = validate_state_pda(&program_id, &pda, bump ^ 1)
-            .expect_err("a wrong bump must be rejected");
+        let err = validate_state_pda(&Pubkey::new_unique(), &pda)
+            .expect_err("an address other than the state PDA must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotStatePda.into());
     }
 

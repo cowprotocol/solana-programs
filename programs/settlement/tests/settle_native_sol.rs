@@ -333,37 +333,6 @@ fn rejects_a_native_push_from_a_buffer() {
 }
 
 #[test]
-fn rejects_a_native_push_with_a_wrong_bump() {
-    let (mut svm, program_id, payer, solver) = setup_settle_ready();
-    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
-        .build();
-    state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
-
-    let (state_pda, state_bump) = find_state_pda(&program_id);
-    let orders = [FinalizedIntent {
-        intent: &intent,
-        amount: 100,
-    }];
-    let finalize = FinalizeSettleRaw {
-        program_id,
-        state_pda,
-        begin_ix_index: BEGIN_INDEX.into(),
-        source_buffers: &[state_pda],
-        destinations: &[intent.buy.account()],
-        bumps: &[state_bump ^ 1],
-        amounts: &[100],
-        only_token_program: None,
-    };
-
-    let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
-    assert_begin_error(
-        send(&mut svm, &solver, &instructions),
-        SettlementError::PushSourceNotStatePda,
-    );
-}
-
-#[test]
 fn rejects_a_native_push_to_wrong_destination() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
