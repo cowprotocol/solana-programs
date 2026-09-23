@@ -13,7 +13,7 @@ use solana_hash::Hash;
 ///
 /// The flags byte is the only one that can fail to decode, so [`Self::attach`]
 /// validates it; every getter, [`Self::flags`] included, is infallible.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct OrderIntentAccessor<'a>(&'a [u8; EncodedOrderIntent::SIZE]);
 
 impl<'a> OrderIntentAccessor<'a> {
