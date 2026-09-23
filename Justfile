@@ -110,8 +110,12 @@ doc-dev *args:
 build-verified: install-solana-verify
     {{solana_verify}} build --library-name {{settlement_program}}
 
+# Check that the state PDA pinned in the interface matches the current version and program ID.
+check-state-pda:
+    cargo test -p cow-settlement-interface --lib pda::state::tests::pinned_state_pda_is_canonical -- --exact
+
 # Deploy the settlement program, then create its state PDA.
-deploy programid keypair: build-verified
+deploy programid keypair: check-state-pda build-verified
     #!/usr/bin/env bash
     set -euo pipefail
     solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}

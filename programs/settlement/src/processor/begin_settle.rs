@@ -33,7 +33,7 @@ use pinocchio::{
 use pinocchio_token::instructions::Transfer;
 
 use crate::processor::utils::{
-    auth::{check_state_pda, require_solver, with_state_pda_signer_from_bump},
+    auth::{check_state_pda, require_solver, with_state_pda_signer_unchecked},
     cpi::is_cpi_call,
     settle::validate_counterpart,
     token::{owning_token_program, read_token_account},
@@ -50,7 +50,7 @@ pub fn process_begin_settle(
 
     let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
-    let state_bump = check_state_pda(program_id, input.state_pda_account)?;
+    check_state_pda(input.state_pda_account)?;
     require_solver(input.state_pda_account, input.solver_account)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
@@ -79,7 +79,7 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    with_state_pda_signer_from_bump(state_bump, |signer| {
+    with_state_pda_signer_unchecked(|signer| {
         settle_orders(
             program_id,
             input.state_pda_account,

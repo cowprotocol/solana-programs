@@ -30,7 +30,7 @@ pub fn process_create_self_order(
         order_pda,
     } = CreateSelfOrderInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(program_id, state_pda)?;
+    check_state_pda(state_pda)?;
 
     // Only the self-order authority may create self orders.
     let self_order_authority: Pubkey =
@@ -101,7 +101,7 @@ mod tests {
         [
             fake_signer(*SELF_ORDER_AUTHORITY),
             fake_signer(pubkey_from_seed("base_accounts's created_by")),
-            fake_account_with_data(*STATE_PDA, &state_account_bytes(&base_init_args(), &[])),
+            fake_account_with_data(STATE_PDA, &state_account_bytes(&base_init_args(), &[])),
             fake_account(pubkey_from_seed("base_accounts's order pda")),
             fake_account(SYSTEM_PROGRAM_ID),
         ]
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn process_create_self_order_propagates_parse_error() {
-        let mut data = intent_data(*STATE_PDA, true);
+        let mut data = intent_data(STATE_PDA, true);
         data.push(0); // trailing byte triggers a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
@@ -134,7 +134,7 @@ mod tests {
         // address, which isn't the canonical state PDA for this program.
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_create_self_order(&PROGRAM_ID, &mut accounts, &intent_data(*STATE_PDA, true)),
+            process_create_self_order(&PROGRAM_ID, &mut accounts, &intent_data(STATE_PDA, true)),
             Err(SettlementError::StateAccountMismatch.into()),
         );
     }
@@ -144,7 +144,7 @@ mod tests {
         let mut accounts = base_accounts();
         accounts[AUTHORITY] = fake_signer(pubkey_from_seed("unrelated"));
         assert_eq!(
-            process_create_self_order(&PROGRAM_ID, &mut accounts, &intent_data(*STATE_PDA, true)),
+            process_create_self_order(&PROGRAM_ID, &mut accounts, &intent_data(STATE_PDA, true)),
             Err(SettlementError::UnauthorizedSelfOrder.into()),
         );
     }
@@ -155,7 +155,7 @@ mod tests {
         // `fake_account`, unlike `fake_signer`, leaves the signer flag clear.
         accounts[AUTHORITY] = fake_account(*SELF_ORDER_AUTHORITY);
         assert_eq!(
-            process_create_self_order(&PROGRAM_ID, &mut accounts, &intent_data(*STATE_PDA, true)),
+            process_create_self_order(&PROGRAM_ID, &mut accounts, &intent_data(STATE_PDA, true)),
             Err(SettlementError::UnauthorizedSelfOrder.into()),
         );
     }
@@ -174,7 +174,7 @@ mod tests {
     fn process_create_self_order_rejects_intent_not_created_on_chain() {
         let mut accounts = base_accounts();
         // Owned by the state PDA, but not flagged as an on-chain creation.
-        let data = intent_data(*STATE_PDA, false);
+        let data = intent_data(STATE_PDA, false);
         assert_eq!(
             process_create_self_order(&PROGRAM_ID, &mut accounts, &data),
             Err(SettlementError::OrderCreatedOnChainMismatch.into()),

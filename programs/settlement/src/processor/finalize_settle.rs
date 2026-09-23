@@ -45,7 +45,7 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    with_state_pda_signer(program_id, input.state_pda_account, |state_pda_signer| {
+    with_state_pda_signer(input.state_pda_account, |state_pda_signer| {
         push_funds(input.state_pda_account, state_pda_signer, input.pushes)
     })
 }
