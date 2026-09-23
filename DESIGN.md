@@ -188,13 +188,13 @@ Differences with Ethereum:
   - The owner isn't added to the UID. The owner is already included in the parameters, unlike in Ethereum, thus the owner doesn't need to be appended for disambiguation.
   - The expiration isn't added to the UID. In Ethereum it was only added because of state clearing, here it isn't needed.
 
-### Invalidating an order
+### Cancelling an order
 
-Invalidating an order is an operation executed by the user to make it impossible to trade that order in the protocol.
+Cancelling an order is an operation executed by the user to make it impossible to trade that order in the protocol.
 
-Invalidating an order requires an on-chain operation. This operation can be authenticated in two ways:
+Cancelling an order requires an on-chain operation. This operation can be authenticated in two ways:
 
-- Directly, sending an invalidation instruction from the order owner account.
+- Directly, through the `CancelOrder` instruction signed by the order owner account.
 - By anyone through a signed intent, signing the following cancellation struct:
   ```rust
   struct CancelIntent {
@@ -202,9 +202,9 @@ Invalidating an order requires an on-chain operation. This operation can be auth
   }
   ```
 
-Creating the order in advance is _not_ needed: if the order wasn’t created before invalidating, the corresponding order PDA is created and then invalidated.
+Creating the order in advance is _not_ needed: if the order wasn’t created before cancelling, the corresponding order PDA is created and then cancelled.
 
-Note that deleting the order PDA is _not_ enough to invalidate an order. In fact, if an order signature is available, the same order could always be created again until it expires.
+Note that deleting the order PDA is _not_ enough to cancel an order for off-chain orders. In fact, if an order signature is available, the same order could always be created again until it expires.
 
 ### Order clearing
 

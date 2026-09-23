@@ -225,6 +225,54 @@
       ]
     },
     {
+      "name": "cancel_order",
+      "docs": [
+        "Cancels an order so it can no longer be settled. Only the order owner may cancel.",
+        "If the order PDA doesn't exist yet, it's created already cancelled. For this, a separate account needs to pay the rent and sign."
+      ],
+      "discriminator": [
+        11
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "docs": [
+            "Must match intent.owner; authenticates the cancellation."
+          ]
+        },
+        {
+          "name": "created_by",
+          "writable": true,
+          "signer": true,
+          "docs": [
+            "Funds the order PDA's rent when the order is created cancelled; the program only requires its signature in that case. Unused when an existing order is cancelled."
+          ]
+        },
+        {
+          "name": "order_pda",
+          "writable": true,
+          "docs": [
+            "The order to cancel. Its canonical seeds include sha256(intent), so it cannot be auto-derived by IDL-driven tooling."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "intent",
+          "type": {
+            "defined": {
+              "name": "OrderIntent"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "create_self_order",
       "docs": [
         "Create an order on behalf of the state PDA. Used to sell fees accumulated in the buffer accounts through a regular settlement.",
