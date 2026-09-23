@@ -52,12 +52,12 @@ pub(crate) fn process_new_onchain_order(
 ) -> ProgramResult {
     let (intent, intent_uid) = EncodedOrderIntent::decode_and_hash(intent_bytes)?;
 
-    if expected_owner != &intent.owner {
+    if expected_owner.as_array() != intent.owner() {
         return Err(SettlementError::OwnerMismatch.into());
     }
     // The intent commits to how it's authenticated, and this is the on-chain
     // creation flow.
-    if !intent.flags.created_on_chain {
+    if !intent.flags().created_on_chain {
         return Err(SettlementError::OrderCreatedOnChainMismatch.into());
     }
 
@@ -88,7 +88,9 @@ pub(crate) fn process_new_onchain_order(
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
+    use cow_settlement_interface::data::intent::{
+        Flags, OrderIntent, OrderIntentAccessor, OrderKind,
+    };
     use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
@@ -117,13 +119,15 @@ mod tests {
 
     #[test]
     fn process_create_order_rejects_invalid_encoded_intent() {
-        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let valid_bytes = valid_intent_bytes();
+        let intent =
+            OrderIntent::from(&OrderIntentAccessor::attach(&valid_bytes).expect("should be valid"));
         let intent_bytes_buy = EncodedOrderIntent::from(&OrderIntent {
             flags: Flags {
                 kind: OrderKind::Buy,
                 ..intent.flags
             },
-            ..intent
+            ..intent.clone()
         });
         let intent_bytes_sell = EncodedOrderIntent::from(&OrderIntent {
             flags: Flags {
@@ -200,7 +204,9 @@ mod tests {
 
     #[test]
     fn process_create_order_rejects_intent_not_created_on_chain() {
-        let intent: OrderIntent = (&valid_intent_bytes()).try_into().expect("should be valid");
+        let valid_bytes = valid_intent_bytes();
+        let intent =
+            OrderIntent::from(&OrderIntentAccessor::attach(&valid_bytes).expect("should be valid"));
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
             (&EncodedOrderIntent::from(&OrderIntent { ..intent })).into();
         let data = default_order_data(&intent_bytes);

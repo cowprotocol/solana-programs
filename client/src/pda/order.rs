@@ -51,7 +51,7 @@ impl TryFrom<&[u8]> for DecodedOrderAccount {
             amount_withdrawn: filled.withdrawn,
             amount_received: filled.received,
             created_by: order.created_by(),
-            intent: order.intent()?,
+            intent: (&order.intent()?).into(),
         })
     }
 }
