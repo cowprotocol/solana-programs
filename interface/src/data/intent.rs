@@ -682,6 +682,13 @@ mod tests {
         };
 
         proptest! {
+
+            #[test]
+            fn unique_intents_do_not_share_uid(intent_a in arb_order_intent(), intent_b in arb_order_intent()) {
+                prop_assume!(intent_a != intent_b);
+                prop_assert_ne!(intent_a.uid(), intent_b.uid());
+            }
+
             // For any `OrderIntent`, encoding an intent into an encoded
             // intent and then decoding it returns the same intent.
             #[test]
