@@ -49,6 +49,22 @@ pub fn build_settlement(
     vec![begin.into(), finalize.into()]
 }
 
+/// Build the [`build_settlement`] pair with the finalize that matches it: settle
+/// `orders` with no pulls and push each order's `amount` to its buy account.
+pub fn build_matching_settlement(
+    program_id: &Pubkey,
+    solver: &Pubkey,
+    orders: &[FinalizedIntent],
+) -> Vec<Instruction> {
+    let finalize = FinalizeSettle {
+        program_id: *program_id,
+        begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
+        orders,
+    };
+    build_settlement(program_id, solver, orders, finalize)
+}
+
 /// An order staged for settlement by [`stage_order`]: the intent, the [`Pull`]s
 /// to draw from its sell token account, and the amount to push to its buy token
 /// account. It owns its intent, so a helper that mints an order can stage it and

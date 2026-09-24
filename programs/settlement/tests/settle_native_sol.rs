@@ -5,7 +5,8 @@ use crate::common::{
     order::{create_order_pda, settlable_intent, OrderBuilder},
     send, send_metered,
     settlement::{
-        build_settlement, build_staged_settlement, stage_order, BEGIN_INDEX, FINALIZE_INDEX,
+        build_matching_settlement, build_settlement, build_staged_settlement, stage_order,
+        BEGIN_INDEX, FINALIZE_INDEX,
     },
     setup_settle_ready, state, token, unique_pubkey,
 };
@@ -13,10 +14,10 @@ use cow_settlement_client::cow_settlement_interface::{
     data::intent::{Asset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
     pda::{buffer::find_buffer_pda, state::find_state_pda},
-    Instruction, SettlementError,
+    SettlementError,
 };
-use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
-use solana_sdk::{pubkey::Pubkey, signer::Signer, transaction::TransactionError};
+use cow_settlement_client::instruction::FinalizedIntent;
+use solana_sdk::{signer::Signer, transaction::TransactionError};
 
 mod common;
 
@@ -26,22 +27,6 @@ mod common;
 #[track_caller]
 fn assert_begin_error<T>(result: Result<T, TransactionError>, expected: SettlementError) {
     assert_instruction_error_at(BEGIN_INDEX, result, expected);
-}
-
-/// The `[BeginSettle, FinalizeSettle]` pair settling `orders` with no pulls,
-/// the finalize pushing each order's amount.
-fn native_sol_settlement(
-    program_id: &Pubkey,
-    solver: &Pubkey,
-    orders: &[FinalizedIntent],
-) -> Vec<Instruction> {
-    let finalize = FinalizeSettle {
-        program_id: *program_id,
-        begin_ix_index: BEGIN_INDEX.into(),
-        orders,
-        only_token_program: None,
-    };
-    build_settlement(program_id, solver, orders, finalize)
 }
 
 #[test]
@@ -131,7 +116,7 @@ fn happy_path_with_many_payouts() {
         }))
         .collect();
 
-    let instructions = native_sol_settlement(&program_id, &solver.pubkey(), &orders);
+    let instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
 
     // Sanity: do we have a native push in the first half of the batch?
     let finalize_accounts = &instructions[usize::from(FINALIZE_INDEX)].accounts;
@@ -188,7 +173,7 @@ fn happy_path_multiple_native_orders_can_settle() {
 
     let amount0 = 1_000_000;
     let amount1 = 2_000_000;
-    let instructions = native_sol_settlement(
+    let instructions = build_matching_settlement(
         &program_id,
         &solver.pubkey(),
         &[
@@ -230,7 +215,7 @@ fn happy_path_native_orders_sharing_a_destination() {
 
     let amount0 = 1_000_000;
     let amount1 = 2_000_000;
-    let instructions = native_sol_settlement(
+    let instructions = build_matching_settlement(
         &program_id,
         &solver.pubkey(),
         &[
@@ -260,7 +245,7 @@ fn happy_path_zero_amount() {
     let (state_pda, _bump) = find_state_pda(&program_id);
     let before = lamports(&svm, &state_pda);
 
-    let instructions = native_sol_settlement(
+    let instructions = build_matching_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
@@ -285,7 +270,7 @@ fn happy_path_state_pda_receiver_still_works() {
     create_order_pda(&mut svm, &program_id, &payer, &intent);
     let funded = state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
 
-    let instructions = native_sol_settlement(
+    let instructions = build_matching_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
@@ -319,7 +304,7 @@ fn rejects_a_push_spending_the_state_pdas_rent() {
 
     // One lamport past the balance that isn't rent, so the push is affordable
     // but leaves the account under-funded for its own data.
-    let instructions = native_sol_settlement(
+    let instructions = build_matching_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
@@ -348,7 +333,7 @@ fn rejects_a_push_larger_than_the_whole_balance() {
     let (state_pda, _bump) = find_state_pda(&program_id);
     let balance = lamports(&svm, &state_pda);
 
-    let instructions = native_sol_settlement(
+    let instructions = build_matching_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
