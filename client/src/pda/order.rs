@@ -10,7 +10,8 @@ use cow_settlement_interface::{
 use solana_program_error::ProgramError;
 
 /// The body stored in an order PDA.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecodedOrderAccount {
     pub bump: u8,
     pub cancelled: bool,

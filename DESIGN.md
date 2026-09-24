@@ -43,13 +43,15 @@ Any authority that holds a role can transfer it to another account with the `Tra
 
 ## Buffer accounts
 
-Buffer accounts are token accounts that hold funds on behalf of the settlement program throught the state PDA.
+Buffer accounts are token accounts that hold funds on behalf of the settlement program through the state PDA.
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
+The buffer account for native SOL is the state PDA itself, using the funds on top of the necessary rent.
+
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
-A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
+A buffer (except for the state PDA) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
 
 Differences with Ethereum:
 
@@ -117,18 +119,29 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
-	// Origin and destination of funds in this order, each with the mint it
-	// should correspond to.
-	sell_token_account: Pubkey
-	sell_mint: Pubkey
-	buy_token_account: Pubkey
-	buy_mint: Pubkey
+
+	// Origin to pull funds for the order. Only SPL or Token-2022 token programs are supported.
+	sell: TokenAsset {
+		mint: Pubkey,
+		token_account: Pubkey,
+	}
+
+	// Destination to push proceeds of the order. On top of the token support in sell, native SOL (lamports) may be purchased
+	buy: TokenAsset {
+		mint: Pubkey,
+		token_account: Pubkey,
+	} | NativeAsset {
+		account: Pubkey,
+	}
+
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
+
 	// Unix timestamp
 	valid_to: u32
 	flags: Flags
+	
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
@@ -141,6 +154,9 @@ struct Flags {
 	partially_fillable: bool
 }
 ```
+
+The sell and buy tokens are effectively flattened down in wire format, and in the case that `buy` uses `NativeAsset`,
+the `buy_mint` is set to the Solana system program.
 
 The fields grouped in `Flags` share a single byte in the encoded form, one bit
 each, with the remaining bits reserved and required when decoding to be zero.

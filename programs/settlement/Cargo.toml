@@ -35,7 +35,7 @@ litesvm-token.workspace = true
 pastey.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
-cow-settlement-client.workspace = true
+cow-settlement-client = { workspace = true, features = ["test-fixtures"] }
 cow-settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-address-lookup-table-interface = { workspace = true, features = ["bincode"] }
 solana-compute-budget.workspace = true

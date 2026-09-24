@@ -4,12 +4,12 @@
 //! unauthorized caller is rejected before any settlement work happens.
 
 use cow_settlement_client::cow_settlement_interface::{Instruction, SettlementError};
-use cow_settlement_client::instruction::{BeginSettle, FinalizeSettle};
+use cow_settlement_client::instruction::BeginSettle;
 use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 
 use crate::common::{
     assert_instruction_error_at, register_solver,
-    settlement::{BEGIN_INDEX, FINALIZE_INDEX},
+    settlement::{build_matching_settlement, BEGIN_INDEX},
     setup_init, unique_keypair,
 };
 
@@ -19,21 +19,7 @@ mod common;
 /// orders, naming `solver` as `BeginSettle`'s settling solver. It moves no funds,
 /// so it isolates the solver gate from the rest of settlement.
 fn noop_settlement(program_id: &Pubkey, solver: &Pubkey) -> Vec<Instruction> {
-    let begin = BeginSettle {
-        program_id: *program_id,
-        solver: *solver,
-        finalize_ix_index: FINALIZE_INDEX.into(),
-        auction_id: 0,
-        only_token_program: None,
-        orders: &[],
-    };
-    let finalize = FinalizeSettle {
-        program_id: *program_id,
-        begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
-        orders: &[],
-    };
-    vec![begin.into(), finalize.into()]
+    build_matching_settlement(program_id, solver, &[])
 }
 
 #[test]

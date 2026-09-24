@@ -9,7 +9,7 @@ use crate::common::{
     assert_instruction_error,
     benchmark::BenchLabel,
     buffer,
-    order::{read_order, OrderBuilder},
+    order::{buy_account, buy_mint, read_order, OrderBuilder},
     register_solver, send, send_metered,
     settlement::{build_staged_settlement, StagedOrder},
     setup_init, token, unique_keypair,
@@ -45,17 +45,17 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.sell_mint,
+        &intent.sell.mint,
         FEES,
     );
 
     let fee_recipient =
-        token::create_token_account(&mut svm, &params.payer, &intent.sell_mint, &solver.pubkey());
+        token::create_token_account(&mut svm, &params.payer, &intent.sell.mint, &solver.pubkey());
     buffer::ensure_funded(
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.buy_mint,
+        &buy_mint(&intent),
         PROCEEDS,
     );
     let staged = StagedOrder {
@@ -74,7 +74,7 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     // The fees left the buffer for the solver, and the proceeds reached the
     // treasury out of the buy buffer.
     assert_eq!(
-        token::balance(&svm, &intent.sell_token_account),
+        token::balance(&svm, &intent.sell.token_account),
         0,
         "the fee buffer is drained"
     );
@@ -84,14 +84,14 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         "the solver received the fees"
     );
     assert_eq!(
-        token::balance(&svm, &intent.buy_token_account),
+        token::balance(&svm, &buy_account(&intent)),
         PROCEEDS,
         "the treasury received the proceeds"
     );
     assert_eq!(
         token::balance(
             &svm,
-            &buffer::buffer_pda(&params.program_id, &intent.buy_mint)
+            &buffer::buffer_pda(&params.program_id, &buy_mint(&intent),)
         ),
         0,
         "the buy buffer paid out the proceeds"
@@ -147,7 +147,7 @@ fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.buy_mint,
+        &buy_mint(&intent),
         PROCEEDS,
     );
     let staged = StagedOrder {
