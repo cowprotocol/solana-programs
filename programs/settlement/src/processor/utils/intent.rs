@@ -202,6 +202,9 @@ mod tests {
             #[test]
             fn accessor_reads_the_encoded_fields(intent in arb_order_intent()) {
 
+                let encoded = EncodedOrderIntent::from(&intent);
+                let intent_uid = intent.uid();
+
                 let OrderIntent {
                     owner,
                     sell,
@@ -214,14 +217,13 @@ mod tests {
                     app_data: _,
                 } = intent;
 
-                let encoded = EncodedOrderIntent::from(&intent);
                 let accessor = OrderIntentAccessor::attach(&encoded)
                     .map_err(|e| TestCaseError::fail(format!("attach failed: {e:?}")))?;
 
                 let buy_mint = buy.mint().unwrap_or(ENCODED_NATIVE_SOL_TRANSFER);
                 let buy_account = buy.account();
 
-                prop_assert_eq!(accessor.uid(), intent.uid());
+                prop_assert_eq!(accessor.uid(), intent_uid);
                 prop_assert_eq!(accessor.owner(), owner.as_array());
                 prop_assert_eq!(accessor.sell_token_account(), sell.token_account.as_array());
                 prop_assert_eq!(accessor.sell_mint(), sell.mint.as_array());

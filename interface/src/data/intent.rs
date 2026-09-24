@@ -110,7 +110,7 @@ impl TryFrom<[u8; 1]> for Flags {
 /// The representation of the side of a trade involving an actual token.
 /// Tokens from the mint `mint` stored at `token_account`.
 #[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenAsset {
     pub mint: Pubkey,
     pub token_account: Pubkey,
@@ -120,7 +120,7 @@ pub struct TokenAsset {
 ///
 /// The wire spells a side as a `(mint, account)` pair; this is the same pair
 /// with the one combination that isn't a token account named for what it is.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Asset {
     /// Native SOL, moving as lamports on this plain account rather than
     /// through a token account.
@@ -395,7 +395,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *sell_token = intent.sell.token_account.to_bytes();
         *sell_mint = intent.sell.mint.to_bytes();
         *buy_token = intent.buy.account().to_bytes();
-        *buy_mint = match intent.buy {
+        *buy_mint = match &intent.buy {
             Asset::Native(_) => ENCODED_NATIVE_SOL_TRANSFER,
             Asset::TokenProgram(token) => token.mint,
         }

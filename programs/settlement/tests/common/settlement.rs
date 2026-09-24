@@ -112,7 +112,7 @@ pub fn stage_order(
             amount,
         })
         .collect();
-    match intent.buy {
+    match &intent.buy {
         Asset::Native(_) => {
             state::fund_with_lamports(svm, program_id, amount_out);
         }

@@ -60,7 +60,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let (state_pda, state_bump) = find_state_pda(&builder.program_id);
         for &i in &orders {
             let intent = builder.orders[i].intent;
-            let (source, bump) = match intent.buy {
+            let (source, bump) = match &intent.buy {
                 Asset::Native(_) => (state_pda, state_bump),
                 Asset::TokenProgram(token) => find_buffer_pda(&builder.program_id, &token.mint),
             };
@@ -175,7 +175,7 @@ mod tests {
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump) = match order.intent.buy {
+                    let (buffer, bump) = match &order.intent.buy {
                         Asset::Native(_) => find_state_pda(&program_id),
                         Asset::TokenProgram(token) => find_buffer_pda(&program_id, &token.mint),
                     };
