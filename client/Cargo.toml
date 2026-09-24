@@ -23,6 +23,7 @@ cow-settlement-interface = { workspace = true, features = ["test-fixtures"] }
 [features]
 # Optional extra type derivation to support the `cow` CLI.
 cli = ["cow-settlement-interface/cli"]
+test-fixtures = []
 
 [lints]
 workspace = true

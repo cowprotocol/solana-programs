@@ -21,6 +21,10 @@ use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
+/// The address an encoded intent carries as a mint to trade native SOL rather
+/// than a token; see [`Asset::Native`].
+pub const ENCODED_NATIVE_SOL_TRANSFER: Pubkey = solana_system_interface::program::ID;
+
 /// Direction of the trade. The discriminants are the values the `kind` bit of
 /// the encoded flags byte takes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
@@ -103,32 +107,103 @@ impl TryFrom<[u8; 1]> for Flags {
     }
 }
 
-/// Canonical order intent. Also the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds,
-/// and the exact wire format of create_order's `intent` argument. Field order and encoding here are load-bearing: they
-/// must match this program's Rust definition exactly.
-#[derive(Clone, Debug, Eq, PartialEq, Default)]
+/// The representation of the side of a trade involving an actual token.
+/// Tokens from the mint `mint` stored at `token_account`.
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenAsset {
+    pub mint: Pubkey,
+    pub token_account: Pubkey,
+}
+
+/// One side of a trade: what moves, and the account it moves through.
+///
+/// The wire spells a side as a `(mint, account)` pair; this is the same pair
+/// with the one combination that isn't a token account named for what it is.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Asset {
+    /// Native SOL, moving as lamports on this plain account rather than
+    /// through a token account.
+    Native(Pubkey),
+
+    /// Tokens moved by a token program.
+    TokenProgram(TokenAsset),
+}
+
+/// Native SOL has no mint: it moves as lamports, not through a token program.
+/// The error returned when a [`TokenAsset`] naming native SOL is converted to
+/// an [`Asset`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeSolHasNoMint;
+
+impl TryFrom<TokenAsset> for Asset {
+    type Error = NativeSolHasNoMint;
+
+    /// Rejects a `token` naming [`ENCODED_NATIVE_SOL_TRANSFER`]: that's native SOL, and
+    /// wrapping it as a token side would encode an asset that decodes back as
+    /// [`Asset::Native`].
+    fn try_from(token: TokenAsset) -> Result<Self, Self::Error> {
+        if Self::is_native_sol(token.mint.as_array()) {
+            return Err(NativeSolHasNoMint);
+        }
+        Ok(Asset::TokenProgram(token))
+    }
+}
+
+impl Asset {
+    /// Whether the mint bytes `mint` name native SOL; see
+    /// [`ENCODED_NATIVE_SOL_TRANSFER`].
+    #[inline]
+    #[must_use]
+    pub fn is_native_sol(mint: &[u8; 32]) -> bool {
+        mint == ENCODED_NATIVE_SOL_TRANSFER.as_array()
+    }
+
+    /// The `(mint, account)` pair as used on the wire: a token becomes a mint
+    /// and token account; native SOL becomes [`ENCODED_NATIVE_SOL_TRANSFER`]
+    /// and the address its lamports move on.
+    pub fn encode(&self) -> (Pubkey, Pubkey) {
+        match self {
+            Asset::Native(account) => (ENCODED_NATIVE_SOL_TRANSFER, *account),
+            Asset::TokenProgram(token) => (token.mint, token.token_account),
+        }
+    }
+
+    /// Decode the `(mint, account)` pair the wire carries into the [`Asset`] it
+    /// denotes, for callers that have a side in that shape rather than a chosen
+    /// variant.
+    pub fn decode(mint: Pubkey, account: Pubkey) -> Self {
+        if Self::is_native_sol(mint.as_array()) {
+            Asset::Native(account)
+        } else {
+            Asset::TokenProgram(TokenAsset {
+                mint,
+                token_account: account,
+            })
+        }
+    }
+}
+
+/// Order intent. Its canonical encoding, [`EncodedOrderIntent`], is the exact wire format of create_order's `intent`
+/// argument and the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds.
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OrderIntent {
     /// Account authorized to create and invalidate this order and whose
     /// signature authenticates it. For off-chain orders this is the Ed25519
     /// signer; for on-chain creation it must be the transaction signer.
     pub owner: Pubkey,
 
-    /// Token account the sell-side funds are pulled from. Implicitly
-    /// encodes the spender. The settlement state PDA must hold the SPL
-    /// `delegate` on this account for the order to be settleable.
-    /// This token account must be owned by the intent owner. An intent
-    /// that doesn't satisfy this property will be rejected.
-    pub sell_token_account: Pubkey,
+    /// What the order sells, and the token account the funds are pulled from.
+    /// That account implicitly encodes the spender: the settlement state PDA
+    /// must hold the SPL `delegate` on it for the order to be settleable, and
+    /// it must be owned by the intent owner. An intent that doesn't satisfy
+    /// this property will be rejected.
+    pub sell: TokenAsset,
 
-    /// Mint of the sell token.
-    pub sell_mint: Pubkey,
-
-    /// Token account that receives the buy-side proceeds. Implicitly
-    /// encodes the recipient.
-    pub buy_token_account: Pubkey,
-
-    /// Mint of the buy token.
-    pub buy_mint: Pubkey,
+    /// What the order buys, and the account that receives the proceeds. That
+    /// account implicitly encodes the recipient
+    pub buy: Asset,
 
     /// Amount of the sell token. For `Sell` orders this is the exact
     /// amount to be sold (subject to `partially_fillable`); for `Buy`
@@ -272,6 +347,7 @@ pub fn intent_slots(bytes: &[u8; EncodedOrderIntent::SIZE]) -> IntentSlots<'_> {
 }
 
 impl From<&OrderIntent> for EncodedOrderIntent {
+    /// Lays each side out the way the wire spells it.
     fn from(intent: &OrderIntent) -> Self {
         // `mut_array_refs` checks that `SIZE` is consistent with the sum of
         // the widths.
@@ -301,10 +377,11 @@ impl From<&OrderIntent> for EncodedOrderIntent {
             EncodedOrderIntent::WIDTH_APP_DATA
         ];
         *owner = intent.owner.to_bytes();
-        *sell_token = intent.sell_token_account.to_bytes();
-        *sell_mint = intent.sell_mint.to_bytes();
-        *buy_token = intent.buy_token_account.to_bytes();
-        *buy_mint = intent.buy_mint.to_bytes();
+        *sell_token = intent.sell.token_account.to_bytes();
+        *sell_mint = intent.sell.mint.to_bytes();
+        let (buy_mint_address, buy_account) = intent.buy.encode();
+        *buy_token = buy_account.to_bytes();
+        *buy_mint = buy_mint_address.to_bytes();
         *sell_amount = intent.sell_amount.to_le_bytes();
         *buy_amount = intent.buy_amount.to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
@@ -330,10 +407,14 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
         let slots = intent_slots(bytes);
         Ok(OrderIntent {
             owner: Pubkey::new_from_array(*slots.owner),
-            sell_token_account: Pubkey::new_from_array(*slots.sell_token),
-            sell_mint: Pubkey::new_from_array(*slots.sell_mint),
-            buy_token_account: Pubkey::new_from_array(*slots.buy_token),
-            buy_mint: Pubkey::new_from_array(*slots.buy_mint),
+            sell: TokenAsset {
+                mint: Pubkey::new_from_array(*slots.sell_mint),
+                token_account: Pubkey::new_from_array(*slots.sell_token),
+            },
+            buy: Asset::decode(
+                Pubkey::new_from_array(*slots.buy_mint),
+                Pubkey::new_from_array(*slots.buy_token),
+            ),
             sell_amount: u64::from_le_bytes(*slots.sell_amount),
             buy_amount: u64::from_le_bytes(*slots.buy_amount),
             valid_to: u32::from_le_bytes(*slots.valid_to),
@@ -355,7 +436,7 @@ impl OrderIntent {
 pub mod fixtures {
     use proptest::{prelude::*, strategy::Union};
 
-    use super::{Flags, OrderIntent, OrderKind, Pubkey};
+    use super::{Asset, Flags, OrderIntent, OrderKind, Pubkey, TokenAsset};
 
     /// Every valid [`OrderKind`].
     pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
@@ -363,13 +444,24 @@ pub mod fixtures {
     // Hardcoded but verified in a sanity-check test.
     pub const FLAGS_OFFSET: usize = 180;
 
+    impl Default for Asset {
+        /// Native SOL on the all-zero address, the side an all-zero encoding
+        fn default() -> Self {
+            Asset::Native(Pubkey::default())
+        }
+    }
+
     pub fn sample_intent(flags: Flags) -> OrderIntent {
         OrderIntent {
             owner: Pubkey::new_from_array([0x11; 32]),
-            sell_token_account: Pubkey::new_from_array([0x22; 32]),
-            sell_mint: Pubkey::new_from_array([0x33; 32]),
-            buy_token_account: Pubkey::new_from_array([0x44; 32]),
-            buy_mint: Pubkey::new_from_array([0x55; 32]),
+            sell: TokenAsset {
+                token_account: Pubkey::new_from_array([0x22; 32]),
+                mint: Pubkey::new_from_array([0x33; 32]),
+            },
+            buy: Asset::TokenProgram(TokenAsset {
+                token_account: Pubkey::new_from_array([0x44; 32]),
+                mint: Pubkey::new_from_array([0x55; 32]),
+            }),
             sell_amount: 0x0123_4567_89ab_cdef,
             buy_amount: 0xfedc_ba98_7654_3210,
             valid_to: 0xdead_beef,
@@ -406,14 +498,28 @@ pub mod fixtures {
         })
     }
 
+    /// Any valid [`Asset`], either variant equally likely.
+    pub fn arb_asset() -> impl Strategy<Value = Asset> {
+        prop_oneof![
+            any::<[u8; 32]>().prop_map(|account| Asset::Native(Pubkey::new_from_array(account))),
+            (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_filter_map(
+                "mint must not be the native SOL marker",
+                |(mint, token_account)| Asset::try_from(TokenAsset {
+                    mint: Pubkey::new_from_array(mint),
+                    token_account: Pubkey::new_from_array(token_account),
+                })
+                .ok(),
+            ),
+        ]
+    }
+
     /// Any valid [`OrderIntent`].
     pub fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
         (
             any::<[u8; 32]>(),
             any::<[u8; 32]>(),
             any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
+            arb_asset(),
             any::<u64>(),
             any::<u64>(),
             any::<u32>(),
@@ -425,8 +531,7 @@ pub mod fixtures {
                     owner,
                     sell_tok,
                     sell_mint,
-                    buy_tok,
-                    buy_mint,
+                    buy,
                     sell_amount,
                     buy_amount,
                     valid_to,
@@ -435,10 +540,11 @@ pub mod fixtures {
                 )| {
                     OrderIntent {
                         owner: Pubkey::new_from_array(owner),
-                        sell_token_account: Pubkey::new_from_array(sell_tok),
-                        sell_mint: Pubkey::new_from_array(sell_mint),
-                        buy_token_account: Pubkey::new_from_array(buy_tok),
-                        buy_mint: Pubkey::new_from_array(buy_mint),
+                        sell: TokenAsset {
+                            mint: Pubkey::new_from_array(sell_mint),
+                            token_account: Pubkey::new_from_array(sell_tok),
+                        },
+                        buy,
                         sell_amount,
                         buy_amount,
                         valid_to,
@@ -456,6 +562,8 @@ mod tests {
 
     use super::fixtures::sample_intent;
     use super::*;
+    use crate::fixtures::pubkey_from_seed;
+    use crate::token_program::TokenProgram;
 
     // Every shape an `OrderIntent` can take on its validated axes: the
     // `created_on_chain` flag bit, the `kind` enum, and the
@@ -484,24 +592,22 @@ mod tests {
         // Any `OrderIntent` works: `size_of_val` only consults the field
         // type, never the data.
         let intent = sample_intent(Default::default());
+        let (token_account, mint) = &intent.buy.encode();
 
         assert_eq!(EncodedOrderIntent::WIDTH_OWNER, size_of_val(&intent.owner));
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_TOKEN,
-            size_of_val(&intent.sell_token_account)
+            size_of_val(&intent.sell.token_account)
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_MINT,
-            size_of_val(&intent.sell_mint)
+            size_of_val(&intent.sell.mint)
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_BUY_TOKEN,
-            size_of_val(&intent.buy_token_account)
+            size_of_val(token_account)
         );
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_BUY_MINT,
-            size_of_val(&intent.buy_mint)
-        );
+        assert_eq!(EncodedOrderIntent::WIDTH_BUY_MINT, size_of_val(mint));
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
             size_of_val(&intent.sell_amount)
@@ -670,13 +776,78 @@ mod tests {
         assert_eq!(encoding, expected);
     }
 
+    #[test]
+    fn an_asset_lowers_to_the_pair_the_wire_carries() {
+        let mint = pubkey_from_seed("mint");
+        let account = pubkey_from_seed("account");
+
+        for (buy, expected_mint) in [
+            (
+                Asset::try_from(TokenAsset {
+                    mint,
+                    token_account: account,
+                })
+                .expect("not native SOL"),
+                mint,
+            ),
+            (Asset::Native(account), ENCODED_NATIVE_SOL_TRANSFER),
+        ] {
+            let encoded = EncodedOrderIntent::from(&OrderIntent {
+                buy,
+                ..sample_intent(Default::default())
+            });
+            assert_eq!(intent_slots(&encoded).buy_mint, expected_mint.as_array());
+            assert_eq!(intent_slots(&encoded).buy_token, account.as_array());
+        }
+    }
+
+    #[test]
+    fn native_sol_mint_is_the_system_program() {
+        assert!(Asset::is_native_sol(ENCODED_NATIVE_SOL_TRANSFER.as_array()));
+        for program in TokenProgram::ALL {
+            assert!(!Asset::is_native_sol(program.address().as_array()));
+        }
+    }
+
+    #[test]
+    fn an_spl_mint_is_not_native_sol() {
+        assert!(!Asset::is_native_sol(
+            pubkey_from_seed("some mint").as_array()
+        ));
+    }
+
+    #[test]
+    fn a_token_side_naming_the_native_marker_is_native_sol() {
+        let account = pubkey_from_seed("some account");
+        assert_eq!(
+            Asset::decode(ENCODED_NATIVE_SOL_TRANSFER, account),
+            Asset::Native(account),
+        );
+    }
+
+    #[test]
+    fn a_token_side_naming_the_native_marker_is_not_a_token_asset() {
+        let token = TokenAsset {
+            mint: ENCODED_NATIVE_SOL_TRANSFER,
+            token_account: Pubkey::new_from_array([0x44; 32]),
+        };
+        assert_eq!(Asset::try_from(token), Err(NativeSolHasNoMint));
+    }
+
+    #[test]
+    fn default_intent_is_the_all_zero_encoding() {
+        let intent = OrderIntent::default();
+        let encoded = EncodedOrderIntent::from(&intent);
+        assert_eq!(*encoded, [0u8; EncodedOrderIntent::SIZE]);
+    }
+
     // Property-based tests, non-deterministic.
     mod proptest {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
 
         use super::*;
         use crate::data::intent::fixtures::{
-            arb_flags_byte, arb_invalid_flags_byte, arb_order_intent, FLAGS_OFFSET,
+            arb_asset, arb_flags_byte, arb_invalid_flags_byte, arb_order_intent, FLAGS_OFFSET,
         };
 
         proptest! {
@@ -722,6 +893,29 @@ mod tests {
                     OrderIntent::try_from(&bytes),
                     Err(ProgramError::InvalidInstructionData),
                 );
+            }
+
+            #[test]
+            fn round_trip_encode(asset in arb_asset()) {
+                let (mint, account) = asset.encode();
+                let decoded_asset = Asset::decode(mint, account);
+                prop_assert_eq!(decoded_asset, asset);
+            }
+
+            #[test]
+            fn round_trip_decode(
+                mint in prop_oneof![
+                    any::<[u8; 32]>(),
+                    Just(ENCODED_NATIVE_SOL_TRANSFER.to_bytes()),
+                ],
+                account in any::<[u8; 32]>(),
+            ) {
+                let mint = Pubkey::new_from_array(mint);
+                let account = Pubkey::new_from_array(account);
+                let asset = Asset::decode(mint, account);
+                let (encoded_mint, encoded_account) = asset.encode();
+                prop_assert_eq!(encoded_mint, mint);
+                prop_assert_eq!(encoded_account, account);
             }
         }
     }
