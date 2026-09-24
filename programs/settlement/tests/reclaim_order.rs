@@ -368,7 +368,6 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
     // `created_by`. Because the PDA was closed this is a genuine fresh creation,
     // not a no-op: the freshly written body records the new `created_by`, so the
     // account data differs from the original.
-    svm.expire_blockhash();
     let ix = CreateOrder {
         program_id,
         owner: owner.pubkey(),
