@@ -49,12 +49,32 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
     }
 }
 
-/// Extract the buy mint address. Native token is not supported.
+/// The buy mint of a token order. Panics on a native SOL buy, which has no
+/// mint; those are placed with [`OrderBuilder::buy_sol`] and their recipient is
+/// read back with [`buy_sol_account`].
 pub fn buy_mint(intent: &OrderIntent) -> Pubkey {
-    intent
-        .buy
-        .mint()
-        .expect("intent must buy with token program")
+    match &intent.buy {
+        Asset::TokenProgram(token) => token.mint,
+        Asset::Native(_) => panic!("expected a token buy, got native SOL"),
+    }
+}
+
+/// The buy token account of a token order. Panics on a native SOL buy, whose
+/// recipient is read with [`buy_sol_account`] instead.
+pub fn buy_account(intent: &OrderIntent) -> Pubkey {
+    match &intent.buy {
+        Asset::TokenProgram(token) => token.token_account,
+        Asset::Native(_) => panic!("expected a token buy, got native SOL"),
+    }
+}
+
+/// The address a native SOL buy credits its lamports to. Panics on a token buy,
+/// whose proceeds land in the token account [`buy_account`] returns.
+pub fn buy_sol_account(intent: &OrderIntent) -> Pubkey {
+    match &intent.buy {
+        Asset::Native(account) => *account,
+        Asset::TokenProgram(_) => panic!("expected a native SOL buy, got a token"),
+    }
 }
 
 /// [`sample_intent`] with all four token-account fields filled in with freshly

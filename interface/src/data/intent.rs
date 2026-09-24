@@ -130,8 +130,9 @@ pub enum Asset {
     TokenProgram(TokenAsset),
 }
 
-/// Returned by [`Asset::mint`] for native SOL, which moves as lamports and has
-/// no mint.
+/// Native SOL has no mint: it moves as lamports, not through a token program.
+/// The error returned when a [`TokenAsset`] naming native SOL is converted to
+/// an [`Asset`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NativeSolHasNoMint;
 
@@ -158,27 +159,20 @@ impl Asset {
         mint == ENCODED_NATIVE_SOL_TRANSFER.as_array()
     }
 
-    /// The mint of a token side. Native SOL has none: its wire marker is
-    /// [`ENCODED_NATIVE_SOL_TRANSFER`], not a mint.
-    pub fn mint(&self) -> Result<Pubkey, NativeSolHasNoMint> {
+    /// The `(mint, account)` pair as used on the wire: a token becomes a mint
+    /// and token account; native SOL becomes [`ENCODED_NATIVE_SOL_TRANSFER`]
+    /// and the address its lamports move on.
+    pub fn encode(&self) -> (Pubkey, Pubkey) {
         match self {
-            Asset::Native(_) => Err(NativeSolHasNoMint),
-            Asset::TokenProgram(token) => Ok(token.mint),
+            Asset::Native(account) => (ENCODED_NATIVE_SOL_TRANSFER, *account),
+            Asset::TokenProgram(token) => (token.mint, token.token_account),
         }
     }
 
-    /// The account this side moves through: the token account, or the plain
-    /// address lamports are credited to.
-    pub fn account(&self) -> Pubkey {
-        match self {
-            Asset::Native(account) => *account,
-            Asset::TokenProgram(token) => token.token_account,
-        }
-    }
-
-    /// Classify the `(mint, account)` pair the wire carries, for callers that
-    /// have a side in that shape rather than a chosen variant.
-    pub fn classify(mint: Pubkey, account: Pubkey) -> Self {
+    /// Decode the `(mint, account)` pair the wire carries into the [`Asset`] it
+    /// denotes, for callers that have a side in that shape rather than a chosen
+    /// variant.
+    pub fn decode(mint: Pubkey, account: Pubkey) -> Self {
         if Self::is_native_sol(mint.as_array()) {
             Asset::Native(account)
         } else {
@@ -385,12 +379,9 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *owner = intent.owner.to_bytes();
         *sell_token = intent.sell.token_account.to_bytes();
         *sell_mint = intent.sell.mint.to_bytes();
-        *buy_token = intent.buy.account().to_bytes();
-        *buy_mint = match &intent.buy {
-            Asset::Native(_) => ENCODED_NATIVE_SOL_TRANSFER,
-            Asset::TokenProgram(token) => token.mint,
-        }
-        .to_bytes();
+        let (buy_mint_address, buy_account) = intent.buy.encode();
+        *buy_token = buy_account.to_bytes();
+        *buy_mint = buy_mint_address.to_bytes();
         *sell_amount = intent.sell_amount.to_le_bytes();
         *buy_amount = intent.buy_amount.to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
@@ -420,7 +411,7 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
                 mint: Pubkey::new_from_array(*slots.sell_mint),
                 token_account: Pubkey::new_from_array(*slots.sell_token),
             },
-            buy: Asset::classify(
+            buy: Asset::decode(
                 Pubkey::new_from_array(*slots.buy_mint),
                 Pubkey::new_from_array(*slots.buy_token),
             ),
@@ -603,6 +594,7 @@ mod tests {
         // Any `OrderIntent` works: `size_of_val` only consults the field
         // type, never the data.
         let intent = sample_intent(Default::default());
+        let (token_account, mint) = &intent.buy.encode();
 
         assert_eq!(EncodedOrderIntent::WIDTH_OWNER, size_of_val(&intent.owner));
         assert_eq!(
@@ -615,12 +607,9 @@ mod tests {
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_BUY_TOKEN,
-            size_of_val(&intent.buy.account())
+            size_of_val(token_account)
         );
-        assert_eq!(
-            EncodedOrderIntent::WIDTH_BUY_MINT,
-            size_of_val(&ENCODED_NATIVE_SOL_TRANSFER)
-        );
+        assert_eq!(EncodedOrderIntent::WIDTH_BUY_MINT, size_of_val(mint));
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
             size_of_val(&intent.sell_amount)
@@ -815,19 +804,6 @@ mod tests {
     }
 
     #[test]
-    fn only_a_token_side_has_a_mint() {
-        let mint = Pubkey::new_from_array([0x55; 32]);
-        let account = Pubkey::new_from_array([0x44; 32]);
-        let token = Asset::try_from(TokenAsset {
-            mint,
-            token_account: account,
-        })
-        .expect("not native SOL");
-        assert_eq!(token.mint(), Ok(mint));
-        assert_eq!(Asset::Native(account).mint(), Err(NativeSolHasNoMint));
-    }
-
-    #[test]
     fn native_sol_mint_is_the_system_program() {
         assert!(Asset::is_native_sol(ENCODED_NATIVE_SOL_TRANSFER.as_array()));
         for program in TokenProgram::ALL {
@@ -846,7 +822,7 @@ mod tests {
     fn a_token_side_naming_the_native_marker_is_native_sol() {
         let account = pubkey_from_seed("some account");
         assert_eq!(
-            Asset::classify(ENCODED_NATIVE_SOL_TRANSFER, account),
+            Asset::decode(ENCODED_NATIVE_SOL_TRANSFER, account),
             Asset::Native(account),
         );
     }
@@ -873,7 +849,7 @@ mod tests {
 
         use super::*;
         use crate::data::intent::fixtures::{
-            arb_flags_byte, arb_invalid_flags_byte, arb_order_intent, FLAGS_OFFSET,
+            arb_asset, arb_flags_byte, arb_invalid_flags_byte, arb_order_intent, FLAGS_OFFSET,
         };
 
         proptest! {
@@ -919,6 +895,29 @@ mod tests {
                     OrderIntent::try_from(&bytes),
                     Err(ProgramError::InvalidInstructionData),
                 );
+            }
+
+            #[test]
+            fn round_trip_encode(asset in arb_asset()) {
+                let (mint, account) = asset.encode();
+                let decoded_asset = Asset::decode(mint, account);
+                prop_assert_eq!(decoded_asset, asset);
+            }
+
+            #[test]
+            fn round_trip_decode(
+                mint in prop_oneof![
+                    any::<[u8; 32]>(),
+                    Just(ENCODED_NATIVE_SOL_TRANSFER.to_bytes()),
+                ],
+                account in any::<[u8; 32]>(),
+            ) {
+                let mint = Pubkey::new_from_array(mint);
+                let account = Pubkey::new_from_array(account);
+                let asset = Asset::decode(mint, account);
+                let (encoded_mint, encoded_account) = asset.encode();
+                prop_assert_eq!(encoded_mint, mint);
+                prop_assert_eq!(encoded_account, account);
             }
         }
     }

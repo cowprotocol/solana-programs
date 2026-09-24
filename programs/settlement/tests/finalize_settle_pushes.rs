@@ -13,7 +13,7 @@ use crate::common::{
     assert_instruction_error_at,
     benchmark::BenchLabel,
     buffer, create_account,
-    order::{create_order_pda, settlable_intent, OrderBuilder},
+    order::{buy_account, buy_mint, create_order_pda, settlable_intent, OrderBuilder},
     replace_first_matching_account, send, send_metered,
     settlement::{build_matching_settlement, build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token, unique_pubkey,
@@ -76,7 +76,7 @@ fn pushes_a_single_order() {
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
         .expect("a single push should be paid");
 
-    assert_eq!(token::balance(&svm, &intent.buy.account()), amount);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), amount);
     assert_eq!(token::balance(&svm, &buffer_pda), funding - amount);
 }
 
@@ -116,8 +116,8 @@ fn pushes_several_orders_from_one_buffer() {
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
         .expect("several pushes from one buffer should be paid");
 
-    assert_eq!(token::balance(&svm, &intent0.buy.account()), amount0);
-    assert_eq!(token::balance(&svm, &intent1.buy.account()), amount1);
+    assert_eq!(token::balance(&svm, &buy_account(&intent0)), amount0);
+    assert_eq!(token::balance(&svm, &buy_account(&intent1)), amount1);
     assert_eq!(
         token::balance(&svm, &buffer_pda),
         funding - amount0 - amount1,
@@ -158,8 +158,8 @@ fn pushes_several_orders_from_different_buffers() {
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
         .expect("pushes from different buffers should be paid");
 
-    assert_eq!(token::balance(&svm, &intent0.buy.account()), amount0);
-    assert_eq!(token::balance(&svm, &intent1.buy.account()), amount1);
+    assert_eq!(token::balance(&svm, &buy_account(&intent0)), amount0);
+    assert_eq!(token::balance(&svm, &buy_account(&intent1)), amount1);
     assert_eq!(token::balance(&svm, &buffer0), funding - amount0);
     assert_eq!(token::balance(&svm, &buffer1), funding - amount1);
 }
@@ -174,7 +174,7 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
     buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, 1_000);
 
     let another_mint = token::create_mint(&mut svm, &payer);
-    token::overwrite_token_account(&mut svm, &payer, &intent.buy.account(), &another_mint);
+    token::overwrite_token_account(&mut svm, &payer, &buy_account(&intent), &another_mint);
 
     let instructions = build_matching_settlement(
         &program_id,
@@ -304,7 +304,7 @@ fn rejects_invalid_buy_token_account() {
 
     let settlable = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
     // The mint account is a convenient invalid account we can use
-    let settlable_buy_mint = settlable.buy.mint().expect("intent must be token program");
+    let settlable_buy_mint = buy_mint(&settlable);
     let intent = OrderIntent {
         buy: Asset::try_from(TokenAsset {
             mint: settlable_buy_mint,
@@ -334,12 +334,12 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
 
     let fake_token_program = create_account(&mut svm, &payer.pubkey(), &[]);
     let impostor =
-        token::clone_under_new_program(&mut svm, &settlable.buy.account(), &fake_token_program);
+        token::clone_under_new_program(&mut svm, &buy_account(&settlable), &fake_token_program);
 
     // As above, the impostor passes both instructions' push checks (the push
-    // pays `intent.buy.account()` from `intent.buy.mint()`'s buffer), but its
+    // pays the order's buy token account out of its buy mint's buffer), but its
     // owner is no token program, so there is nothing to issue the push against.
-    let settlable_buy_mint = settlable.buy.mint().expect("intent must be token program");
+    let settlable_buy_mint = buy_mint(&settlable);
     let intent = OrderIntent {
         buy: Asset::try_from(TokenAsset {
             mint: settlable_buy_mint,

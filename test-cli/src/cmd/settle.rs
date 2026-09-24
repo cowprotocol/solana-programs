@@ -2,7 +2,9 @@ use anyhow::Context as _;
 use clap::Args;
 use cow_settlement_client::{
     cow_settlement_interface::{
-        data::intent::OrderIntent, pda::buffer::find_buffer_pda, token_program::TokenProgram,
+        data::intent::{Asset, OrderIntent},
+        pda::buffer::find_buffer_pda,
+        token_program::TokenProgram,
         Pubkey,
     },
     instruction::{
@@ -227,10 +229,12 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
     intents
         .into_iter()
         .map(|intent| {
+            let Asset::TokenProgram(buy) = &intent.buy else {
+                anyhow::bail!("order buys native SOL, which the settle CLI doesn't support yet");
+            };
             Ok(ResolvedIntent {
                 sell: resolve_from_token_account(&ctx.rpc, &intent.sell.token_account)?,
-                buy: resolve_from_token_account(&ctx.rpc, &intent.buy.account())?,
-
+                buy: resolve_from_token_account(&ctx.rpc, &buy.token_account)?,
                 data: intent,
             })
         })

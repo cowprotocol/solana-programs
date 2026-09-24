@@ -21,7 +21,9 @@ use crate::common::{
     assert_instruction_error_at,
     benchmark::BenchLabel,
     buffer, create_account,
-    order::{self, create_order_pda, sample_intent, settlable_intent, OrderBuilder},
+    order::{
+        buy_account, buy_mint, create_order_pda, sample_intent, settlable_intent, OrderBuilder,
+    },
     replace_first_matching_account, send, send_metered, set_unix_timestamp,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token, unique_pubkey,
@@ -123,13 +125,7 @@ fn settle_and_pay_amounts(
         .iter()
         .zip(push_amounts)
         .map(|(order, &amount)| {
-            buffer::ensure_funded(
-                svm,
-                program_id,
-                payer,
-                &order::buy_mint(order.intent),
-                amount,
-            );
+            buffer::ensure_funded(svm, program_id, payer, &buy_mint(order.intent), amount);
             FinalizedIntent {
                 intent: order.intent,
                 amount,
@@ -276,7 +272,7 @@ fn rejects_fabricated_program_owned_account() {
         begin_ix_index: 0,
         only_token_program: None,
         source_buffers: &[unique_pubkey()],
-        destinations: &[intent.buy.account()],
+        destinations: &[buy_account(&intent)],
         bumps: &[0],
         amounts: &[0],
     };
@@ -599,11 +595,8 @@ fn rejects_orders_in_wrong_address_order() {
         .iter()
         .map(|(_, intent)| {
             (
-                find_buffer_pda(
-                    &program_id,
-                    &intent.buy.mint().expect("intent must be token program"),
-                ),
-                intent.buy.account(),
+                find_buffer_pda(&program_id, &buy_mint(intent)),
+                buy_account(intent),
             )
         })
         .unzip();
@@ -1265,7 +1258,7 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         source_buffers: &[other_buffer],
-        destinations: &[intent.buy.account()],
+        destinations: &[buy_account(&intent)],
         bumps: &[other_bump],
         amounts: &[100],
     };
