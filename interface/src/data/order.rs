@@ -25,7 +25,7 @@ use core::mem::size_of;
 use core::ops::{Deref, DerefMut};
 
 use arrayref::{array_refs, mut_array_refs};
-use solana_account_view::{AccountView, Ref};
+use solana_account_view::{AccountView, Ref, RefMut};
 use solana_address::Address;
 use solana_hash::Hash;
 use solana_program_error::ProgramError;
@@ -225,20 +225,32 @@ impl<T: Deref<Target = [u8]>> OrderAccount<T> {
 }
 
 impl<'a> OrderAccount<Ref<'a, [u8]>> {
-    /// Attach to an account's borrowed data.
-    pub fn from_account(account: &'a AccountView) -> Result<Self, ProgramError> {
-        Self::attach(account.try_borrow()?)
-    }
-
     /// Attach to the order at the given PDA and confirm the PDA is derivable
     /// from its own data: both the UID and the bump feeding the derivation come
     /// from the stored body.
+    #[inline]
     pub fn load_from_pda(
         order_pda: &'a AccountView,
         program_id: &Address,
     ) -> Result<Self, ProgramError> {
-        let order = Self::from_account(order_pda)?;
+        let order = Self::attach(order_pda.try_borrow()?)?;
         order.check_pda(order_pda.address(), program_id)?;
+        Ok(order)
+    }
+}
+
+impl<'a> OrderAccount<RefMut<'a, [u8]>> {
+    /// Mutable counterpart of [`OrderAccount::load_from_pda`]: borrow the order
+    /// mutably and confirm it lives at its own canonical PDA before a caller
+    /// writes to it.
+    #[inline]
+    pub fn load_from_pda_mut(
+        order_pda: &'a mut AccountView,
+        program_id: &Address,
+    ) -> Result<Self, ProgramError> {
+        let address = *order_pda.address();
+        let order = Self::attach(order_pda.try_borrow_mut()?)?;
+        order.check_pda(&address, program_id)?;
         Ok(order)
     }
 }
@@ -288,6 +300,13 @@ impl<T: DerefMut<Target = [u8]>> OrderAccount<T> {
         let slots = order_slots_mut(self.body_mut());
         *slots.amount_withdrawn = amounts.withdrawn.to_le_bytes();
         *slots.amount_received = amounts.received.to_le_bytes();
+    }
+
+    /// Mark the order cancelled. Idempotent: setting it on an already-cancelled
+    /// order writes back the same value.
+    pub fn set_cancelled(&mut self) {
+        let slots = order_slots_mut(self.body_mut());
+        *slots.cancelled = [true.into()];
     }
 }
 
@@ -474,6 +493,40 @@ mod tests {
             ..sample_order_fields(false)
         }
         .encode();
+        assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn set_cancelled_writes_only_the_cancelled_byte() {
+        let mut bytes = sample_order_bytes(false);
+
+        let mut account = OrderAccount::attach(&mut bytes[..]).expect("sample must attach");
+        assert!(
+            !account.cancelled().expect("valid cancelled"),
+            "sanity check: order starts active"
+        );
+        account.set_cancelled();
+
+        // Indistinguishable from re-stamping the whole account with just the
+        // cancelled flag set: every other byte is untouched.
+        let expected = sample_order_fields(true).encode();
+        assert_eq!(bytes, expected);
+    }
+
+    #[test]
+    fn set_cancelled_on_cancelled_order_is_a_no_op() {
+        let mut bytes = sample_order_bytes(true);
+
+        let mut account = OrderAccount::attach(&mut bytes[..]).expect("sample must attach");
+        assert!(
+            account.cancelled().expect("valid cancelled"),
+            "sanity check: order starts cancelled"
+        );
+        account.set_cancelled();
+
+        // Idempotent: re-stamping an already-cancelled order leaves every byte
+        // unchanged.
+        let expected = sample_order_fields(true).encode();
         assert_eq!(bytes, expected);
     }
 

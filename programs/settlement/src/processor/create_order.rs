@@ -35,12 +35,14 @@ pub fn process_create_order(
         (order_pda, &intent_bytes),
         owner.address(),
         created_by,
+        false,
     )
 }
 
 /// Create a new on-chain order PDA at the specified address, with the given
 /// encoded intent data, owned by the expected order, and flagged as created by
-/// the specified address.
+/// the specified address. `cancelled` is the order's initial state: `false` for
+/// a normal creation, `true` when the order is created already cancelled.
 ///
 /// This function performs all necessary validity checks and reverts if the
 /// order has already been created before.
@@ -49,6 +51,7 @@ pub(crate) fn process_new_onchain_order(
     (order_pda, intent_bytes): (&AccountView, &[u8; EncodedOrderIntent::SIZE]),
     expected_owner: &Address,
     created_by: &AccountView,
+    cancelled: bool,
 ) -> ProgramResult {
     let intent = OrderIntentAccessor::attach(intent_bytes)?;
     let intent_uid = intent.uid();
@@ -77,7 +80,7 @@ pub(crate) fn process_new_onchain_order(
     OrderAccount::initialize(
         order_pda.try_borrow_mut()?,
         bump,
-        false,
+        cancelled,
         0,
         0,
         created_by.address(),
@@ -92,7 +95,7 @@ mod tests {
     use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
     use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::create_order::fixtures::{
-        default_order_data, valid_intent_bytes, DEFAULT_OWNER, NUM_ACCOUNTS,
+        default_order_data, valid_intent_bytes, NUM_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_from, fake_sequential_accounts,
@@ -164,7 +167,8 @@ mod tests {
     fn process_create_order_rejects_nonsigner_owner() {
         let intent_bytes = valid_intent_bytes();
         let data = default_order_data(&intent_bytes);
-        let owner_account = fake_account(DEFAULT_OWNER);
+        let intent: OrderIntent = (&intent_bytes).try_into().expect("should be valid");
+        let owner_account = fake_account(intent.owner);
 
         // Test setup: owner is not a signer.
         assert!(!owner_account.is_signer());
@@ -182,6 +186,7 @@ mod tests {
     fn process_create_order_rejects_owner_mismatch() {
         let intent_bytes = valid_intent_bytes();
         let data = default_order_data(&intent_bytes);
+        let intent: OrderIntent = (&intent_bytes).try_into().expect("should be valid");
         let owner_runtime_account = RuntimeAccount {
             address: Address::new_from_array([0x67; 32]),
             is_signer: 1,
@@ -189,7 +194,7 @@ mod tests {
         };
 
         // Test setup: owner doesn't match.
-        assert_ne!(owner_runtime_account.address, DEFAULT_OWNER);
+        assert_ne!(owner_runtime_account.address, intent.owner);
 
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         accounts[0] = fake_account_from(owner_runtime_account);
@@ -208,7 +213,7 @@ mod tests {
             (&EncodedOrderIntent::from(&OrderIntent { ..intent })).into();
         let data = default_order_data(&intent_bytes);
         let owner_runtime_account = RuntimeAccount {
-            address: DEFAULT_OWNER,
+            address: intent.owner,
             is_signer: 1,
             ..Default::default()
         };
