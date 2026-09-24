@@ -44,11 +44,8 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
 /// [`find_state_pda`] searches.
 #[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
-pub fn validate_state_pda(
-    source_buffer: &Address,
-    state_pda: &Address,
-) -> Result<(), ProgramError> {
-    if source_buffer != state_pda {
+pub fn validate_is_state_pda(prospective_state_address: &[u8; 32]) -> Result<(), ProgramError> {
+    if prospective_state_address != STATE_PDA.as_array() {
         Err(SettlementError::PushSourceNotStatePda.into())
     } else {
         Ok(())
@@ -85,16 +82,12 @@ mod tests {
 
     #[test]
     fn accepts_the_state_pda() {
-        let (pda, _) = find_state_pda(&Pubkey::new_unique());
-
-        validate_state_pda(&pda, &pda).expect("the state PDA itself must be accepted");
+        validate_is_state_pda(STATE_PDA.as_array()).expect("the state PDA itself must be accepted");
     }
 
     #[test]
     fn rejects_any_other_address() {
-        let (pda, _) = find_state_pda(&Pubkey::new_unique());
-
-        let err = validate_state_pda(&Pubkey::new_unique(), &pda)
+        let err = validate_is_state_pda(Pubkey::new_unique().as_array())
             .expect_err("an address other than the state PDA must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotStatePda.into());
     }

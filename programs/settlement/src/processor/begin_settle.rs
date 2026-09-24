@@ -3,6 +3,7 @@
 use std::ops::Deref;
 
 use cow_settlement_interface::data::intent::OrderIntentAccessor;
+use cow_settlement_interface::pda::state::validate_is_state_pda;
 use cow_settlement_interface::{
     data::{
         intent::{Flags, OrderKind},
@@ -15,7 +16,7 @@ use cow_settlement_interface::{
         },
         InstructionInputParsing,
     },
-    pda::{buffer::validate_buffer_pda, state::validate_state_pda},
+    pda::buffer::validate_buffer_pda,
     recover_discriminator,
     token_program::is_native_sol,
     SettlementError, SettlementInstruction,
@@ -300,7 +301,7 @@ fn process_order(
     // If its a native SOL buy order, the "source buffer" should be the state pda.
     let buy_mint = intent.buy_mint();
     if is_native_sol(buy_mint) {
-        validate_state_pda(push.source_buffer, state_account.address())?;
+        validate_is_state_pda(push.source_buffer.as_array())?;
     } else {
         validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;
     }
