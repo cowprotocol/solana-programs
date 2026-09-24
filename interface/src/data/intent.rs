@@ -130,15 +130,6 @@ pub enum Asset {
     TokenProgram(TokenAsset),
 }
 
-#[cfg(any(test, feature = "test-fixtures"))]
-impl Default for Asset {
-    /// Native SOL on the all-zero address, the side an all-zero encoding
-    /// carries: [`ENCODED_NATIVE_SOL_TRANSFER`] is itself all-zero.
-    fn default() -> Self {
-        Asset::Native(Pubkey::default())
-    }
-}
-
 /// Returned by [`Asset::mint`] for native SOL, which moves as lamports and has
 /// no mint.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -463,6 +454,14 @@ pub mod fixtures {
 
     // Hardcoded but verified in a sanity-check test.
     pub const FLAGS_OFFSET: usize = 180;
+
+    impl Default for Asset {
+        /// Native SOL on the all-zero address, the side an all-zero encoding
+        /// carries: [`ENCODED_NATIVE_SOL_TRANSFER`] is itself all-zero.
+        fn default() -> Self {
+            Asset::Native(Pubkey::default())
+        }
+    }
 
     pub fn sample_intent(flags: Flags) -> OrderIntent {
         OrderIntent {
