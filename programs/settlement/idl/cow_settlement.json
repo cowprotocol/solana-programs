@@ -409,7 +409,7 @@
       "name": "finalize_settle",
       "docs": [
         "Validates that a BeginSettle at `begin_ix_index` exists and points back at this instruction. Must not be called via CPI.",
-        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source buffer PDA. Please check the rust documentation for more information."
+        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source: the buy mint's buffer PDA, or the state PDA for an order buying native SOL. Please check the rust documentation for more information."
       ],
       "discriminator": [
         1
@@ -422,7 +422,7 @@
         {
           "name": "state_pda",
           "docs": [
-            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority."
+            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority, and pays the pushes of orders buying native SOL out of its own lamports."
           ]
         },
         {
@@ -894,9 +894,9 @@
     {
       "name": "OrderIntent",
       "docs": [
-        "Canonical order intent. Also the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds,",
-        "and the exact wire format of create_order's `intent` argument. Field order and encoding here are load-bearing: they",
-        "must match this program's Rust definition exactly."
+        "Order intent. Its canonical encoding, `EncodedOrderIntent`, is the exact wire format of create_order's `intent`",
+        "argument and the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds. Field order",
+        "and encoding here are load-bearing: they must match this program's Rust definition exactly."
       ],
       "type": {
         "kind": "struct",
@@ -1208,6 +1208,11 @@
       "code": 42,
       "name": "UnauthorizedSelfOrder",
       "msg": "CreateSelfOrder's self-order-authority account isn't a signer, or doesn't match the self_order_authority recorded in the settlement state PDA, so it may not create self orders."
+    },
+    {
+      "code": 43,
+      "name": "PushSourceNotStatePda",
+      "msg": "BeginSettle: a paired FinalizeSettle push paying an order that buys native SOL doesn't draw from the settlement state PDA."
     }
   ]
 }
