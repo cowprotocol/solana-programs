@@ -366,10 +366,7 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
         &mut svm,
         &program_id,
         &payer,
-        &intent
-            .buy
-            .mint()
-            .expect("intent must buy with token program"),
+        buy_mint(&intent),
         AMOUNT,
     );
     let destination =
