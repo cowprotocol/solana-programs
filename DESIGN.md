@@ -317,7 +317,7 @@ A settlement transaction is split into multiple instructions. All settlement ope
 
 - `BeginSettle`: Pulls funds from each order’s sell token account to the solver-specified destination accounts, using the settlement state PDA’s token delegation. Validates each order's limit price and that its cumulative fill stays within the order's sell and buy amounts (fully filling a fill-or-kill order), and updates the order's `amount_withdrawn`/`amount_received`. Carries an explicit `finalize_ix_index` pointing to its paired `FinalizeSettle`.
 - (arbitrary interactions): Any instruction from the solver. This could be a token transfer, an AMM swap, or anything else.
-- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. An order [buying SOL](#buying-sol) is instead paid in lamports out of the state PDA itself. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
+- `FinalizeSettle`: Pushes the proceeds of each order from the settlement’s buffer accounts to the order’s buy token account, using the settlement state PDA’s authority over the buffers. Carries an explicit `begin_ix_index` pointing to its paired `BeginSettle`.
 
 Additionally, `BeginSettle` includes the `auction_id` (an `i64`) as part of its instruction data. This value is unused by the program and only relied upon by the off-chain back-end services.
 
