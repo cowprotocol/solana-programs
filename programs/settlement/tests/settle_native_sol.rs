@@ -292,6 +292,15 @@ fn rejects_a_push_spending_the_state_pdas_rent() {
     let funding = 1_000_000;
     let funded = state::fund_with_lamports(&mut svm, &program_id, funding);
 
+    let (state_pda_address, _) = find_state_pda(&program_id);
+
+    // sanity: Ensure that the state pda exists, has length, and is funded with lamports already
+    let state_pda = svm
+        .get_account(&state_pda_address)
+        .expect("state pda must exist");
+    assert!(state_pda.data.len() > 0);
+    assert!(state_pda.lamports > 0);
+
     // One lamport past the balance that isn't rent, so the push is affordable
     // but leaves the account under-funded for its own data.
     let instructions = native_sol_settlement(
