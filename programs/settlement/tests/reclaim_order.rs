@@ -439,7 +439,7 @@ fn sponsored_order_cannot_be_recreated_by_replaying_the_original_transaction() {
         owner: owner.pubkey(),
         created_by: sponsor.pubkey(),
         order_pda: pda,
-        intent_bytes: encoded,
+        intent_bytes: Some(encoded),
     };
     let cancel_tx = Transaction::new_signed_with_payer(
         &[cancel_ix.into()],
