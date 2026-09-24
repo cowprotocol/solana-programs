@@ -510,18 +510,28 @@ pub mod fixtures {
         })
     }
 
+    /// Any valid [`Asset`], either variant equally likely.
+    pub fn arb_asset() -> impl Strategy<Value = Asset> {
+        prop_oneof![
+            any::<[u8; 32]>().prop_map(|account| Asset::Native(Pubkey::new_from_array(account))),
+            (any::<[u8; 32]>(), any::<[u8; 32]>()).prop_filter_map(
+                "mint must not be the native SOL marker",
+                |(mint, token_account)| Asset::try_from(TokenAsset {
+                    mint: Pubkey::new_from_array(mint),
+                    token_account: Pubkey::new_from_array(token_account),
+                })
+                .ok(),
+            ),
+        ]
+    }
+
     /// Any valid [`OrderIntent`].
-    ///
-    /// Sides are drawn as the `(mint, account)` pairs the wire carries and
-    /// classified, which never produces the `TokenProgram`-with-a-native-mint
-    /// spelling no caller should write.
     pub fn arb_order_intent() -> impl Strategy<Value = OrderIntent> {
         (
             any::<[u8; 32]>(),
             any::<[u8; 32]>(),
             any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
+            arb_asset(),
             any::<u64>(),
             any::<u64>(),
             any::<u32>(),
@@ -533,8 +543,7 @@ pub mod fixtures {
                     owner,
                     sell_tok,
                     sell_mint,
-                    buy_tok,
-                    buy_mint,
+                    buy,
                     sell_amount,
                     buy_amount,
                     valid_to,
@@ -547,16 +556,7 @@ pub mod fixtures {
                             mint: Pubkey::new_from_array(sell_mint),
                             token_account: Pubkey::new_from_array(sell_tok),
                         },
-                        buy: Asset::classify(
-                            // Ensure there are some cases where the system program (buy native SOL) is selected
-                            // To prevent interrupting common base cases that proptest is likely covering (ex. all 0s), select "random" bytes that must be certain values
-                            if buy_mint[4] % 2 == 0 && buy_mint[14] % 2 == 1 {
-                                solana_system_interface::program::ID
-                            } else {
-                                Pubkey::new_from_array(buy_mint)
-                            },
-                            Pubkey::new_from_array(buy_tok),
-                        ),
+                        buy,
                         sell_amount,
                         buy_amount,
                         valid_to,
