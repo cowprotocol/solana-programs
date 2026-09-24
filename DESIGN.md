@@ -43,9 +43,11 @@ Any authority that holds a role can transfer it to another account with the `Tra
 
 ## Buffer accounts
 
-Buffer accounts are token accounts that hold funds on behalf of the settlement program throught the state PDA.
+Buffer accounts are token accounts that hold funds on behalf of the settlement program through the state PDA.
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
+
+For buying native SOL, there is no dedicated buffer account. Instead, non rent-bearing lamports from the state PDA are used.
 
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
@@ -117,10 +119,19 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
-	// Origin and destination of funds in this order, each with the mint it
-	// should correspond to.
-	sell_token_account: Pubkey
-	sell_mint: Pubkey
+	// Origin to pull funds for the order. Only SPL or Token-2022 token programs are supported.
+	sell: TokenAsset {
+		mint: Pubkey,
+		token_account: Pubkey,
+	}
+
+	// Destination to push proceeds of the order. On top of the token support for, native SOL (lamports) may be purchased
+	buy: TokenAsset {
+		mint: Pubkey,
+		token_account: Pubkey,
+	} | NativeAsset {
+		account: Pubkey,
+	}
 	buy_token_account: Pubkey
 	// Set this to the system program to buy native SOL (lamports) and deposit it to the provided buy_token_account.
 	buy_mint: Pubkey
