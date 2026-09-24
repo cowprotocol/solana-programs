@@ -1,18 +1,19 @@
 //! On-chain order construction shared by the settlement integration tests.
 
 use cow_settlement_client::cow_settlement_interface::data::intent::{
-    Flags, OrderIntent, OrderKind,
+    Asset, Flags, OrderIntent, OrderKind, TokenAsset,
 };
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
+use cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
 };
 
-use super::{buffer, signed_tx, token};
+use super::{buffer, signed_tx, token, unique_pubkey};
 
 /// Decode the [`DecodedOrderAccount`] stored at an order PDA.
 pub fn read_order(svm: &LiteSVM, pda: &Pubkey) -> DecodedOrderAccount {
@@ -27,10 +28,15 @@ pub fn read_order(svm: &LiteSVM, pda: &Pubkey) -> DecodedOrderAccount {
 pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
     OrderIntent {
         owner,
-        sell_token_account: Pubkey::new_from_array([0x22; 32]),
-        sell_mint: Pubkey::new_from_array([0x33; 32]),
-        buy_token_account: Pubkey::new_from_array([0x44; 32]),
-        buy_mint: Pubkey::new_from_array([0x55; 32]),
+        sell: TokenAsset {
+            token_account: Pubkey::new_from_array([0x22; 32]),
+            mint: Pubkey::new_from_array([0x33; 32]),
+        },
+        buy: Asset::try_from(TokenAsset {
+            token_account: Pubkey::new_from_array([0x44; 32]),
+            mint: Pubkey::new_from_array([0x55; 32]),
+        })
+        .expect("not native SOL"),
         sell_amount: 1_000_000,
         buy_amount: 2_000_000,
         valid_to: 0xdead_beef,
@@ -40,6 +46,34 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
             partially_fillable: true,
         },
         app_data: [salt; 32],
+    }
+}
+
+/// The buy mint of a token order. Panics on a native SOL buy, which has no
+/// mint; those are placed with [`OrderBuilder::buy_sol`] and their recipient is
+/// read back with [`buy_sol_account`].
+pub fn buy_mint(intent: &OrderIntent) -> Pubkey {
+    match &intent.buy {
+        Asset::TokenProgram(token) => token.mint,
+        Asset::Native(_) => panic!("expected a token buy, got native SOL"),
+    }
+}
+
+/// The buy token account of a token order. Panics on a native SOL buy, whose
+/// recipient is read with [`buy_sol_account`] instead.
+pub fn buy_account(intent: &OrderIntent) -> Pubkey {
+    match &intent.buy {
+        Asset::TokenProgram(token) => token.token_account,
+        Asset::Native(_) => panic!("expected a token buy, got native SOL"),
+    }
+}
+
+/// The address a native SOL buy credits its lamports to. Panics on a token buy,
+/// whose proceeds land in the token account [`buy_account`] returns.
+pub fn buy_sol_account(intent: &OrderIntent) -> Pubkey {
+    match &intent.buy {
+        Asset::Native(account) => *account,
+        Asset::TokenProgram(_) => panic!("expected a native SOL buy, got a token"),
     }
 }
 
@@ -55,10 +89,15 @@ pub fn settlable_intent(
     let sell_mint = token::create_mint(svm, payer);
     let buy_mint = token::create_mint(svm, payer);
     OrderIntent {
-        sell_token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
-        sell_mint,
-        buy_token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
-        buy_mint,
+        sell: TokenAsset {
+            mint: sell_mint,
+            token_account: token::create_token_account(svm, payer, &sell_mint, &owner),
+        },
+        buy: Asset::try_from(TokenAsset {
+            mint: buy_mint,
+            token_account: token::create_token_account(svm, payer, &buy_mint, &owner),
+        })
+        .expect("not native SOL"),
         ..sample_intent(owner, salt)
     }
 }
@@ -107,6 +146,8 @@ fn create_self_order_pda(
 enum TokenSource {
     /// A fresh account of a freshly generated mint (the default).
     FreshMint,
+    /// Indicates native token (only for buy side)
+    Native,
     /// A fresh account of the given mint.
     Mint(Pubkey),
     /// The given existing account.
@@ -114,14 +155,15 @@ enum TokenSource {
 }
 
 impl TokenSource {
-    /// Resolve this source into the `(mint, token_account)`.
+    /// Resolve this source into the [`TokenAsset`] it names, creating the token
+    /// account it needs.
     fn resolve(
         self,
         svm: &mut LiteSVM,
         program_id: &Pubkey,
         payer: &Keypair,
         use_buffer: bool,
-    ) -> (Pubkey, Pubkey) {
+    ) -> Asset {
         let create_account = |svm: &mut LiteSVM, mint: &Pubkey| {
             if use_buffer {
                 buffer::ensure_buffer_exists(svm, program_id, payer, mint)
@@ -130,13 +172,27 @@ impl TokenSource {
             }
         };
         match self {
-            TokenSource::Account(account) => (token::mint_of(svm, &account), account),
-            TokenSource::Mint(mint) => (mint, create_account(svm, &mint)),
+            TokenSource::Account(account) => TokenAsset {
+                mint: token::mint_of(svm, &account),
+                token_account: account,
+            }
+            .try_into(),
+            TokenSource::Native => Ok(Asset::Native(unique_pubkey())),
+            TokenSource::Mint(mint) => TokenAsset {
+                mint,
+                token_account: create_account(svm, &mint),
+            }
+            .try_into(),
             TokenSource::FreshMint => {
                 let mint = token::create_mint(svm, payer);
-                (mint, create_account(svm, &mint))
+                TokenAsset {
+                    mint,
+                    token_account: create_account(svm, &mint),
+                }
+                .try_into()
             }
         }
+        .expect("should not be native mint")
     }
 }
 
@@ -220,8 +276,16 @@ impl<'a> OrderBuilder<'a> {
     }
 
     /// Pin the mint of the order's buy token account. Defaults to a fresh mint.
+    /// Use `buy_sol` to indicate purchase of native lamports
     pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
+        assert_ne!(mint, &ENCODED_NATIVE_SOL_TRANSFER, "use buy_sol() instead");
         self.buy = TokenSource::Mint(*mint);
+        self
+    }
+
+    /// Pin the buy token to be native lamports
+    pub fn buy_sol(mut self) -> Self {
+        self.buy = TokenSource::Native;
         self
     }
 
@@ -249,11 +313,15 @@ impl<'a> OrderBuilder<'a> {
             buy,
             self_order_authority,
         } = self;
-        // The buy side always uses a fresh payer-owned treasury; only a
-        // self order's sell side draws from a buffer.
-        (intent.buy_mint, intent.buy_token_account) = buy.resolve(svm, program_id, payer, false);
-        (intent.sell_mint, intent.sell_token_account) =
-            sell.resolve(svm, program_id, payer, self_order_authority.is_some());
+
+        let Asset::TokenProgram(sell) =
+            sell.resolve(svm, program_id, payer, self_order_authority.is_some())
+        else {
+            panic!("sell side cannot be native SOL");
+        };
+        intent.sell = sell;
+
+        intent.buy = buy.resolve(svm, program_id, payer, false);
 
         match self_order_authority {
             None => {

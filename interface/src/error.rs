@@ -139,6 +139,9 @@ pub enum SettlementError {
     /// doesn't match the `self_order_authority` recorded in the settlement state
     /// PDA, so it may not create self orders.
     UnauthorizedSelfOrder = 42,
+    /// `BeginSettle`: a paired `FinalizeSettle` push paying an order that buys
+    /// native SOL doesn't draw from the settlement state PDA.
+    PushSourceNotStatePda = 43,
 }
 
 impl From<SettlementError> for u32 {

@@ -200,12 +200,13 @@ mod tests {
             #[test]
             fn accessor_reads_the_encoded_fields(intent in arb_order_intent()) {
 
+                let encoded = EncodedOrderIntent::from(&intent);
+                let intent_uid = intent.uid();
+
                 let OrderIntent {
                     owner,
-                    sell_token_account,
-                    sell_mint,
-                    buy_token_account,
-                    buy_mint,
+                    sell,
+                    buy,
                     sell_amount,
                     buy_amount,
                     valid_to,
@@ -214,15 +215,16 @@ mod tests {
                     app_data: _,
                 } = intent;
 
-                let encoded = EncodedOrderIntent::from(&intent);
                 let accessor = OrderIntentAccessor::attach(&encoded)
                     .map_err(|e| TestCaseError::fail(format!("attach failed: {e:?}")))?;
 
-                prop_assert_eq!(accessor.uid(), intent.uid());
+                let (buy_mint, buy_account) = buy.encode();
+
+                prop_assert_eq!(accessor.uid(), intent_uid);
                 prop_assert_eq!(accessor.owner(), owner.as_array());
-                prop_assert_eq!(accessor.sell_token_account(), sell_token_account.as_array());
-                prop_assert_eq!(accessor.sell_mint(), sell_mint.as_array());
-                prop_assert_eq!(accessor.buy_token_account(), buy_token_account.as_array());
+                prop_assert_eq!(accessor.sell_token_account(), sell.token_account.as_array());
+                prop_assert_eq!(accessor.sell_mint(), sell.mint.as_array());
+                prop_assert_eq!(accessor.buy_token_account(), buy_account.as_array());
                 prop_assert_eq!(accessor.buy_mint(), buy_mint.as_array());
                 prop_assert_eq!(accessor.sell_amount(), sell_amount);
                 prop_assert_eq!(accessor.buy_amount(), buy_amount);
