@@ -74,7 +74,12 @@ fn happy_path_sell_tokens_for_native_sol() {
 }
 
 /// A settlement mixing both kinds of push: several orders paid out of a buffer,
-/// interleaved with as many paid out of the state PDA's lamports.
+/// alongside as many paid out of the state PDA's lamports.
+///
+/// Settling breaks with `UnbalancedInstruction` when a native order sorts
+/// before a token order, and order PDAs sort effectively at random, so a single
+/// pair of orders would miss that half the time. With many orders it is all but
+/// certain to happen, and the test asserts that it did.
 #[test]
 fn happy_path_with_many_payouts() {
     /// Orders of each payout kind the mixed settlement carries.
@@ -113,27 +118,38 @@ fn happy_path_with_many_payouts() {
     let sol_funding = sol_total * 2;
     let funded = state::fund_with_lamports(&mut svm, &program_id, sol_funding);
 
-    // Interleaved, so the settlement alternates between the two push sources
-    // rather than draining one and then the other.
-    let orders: Vec<FinalizedIntent> = (0..MIXED_ORDER_COUNT)
-        .flat_map(|i| {
-            let index = usize::from(i);
-            [
-                FinalizedIntent {
-                    intent: &spl_intents[index],
-                    amount: spl_amount(i),
-                },
-                FinalizedIntent {
-                    intent: &sol_intents[index],
-                    amount: sol_amount(i),
-                },
-            ]
+    // The builder sorts the orders by PDA, so the order they are listed in here
+    // doesn't matter.
+    let orders: Vec<_> = (0..MIXED_ORDER_COUNT)
+        .map(|i| FinalizedIntent {
+            intent: &spl_intents[usize::from(i)],
+            amount: spl_amount(i),
         })
+        .chain((0..MIXED_ORDER_COUNT).map(|i| FinalizedIntent {
+            intent: &sol_intents[usize::from(i)],
+            amount: sol_amount(i),
+        }))
         .collect();
+
     let instructions = native_sol_settlement(&program_id, &solver.pubkey(), &orders);
+
+    // Sanity: do we have a native push in the first half of the batch?
+    let finalize_accounts = &instructions[usize::from(FINALIZE_INDEX)].accounts;
+    // each order is two accounts, source and destination. We only want to confirm the address.
+    let push_sources: Vec<_> = finalize_accounts[finalize_accounts.len() - 2 * orders.len()..]
+        .iter()
+        .map(|push| push.pubkey)
+        .collect();
+
+    // If we see the state account in the first half then we are good.
+    let (state_pda, _bump) = find_state_pda(&program_id);
+    assert!(
+        push_sources[..orders.len() / 2].contains(&state_pda),
+        "no native order sorted into the first half; pick different salts",
+    );
+
     send(&mut svm, &solver, &instructions).expect("a mixed settlement should be paid");
 
-    let (state_pda, _bump) = find_state_pda(&program_id);
     for (i, intent) in spl_intents.iter().enumerate() {
         assert_eq!(
             token::balance(&svm, &intent.buy.account()),
@@ -298,7 +314,7 @@ fn rejects_a_push_spending_the_state_pdas_rent() {
     let state_pda = svm
         .get_account(&state_pda_address)
         .expect("state pda must exist");
-    assert!(state_pda.data.len() > 0);
+    assert!(!state_pda.data.is_empty());
     assert!(state_pda.lamports > 0);
 
     // One lamport past the balance that isn't rent, so the push is affordable

@@ -127,7 +127,7 @@ fn settle_and_pay_amounts(
                 svm,
                 program_id,
                 payer,
-                &order::buy_mint(&order.intent),
+                &order::buy_mint(order.intent),
                 amount,
             );
             FinalizedIntent {
