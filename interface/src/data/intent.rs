@@ -105,14 +105,8 @@ impl TryFrom<[u8; 1]> for Flags {
     }
 }
 
-/// SPL tokens of `mint`, held in `token_account`.
-///
-/// A side of a trade that a token program moves. It's the payload of
-/// [`Asset::TokenProgram`], and a type of its own so a side that can only be
-/// this — an order's sell side — can say so.
-// A default side is a fixture's starting point, never an order anyone should
-// build, so it exists only where the fixtures do. Same for [`Asset`] and
-// [`OrderIntent`], which bottom out here.
+/// The representation of the side of a trade involving an actual token.
+/// Tokens from the mint `mint` stored at `token_account`.
 #[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TokenAsset {
