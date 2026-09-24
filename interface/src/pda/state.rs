@@ -14,8 +14,7 @@ use solana_address::Address;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::pda::SETTLEMENT_SEED;
-use crate::SettlementError;
+use crate::{pda::SETTLEMENT_SEED, SettlementError};
 
 /// Canonical seed components for the settlement state PDA.
 pub const STATE_PDA_SEEDS: [&[u8]; 1] = [SETTLEMENT_SEED];

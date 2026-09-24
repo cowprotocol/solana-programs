@@ -60,12 +60,15 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let (state_pda, state_bump) = find_state_pda(&builder.program_id);
         for &i in &orders {
             let intent = builder.orders[i].intent;
-            let (source, bump) = match intent.buy {
-                Asset::Native(_) => (state_pda, state_bump),
-                Asset::TokenProgram(token) => find_buffer_pda(&builder.program_id, &token.mint),
+            let (source, bump, destination) = match &intent.buy {
+                Asset::Native(account) => (state_pda, state_bump, *account),
+                Asset::TokenProgram(token) => {
+                    let (buffer, buffer_bump) = find_buffer_pda(&builder.program_id, &token.mint);
+                    (buffer, buffer_bump, token.token_account)
+                }
             };
             source_buffers.push(source);
-            destinations.push(intent.buy.account());
+            destinations.push(destination);
             bumps.push(bump);
             amounts.push(builder.orders[i].amount);
         }
@@ -92,7 +95,7 @@ mod tests {
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
-            settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID},
+            settle::{FinalizeSettleInput, Push, INSTRUCTIONS_SYSVAR_ID},
             InstructionInputParsing,
         },
     };
@@ -100,8 +103,9 @@ mod tests {
     #[test]
     fn native_sol_order_pushes_from_the_state_pda() {
         let program_id = pubkey_from_seed("program id");
+        let recipient = pubkey_from_seed("recipient wallet");
         let intent = OrderIntent {
-            buy: Asset::Native(pubkey_from_seed("recipient wallet")),
+            buy: Asset::Native(recipient),
             ..OrderIntent::default()
         };
         let ix = Instruction::from(FinalizeSettle {
@@ -129,7 +133,7 @@ mod tests {
         let (state_pda, state_bump) = find_state_pda(&program_id);
         assert_eq!(push.source_buffer.address(), &state_pda);
         assert_eq!(push.bump, state_bump);
-        assert_eq!(push.destination.address(), &intent.buy.account());
+        assert_eq!(push.destination.address(), &recipient);
         assert_eq!(push.amount, 1_337);
     }
 
@@ -175,15 +179,21 @@ mod tests {
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump) = match order.intent.buy {
-                        Asset::Native(_) => find_state_pda(&program_id),
-                        Asset::TokenProgram(token) => find_buffer_pda(&program_id, &token.mint),
+                    let (buffer, bump, destination) = match &order.intent.buy {
+                        Asset::Native(account) => {
+                            let (state, state_bump) = find_state_pda(&program_id);
+                            (state, state_bump, *account)
+                        }
+                        Asset::TokenProgram(token) => {
+                            let (buffer, bump) = find_buffer_pda(&program_id, &token.mint);
+                            (buffer, bump, token.token_account)
+                        }
                     };
                     ExpectedPush {
                         order_pda,
                         buffer,
                         bump,
-                        destination: order.intent.buy.account(),
+                        destination,
                         amount: order.amount,
                     }
                 })
@@ -209,10 +219,16 @@ mod tests {
             let parsed_pushes: Vec<_> = parsed.pushes.iter().collect();
             prop_assert_eq!(parsed_pushes.len(), expected.len());
             for (push, expected) in parsed_pushes.iter().zip(&expected) {
-                prop_assert_eq!(push.source_buffer.address(), &expected.buffer);
-                prop_assert_eq!(push.destination.address(), &expected.destination);
-                prop_assert_eq!(push.bump, expected.bump);
-                prop_assert_eq!(push.amount, expected.amount);
+                let Push {
+                    source_buffer,
+                    destination,
+                    bump,
+                    amount
+                } = push;
+                prop_assert_eq!(source_buffer.address(), &expected.buffer);
+                prop_assert_eq!(destination.address(), &expected.destination);
+                prop_assert_eq!(bump, &expected.bump);
+                prop_assert_eq!(amount, &expected.amount);
             }
         }
     }

@@ -9,7 +9,7 @@ use crate::common::{
     assert_instruction_error,
     benchmark::BenchLabel,
     buffer,
-    order::{read_order, OrderBuilder},
+    order::{buy_account, buy_mint, read_order, OrderBuilder},
     register_solver, send, send_metered,
     settlement::{build_staged_settlement, StagedOrder},
     setup_init, token, unique_keypair,
@@ -55,10 +55,7 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent
-            .buy
-            .mint()
-            .expect("intent must buy with token program"),
+        &buy_mint(&intent),
         PROCEEDS,
     );
     let staged = StagedOrder {
@@ -87,20 +84,14 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         "the solver received the fees"
     );
     assert_eq!(
-        token::balance(&svm, &intent.buy.account()),
+        token::balance(&svm, &buy_account(&intent)),
         PROCEEDS,
         "the treasury received the proceeds"
     );
     assert_eq!(
         token::balance(
             &svm,
-            &buffer::buffer_pda(
-                &params.program_id,
-                &intent
-                    .buy
-                    .mint()
-                    .expect("intent must buy with token program")
-            )
+            &buffer::buffer_pda(&params.program_id, &buy_mint(&intent),)
         ),
         0,
         "the buy buffer paid out the proceeds"
@@ -156,10 +147,7 @@ fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent
-            .buy
-            .mint()
-            .expect("intent must buy with token program"),
+        &buy_mint(&intent),
         PROCEEDS,
     );
     let staged = StagedOrder {

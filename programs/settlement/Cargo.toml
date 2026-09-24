@@ -24,6 +24,7 @@ pinocchio-token.workspace = true
 pinocchio-token-2022.workspace = true
 cow-settlement-interface.workspace = true
 solana-instruction = { workspace = true, features = ["syscalls"] }
+solana-hash.workspace = true
 
 [dev-dependencies]
 arrayref.workspace = true

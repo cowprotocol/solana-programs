@@ -15,7 +15,7 @@ pub fn initialize(svm: &mut litesvm::LiteSVM, payer: &Keypair, ix: Initialize) {
 /// order buying native SOL draws on.
 ///
 /// Returns the state PDA's new balance, rent for its own data included.
-pub fn fund_with_lamports(svm: &mut LiteSVM, program_id: &Pubkey, amount: u64) -> u64 {
+pub fn add_lamports(svm: &mut LiteSVM, program_id: &Pubkey, amount: u64) -> u64 {
     let (state_pda, _bump) = find_state_pda(program_id);
     let mut account = svm
         .get_account(&state_pda)

@@ -2,7 +2,7 @@
 
 use std::ops::Deref;
 
-use cow_settlement_interface::data::intent::OrderIntentAccessor;
+use cow_settlement_interface::data::intent::Asset;
 use cow_settlement_interface::pda::state::validate_is_state_pda;
 use cow_settlement_interface::{
     data::{
@@ -17,9 +17,7 @@ use cow_settlement_interface::{
         InstructionInputParsing,
     },
     pda::buffer::validate_buffer_pda,
-    recover_discriminator,
-    token_program::is_native_sol,
-    SettlementError, SettlementInstruction,
+    recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
     cpi::Signer,
@@ -36,6 +34,7 @@ use pinocchio_token::instructions::Transfer;
 use crate::processor::utils::{
     auth::{check_state_pda, require_solver, with_state_pda_signer_unchecked},
     cpi::is_cpi_call,
+    intent::OrderIntentAccessor,
     settle::validate_counterpart,
     token::{owning_token_program, read_token_account},
 };
@@ -281,7 +280,7 @@ fn process_order(
     if order.cancelled()? {
         return Err(SettlementError::OrderCancelled.into());
     }
-    let intent = order.intent()?;
+    let intent = OrderIntentAccessor::from_order(&order)?;
     let prior_fill = order.filled_amounts();
     let intent = &intent;
 
@@ -300,7 +299,7 @@ fn process_order(
     // mints must match.
     // If its a native SOL buy order, the "source buffer" should be the state pda.
     let buy_mint = intent.buy_mint();
-    if is_native_sol(buy_mint) {
+    if Asset::is_native_sol(buy_mint) {
         validate_is_state_pda(push.source_buffer.as_array())?;
     } else {
         validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;

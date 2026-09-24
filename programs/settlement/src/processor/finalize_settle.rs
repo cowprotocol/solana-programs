@@ -56,16 +56,18 @@ pub fn process_finalize_settle(
 ///
 /// Validating the pushes is done in `BeginSettle`. It does so by checking:
 /// 1. the `destination` matches the `buy_token_account` in the OrderIntentAccessor
-/// 2. the sending account in the instruction is the one holding the
-///    settlement's funds for the `buy_mint` in the OrderIntentAccessor
+/// 2. the sending buffer in the instruction is the one holding the
+///    settlement's funds for the relevant buy asset. For native SOL, this is
+///    the state PDA, and for tokens, its the buffer account associated
+///    with the buy_mint.
 ///
 /// So ultimately, for an SPL push we are relying that the SPL token program
 /// rejects a transfer whose source and destination mints differ.
 ///
 /// We use two separate loops to effectively separate the SPL Token payments
-/// from the native payments. This is because its not practically possible to perform
-/// lamport math (move_lamports) prior to executing a CPI (the SPL Transfer call)
-/// with the same input account. Doing so results in a `UnbalancedInstruction` revert.
+/// from the native payments. This is because the SVM doesn't allow CPIs (in our
+/// case, the SPL Transfer call) if the lamport count for an account involved
+/// in the CPI changed before it (it reverts with `UnbalancedInstruction`).
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(
     state_pda_account: &AccountView,
