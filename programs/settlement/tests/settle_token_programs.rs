@@ -3,7 +3,7 @@
 
 use crate::common::{
     buffer,
-    order::{buy_mint, OrderBuilder},
+    order::{buy_account, buy_mint, OrderBuilder},
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token,
     token_2022::Extensions,
@@ -67,7 +67,7 @@ fn settle_with(
         initialized.push(InitializedIntent { intent, pulls });
 
         // Buy side: fund the buffer so the push has something to draw from.
-        let buy_mint = token::mint_of(svm, &intent.buy.account());
+        let buy_mint = token::mint_of(svm, &buy_account(intent));
         buffer::ensure_funded(svm, program_id, payer, &buy_mint, order.amount_out);
         finalized.push(FinalizedIntent {
             intent,
@@ -128,7 +128,7 @@ fn order_across(
         token::program_of(svm, &intent.sell.token_account),
         *sell_program,
     );
-    assert_eq!(token::program_of(svm, &intent.buy.account()), *buy_program,);
+    assert_eq!(token::program_of(svm, &buy_account(&intent)), *buy_program,);
     intent
 }
 
@@ -175,8 +175,8 @@ fn settles_orders_under_both_token_programs_simultaneously() {
     )
     .expect("a settlement carrying both programs should settle orders under either");
 
-    assert_eq!(token::balance(&svm, &legacy.buy.account()), 400);
-    assert_eq!(token::balance(&svm, &token_2022.buy.account()), 700);
+    assert_eq!(token::balance(&svm, &buy_account(&legacy)), 400);
+    assert_eq!(token::balance(&svm, &buy_account(&token_2022)), 700);
     // Both sell sides were drained by their own program's transfer.
     assert_eq!(token::balance(&svm, &legacy.sell.token_account), 0);
     assert_eq!(token::balance(&svm, &token_2022.sell.token_account), 0);
@@ -210,7 +210,7 @@ fn settles_an_order_that_crosses_token_programs() {
     )
     .expect("an order selling under one program and buying under the other should settle");
 
-    assert_eq!(token::balance(&svm, &intent.buy.account()), 250);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 250);
     assert_eq!(token::balance(&svm, &intent.sell.token_account), 0);
 }
 
@@ -242,7 +242,7 @@ fn settles_token_2022_orders_without_carrying_the_legacy_program() {
     )
     .expect("a Token-2022-only settlement should settle Token-2022 orders");
 
-    assert_eq!(token::balance(&svm, &intent.buy.account()), 300);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 300);
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn settles_legacy_orders_without_carrying_the_token_2022_program() {
     )
     .expect("a legacy-only settlement should not have to carry Token-2022");
 
-    assert_eq!(token::balance(&svm, &intent.buy.account()), 500);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 500);
 }
 
 #[test]
@@ -296,7 +296,7 @@ fn settles_with_the_token_program_slots_swapped() {
         100,
     );
     let sell_mint = token::mint_of(&svm, &intent.sell.token_account);
-    let buy_mint = token::mint_of(&svm, &intent.buy.account());
+    let buy_mint = token::mint_of(&svm, &buy_account(&intent));
     buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, 100);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
@@ -338,7 +338,7 @@ fn settles_with_the_token_program_slots_swapped() {
     svm.send_transaction(tx)
         .expect("the slots only name the programs, in either order");
 
-    assert_eq!(token::balance(&svm, &intent.buy.account()), 100);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 100);
 }
 
 #[test]
@@ -422,5 +422,5 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
     // And the shorter transaction is still one that settles.
     svm.send_transaction(narrowed_2022)
         .expect("a settlement narrowed to the program it uses should settle");
-    assert_eq!(token::balance(&svm, &intent.buy.account()), AMOUNT);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), AMOUNT);
 }

@@ -2,7 +2,7 @@
 
 use crate::common::{
     assert_instruction_error_at, buffer, lamports,
-    order::{create_order_pda, settlable_intent, OrderBuilder},
+    order::{buy_account, buy_sol_account, create_order_pda, settlable_intent, OrderBuilder},
     send, send_metered,
     settlement::{
         build_matching_settlement, build_settlement, build_staged_settlement, stage_order,
@@ -54,7 +54,7 @@ fn happy_path_sell_tokens_for_native_sol() {
     .expect("a fully filled SOL buy should settle");
 
     assert_eq!(token::balance(&svm, &intent.sell.token_account), 0);
-    assert_eq!(lamports(&svm, &intent.buy.account()), 2_000_000);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 2_000_000);
     assert_eq!(lamports(&svm, &state_pda), before - 2_000_000);
 }
 
@@ -137,14 +137,14 @@ fn happy_path_with_many_payouts() {
 
     for (i, intent) in spl_intents.iter().enumerate() {
         assert_eq!(
-            token::balance(&svm, &intent.buy.account()),
+            token::balance(&svm, &buy_account(intent)),
             spl_amount(i as u8),
             "SPL order {i} should be paid out of the buffer",
         );
     }
     for (i, intent) in sol_intents.iter().enumerate() {
         assert_eq!(
-            lamports(&svm, &intent.buy.account()),
+            lamports(&svm, &buy_sol_account(intent)),
             sol_amount(i as u8),
             "native order {i} should be paid out of the state PDA",
         );
@@ -190,8 +190,8 @@ fn happy_path_multiple_native_orders_can_settle() {
     send(&mut svm, &solver, &instructions).expect("both native pushes should be paid");
 
     let (state_pda, _bump) = find_state_pda(&program_id);
-    assert_eq!(lamports(&svm, &intent0.buy.account()), amount0);
-    assert_eq!(lamports(&svm, &intent1.buy.account()), amount1);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent0)), amount0);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent1)), amount1);
     assert_eq!(lamports(&svm, &state_pda), funded - amount0 - amount1);
 }
 
@@ -255,7 +255,7 @@ fn happy_path_zero_amount() {
     );
     send(&mut svm, &solver, &instructions).expect("a zero-amount native push should succeed");
 
-    assert_eq!(lamports(&svm, &intent.buy.account()), 0);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
     assert_eq!(lamports(&svm, &state_pda), before);
 }
 
@@ -321,7 +321,7 @@ fn rejects_a_push_spending_the_state_pdas_rent() {
 
     let (state_pda, _bump) = find_state_pda(&program_id);
     assert_eq!(lamports(&svm, &state_pda), funded);
-    assert_eq!(lamports(&svm, &intent.buy.account()), 0);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn rejects_a_native_push_from_a_buffer() {
         state_pda: find_state_pda(&program_id).0,
         begin_ix_index: BEGIN_INDEX.into(),
         source_buffers: &[buffer_pda],
-        destinations: &[intent.buy.account()],
+        destinations: &[buy_sol_account(&intent)],
         bumps: &[buffer_bump],
         amounts: &[100],
         only_token_program: None,
