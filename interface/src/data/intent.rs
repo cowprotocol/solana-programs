@@ -457,7 +457,6 @@ pub mod fixtures {
 
     impl Default for Asset {
         /// Native SOL on the all-zero address, the side an all-zero encoding
-        /// carries: [`ENCODED_NATIVE_SOL_TRANSFER`] is itself all-zero.
         fn default() -> Self {
             Asset::Native(Pubkey::default())
         }

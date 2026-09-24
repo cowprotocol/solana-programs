@@ -88,8 +88,12 @@ mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_order_intent, fixtures::pubkey_from_seed, instruction::{
-            InstructionInputParsing, fixtures::fake_account_from_array, settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, Push},
+        data::intent::fixtures::arb_order_intent,
+        fixtures::pubkey_from_seed,
+        instruction::{
+            fixtures::fake_account_from_array,
+            settle::{FinalizeSettleInput, Push, INSTRUCTIONS_SYSVAR_ID},
+            InstructionInputParsing,
         },
     };
 
