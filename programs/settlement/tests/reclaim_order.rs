@@ -17,7 +17,7 @@ use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
     buffer, create_account_at,
-    order::{read_order, OrderBuilder},
+    order::{self, read_order, OrderBuilder},
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder},
     signed_tx, token, unique_keypair, unique_pubkey,
@@ -494,14 +494,7 @@ fn reclaim_mid_settlement_succeeds() {
     let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, SETTLED_SELL_AMOUNT);
     let pull_destination = staged.pulls[0].destination;
     let buy_token_account = staged.intent.buy.account();
-    let buffer_pda = buffer::buffer_pda(
-        &program_id,
-        &staged
-            .intent
-            .buy
-            .mint()
-            .expect("intent must buy with token program"),
-    );
+    let buffer_pda = buffer::buffer_pda(&program_id, &order::buy_mint(&staged.intent));
     let pda_rent = svm.minimum_balance_for_rent_exemption(SIZE);
 
     let reclaim = ReclaimOrder {

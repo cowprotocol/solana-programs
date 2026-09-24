@@ -6,6 +6,7 @@ use cow_settlement_client::cow_settlement_interface::data::intent::{
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
+use cow_settlement_interface::token_program::NATIVE_SOL_MINT;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -46,6 +47,14 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
         },
         app_data: [salt; 32],
     }
+}
+
+/// Extract the buy mint address. Native token is not supported.
+pub fn buy_mint(intent: &OrderIntent) -> Pubkey {
+    intent
+        .buy
+        .mint()
+        .expect("intent must buy with token program")
 }
 
 /// [`sample_intent`] with all four token-account fields filled in with freshly
@@ -117,6 +126,8 @@ fn create_self_order_pda(
 enum TokenSource {
     /// A fresh account of a freshly generated mint (the default).
     FreshMint,
+    /// Indicates native token (only for buy side)
+    Native,
     /// A fresh account of the given mint.
     Mint(Pubkey),
     /// The given existing account.
@@ -132,7 +143,7 @@ impl TokenSource {
         program_id: &Pubkey,
         payer: &Keypair,
         use_buffer: bool,
-    ) -> TokenAsset {
+    ) -> Asset {
         let create_account = |svm: &mut LiteSVM, mint: &Pubkey| {
             if use_buffer {
                 buffer::ensure_buffer_exists(svm, program_id, payer, mint)
@@ -140,36 +151,28 @@ impl TokenSource {
                 token::create_token_account(svm, payer, mint, &payer.pubkey())
             }
         };
-        let (mint, token_account) = match self {
-            TokenSource::Account(account) => (token::mint_of(svm, &account), account),
-            TokenSource::Mint(mint) => (mint, create_account(svm, &mint)),
+        match self {
+            TokenSource::Account(account) => TokenAsset {
+                mint: token::mint_of(svm, &account),
+                token_account: account,
+            }
+            .try_into(),
+            TokenSource::Native => Ok(Asset::Native(unique_pubkey())),
+            TokenSource::Mint(mint) => TokenAsset {
+                mint,
+                token_account: create_account(svm, &mint),
+            }
+            .try_into(),
             TokenSource::FreshMint => {
                 let mint = token::create_mint(svm, payer);
-                (mint, create_account(svm, &mint))
-            }
-        };
-        TokenAsset {
-            mint,
-            token_account,
-        }
-    }
-
-    /// Resolve this source into an order's buy side, which never draws from a
-    /// buffer.
-    ///
-    /// The setters take a raw mint, the way the wire spells a side; a native
-    /// SOL buy is credited as lamports to a plain address, so it needs no token
-    /// account at all.
-    fn resolve_buy(self, svm: &mut LiteSVM, program_id: &Pubkey, payer: &Keypair) -> Asset {
-        match self {
-            TokenSource::Mint(mint) if Asset::is_native_sol(mint.as_array()) => {
-                Asset::Native(unique_pubkey())
-            }
-            source => source
-                .resolve(svm, program_id, payer, false)
+                TokenAsset {
+                    mint,
+                    token_account: create_account(svm, &mint),
+                }
                 .try_into()
-                .expect("native SOL is handled above"),
+            }
         }
+        .expect("should not be native mint")
     }
 }
 
@@ -253,10 +256,16 @@ impl<'a> OrderBuilder<'a> {
     }
 
     /// Pin the mint of the order's buy token account. Defaults to a fresh mint.
-    /// Pass [`NATIVE_SOL_MINT`](cow_settlement_client::cow_settlement_interface::token_program::NATIVE_SOL_MINT)
-    /// to have the order bought in lamports.
+    /// Use `buy_sol` to indicate purchase of native lamports
     pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
+        assert_ne!(mint, &NATIVE_SOL_MINT, "use buy_sol() instead");
         self.buy = TokenSource::Mint(*mint);
+        self
+    }
+
+    /// Pin the buy token to be native lamports
+    pub fn buy_sol(mut self) -> Self {
+        self.buy = TokenSource::Native;
         self
     }
 
@@ -284,10 +293,15 @@ impl<'a> OrderBuilder<'a> {
             buy,
             self_order_authority,
         } = self;
-        // The buy side always uses a fresh payer-owned treasury; only a
-        // self order's sell side draws from a buffer.
-        intent.buy = buy.resolve_buy(svm, program_id, payer);
-        intent.sell = sell.resolve(svm, program_id, payer, self_order_authority.is_some());
+
+        let Asset::TokenProgram(sell) =
+            sell.resolve(svm, program_id, payer, self_order_authority.is_some())
+        else {
+            panic!("sell side cannot be native SOL");
+        };
+        intent.sell = sell;
+
+        intent.buy = buy.resolve(svm, program_id, payer, self_order_authority.is_some());
 
         match self_order_authority {
             None => {

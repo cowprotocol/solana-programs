@@ -21,7 +21,7 @@ use crate::common::{
     assert_instruction_error_at,
     benchmark::BenchLabel,
     buffer, create_account,
-    order::{create_order_pda, sample_intent, settlable_intent, OrderBuilder},
+    order::{self, create_order_pda, sample_intent, settlable_intent, OrderBuilder},
     replace_first_matching_account, send, send_metered, set_unix_timestamp,
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token, unique_pubkey,
@@ -127,11 +127,7 @@ fn settle_and_pay_amounts(
                 svm,
                 program_id,
                 payer,
-                &order
-                    .intent
-                    .buy
-                    .mint()
-                    .expect("intent must be token program"),
+                &order::buy_mint(&order.intent),
                 amount,
             );
             FinalizedIntent {

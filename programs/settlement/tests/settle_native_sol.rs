@@ -13,7 +13,6 @@ use cow_settlement_client::cow_settlement_interface::{
     data::intent::{Asset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
     pda::{buffer::find_buffer_pda, state::find_state_pda},
-    token_program::NATIVE_SOL_MINT,
     Instruction, SettlementError,
 };
 use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
@@ -49,7 +48,7 @@ fn native_sol_settlement(
 fn happy_path_sell_tokens_for_native_sol() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
+        .buy_sol()
         .sell_amount(1_000)
         .buy_amount(2_000_000)
         .partially_fillable(false)
@@ -101,7 +100,7 @@ fn happy_path_with_many_payouts() {
     let sol_intents: Vec<_> = (0..MIXED_ORDER_COUNT)
         .map(|i| {
             OrderBuilder::new(&mut svm, &program_id, &payer)
-                .buy_mint(&NATIVE_SOL_MINT)
+                .buy_sol()
                 .salt(MIXED_ORDER_COUNT + i)
                 .build()
         })
@@ -162,11 +161,11 @@ fn happy_path_with_many_payouts() {
 fn happy_path_multiple_native_orders_can_settle() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent0 = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
+        .buy_sol()
         .salt(0)
         .build();
     let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
+        .buy_sol()
         .salt(1)
         .build();
     let funded = state::fund_with_lamports(&mut svm, &program_id, 9_000_000);
@@ -240,7 +239,7 @@ fn happy_path_native_orders_sharing_a_destination() {
 fn happy_path_zero_amount() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
+        .buy_sol()
         .build();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let before = lamports(&svm, &state_pda);
@@ -288,7 +287,7 @@ fn happy_path_state_pda_receiver_still_works() {
 fn rejects_a_push_spending_the_state_pdas_rent() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
+        .buy_sol()
         .build();
     let funding = 1_000_000;
     let funded = state::fund_with_lamports(&mut svm, &program_id, funding);
@@ -319,7 +318,7 @@ fn rejects_a_push_spending_the_state_pdas_rent() {
 fn rejects_a_push_larger_than_the_whole_balance() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
+        .buy_sol()
         .build();
     let (state_pda, _bump) = find_state_pda(&program_id);
     let balance = lamports(&svm, &state_pda);
@@ -343,7 +342,7 @@ fn rejects_a_push_larger_than_the_whole_balance() {
 fn rejects_a_native_push_from_a_buffer() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
+        .buy_sol()
         .build();
     state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
 
@@ -377,7 +376,7 @@ fn rejects_a_native_push_from_a_buffer() {
 fn rejects_a_native_push_to_wrong_destination() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
-        .buy_mint(&NATIVE_SOL_MINT)
+        .buy_sol()
         .build();
     state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
 

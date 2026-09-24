@@ -3,7 +3,7 @@
 
 use crate::common::{
     buffer,
-    order::OrderBuilder,
+    order::{buy_mint, OrderBuilder},
     settlement::{BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token,
     token_2022::Extensions,
@@ -362,13 +362,7 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
         &intent.sell.token_account,
         AMOUNT,
     );
-    buffer::ensure_funded(
-        &mut svm,
-        &program_id,
-        &payer,
-        buy_mint(&intent),
-        AMOUNT,
-    );
+    buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint(&intent), AMOUNT);
     let destination =
         token::create_token_account(&mut svm, &payer, &intent.sell.mint, &unique_pubkey());
     let pulls = [Pull {
