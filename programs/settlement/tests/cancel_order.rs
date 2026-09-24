@@ -171,7 +171,13 @@ fn cancels_existing_order_without_intent_bytes() {
         order_pda: pda,
         intent_bytes: None,
     };
-    svm.send_transaction(signed_tx(&svm, &owner, &owner, cancel))
+    let tx = Transaction::new_signed_with_payer(
+        &[cancel.into()],
+        Some(&owner.pubkey()),
+        &[&owner],
+        svm.latest_blockhash(),
+    );
+    send_transaction_metered(&mut svm, tx, BenchLabel::CancelOrder)
         .expect("cancelling an existing order must not require its intent bytes");
 
     // The recovered order is cancelled and otherwise byte-for-byte its old self,
