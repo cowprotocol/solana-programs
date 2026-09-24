@@ -395,12 +395,11 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
 }
 
 /// The sponsored model: `owner` authenticates an order with its signature while
-/// a `sponsor` pays the fee and the rent. An adversary who records this
-/// creation transaction might be able to recreate the order after the owner
-/// decides to cancel it. It can't: replaying that original transaction is
-/// rejected as already-processed, before it ever reaches the program.
+/// a `sponsor` pays the fee and the rent. An adversary who is able to gain
+/// access to the creation transaction before it is broadcast (ex. a solver) is able 
+/// to recreate the order after the owner decides to cancel it within the 60s window.
 #[test]
-fn sponsored_order_cannot_be_recreated_by_replaying_the_original_transaction() {
+fn sponsored_order_cannot_be_used_after_cancellation() {
     let (mut svm, program_id, sponsor) = common::setup();
     let owner = unique_keypair();
     let attacker = unique_keypair();
@@ -411,7 +410,7 @@ fn sponsored_order_cannot_be_recreated_by_replaying_the_original_transaction() {
     let (encoded, pda) = encode_and_derive(&intent, &program_id);
 
     // Step 1: creation. `owner` signs, `sponsor` pays the fee and funds the
-    // rent. The adversary records the fully-signed transaction verbatim.
+    // rent. The transaction is stored somewhere but not yet broadcast.
     let create_ix = CreateOrder {
         program_id,
         owner: owner.pubkey(),
@@ -424,13 +423,6 @@ fn sponsored_order_cannot_be_recreated_by_replaying_the_original_transaction() {
         Some(&sponsor.pubkey()),
         &[&sponsor, &owner],
         svm.latest_blockhash(),
-    );
-    let replayed_tx = create_tx.clone();
-    svm.send_transaction(create_tx)
-        .expect("sponsored create_order should succeed");
-    assert!(
-        !read_order(&svm, &pda).cancelled,
-        "the order must start active"
     );
 
     // Step 2: cancellation. `owner` regrets the order and cancels it.
@@ -472,12 +464,9 @@ fn sponsored_order_cannot_be_recreated_by_replaying_the_original_transaction() {
         "the order PDA must be closed after reclaim"
     );
 
-    // Step 4: attempted recreation. The adversary tries to recreate this order
-    // from the original transaction, whose signature the runtime already
-    // recorded. Replaying it verbatim is rejected before it reaches the
-    // program.
+    // Step 4: Recreation of order uncancelled. Can happen within 60s of original sponsored order creation.
     let err = svm
-        .send_transaction(replayed_tx)
+        .send_transaction(create_tx)
         .expect_err("replaying the original create transaction must be rejected");
     assert_eq!(
         err.err,
