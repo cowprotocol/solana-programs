@@ -1,0 +1,24 @@
+name: Setup Node
+description: Install Node pinned to a specific version, with corepack ready to fetch pnpm.
+
+inputs:
+  registry-url:
+    description: npm registry to authenticate against. Only needed to publish.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        # Bump to upgrade. Node ships corepack, which the just *-js-client recipes use.
+        node-version: "24"
+        registry-url: ${{ inputs.registry-url }}
+
+    # Corepack otherwise asks for confirmation before fetching pnpm, hanging the job.
+    - shell: bash
+      run: echo "COREPACK_ENABLE_DOWNLOAD_PROMPT=0" >> "$GITHUB_ENV"
+
+    - shell: bash
+      run: node --version
