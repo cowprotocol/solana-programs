@@ -101,7 +101,7 @@ fn happy_path_with_many_payouts() {
     let buffer_funding = spl_total * 2;
     let buffer_pda = buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, buffer_funding);
     let sol_funding = sol_total * 2;
-    let funded = state::fund_with_lamports(&mut svm, &program_id, sol_funding);
+    let funded = state::add_lamports(&mut svm, &program_id, sol_funding);
 
     // The builder sorts the orders by PDA, so the order they are listed in here
     // doesn't matter.
@@ -169,7 +169,7 @@ fn happy_path_multiple_native_orders_can_settle() {
         .buy_sol()
         .salt(1)
         .build();
-    let funded = state::fund_with_lamports(&mut svm, &program_id, 9_000_000);
+    let funded = state::add_lamports(&mut svm, &program_id, 9_000_000);
 
     let amount0 = 1_000_000;
     let amount1 = 2_000_000;
@@ -211,7 +211,7 @@ fn happy_path_native_orders_sharing_a_destination() {
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent0);
     create_order_pda(&mut svm, &program_id, &payer, &intent1);
-    let funded = state::fund_with_lamports(&mut svm, &program_id, 9_000_000);
+    let funded = state::add_lamports(&mut svm, &program_id, 9_000_000);
 
     let amount0 = 1_000_000;
     let amount1 = 2_000_000;
@@ -268,7 +268,7 @@ fn happy_path_state_pda_receiver_still_works() {
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    let funded = state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
+    let funded = state::add_lamports(&mut svm, &program_id, 1_000_000);
 
     let instructions = build_matching_settlement(
         &program_id,
@@ -291,7 +291,7 @@ fn rejects_a_push_spending_the_state_pdas_rent() {
         .buy_sol()
         .build();
     let funding = 1_000_000;
-    let funded = state::fund_with_lamports(&mut svm, &program_id, funding);
+    let funded = state::add_lamports(&mut svm, &program_id, funding);
 
     let (state_pda_address, _) = find_state_pda(&program_id);
 
@@ -354,7 +354,7 @@ fn rejects_a_native_push_from_a_buffer() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
-    state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
+    state::add_lamports(&mut svm, &program_id, 1_000_000);
 
     let mint = token::create_mint(&mut svm, &payer);
     buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, 1_000);
@@ -388,7 +388,7 @@ fn rejects_a_native_push_to_wrong_destination() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
-    state::fund_with_lamports(&mut svm, &program_id, 1_000_000);
+    state::add_lamports(&mut svm, &program_id, 1_000_000);
 
     let (state_pda, state_bump) = find_state_pda(&program_id);
     let orders = [FinalizedIntent {

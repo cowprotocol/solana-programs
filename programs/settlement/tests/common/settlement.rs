@@ -114,7 +114,7 @@ pub fn stage_order(
         .collect();
     match &intent.buy {
         Asset::Native(_) => {
-            state::fund_with_lamports(svm, program_id, amount_out);
+            state::add_lamports(svm, program_id, amount_out);
         }
         Asset::TokenProgram(token) => {
             buffer::ensure_funded(svm, program_id, payer, &token.mint, amount_out);
