@@ -301,7 +301,7 @@ impl<'a> OrderBuilder<'a> {
         };
         intent.sell = sell;
 
-        intent.buy = buy.resolve(svm, program_id, payer, self_order_authority.is_some());
+        intent.buy = buy.resolve(svm, program_id, payer, false);
 
         match self_order_authority {
             None => {
