@@ -86,6 +86,13 @@ const INSTRUCTIONS: &[Instruction] = &[
         pda_accounts: &[],
     },
     Instruction {
+        variant: SettlementInstruction::CancelOrder,
+        input: &parse_rust::CANCEL_ORDER_RS,
+        // Like `create_order`, `order_pda`'s canonical seeds include
+        // `sha256(intent)`, which the IDL has no `seeds` kind for.
+        pda_accounts: &[],
+    },
+    Instruction {
         variant: SettlementInstruction::BeginSettle,
         input: &parse_rust::BEGIN_SETTLE_RS,
         // `state_pda` is passed as a plain account here rather than derived:
@@ -255,7 +262,9 @@ fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
     match (owner, field) {
         // The wire carries the canonical intent bytes; the IDL names the type
         // they decode to.
-        ("CreateOrderInput", "intent_bytes") | ("CreateSelfOrderInput", "intent_bytes") => Some((
+        ("CreateOrderInput", "intent_bytes")
+        | ("CreateSelfOrderInput", "intent_bytes")
+        | ("CancelOrderInput", "intent_bytes") => Some((
             "intent".to_string(),
             json!({ "defined": { "name": "OrderIntent" } }),
         )),
