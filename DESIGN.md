@@ -119,28 +119,29 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
+
 	// Origin to pull funds for the order. Only SPL or Token-2022 token programs are supported.
 	sell: TokenAsset {
 		mint: Pubkey,
 		token_account: Pubkey,
 	}
 
-	// Destination to push proceeds of the order. On top of the token support for, native SOL (lamports) may be purchased
+	// Destination to push proceeds of the order. On top of the token support in sell, native SOL (lamports) may be purchased
 	buy: TokenAsset {
 		mint: Pubkey,
 		token_account: Pubkey,
 	} | NativeAsset {
 		account: Pubkey,
 	}
-	buy_token_account: Pubkey
-	// Set this to the system program to buy native SOL (lamports) and deposit it to the provided buy_token_account.
-	buy_mint: Pubkey
+
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
+
 	// Unix timestamp
 	valid_to: u32
 	flags: Flags
+	
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
@@ -153,6 +154,9 @@ struct Flags {
 	partially_fillable: bool
 }
 ```
+
+The sell and buy tokens are effectively flattened down in wire format, and in the case that `buy` uses `NativeAsset`,
+the `buy_mint` is set to the Solana system program.
 
 The fields grouped in `Flags` share a single byte in the encoded form, one bit
 each, with the remaining bits reserved and required when decoding to be zero.
