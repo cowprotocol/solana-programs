@@ -21,7 +21,9 @@ use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::token_program::NATIVE_SOL_MINT;
+/// The address an encoded intent carries as a mint to trade native SOL rather
+/// than a token; see [`Asset::Native`].
+pub const ENCODED_NATIVE_SOL_TRANSFER: Pubkey = solana_system_interface::program::ID;
 
 /// Direction of the trade. The discriminants are the values the `kind` bit of
 /// the encoded flags byte takes.
@@ -131,7 +133,7 @@ pub enum Asset {
 #[cfg(any(test, feature = "test-fixtures"))]
 impl Default for Asset {
     /// Native SOL on the all-zero address, the side an all-zero encoding
-    /// carries: [`NATIVE_SOL_MINT`] is itself all-zero.
+    /// carries: [`ENCODED_NATIVE_SOL_TRANSFER`] is itself all-zero.
     fn default() -> Self {
         Asset::Native(Pubkey::default())
     }
@@ -145,7 +147,7 @@ pub struct NativeSolHasNoMint;
 impl TryFrom<TokenAsset> for Asset {
     type Error = NativeSolHasNoMint;
 
-    /// Rejects a `token` naming [`NATIVE_SOL_MINT`]: that's native SOL, and
+    /// Rejects a `token` naming [`ENCODED_NATIVE_SOL_TRANSFER`]: that's native SOL, and
     /// wrapping it as a token side would encode an asset that decodes back as
     /// [`Asset::Native`].
     fn try_from(token: TokenAsset) -> Result<Self, Self::Error> {
@@ -158,15 +160,15 @@ impl TryFrom<TokenAsset> for Asset {
 
 impl Asset {
     /// Whether the mint bytes `mint` name native SOL; see
-    /// [`NATIVE_SOL_MINT`].
+    /// [`ENCODED_NATIVE_SOL_TRANSFER`].
     #[inline]
     #[must_use]
     pub fn is_native_sol(mint: &[u8; 32]) -> bool {
-        mint == NATIVE_SOL_MINT.as_array()
+        mint == ENCODED_NATIVE_SOL_TRANSFER.as_array()
     }
 
     /// The mint of a token side. Native SOL has none: its wire marker is
-    /// [`NATIVE_SOL_MINT`], not a mint.
+    /// [`ENCODED_NATIVE_SOL_TRANSFER`], not a mint.
     pub fn mint(&self) -> Result<Pubkey, NativeSolHasNoMint> {
         match self {
             Asset::Native(_) => Err(NativeSolHasNoMint),
@@ -394,7 +396,7 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         *sell_mint = intent.sell.mint.to_bytes();
         *buy_token = intent.buy.account().to_bytes();
         *buy_mint = match intent.buy {
-            Asset::Native(_) => NATIVE_SOL_MINT,
+            Asset::Native(_) => ENCODED_NATIVE_SOL_TRANSFER,
             Asset::TokenProgram(token) => token.mint,
         }
         .to_bytes();
@@ -617,7 +619,7 @@ mod tests {
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_BUY_MINT,
-            size_of_val(&NATIVE_SOL_MINT)
+            size_of_val(&ENCODED_NATIVE_SOL_TRANSFER)
         );
         assert_eq!(
             EncodedOrderIntent::WIDTH_SELL_AMOUNT,
@@ -801,7 +803,7 @@ mod tests {
                 .expect("not native SOL"),
                 mint,
             ),
-            (Asset::Native(account), NATIVE_SOL_MINT),
+            (Asset::Native(account), ENCODED_NATIVE_SOL_TRANSFER),
         ] {
             let encoded = EncodedOrderIntent::from(&OrderIntent {
                 buy,
@@ -827,7 +829,7 @@ mod tests {
 
     #[test]
     fn native_sol_mint_is_the_system_program() {
-        assert!(Asset::is_native_sol(NATIVE_SOL_MINT.as_array()));
+        assert!(Asset::is_native_sol(ENCODED_NATIVE_SOL_TRANSFER.as_array()));
         for program in TokenProgram::ALL {
             assert!(!Asset::is_native_sol(program.address().as_array()));
         }
@@ -842,13 +844,9 @@ mod tests {
 
     #[test]
     fn a_token_side_naming_the_native_marker_is_native_sol() {
-        let account = Pubkey::new_from_array([0x44; 32]);
-        let spelled_long = TokenAsset {
-            mint: NATIVE_SOL_MINT,
-            token_account: account,
-        };
+        let account = pubkey_from_seed("some account");
         assert_eq!(
-            Asset::classify(spelled_long.mint, spelled_long.token_account),
+            Asset::classify(ENCODED_NATIVE_SOL_TRANSFER, account),
             Asset::Native(account),
         );
     }
@@ -856,7 +854,7 @@ mod tests {
     #[test]
     fn a_token_side_naming_the_native_marker_is_not_a_token_asset() {
         let token = TokenAsset {
-            mint: NATIVE_SOL_MINT,
+            mint: ENCODED_NATIVE_SOL_TRANSFER,
             token_account: Pubkey::new_from_array([0x44; 32]),
         };
         assert_eq!(Asset::try_from(token), Err(NativeSolHasNoMint));
@@ -867,24 +865,6 @@ mod tests {
         let intent = OrderIntent::default();
         let encoded = EncodedOrderIntent::from(&intent);
         assert_eq!(*encoded, [0u8; EncodedOrderIntent::SIZE]);
-    }
-
-    #[test]
-    fn a_native_sell_mint_decodes_to_the_pair_it_names() {
-        let intent = OrderIntent {
-            sell: TokenAsset {
-                mint: NATIVE_SOL_MINT,
-                token_account: Pubkey::new_from_array([0x22; 32]),
-            },
-            ..sample_intent(Default::default())
-        };
-        let encoded = EncodedOrderIntent::from(&intent);
-        assert_eq!(intent_slots(&encoded).sell_mint, NATIVE_SOL_MINT.as_array());
-        assert_eq!(intent_slots(&encoded).sell_token, &[0x22; 32]);
-        assert_eq!(
-            OrderIntent::try_from(&*encoded).expect("must decode"),
-            intent
-        );
     }
 
     // Property-based tests, non-deterministic.

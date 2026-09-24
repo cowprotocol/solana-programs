@@ -189,8 +189,8 @@ mod tests {
 
     mod proptest {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
-        use cow_settlement_interface::{
-            data::intent::fixtures::arb_order_intent, token_program::NATIVE_SOL_MINT,
+        use cow_settlement_interface::data::intent::{
+            fixtures::arb_order_intent, ENCODED_NATIVE_SOL_TRANSFER,
         };
 
         use super::*;
@@ -218,7 +218,7 @@ mod tests {
                 let accessor = OrderIntentAccessor::attach(&encoded)
                     .map_err(|e| TestCaseError::fail(format!("attach failed: {e:?}")))?;
 
-                let buy_mint = buy.mint().unwrap_or(NATIVE_SOL_MINT);
+                let buy_mint = buy.mint().unwrap_or(ENCODED_NATIVE_SOL_TRANSFER);
                 let buy_account = buy.account();
 
                 prop_assert_eq!(accessor.uid(), intent.uid());

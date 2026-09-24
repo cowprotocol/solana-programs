@@ -4,10 +4,6 @@ use crate::Pubkey;
 use solana_program_error::ProgramError;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
-/// The address an encoded intent carries as a mint to trade native SOL rather
-/// than a token; see [`Asset::Native`](crate::data::intent::Asset::Native).
-pub const NATIVE_SOL_MINT: Pubkey = solana_system_interface::program::ID;
-
 /// A token program a token-moving instruction accepts.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TokenProgram {

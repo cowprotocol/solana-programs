@@ -6,7 +6,7 @@ use cow_settlement_client::cow_settlement_interface::data::intent::{
 use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
 use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
-use cow_settlement_interface::token_program::NATIVE_SOL_MINT;
+use cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -258,7 +258,7 @@ impl<'a> OrderBuilder<'a> {
     /// Pin the mint of the order's buy token account. Defaults to a fresh mint.
     /// Use `buy_sol` to indicate purchase of native lamports
     pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
-        assert_ne!(mint, &NATIVE_SOL_MINT, "use buy_sol() instead");
+        assert_ne!(mint, &ENCODED_NATIVE_SOL_TRANSFER, "use buy_sol() instead");
         self.buy = TokenSource::Mint(*mint);
         self
     }
