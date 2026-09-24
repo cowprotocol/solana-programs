@@ -51,7 +51,7 @@ For buying native SOL, there is no dedicated buffer account. Instead, non rent-b
 
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
-A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
+A buffer (except for the state PDA) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
 
 Differences with Ethereum:
 
