@@ -88,12 +88,8 @@ mod tests {
     use super::*;
     use ::proptest::{prelude::*, test_runner::TestCaseError};
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_order_intent,
-        fixtures::pubkey_from_seed,
-        instruction::{
-            fixtures::fake_account_from_array,
-            settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID},
-            InstructionInputParsing,
+        data::intent::fixtures::arb_order_intent, fixtures::pubkey_from_seed, instruction::{
+            InstructionInputParsing, fixtures::fake_account_from_array, settle::{FinalizeSettleInput, INSTRUCTIONS_SYSVAR_ID, Push},
         },
     };
 
@@ -209,10 +205,16 @@ mod tests {
             let parsed_pushes: Vec<_> = parsed.pushes.iter().collect();
             prop_assert_eq!(parsed_pushes.len(), expected.len());
             for (push, expected) in parsed_pushes.iter().zip(&expected) {
-                prop_assert_eq!(push.source_buffer.address(), &expected.buffer);
-                prop_assert_eq!(push.destination.address(), &expected.destination);
-                prop_assert_eq!(push.bump, expected.bump);
-                prop_assert_eq!(push.amount, expected.amount);
+                let Push {
+                    source_buffer,
+                    destination,
+                    bump,
+                    amount
+                } = push;
+                prop_assert_eq!(source_buffer.address(), &expected.buffer);
+                prop_assert_eq!(destination.address(), &expected.destination);
+                prop_assert_eq!(bump, &expected.bump);
+                prop_assert_eq!(amount, &expected.amount);
             }
         }
     }
