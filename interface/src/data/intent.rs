@@ -294,9 +294,7 @@ impl EncodedOrderIntent {
 #[must_use = "ignoring the result skips the validation"]
 #[inline]
 pub fn check_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Result<(), ProgramError> {
-    Flags::try_from(*intent_slots(bytes).flags)?;
-
-    Ok(())
+    Flags::try_from(*intent_slots(bytes).flags).map(drop)
 }
 
 pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
