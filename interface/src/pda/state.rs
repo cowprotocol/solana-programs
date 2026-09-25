@@ -38,9 +38,8 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&STATE_PDA_SEEDS, program_id)
 }
 
-/// Confirm `address` matches the settlement state PDA for `program_id` and
-/// `bump`. Takes the bump as given, so it costs one derivation where
-/// [`find_state_pda`] searches.
+/// Confirm `prospective_state_address` matches the settlement state PDA constant
+/// encoded in the program bytecode.
 #[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_is_state_pda(prospective_state_address: &[u8; 32]) -> Result<(), ProgramError> {
