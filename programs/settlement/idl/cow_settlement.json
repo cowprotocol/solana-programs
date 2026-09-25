@@ -2,7 +2,7 @@
   "address": "C7PXyLpLQBh3Ce7e9DNj3rDVUvwqa5orDwQG5hs1rfNi",
   "metadata": {
     "name": "cow_settlement",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "spec": "0.1.0",
     "description": "CoW Protocol settlement program. Some of the properties and instructions of this program can't be represented via a standard IDL, please be careful to read the documentation on the function you are using. Both the program and this IDL are in early release phase and may contain errors.",
     "repository": "https://github.com/cowprotocol/solana-programs"
@@ -206,6 +206,54 @@
           "writable": true,
           "docs": [
             "See the seed-derivation note above; cannot be auto-derived by IDL-driven tooling."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "intent",
+          "type": {
+            "defined": {
+              "name": "OrderIntent"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "cancel_order",
+      "docs": [
+        "Cancels an order so it can no longer be settled. Only the order owner may cancel.",
+        "If the order PDA doesn't exist yet, it's created already cancelled. For this, some arbitrary account needs to pay the rent and sign."
+      ],
+      "discriminator": [
+        11
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "docs": [
+            "Must match intent.owner; authenticates the cancellation."
+          ]
+        },
+        {
+          "name": "created_by",
+          "writable": true,
+          "signer": true,
+          "docs": [
+            "Funds the order PDA's rent when the order is created cancelled; the program only requires its signature in that case. Unused when an existing order is cancelled."
+          ]
+        },
+        {
+          "name": "order_pda",
+          "writable": true,
+          "docs": [
+            "The order to cancel. Its canonical seeds include sha256(intent), so it cannot be auto-derived by IDL-driven tooling."
           ]
         },
         {
@@ -1160,11 +1208,6 @@
       "code": 42,
       "name": "UnauthorizedSelfOrder",
       "msg": "CreateSelfOrder's self-order-authority account isn't a signer, or doesn't match the self_order_authority recorded in the settlement state PDA, so it may not create self orders."
-    },
-    {
-      "code": 43,
-      "name": "PushSourceNotStatePda",
-      "msg": "BeginSettle: a paired FinalizeSettle push paying an order that buys native SOL doesn't draw from the settlement state PDA."
     }
   ]
 }

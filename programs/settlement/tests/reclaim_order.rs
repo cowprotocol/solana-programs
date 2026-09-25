@@ -1,6 +1,8 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{fixtures::sample_intent, EncodedOrderIntent, OrderIntent},
-    instruction::{create_order::CreateOrder, reclaim_order::ReclaimOrder},
+    instruction::{
+        cancel_order::CancelOrder, create_order::CreateOrder, reclaim_order::ReclaimOrder,
+    },
     pda::order::find_order_pda,
     SettlementError,
 };
@@ -11,6 +13,7 @@ use solana_sdk::{
     clock::Clock,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
+    transaction::{Transaction, TransactionError},
 };
 
 use crate::common::{
@@ -388,6 +391,102 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
     assert_ne!(
         before.data, after.data,
         "recreating a reclaimed order must write fresh data (the new created_by)"
+    );
+}
+
+/// The sponsored model: `owner` authenticates an order with its signature while
+/// a `sponsor` pays the fee and the rent. An adversary who records this
+/// creation transaction might be able to recreate the order after the owner
+/// decides to cancel it. It can't: replaying that original transaction is
+/// rejected as already-processed, before it ever reaches the program.
+#[test]
+fn sponsored_order_cannot_be_recreated_by_replaying_the_original_transaction() {
+    let (mut svm, program_id, sponsor) = common::setup();
+    let owner = unique_keypair();
+    let attacker = unique_keypair();
+    svm.airdrop(&attacker.pubkey(), 1_000_000_000)
+        .expect("airdrop to attacker should succeed");
+
+    let intent = reclaim_sample_intent(owner.pubkey());
+    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+
+    // Step 1: creation. `owner` signs, `sponsor` pays the fee and funds the
+    // rent. The adversary records the fully-signed transaction verbatim.
+    let create_ix = CreateOrder {
+        program_id,
+        owner: owner.pubkey(),
+        created_by: sponsor.pubkey(),
+        order_pda: pda,
+        intent_bytes: encoded,
+    };
+    let create_tx = Transaction::new_signed_with_payer(
+        &[create_ix.into()],
+        Some(&sponsor.pubkey()),
+        &[&sponsor, &owner],
+        svm.latest_blockhash(),
+    );
+    let replayed_tx = create_tx.clone();
+    svm.send_transaction(create_tx)
+        .expect("sponsored create_order should succeed");
+    assert!(
+        !read_order(&svm, &pda).cancelled,
+        "the order must start active"
+    );
+
+    // Step 2: cancellation. `owner` regrets the order and cancels it.
+    let cancel_ix = CancelOrder {
+        program_id,
+        owner: owner.pubkey(),
+        created_by: sponsor.pubkey(),
+        order_pda: pda,
+        intent_bytes: Some(encoded),
+    };
+    let cancel_tx = Transaction::new_signed_with_payer(
+        &[cancel_ix.into()],
+        Some(&sponsor.pubkey()),
+        &[&sponsor, &owner],
+        svm.latest_blockhash(),
+    );
+    svm.send_transaction(cancel_tx)
+        .expect("the owner should be able to cancel its order");
+    assert!(
+        read_order(&svm, &pda).cancelled,
+        "the order must be cancelled"
+    );
+
+    // Step 3: reclamation. A cancelled on-chain order is immediately
+    // reclaimable, even before expiry, and reclaim needs no signature.
+    // So the adversary, seeing the cancellation, closes the PDA itself.
+    common::set_unix_timestamp(&mut svm, (VALID_TO - 1).into());
+    let reclaim_ix = ReclaimOrder {
+        program_id,
+        order_pda: pda,
+        reclaim_recipient: sponsor.pubkey(),
+    }
+    .instruction();
+    let reclaim_tx = signed_tx(&svm, &attacker, &attacker, reclaim_ix);
+    svm.send_transaction(reclaim_tx)
+        .expect("a cancelled on-chain order should be reclaimable");
+    assert!(
+        svm.get_account(&pda).is_none(),
+        "the order PDA must be closed after reclaim"
+    );
+
+    // Step 4: attempted recreation. The adversary tries to recreate this order
+    // from the original transaction, whose signature the runtime already
+    // recorded. Replaying it verbatim is rejected before it reaches the
+    // program.
+    let err = svm
+        .send_transaction(replayed_tx)
+        .expect_err("replaying the original create transaction must be rejected");
+    assert_eq!(
+        err.err,
+        TransactionError::AlreadyProcessed,
+        "the replay must be rejected as an already-processed transaction"
+    );
+    assert!(
+        svm.get_account(&pda).is_none(),
+        "the reclaimed order must not reappear from a replayed transaction"
     );
 }
 

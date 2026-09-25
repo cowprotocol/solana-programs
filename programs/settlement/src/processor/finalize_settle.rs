@@ -5,6 +5,7 @@ use cow_settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
+    pda::state::validate_is_state_pda,
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -40,12 +41,14 @@ pub fn process_finalize_settle(
         SettlementInstruction::BeginSettle,
     )?;
 
+    validate_is_state_pda(input.state_pda_account.address().as_array())?;
+
     // `BeginSettle` (which the counterpart check above guarantees ran) already
     // validated every push: its count, its destination, and that its source is
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    with_state_pda_signer(input.state_pda_account, |state_pda_signer| {
+    with_state_pda_signer(|state_pda_signer| {
         push_funds(input.state_pda_account, state_pda_signer, input.pushes)
     })
 }

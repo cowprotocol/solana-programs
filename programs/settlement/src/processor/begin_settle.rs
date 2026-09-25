@@ -31,8 +31,9 @@ use pinocchio::{
 };
 use pinocchio_token::instructions::Transfer;
 
+use crate::processor::utils::auth::with_state_pda_signer;
 use crate::processor::utils::{
-    auth::{check_state_pda, require_solver, with_state_pda_signer_unchecked},
+    auth::{check_state_pda, require_solver},
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
@@ -79,7 +80,7 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    with_state_pda_signer_unchecked(|signer| {
+    with_state_pda_signer(|signer| {
         settle_orders(
             program_id,
             input.state_pda_account,

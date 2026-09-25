@@ -45,7 +45,7 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_is_state_pda(prospective_state_address: &[u8; 32]) -> Result<(), ProgramError> {
     if prospective_state_address != STATE_PDA.as_array() {
-        Err(SettlementError::PushSourceNotStatePda.into())
+        Err(SettlementError::StateAccountMismatch.into())
     } else {
         Ok(())
     }
@@ -88,7 +88,7 @@ mod tests {
     fn rejects_any_other_address() {
         let err = validate_is_state_pda(Pubkey::new_unique().as_array())
             .expect_err("an address other than the state PDA must be rejected");
-        assert_eq!(err, SettlementError::PushSourceNotStatePda.into());
+        assert_eq!(err, SettlementError::StateAccountMismatch.into());
     }
 
     #[test]

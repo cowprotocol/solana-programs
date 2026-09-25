@@ -378,7 +378,7 @@ fn rejects_a_native_push_from_a_buffer() {
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_begin_error(
         send(&mut svm, &solver, &instructions),
-        SettlementError::PushSourceNotStatePda,
+        SettlementError::StateAccountMismatch,
     );
 }
 

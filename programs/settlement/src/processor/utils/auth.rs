@@ -22,29 +22,10 @@ pub fn check_state_pda(state_pda_account: &AccountView) -> ProgramResult {
     Ok(())
 }
 
-/// Run `f` with a signer for the state PDA, without checking any account
-/// against it.
-///
-/// This function is to be used as an alternative for [`with_state_pda_signer`]
-/// in the case where the state PDA has been checked in an earlier call, via
-/// [`check_state_pda`].
-///
-/// If state PDA validation is needed, use [`with_state_pda_signer`].
-pub fn with_state_pda_signer_unchecked(f: impl FnOnce(&Signer) -> ProgramResult) -> ProgramResult {
+/// Run `f` with a signer for the state PDA
+pub fn with_state_pda_signer(f: impl FnOnce(&Signer) -> ProgramResult) -> ProgramResult {
     let signer_seeds = STATE_PDA_SIGNER_SEEDS.map(Seed::from);
     f(&Signer::from(&signer_seeds))
-}
-
-/// Validate that `state_pda_account` is the canonical state PDA and run `f`
-/// with a signer for it, in one step. Use [`with_state_pda_signer_unchecked`]
-/// when the account has already been checked (as settling does, via
-/// [`check_state_pda`]).
-pub fn with_state_pda_signer(
-    state_pda_account: &AccountView,
-    f: impl FnOnce(&Signer) -> ProgramResult,
-) -> ProgramResult {
-    check_state_pda(state_pda_account)?;
-    with_state_pda_signer_unchecked(f)
 }
 
 /// Confirm that `solver_account` signed the transaction and is in the solver
