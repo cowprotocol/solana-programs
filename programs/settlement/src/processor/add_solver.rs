@@ -8,6 +8,7 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{add_solver::AddSolverInput, InstructionInputParsing},
+    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
 use pinocchio::{
@@ -15,8 +16,6 @@ use pinocchio::{
     AccountView, ProgramResult, Resize,
 };
 use pinocchio_system::instructions::Transfer;
-
-use crate::processor::utils::auth::check_state_pda;
 
 pub fn process_add_solver(accounts: &mut [AccountView], instruction_data: &[u8]) -> ProgramResult {
     let AddSolverInput {
@@ -26,7 +25,7 @@ pub fn process_add_solver(accounts: &mut [AccountView], instruction_data: &[u8])
         solver,
     } = AddSolverInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
     // Only the manager may change the solver list. Attaching validates the
     // account; `grown_len` is the size it must reach to hold one more solver.

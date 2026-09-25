@@ -9,6 +9,7 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{remove_solver::RemoveSolverInput, InstructionInputParsing},
+    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
 use pinocchio::{
@@ -17,7 +18,7 @@ use pinocchio::{
     AccountView, ProgramResult, Resize,
 };
 
-use crate::processor::utils::{auth::check_state_pda, lamports::move_lamports};
+use crate::processor::utils::lamports::move_lamports;
 
 pub fn process_remove_solver(
     accounts: &mut [AccountView],
@@ -30,7 +31,7 @@ pub fn process_remove_solver(
         solver,
     } = RemoveSolverInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
     let mut state_pda = *state_pda;
     let new_len = {

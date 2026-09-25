@@ -6,11 +6,10 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{transfer_authority::TransferAuthorityInput, InstructionInputParsing},
+    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-
-use crate::processor::utils::auth::check_state_pda;
 
 pub fn process_transfer_authority(
     accounts: &mut [AccountView],
@@ -23,7 +22,7 @@ pub fn process_transfer_authority(
         new_authority,
     } = TransferAuthorityInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
     if !signer.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);

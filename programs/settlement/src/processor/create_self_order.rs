@@ -10,12 +10,12 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{create_self_order::CreateSelfOrderInput, InstructionInputParsing},
+    pda::state::validate_is_state_pda,
     Pubkey, Role, SettlementError,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 
 use crate::processor::create_order::process_new_onchain_order;
-use crate::processor::utils::auth::check_state_pda;
 
 pub fn process_create_self_order(
     program_id: &Address,
@@ -30,7 +30,7 @@ pub fn process_create_self_order(
         order_pda,
     } = CreateSelfOrderInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
     // Only the self-order authority may create self orders.
     let self_order_authority: Pubkey =

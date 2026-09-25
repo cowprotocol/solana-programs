@@ -3,11 +3,11 @@
 use cow_settlement_interface::{
     data::state::{StateAccount, StateInitArgs, WIDTH_HEADER},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
-    pda::state::STATE_PDA_SEEDS,
+    pda::state::{validate_is_state_pda, STATE_PDA_SEEDS},
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 
-use crate::processor::utils::{auth::check_state_pda, pda::CanonicalPda};
+use crate::processor::utils::pda::CanonicalPda;
 
 pub fn process_initialize(
     program_id: &Address,
@@ -22,12 +22,9 @@ pub fn process_initialize(
         self_order_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
-    // Sanity to verify that the program constant for STATE_PDA
-    // matches up with the address we are about to allocate.
-    check_state_pda(state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
-    // The system program is invoked by its fixed address, so the account in that
-    // slot is never referenced directly.
+    // We derive the actual expected state pda address on-chain during initialization for sanity.
     CanonicalPda {
         program_id,
         payer,

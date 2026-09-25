@@ -33,7 +33,7 @@ use pinocchio_token::instructions::Transfer;
 
 use crate::processor::utils::auth::with_state_pda_signer;
 use crate::processor::utils::{
-    auth::{check_state_pda, require_solver},
+    auth::require_solver,
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
@@ -51,7 +51,7 @@ pub fn process_begin_settle(
 
     let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(input.state_pda_account)?;
+    validate_is_state_pda(input.state_pda_account.address().as_array())?;
     require_solver(input.state_pda_account, input.solver_account)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
