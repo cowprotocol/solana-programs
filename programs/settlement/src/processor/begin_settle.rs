@@ -2,9 +2,11 @@
 
 use std::ops::Deref;
 
+use cow_settlement_interface::data::intent::Asset;
+use cow_settlement_interface::pda::state::validate_is_state_pda;
 use cow_settlement_interface::{
     data::{
-        intent::{Asset, Flags, OrderKind},
+        intent::{Flags, OrderKind},
         order::{FillAmounts, OrderAccount},
     },
     instruction::{
@@ -29,8 +31,9 @@ use pinocchio::{
 };
 use pinocchio_token::instructions::Transfer;
 
+use crate::processor::utils::auth::with_state_pda_signer;
 use crate::processor::utils::{
-    auth::{check_state_pda, require_solver, with_state_pda_signer_from_bump},
+    auth::require_solver,
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
@@ -48,7 +51,7 @@ pub fn process_begin_settle(
 
     let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
-    let state_bump = check_state_pda(program_id, input.state_pda_account)?;
+    validate_is_state_pda(input.state_pda_account.address().as_array())?;
     require_solver(input.state_pda_account, input.solver_account)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
@@ -77,7 +80,7 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    with_state_pda_signer_from_bump(state_bump, |signer| {
+    with_state_pda_signer(|signer| {
         settle_orders(
             program_id,
             input.state_pda_account,
@@ -294,9 +297,7 @@ fn process_order(
     // If its a native SOL buy order, the "source buffer" should be the state pda.
     let buy_mint = intent.buy_mint();
     if Asset::is_native_sol(buy_mint) {
-        if push.source_buffer != state_account.address() {
-            return Err(SettlementError::PushSourceNotStatePda.into());
-        }
+        validate_is_state_pda(push.source_buffer.as_array())?;
     } else {
         validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;
     }

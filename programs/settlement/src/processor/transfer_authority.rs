@@ -6,14 +6,12 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{transfer_authority::TransferAuthorityInput, InstructionInputParsing},
+    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-
-use crate::processor::utils::auth::check_state_pda;
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 
 pub fn process_transfer_authority(
-    program_id: &Address,
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
@@ -24,7 +22,7 @@ pub fn process_transfer_authority(
         new_authority,
     } = TransferAuthorityInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(program_id, state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
     if !signer.is_signer() {
         return Err(ProgramError::MissingRequiredSignature);
@@ -48,7 +46,6 @@ pub fn process_transfer_authority(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
     use cow_settlement_interface::instruction::transfer_authority::fixtures::{
         transfer_authority_data, NUM_ACCOUNTS,
@@ -60,7 +57,7 @@ mod tests {
         data.push(0); // trailing byte triggers a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_transfer_authority(&PROGRAM_ID, &mut accounts, &data),
+            process_transfer_authority(&mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -72,7 +69,7 @@ mod tests {
         let data = transfer_authority_data();
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_transfer_authority(&PROGRAM_ID, &mut accounts, &data),
+            process_transfer_authority(&mut accounts, &data),
             Err(SettlementError::StateAccountMismatch.into()),
         );
     }

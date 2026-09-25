@@ -91,7 +91,7 @@ mod tests {
         [
             fake_signer(owner),
             fake_signer(pubkey_from_seed("created by")),
-            fake_account_owned_by(pda_address, *PROGRAM_ID, &fields.encode()[..]),
+            fake_account_owned_by(pda_address, PROGRAM_ID, &fields.encode()[..]),
             fake_signer(pubkey_from_seed("system program")),
         ]
     }

@@ -1,14 +1,22 @@
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::WIDTH_HEADER, instruction::initialize::Initialize as InitializeRaw,
-    pda::state::find_state_pda,
+    data::state::WIDTH_HEADER,
+    instruction::initialize::Initialize as InitializeRaw,
+    pda::state::{find_state_pda, STATE_PDA},
+    SettlementError,
 };
 use cow_settlement_client::instruction::Initialize;
 use cow_settlement_client::pda::state::DecodedStateAccount;
-use solana_sdk::signature::Signer;
+use litesvm::LiteSVM;
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    transaction::Transaction,
+};
 
 use crate::common::{
+    assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    unique_keypair, unique_pubkey,
+    unique_keypair, unique_pubkey, PROGRAM_SO,
 };
 
 mod common;
@@ -113,24 +121,70 @@ fn funding_payer_can_differ_from_fee_payer() {
     );
 }
 
-#[test]
-fn rejects_arbitrary_wrong_state_pda() {
-    let (mut svm, program_id, payer) = common::setup();
-
-    // The program only signs for the canonical PDA, so the lower-level interface
-    // builder lets us point the instruction at a deliberately wrong address.
-    let wrong_pda = unique_pubkey();
+/// An `Initialize` against `program_id` that creates `state_pda`.
+fn initialize_at(
+    svm: &LiteSVM,
+    program_id: Pubkey,
+    payer: &Keypair,
+    state_pda: Pubkey,
+) -> Transaction {
     let ix = InitializeRaw {
         program_id,
         payer: payer.pubkey(),
-        state_pda: wrong_pda,
+        state_pda,
         reclaim_authority: unique_pubkey(),
         manager: unique_pubkey(),
         self_order_authority: unique_pubkey(),
     };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    common::signed_tx(svm, payer, payer, ix)
+}
 
-    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
+#[test]
+fn rejects_arbitrary_wrong_state_pda() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    // The lower-level interface builder lets us point the instruction at a
+    // deliberately wrong address.
+    let wrong_pda = unique_pubkey();
+    let tx = initialize_at(&svm, program_id, &payer, wrong_pda);
+
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|meta| meta.err),
+        SettlementError::StateAccountMismatch,
+    );
+    assert!(svm.get_account(&wrong_pda).is_none());
+}
+
+/// This is effectively a test that the STATE_PDA constant must be checked as expected by the
+/// Initialize instruction, as changing the program ID changes the input to the instruction without
+/// changing the actual constant value.
+#[test]
+fn rejects_the_state_pda_of_an_undeclared_program_id() {
+    let (mut svm, _, payer) = common::setup();
+    let undeclared_id = unique_pubkey();
+    svm.add_program_from_file(undeclared_id, PROGRAM_SO)
+        .expect("compiled program .so not found, run `just build-program` first");
+    let (derived_pda, _) = find_state_pda(&undeclared_id);
+
+    let tx = initialize_at(&svm, undeclared_id, &payer, derived_pda);
+
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|meta| meta.err),
+        SettlementError::StateAccountMismatch,
+    );
+    assert!(svm.get_account(&derived_pda).is_none());
+}
+
+#[test]
+fn rejects_the_pinned_state_pda_under_an_undeclared_program_id() {
+    let (mut svm, _, payer) = common::setup();
+    let undeclared_id = unique_pubkey();
+    svm.add_program_from_file(undeclared_id, PROGRAM_SO)
+        .expect("compiled program .so not found, run `just build-program` first");
+
+    let tx = initialize_at(&svm, undeclared_id, &payer, STATE_PDA);
+
+    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &STATE_PDA);
 }
 
 #[test]

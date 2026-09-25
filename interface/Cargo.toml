@@ -23,7 +23,7 @@ proptest = { workspace = true, optional = true }
 # this package as well:
 # https://github.com/anza-xyz/pinocchio/blob/8758463e1bbddecc34fc6dccc7259091eacbb157/sdk/Cargo.toml#L27-L29
 solana-account-view = { workspace = true, features = ["copy"] }
-solana-address.workspace = true
+solana-address = { workspace = true, features = ["sha2"] }
 solana-hash.workspace = true
 solana-instruction.workspace = true
 solana-instruction-error.workspace = true

@@ -10,25 +10,44 @@
 //! this address, so every delegation has to be renewed after a
 //! bump.
 
+use solana_address::Address;
+use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::pda::SETTLEMENT_SEED;
+use crate::{pda::SETTLEMENT_SEED, SettlementError};
 
 /// Canonical seed components for the settlement state PDA.
-pub fn state_pda_seeds<'a>() -> [&'a [u8]; 1] {
-    [SETTLEMENT_SEED]
-}
+pub const STATE_PDA_SEEDS: [&[u8]; 1] = [SETTLEMENT_SEED];
 
-/// Canonical seeds for signing as the settlement state PDA with `bump`. The
-/// on-chain settlement handlers use this to construct the CPI signer.
-pub fn state_pda_signer_seeds(bump: &[u8; 1]) -> [&[u8]; 2] {
-    let [seed] = state_pda_seeds();
-    [seed, bump]
-}
+/// Canonical bump of the state PDA under [`crate::ID`].
+/// `pinned_state_pda_is_canonical` fails with the new value when it needs updating.
+pub const STATE_PDA_BUMP: u8 = 255;
+
+/// The settlement state PDA under [`crate::ID`], derived at compile time so
+/// handlers compare against it instead of searching for it on-chain.
+pub const STATE_PDA: Address =
+    Address::derive_address_const(&STATE_PDA_SEEDS, Some(STATE_PDA_BUMP), &crate::ID);
+
+/// Seeds for signing as [`STATE_PDA`]: its canonical seeds followed by
+/// [`STATE_PDA_BUMP`]. The on-chain settlement handlers use this to construct
+/// the CPI signer.
+pub const STATE_PDA_SIGNER_SEEDS: [&[u8]; 2] = [STATE_PDA_SEEDS[0], &[STATE_PDA_BUMP]];
 
 /// Derive the canonical settlement state PDA address (and bump).
 pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&state_pda_seeds(), program_id)
+    Pubkey::find_program_address(&STATE_PDA_SEEDS, program_id)
+}
+
+/// Confirm `prospective_state_address` matches the settlement state PDA constant
+/// encoded in the program bytecode.
+#[inline]
+#[must_use = "ignoring the output means ignoring the validation result"]
+pub fn validate_is_state_pda(prospective_state_address: &[u8; 32]) -> Result<(), ProgramError> {
+    if prospective_state_address != STATE_PDA.as_array() {
+        Err(SettlementError::StateAccountMismatch.into())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -38,7 +57,37 @@ mod tests {
 
     #[test]
     fn find_state_pda_uses_canonical_seeds() {
-        crate::pda::tests::assert_canonical_bump(find_state_pda, state_pda_seeds());
+        crate::pda::tests::assert_canonical_bump(find_state_pda, STATE_PDA_SEEDS);
+    }
+
+    #[test]
+    fn pinned_state_pda_is_canonical() {
+        let (pda, bump) = find_state_pda(&crate::ID);
+        assert_eq!(
+            (STATE_PDA, STATE_PDA_BUMP),
+            (pda, bump),
+            "set STATE_PDA_BUMP to {bump}",
+        );
+    }
+
+    #[test]
+    fn signer_seeds_sign_for_the_pinned_state_pda() {
+        assert_eq!(
+            Pubkey::create_program_address(&STATE_PDA_SIGNER_SEEDS, &crate::ID),
+            Ok(STATE_PDA),
+        );
+    }
+
+    #[test]
+    fn accepts_the_state_pda() {
+        validate_is_state_pda(STATE_PDA.as_array()).expect("the state PDA itself must be accepted");
+    }
+
+    #[test]
+    fn rejects_any_other_address() {
+        let err = validate_is_state_pda(Pubkey::new_unique().as_array())
+            .expect_err("an address other than the state PDA must be rejected");
+        assert_eq!(err, SettlementError::StateAccountMismatch.into());
     }
 
     #[test]

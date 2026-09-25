@@ -72,11 +72,12 @@ pub fn unique_keypair() -> Keypair {
     Keypair::new_from_array(next_seed())
 }
 
-/// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
-/// generated program ID, and airdrop a payer keypair.
+/// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under the declared
+/// program ID (the only one its pinned state PDA works under), and airdrop a
+/// payer keypair.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     let mut svm = LiteSVM::new();
-    let program_id = unique_pubkey();
+    let program_id = cow_settlement_interface::ID;
     svm.add_program_from_file(program_id, PROGRAM_SO)
         .expect("compiled program .so not found, run `just build-program` first");
 

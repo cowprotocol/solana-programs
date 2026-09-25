@@ -1208,11 +1208,6 @@
       "code": 42,
       "name": "UnauthorizedSelfOrder",
       "msg": "CreateSelfOrder's self-order-authority account isn't a signer, or doesn't match the self_order_authority recorded in the settlement state PDA, so it may not create self orders."
-    },
-    {
-      "code": 43,
-      "name": "PushSourceNotStatePda",
-      "msg": "BeginSettle: a paired FinalizeSettle push paying an order that buys native SOL doesn't draw from the settlement state PDA."
     }
   ]
 }

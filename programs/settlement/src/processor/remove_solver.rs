@@ -9,18 +9,18 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{remove_solver::RemoveSolverInput, InstructionInputParsing},
+    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
 use pinocchio::{
     error::ProgramError,
     sysvars::{rent::Rent, Sysvar},
-    AccountView, Address, ProgramResult, Resize,
+    AccountView, ProgramResult, Resize,
 };
 
-use crate::processor::utils::{auth::check_state_pda, lamports::move_lamports};
+use crate::processor::utils::lamports::move_lamports;
 
 pub fn process_remove_solver(
-    program_id: &Address,
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
@@ -31,7 +31,7 @@ pub fn process_remove_solver(
         solver,
     } = RemoveSolverInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(program_id, state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
     let mut state_pda = *state_pda;
     let new_len = {
@@ -73,7 +73,7 @@ mod tests {
         data.push(0); // trailing byte triggers a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_remove_solver(&PROGRAM_ID, &mut accounts, &data),
+            process_remove_solver(&mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -85,7 +85,7 @@ mod tests {
         let data = remove_solver_data();
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_remove_solver(&PROGRAM_ID, &mut accounts, &data),
+            process_remove_solver(&mut accounts, &data),
             Err(SettlementError::StateAccountMismatch.into()),
         );
     }
@@ -128,13 +128,13 @@ mod tests {
                     fake_account(pubkey_from_seed("rent recipient")),
                     fake_account_owned_by(
                         state_pda_address,
-                        *PROGRAM_ID,
+                        PROGRAM_ID,
                         &state_account_bytes(&header, &stored),
                     ),
                 ];
 
                 let data = Instruction::from(RemoveSolver {
-                    program_id: *PROGRAM_ID,
+                    program_id: PROGRAM_ID,
                     manager,
                     rent_recipient: pubkey_from_seed("rent recipient"),
                     state_pda: state_pda_address,
@@ -143,7 +143,7 @@ mod tests {
                 .data;
 
                 prop_assert_eq!(
-                    process_remove_solver(&PROGRAM_ID, &mut accounts, &data),
+                    process_remove_solver(&mut accounts, &data),
                     Err(SettlementError::SolverNotFound.into()),
                 );
             }
