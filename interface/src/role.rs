@@ -20,7 +20,7 @@ pub enum Role {
     /// The account authorized to place orders that sell the protocol's own
     /// buffer balances (e.g., fee withdrawals). It chooses the destination, the
     /// bought token, and the price of those orders.
-    SelfOrderAuthority,
+    SettlementOwnedOrderAuthority,
 }
 
 impl Role {
@@ -28,7 +28,7 @@ impl Role {
     pub const ALL: [Self; 3] = [
         Role::Manager,
         Role::ReclaimAuthority,
-        Role::SelfOrderAuthority,
+        Role::SettlementOwnedOrderAuthority,
     ];
 
     /// The single wire byte that selects this role in the authority-transfer
