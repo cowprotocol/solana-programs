@@ -19,9 +19,11 @@ use crate::{pda::SETTLEMENT_SEED, SettlementError};
 /// Canonical seed components for the settlement state PDA.
 pub const STATE_PDA_SEEDS: [&[u8]; 1] = [SETTLEMENT_SEED];
 
-/// Canonical bump of the state PDA under [`crate::ID`].
-/// `pinned_state_pda_is_canonical` fails with the new value when it needs updating.
-pub const STATE_PDA_BUMP: u8 = 255;
+/// Canonical bump of the state PDA under [`crate::ID`]. Solana's own
+/// `find_program_address` cannot run in a `const` context, so `const-crypto`
+/// performs the identical descending-bump, off-curve search at compile time.
+pub const STATE_PDA_BUMP: u8 =
+    const_crypto::ed25519::derive_program_address(&STATE_PDA_SEEDS, crate::ID.as_array()).1;
 
 /// The settlement state PDA under [`crate::ID`], derived at compile time so
 /// handlers compare against it instead of searching for it on-chain.
@@ -66,7 +68,7 @@ mod tests {
         assert_eq!(
             (STATE_PDA, STATE_PDA_BUMP),
             (pda, bump),
-            "set STATE_PDA_BUMP to {bump}",
+            "const-crypto's compile-time derivation disagrees with the runtime canonical PDA (bump {bump})",
         );
     }
 
