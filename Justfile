@@ -119,13 +119,10 @@ deploy programid keypair: build-verified
     # `programid` is a keypair file on a first deploy and an address on an upgrade,
     # but the CLI only takes the address.
     program_id=$(solana address --keypair "{{programid}}" 2>/dev/null || echo "{{programid}}")
-    # A failure here is expected when upgrading a program whose state PDA already
-    # exists, so don't fail the deploy over it.
     cargo run -p cow-test-cli -- \
         --program-id "$program_id" \
         --keypair "{{keypair}}" \
-        initialize \
-        || echo "warning: \`initialize\` failed, the state PDA may already exist" >&2
+        initialize
 
 # Register the on-chain verification for an already-deployed program.
 verify programid keypair commit_hash="": install-solana-verify
