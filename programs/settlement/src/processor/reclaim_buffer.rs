@@ -8,16 +8,19 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{reclaim_buffer::ReclaimBufferInput, InstructionInputParsing},
-    pda::{buffer::find_buffer_pda, state::validate_is_state_pda},
+    pda::{
+        buffer::find_buffer_pda,
+        state::{validate_is_state_pda, STATE_PDA_SIGNER_SEEDS},
+    },
     Pubkey, Role, SettlementError,
 };
-use pinocchio::{AccountView, Address, ProgramResult};
+use pinocchio::{
+    cpi::{Seed, Signer},
+    AccountView, Address, ProgramResult,
+};
 use pinocchio_token::instructions::CloseAccount;
 
-use crate::processor::utils::{
-    auth::with_state_pda_signer,
-    token::{owning_token_program, read_token_account},
-};
+use crate::processor::utils::token::{owning_token_program, read_token_account};
 
 pub fn process_reclaim_buffer(
     program_id: &Address,
@@ -33,43 +36,42 @@ pub fn process_reclaim_buffer(
 
     validate_is_state_pda(state_pda.address().as_array())?;
 
-    with_state_pda_signer(|state_signer| {
-        let reclaim_authority_pubkey: Pubkey =
-            StateAccount::from_account(state_pda)?.authority(Role::ReclaimAuthority);
-        if !reclaim_authority.is_signer()
-            || reclaim_authority.address() != &reclaim_authority_pubkey
-        {
-            return Err(SettlementError::ReclaimAuthorityMismatch.into());
+    let reclaim_authority_pubkey: Pubkey =
+        StateAccount::from_account(state_pda)?.authority(Role::ReclaimAuthority);
+    if !reclaim_authority.is_signer() || reclaim_authority.address() != &reclaim_authority_pubkey {
+        return Err(SettlementError::ReclaimAuthorityMismatch.into());
+    }
+
+    let signer_seeds = STATE_PDA_SIGNER_SEEDS.map(Seed::from);
+    let state_signer = Signer::from(&signer_seeds);
+
+    for [buffer_pda, mint] in buffers {
+        let expected_buffer_pda = find_buffer_pda(program_id, mint.address()).0;
+
+        if buffer_pda.address() != &expected_buffer_pda {
+            return Err(SettlementError::ReclaimBufferNotCanonical.into());
         }
 
-        for [buffer_pda, mint] in buffers {
-            let expected_buffer_pda = find_buffer_pda(program_id, mint.address()).0;
+        // A buffer is closed by the program that owns it, which is the one
+        // that created it in the first place.
+        let token_program = owning_token_program(buffer_pda)?;
+        let amount = read_token_account(token_program, buffer_pda)?.amount;
 
-            if buffer_pda.address() != &expected_buffer_pda {
-                return Err(SettlementError::ReclaimBufferNotCanonical.into());
-            }
-
-            // A buffer is closed by the program that owns it, which is the one
-            // that created it in the first place.
-            let token_program = owning_token_program(buffer_pda)?;
-            let amount = read_token_account(token_program, buffer_pda)?.amount;
-
-            // A token account can't be closed while it still holds a balance, and this
-            // instruction has no mandate to move those tokens elsewhere or destroy them.
-            // Leave the buffer standing and reclaim whatever else was asked for.
-            if amount > 0 {
-                continue;
-            }
-
-            CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
-                .invoke_signed_with_unverified_program(
-                    core::slice::from_ref(state_signer),
-                    &token_program.address(),
-                )?;
+        // A token account can't be closed while it still holds a balance, and this
+        // instruction has no mandate to move those tokens elsewhere or destroy them.
+        // Leave the buffer standing and reclaim whatever else was asked for.
+        if amount > 0 {
+            continue;
         }
 
-        Ok(())
-    })
+        CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
+            .invoke_signed_with_unverified_program(
+                core::slice::from_ref(&state_signer),
+                &token_program.address(),
+            )?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

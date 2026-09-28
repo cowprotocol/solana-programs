@@ -5,17 +5,19 @@ use cow_settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::state::validate_is_state_pda,
+    pda::state::{validate_is_state_pda, STATE_PDA_SIGNER_SEEDS},
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
-    cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
+    cpi::{Seed, Signer},
+    sysvars::instructions::Instructions,
+    AccountView, Address, ProgramResult,
 };
 use pinocchio_token::instructions::Transfer;
 
 use crate::processor::utils::{
-    auth::with_state_pda_signer, cpi::is_cpi_call, lamports::move_lamports,
-    settle::validate_counterpart, token::owning_token_program,
+    cpi::is_cpi_call, lamports::move_lamports, settle::validate_counterpart,
+    token::owning_token_program,
 };
 
 pub fn process_finalize_settle(
@@ -48,9 +50,9 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    with_state_pda_signer(|state_pda_signer| {
-        push_funds(input.state_pda_account, state_pda_signer, input.pushes)
-    })
+    let signer_seeds = STATE_PDA_SIGNER_SEEDS.map(Seed::from);
+    let state_pda_signer = Signer::from(&signer_seeds);
+    push_funds(input.state_pda_account, &state_pda_signer, input.pushes)
 }
 
 /// Push each order's proceeds out of the settlement's buffers, signing each

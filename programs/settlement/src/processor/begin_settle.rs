@@ -3,7 +3,7 @@
 use std::ops::Deref;
 
 use cow_settlement_interface::data::intent::Asset;
-use cow_settlement_interface::pda::state::validate_is_state_pda;
+use cow_settlement_interface::pda::state::{validate_is_state_pda, STATE_PDA_SIGNER_SEEDS};
 use cow_settlement_interface::{
     data::{
         intent::{Flags, OrderKind},
@@ -20,7 +20,7 @@ use cow_settlement_interface::{
     recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
-    cpi::Signer,
+    cpi::{Seed, Signer},
     error::ProgramError,
     sysvars::{
         clock::Clock,
@@ -31,7 +31,6 @@ use pinocchio::{
 };
 use pinocchio_token::instructions::Transfer;
 
-use crate::processor::utils::auth::with_state_pda_signer;
 use crate::processor::utils::{
     auth::require_solver,
     cpi::is_cpi_call,
@@ -80,15 +79,15 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    with_state_pda_signer(|signer| {
-        settle_orders(
-            program_id,
-            input.state_pda_account,
-            signer,
-            &input.orders,
-            &finalize_ix,
-        )
-    })
+    let signer_seeds = STATE_PDA_SIGNER_SEEDS.map(Seed::from);
+    let signer = Signer::from(&signer_seeds);
+    settle_orders(
+        program_id,
+        input.state_pda_account,
+        &signer,
+        &input.orders,
+        &finalize_ix,
+    )
 }
 
 /// The `[source_buffer, destination]` address pair of each push carried by the
