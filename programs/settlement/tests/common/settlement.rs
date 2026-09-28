@@ -3,11 +3,14 @@
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
 };
-use cow_settlement_interface::{data::intent::OrderIntent, Instruction};
+use cow_settlement_interface::{
+    data::intent::{Asset, OrderIntent},
+    Instruction,
+};
 use litesvm::LiteSVM;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
-use super::{buffer, token, unique_pubkey};
+use super::{buffer, state, token, unique_pubkey};
 
 /// Positions of the two instructions in the `[BeginSettle, FinalizeSettle]` pair
 /// the settlement tests build: begin first, finalize right after it. Each
@@ -46,6 +49,22 @@ pub fn build_settlement(
     vec![begin.into(), finalize.into()]
 }
 
+/// Build the [`build_settlement`] pair with the finalize that matches it: settle
+/// `orders` with no pulls and push each order's `amount` to its buy account.
+pub fn build_matching_settlement(
+    program_id: &Pubkey,
+    solver: &Pubkey,
+    orders: &[FinalizedIntent],
+) -> Vec<Instruction> {
+    let finalize = FinalizeSettle {
+        program_id: *program_id,
+        begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
+        orders,
+    };
+    build_settlement(program_id, solver, orders, finalize)
+}
+
 /// An order staged for settlement by [`stage_order`]: the intent, the [`Pull`]s
 /// to draw from its sell token account, and the amount to push to its buy token
 /// account. It owns its intent, so a helper that mints an order can stage it and
@@ -78,7 +97,7 @@ pub fn stage_order(
         svm,
         program_id,
         payer,
-        &intent.sell_token_account,
+        &intent.sell.token_account,
         amount_in,
     );
     let pulls = pulls
@@ -87,13 +106,20 @@ pub fn stage_order(
             destination: token::create_token_account(
                 svm,
                 payer,
-                &intent.sell_mint,
+                &intent.sell.mint,
                 &unique_pubkey(),
             ),
             amount,
         })
         .collect();
-    buffer::ensure_funded(svm, program_id, payer, &intent.buy_mint, amount_out);
+    match &intent.buy {
+        Asset::Native(_) => {
+            state::add_lamports(svm, program_id, amount_out);
+        }
+        Asset::TokenProgram(token) => {
+            buffer::ensure_funded(svm, program_id, payer, &token.mint, amount_out);
+        }
+    }
 
     StagedOrder {
         intent: intent.clone(),

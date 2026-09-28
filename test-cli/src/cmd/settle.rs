@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use clap::Args;
 use cow_settlement_client::{
     cow_settlement_interface::{
-        data::{intent::OrderIntent, order::OrderAccount},
+        data::intent::{Asset, OrderIntent},
         pda::buffer::find_buffer_pda,
         token_program::TokenProgram,
         Pubkey,
@@ -10,6 +10,7 @@ use cow_settlement_client::{
     instruction::{
         BeginSettle, CreateBuffers, FinalizeSettle, FinalizedIntent, InitializedIntent, Pull,
     },
+    pda::order::DecodedOrderAccount,
 };
 use solana_hash::Hash;
 use solana_instruction::Instruction;
@@ -228,10 +229,12 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
     intents
         .into_iter()
         .map(|intent| {
+            let Asset::TokenProgram(buy) = &intent.buy else {
+                anyhow::bail!("order buys native SOL, which the settle CLI doesn't support yet");
+            };
             Ok(ResolvedIntent {
-                sell: resolve_from_token_account(&ctx.rpc, &intent.sell_token_account)?,
-                buy: resolve_from_token_account(&ctx.rpc, &intent.buy_token_account)?,
-
+                sell: resolve_from_token_account(&ctx.rpc, &intent.sell.token_account)?,
+                buy: resolve_from_token_account(&ctx.rpc, &buy.token_account)?,
                 data: intent,
             })
         })
@@ -382,7 +385,7 @@ fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result
     let data = rpc
         .get_account_data(&pda)
         .with_context(|| format!("failed to get order account data for {pda}"))?;
-    let order_account = OrderAccount::try_from(data.as_slice()).map_err(|e| {
+    let order_account = DecodedOrderAccount::try_from(data.as_slice()).map_err(|e| {
         anyhow::anyhow!(
             "failed to decode order at {pda} ({} bytes): {e:?}",
             data.len()

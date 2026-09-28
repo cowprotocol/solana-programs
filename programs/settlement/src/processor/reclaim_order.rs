@@ -1,7 +1,7 @@
 //! `ReclaimOrder` instruction handler.
 
 use cow_settlement_interface::{
-    data::order::OrderAccount,
+    data::order::{FillAmounts, OrderAccount},
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
     SettlementError,
 };
@@ -10,6 +10,8 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+
+use crate::processor::utils::intent::{fill_progress, OrderIntentAccessor};
 
 pub fn process_reclaim_order(
     program_id: &pinocchio::Address,
@@ -21,15 +23,23 @@ pub fn process_reclaim_order(
         reclaim_recipient,
     } = ReclaimOrderInput::parse(instruction_data, accounts)?;
 
-    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
+    // Read the fields the reclaim decision needs, then drop the borrow before
+    // the lamport transfer and `close` below touch the account.
+    let (created_by, reclaimable, valid_to) = {
+        let order = OrderAccount::load_from_pda(order_pda, program_id)?;
+        let intent = OrderIntentAccessor::from_order(&order)?;
+        let reclaimable =
+            is_reclaimable_before_expiry(&intent, order.cancelled()?, order.filled_amounts());
+        (order.created_by(), reclaimable, intent.valid_to())
+    };
 
-    if reclaim_recipient.address() != &account.created_by {
+    if reclaim_recipient.address() != &created_by {
         return Err(SettlementError::ReclaimRecipientMismatch.into());
     }
 
-    if !is_reclaimable_before_expiry(&account) {
+    if !reclaimable {
         let now = Clock::get()?.unix_timestamp;
-        if now <= i64::from(account.intent.valid_to) {
+        if now <= i64::from(valid_to) {
             return Err(SettlementError::OrderNotReclaimable.into());
         }
     }
@@ -52,15 +62,25 @@ pub fn process_reclaim_order(
 }
 
 /// Determines whether the order may be reclaimed despite being unexpired
-fn is_reclaimable_before_expiry(account: &OrderAccount) -> bool {
-    account.intent.flags.created_on_chain && (account.cancelled || account.is_fully_filled())
+fn is_reclaimable_before_expiry(
+    intent: &OrderIntentAccessor,
+    cancelled: bool,
+    fill: FillAmounts,
+) -> bool {
+    intent.flags().created_on_chain
+        && (cancelled || {
+            let (filled, order_amount) = fill_progress(intent, fill);
+            filled >= order_amount
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::intent::Flags;
-    use cow_settlement_interface::data::intent::{fixtures::sample_intent, OrderIntent, OrderKind};
-    use cow_settlement_interface::data::order::EncodedOrderAccount;
+    use cow_settlement_interface::data::intent::{
+        fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
+    };
+    use cow_settlement_interface::data::order::fixtures::OrderFields;
     use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
@@ -88,19 +108,20 @@ mod tests {
     fn process_reclaim_order_rejects_mismatched_reclaim_recipient() {
         let reclaim_recipient = fake_account(Address::new_from_array([2; 32]));
 
-        let (order_pda_address, bump) =
-            find_order_pda(&PROGRAM_ID, &OrderAccount::default().intent.uid());
-        let order_data = OrderAccount {
+        let intent = OrderIntent::default();
+        let (order_pda_address, bump) = find_order_pda(&PROGRAM_ID, &intent.uid());
+        let order_bytes = OrderFields {
             bump,
+            cancelled: false,
+            amount_withdrawn: 0,
+            amount_received: 0,
             created_by: Address::new_from_array([3; 32]),
-            ..Default::default()
-        };
+            intent,
+        }
+        .encode();
         let data = vec![SettlementInstruction::ReclaimOrder.discriminator()];
 
-        let order_pda = fake_account_with_data(
-            order_pda_address,
-            &EncodedOrderAccount::from(order_data)[..],
-        );
+        let order_pda = fake_account_with_data(order_pda_address, &order_bytes[..]);
 
         assert_eq!(
             process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),
@@ -112,18 +133,15 @@ mod tests {
     fn early_reclaim_conditions() {
         const SELL_AMOUNT: u64 = 1_000;
 
-        let account = |created_on_chain, cancelled, amount_withdrawn| OrderAccount {
-            cancelled,
-            amount_withdrawn,
-            intent: OrderIntent {
+        let intent = |created_on_chain| {
+            EncodedOrderIntent::from(&OrderIntent {
                 sell_amount: SELL_AMOUNT,
                 ..sample_intent(Flags {
                     created_on_chain,
                     kind: OrderKind::Sell,
                     partially_fillable: true,
                 })
-            },
-            ..Default::default()
+            })
         };
 
         // (created_on_chain, cancelled, amount_withdrawn, expected)
@@ -142,12 +160,16 @@ mod tests {
             (true, false, SELL_AMOUNT - 1, false),
         ];
         for (created_on_chain, cancelled, amount_withdrawn, expected) in cases {
+            let encoded = intent(created_on_chain);
             assert_eq!(
-                is_reclaimable_before_expiry(&account(
-                    created_on_chain,
+                is_reclaimable_before_expiry(
+                    &OrderIntentAccessor::attach(&encoded).expect("sample must attach"),
                     cancelled,
-                    amount_withdrawn
-                )),
+                    FillAmounts {
+                        withdrawn: amount_withdrawn,
+                        received: 0,
+                    },
+                ),
                 expected,
                 "created_on_chain={created_on_chain} cancelled={cancelled} \
                  amount_withdrawn={amount_withdrawn}",

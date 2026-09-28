@@ -44,6 +44,7 @@ pub fn process_create_self_order(
         (order_pda, &intent_bytes),
         state_pda.address(),
         created_by,
+        false,
     )
 }
 

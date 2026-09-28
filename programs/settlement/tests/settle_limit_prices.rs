@@ -8,7 +8,7 @@
 
 use crate::common::{
     assert_instruction_error_at,
-    order::{read_order, OrderBuilder},
+    order::{buy_account, read_order, OrderBuilder},
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX},
     setup_settle_ready, token,
@@ -99,7 +99,7 @@ fn sell_order_succeeds_at_limit_price() {
         1_200_000,
     )
     .expect("a price exactly at the limit should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 1_200_000);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 1_200_000);
 }
 
 #[test]
@@ -149,7 +149,7 @@ fn sell_order_above_limit_price_succeeds() {
         750_000,
     )
     .expect("a better-than-limit price should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 750_000);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 750_000);
 }
 
 #[test]
@@ -174,7 +174,7 @@ fn buy_order_succeeds_at_limit_price() {
         400_000,
     )
     .expect("a price exactly at the limit should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 400_000);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 400_000);
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn buy_order_above_limit_price_succeeds() {
         400_000,
     )
     .expect("a better-than-limit price should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 400_000);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 400_000);
 }
 
 #[test]
@@ -313,7 +313,7 @@ fn multiple_pulls_clearing_the_limit_are_accepted() {
         &[(&intent, &[300_000, 200_000, 100_000], 1_200_000)],
     )
     .expect("a payment clearing the limit for the summed pull should be accepted");
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 1_200_000);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 1_200_000);
 }
 
 #[test]
@@ -467,7 +467,7 @@ fn partially_fillable_order_fills_across_settlements() {
     );
 
     // The buy token account accumulates both settlements' proceeds.
-    assert_eq!(token::balance(&svm, &intent.buy_token_account), 2_000_000);
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), 2_000_000);
 }
 
 #[test]

@@ -7,6 +7,7 @@ use solana_program_error::ProgramError;
 /// The discriminant is the wire value carried by the authority-transfer
 /// instruction (see [`transfer_authority`](crate::instruction::transfer_authority)).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
+#[cfg_attr(feature = "cli", derive(clap::ValueEnum))]
 #[repr(u8)]
 #[num_enum(error_type(name = ProgramError, constructor = Role::unknown_role))]
 pub enum Role {

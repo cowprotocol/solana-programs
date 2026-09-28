@@ -44,13 +44,15 @@ Any authority that holds a role can transfer it to another account with the `Tra
 
 ## Buffer accounts
 
-Buffer accounts are token accounts that hold funds on behalf of the settlement program throught the state PDA.
+Buffer accounts are token accounts that hold funds on behalf of the settlement program through the state PDA.
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
+The buffer account for native SOL is the state PDA itself, using the funds on top of the necessary rent.
+
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
-A buffer is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
+A buffer (except for the state PDA) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
 
 Differences with Ethereum:
 
@@ -118,18 +120,29 @@ An order intent is the following list of parameters:
 ```rust
 struct OrderIntent {
 	owner: Pubkey
-	// Origin and destination of funds in this order, each with the mint it
-	// should correspond to.
-	sell_token_account: Pubkey
-	sell_mint: Pubkey
-	buy_token_account: Pubkey
-	buy_mint: Pubkey
+
+	// Origin to pull funds for the order. Only SPL or Token-2022 token programs are supported.
+	sell: TokenAsset {
+		mint: Pubkey,
+		token_account: Pubkey,
+	}
+
+	// Destination to push proceeds of the order. On top of the token support in sell, native SOL (lamports) may be purchased
+	buy: TokenAsset {
+		mint: Pubkey,
+		token_account: Pubkey,
+	} | NativeAsset {
+		account: Pubkey,
+	}
+
 	// Amounts are interpreted as exact or maximum depending on kind.
 	sell_amount: u64
 	buy_amount: u64
+
 	// Unix timestamp
 	valid_to: u32
 	flags: Flags
+	
 	// Usual app data field, it isn't directly used in the program.
 	app_data: [u8; 32]
 }
@@ -142,6 +155,9 @@ struct Flags {
 	partially_fillable: bool
 }
 ```
+
+The sell and buy tokens are effectively flattened down in wire format, and in the case that `buy` uses `NativeAsset`,
+the `buy_mint` is set to the Solana system program.
 
 The fields grouped in `Flags` share a single byte in the encoded form, one bit
 each, with the remaining bits reserved and required when decoding to be zero.
@@ -189,13 +205,13 @@ Differences with Ethereum:
   - The owner isn't added to the UID. The owner is already included in the parameters, unlike in Ethereum, thus the owner doesn't need to be appended for disambiguation.
   - The expiration isn't added to the UID. In Ethereum it was only added because of state clearing, here it isn't needed.
 
-### Invalidating an order
+### Cancelling an order
 
-Invalidating an order is an operation executed by the user to make it impossible to trade that order in the protocol.
+Cancelling an order is an operation executed by the user to make it impossible to trade that order in the protocol.
 
-Invalidating an order requires an on-chain operation. This operation can be authenticated in two ways:
+Cancelling an order requires an on-chain operation. This operation can be authenticated in two ways:
 
-- Directly, sending an invalidation instruction from the order owner account.
+- Directly, through the `CancelOrder` instruction signed by the order owner account.
 - By anyone through a signed intent, signing the following cancellation struct:
   ```rust
   struct CancelIntent {
@@ -203,9 +219,9 @@ Invalidating an order requires an on-chain operation. This operation can be auth
   }
   ```
 
-Creating the order in advance is _not_ needed: if the order wasn’t created before invalidating, the corresponding order PDA is created and then invalidated.
+Creating the order in advance is _not_ needed: if the order wasn’t created before cancelling, the corresponding order PDA is created and then cancelled.
 
-Note that deleting the order PDA is _not_ enough to invalidate an order. In fact, if an order signature is available, the same order could always be created again until it expires.
+Note that deleting the order PDA is _not_ enough to cancel an order for off-chain orders. In fact, if an order signature is available, the same order could always be created again until it expires.
 
 ### Order clearing
 
