@@ -353,22 +353,14 @@ pub mod fixtures {
 
     /// Any valid [`StateInitArgs`].
     pub fn arb_init_params() -> impl Strategy<Value = StateInitArgs> {
-        (
-            any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
-            any::<[u8; 32]>(),
+        any::<[[u8; 32]; 4]>().prop_map(
+            |[manager, solver_authority, reclaim_authority, self_order_authority]| StateInitArgs {
+                manager: Pubkey::new_from_array(manager),
+                solver_authority: Pubkey::new_from_array(solver_authority),
+                reclaim_authority: Pubkey::new_from_array(reclaim_authority),
+                self_order_authority: Pubkey::new_from_array(self_order_authority),
+            },
         )
-            .prop_map(
-                |(manager, solver_authority, reclaim_authority, self_order_authority)| {
-                    StateInitArgs {
-                        manager: Pubkey::new_from_array(manager),
-                        solver_authority: Pubkey::new_from_array(solver_authority),
-                        reclaim_authority: Pubkey::new_from_array(reclaim_authority),
-                        self_order_authority: Pubkey::new_from_array(self_order_authority),
-                    }
-                },
-            )
     }
 }
 
