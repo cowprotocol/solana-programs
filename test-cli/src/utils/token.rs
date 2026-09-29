@@ -11,6 +11,7 @@ use solana_instruction::Instruction;
 use solana_pubkey::pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::account::{Account, ReadableAccount};
+use solana_sdk::program_error::ProgramError;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
 use spl_token_2022_interface::extension::StateWithExtensions;
@@ -156,7 +157,7 @@ pub fn interpret_token_from_user_input(
     // Token accounts are tried first: a mint carrying enough extension data to
     // reach the token account length is only told apart from an account by the
     // account-type byte, which `unpack_token_account` checks.
-    if let Some(token_account) = unpack_token_account(account.data()) {
+    if let Ok(token_account) = unpack_token_account(account.data()) {
         Ok(TokenAccountDetails {
             handle: TokenAccountInfo {
                 account: *token_account_or_mint,
@@ -167,7 +168,7 @@ pub fn interpret_token_from_user_input(
             // The account was just fetched and unpacked above, so it already exists.
             create_ata: None,
         })
-    } else if let Some(mint) = unpack_mint(account.data()) {
+    } else if let Ok(mint) = unpack_mint(account.data()) {
         let ta = get_associated_token_address_with_program_id(
             owner,
             token_account_or_mint,
@@ -231,7 +232,7 @@ fn determine_create_ata(
     };
 
     anyhow::ensure!(
-        unpack_token_account(&data).is_some(),
+        unpack_token_account(&data).is_ok(),
         "account {token_account_address} is not a token account"
     );
     Ok(None)
@@ -250,21 +251,17 @@ fn fetch_mint(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<(TokenProgram, M
     Ok((token_program, mint_data))
 }
 
-/// Decode the base token-account state, skipping over any Token-2022 extensions.
+/// Decode the base token-account state, ignoring any Token-2022 extensions.
 /// The legacy layout is the same data without the extension suffix, so this
 /// covers both token programs.
-fn unpack_token_account(data: &[u8]) -> Option<TokenAccount> {
-    StateWithExtensions::<TokenAccount>::unpack(data)
-        .ok()
-        .map(|state| state.base)
+fn unpack_token_account(data: &[u8]) -> Result<TokenAccount, ProgramError> {
+    StateWithExtensions::<TokenAccount>::unpack(data).map(|state| state.base)
 }
 
-/// Decode the base mint state, skipping over any Token-2022 extensions. See
+/// Decode the base mint state, ignoring any any Token-2022 extensions. See
 /// [`unpack_token_account`].
-fn unpack_mint(data: &[u8]) -> Option<Mint> {
-    StateWithExtensions::<Mint>::unpack(data)
-        .ok()
-        .map(|state| state.base)
+fn unpack_mint(data: &[u8]) -> Result<Mint, ProgramError> {
+    StateWithExtensions::<Mint>::unpack(data).map(|state| state.base)
 }
 
 #[cfg(test)]
@@ -352,12 +349,12 @@ mod tests {
         // may try the token account first.
         let data = extended_mint(2);
         assert!(data.len() > TokenAccount::LEN);
-        assert!(unpack_token_account(&data).is_none());
+        assert!(unpack_token_account(&data).is_err());
     }
 
     #[test]
     fn legacy_mint_is_not_mistaken_for_a_token_account() {
-        assert!(unpack_token_account(&legacy_mint(9)).is_none());
+        assert!(unpack_token_account(&legacy_mint(9)).is_err());
     }
 
     #[test]
