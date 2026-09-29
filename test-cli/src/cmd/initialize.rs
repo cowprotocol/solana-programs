@@ -27,6 +27,11 @@ pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
     let (state_pda, _) = find_state_pda(&ctx.program_id);
 
+    if matches!(ctx.rpc.get_account(&state_pda), Ok(account) if account.owner == ctx.program_id) {
+        print_summary(&[("statePda", &state_pda), ("status", &"already initialized")]);
+        return Ok(());
+    }
+
     let ix = Initialize {
         program_id: ctx.program_id,
         payer,
