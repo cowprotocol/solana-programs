@@ -29,12 +29,4 @@ pub mod fixtures {
     pub fn pubkey_from_seed(seed: &str) -> Pubkey {
         Pubkey::new_from_array(solana_sha256_hasher::hash(seed.as_bytes()).to_bytes())
     }
-
-    /// The program id shared by handler tests. It is the declared on-chain id
-    /// because the handlers only accept the state PDA pinned under it.
-    pub const PROGRAM_ID: Pubkey = crate::ID;
-
-    /// The canonical settlement state PDA for [`PROGRAM_ID`], shared so handler
-    /// tests don't each re-derive it.
-    pub const STATE_PDA: Pubkey = crate::pda::state::STATE_PDA;
 }

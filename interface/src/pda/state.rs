@@ -19,21 +19,17 @@ use crate::{pda::SETTLEMENT_SEED, SettlementError};
 /// Canonical seed components for the settlement state PDA.
 pub const STATE_PDA_SEEDS: [&[u8]; 1] = [SETTLEMENT_SEED];
 
-/// Canonical bump of the state PDA under [`crate::ID`]. Solana's own
-/// `find_program_address` cannot run in a `const` context, so `const-crypto`
-/// performs the identical descending-bump, off-curve search at compile time.
-pub const STATE_PDA_BUMP: u8 =
-    const_crypto::ed25519::derive_program_address(&STATE_PDA_SEEDS, crate::ID.as_array()).1;
+pub const STATE_PDA_AND_BUMP: ([u8; 32], u8) =
+    const_crypto::ed25519::derive_program_address(&STATE_PDA_SEEDS, crate::ID.as_array());
 
 /// The settlement state PDA under [`crate::ID`], derived at compile time so
 /// handlers compare against it instead of searching for it on-chain.
-pub const STATE_PDA: Address =
-    Address::derive_address_const(&STATE_PDA_SEEDS, Some(STATE_PDA_BUMP), &crate::ID);
+pub const STATE_PDA: Address = Address::new_from_array(STATE_PDA_AND_BUMP.0);
 
 /// Seeds for signing as [`STATE_PDA`].
 pub const STATE_PDA_SIGNER_SEEDS: [&[u8]; 2] = {
     let [s0] = STATE_PDA_SEEDS;
-    [s0, &[STATE_PDA_BUMP]]
+    [s0, &[STATE_PDA_AND_BUMP.1]]
 };
 
 /// Derive the canonical settlement state PDA address (and bump).
@@ -46,7 +42,7 @@ pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
 #[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_is_state_pda(prospective_state_address: &[u8; 32]) -> Result<(), ProgramError> {
-    if prospective_state_address != STATE_PDA.as_array() {
+    if prospective_state_address != &STATE_PDA_AND_BUMP.0 {
         Err(SettlementError::StateAccountMismatch.into())
     } else {
         Ok(())
@@ -67,8 +63,8 @@ mod tests {
     fn pinned_state_pda_is_canonical() {
         let (pda, bump) = find_state_pda(&crate::ID);
         assert_eq!(
-            (STATE_PDA, STATE_PDA_BUMP),
-            (pda, bump),
+            STATE_PDA_AND_BUMP,
+            (*pda.as_array(), bump),
             "const-crypto's compile-time derivation disagrees with the runtime canonical PDA (bump {bump})",
         );
     }

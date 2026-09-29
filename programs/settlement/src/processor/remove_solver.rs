@@ -60,11 +60,11 @@ pub fn process_remove_solver(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
     use cow_settlement_interface::instruction::remove_solver::fixtures::{
         remove_solver_data, NUM_ACCOUNTS,
     };
+    use cow_settlement_interface::ID as PROGRAM_ID;
     use pinocchio::error::ProgramError;
 
     #[test]

@@ -54,7 +54,7 @@ mod tests {
     use cow_settlement_interface::data::intent::{Flags, OrderIntent};
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::StateInitArgs;
-    use cow_settlement_interface::fixtures::{pubkey_from_seed, PROGRAM_ID, STATE_PDA};
+    use cow_settlement_interface::fixtures::pubkey_from_seed;
     use cow_settlement_interface::instruction::create_self_order::fixtures::{
         self_order_data, NUM_ACCOUNTS,
     };
@@ -62,6 +62,8 @@ mod tests {
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_with_data, fake_sequential_accounts, fake_signer,
     };
+    use cow_settlement_interface::pda::state::STATE_PDA;
+    use cow_settlement_interface::ID as PROGRAM_ID;
     use pinocchio::error::ProgramError;
     use std::sync::LazyLock;
 

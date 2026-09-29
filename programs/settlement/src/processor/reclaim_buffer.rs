@@ -76,7 +76,7 @@ pub fn process_reclaim_buffer(
 mod tests {
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::{StateInitArgs, WIDTH_HEADER};
-    use cow_settlement_interface::fixtures::{pubkey_from_seed, PROGRAM_ID, STATE_PDA};
+    use cow_settlement_interface::fixtures::pubkey_from_seed;
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
@@ -84,7 +84,9 @@ mod tests {
     use cow_settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
+    use cow_settlement_interface::pda::state::STATE_PDA;
     use cow_settlement_interface::token_program::TokenProgram;
+    use cow_settlement_interface::ID as PROGRAM_ID;
     use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use pinocchio::error::ProgramError;
     use solana_program_pack::Pack;
