@@ -2,11 +2,9 @@
 
 use std::ops::Deref;
 
-use cow_settlement_interface::data::intent::Asset;
-use cow_settlement_interface::pda::state::validate_is_state_pda;
 use cow_settlement_interface::{
     data::{
-        intent::{Flags, OrderKind},
+        intent::{Asset, Flags, OrderKind},
         order::{FillAmounts, OrderAccount},
     },
     instruction::{
@@ -16,7 +14,7 @@ use cow_settlement_interface::{
         },
         InstructionInputParsing,
     },
-    pda::buffer::validate_buffer_pda,
+    pda::{buffer::validate_buffer_pda, state::validate_is_state_pda},
     recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
