@@ -11,7 +11,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
-use crate::utils::{self, output::print_summary, token::ResolvedToken};
+use crate::utils::{self, output::print_summary, token::TokenAccountDetails};
 
 #[derive(ClapArgs)]
 struct CommonArgs {
@@ -65,10 +65,10 @@ pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
 /// and does token/amount resolution, so `execute` just builds instructions.
 struct ParsedOrder {
     kind: OrderKind,
-    sell: ResolvedToken,
+    sell: TokenAccountDetails,
     sell_amount: u64,
     sell_is_sol: bool,
-    buy: ResolvedToken,
+    buy: TokenAccountDetails,
     buy_amount: u64,
 }
 
@@ -140,7 +140,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     if sell_is_sol {
         let (wsol_ata, wrap_ixs) =
             utils::spl_instructions::wrap_sol(&ctx.rpc, &ctx.payer.pubkey(), sell_amount)?;
-        assert_eq!(wsol_ata, sell.ta, "resolved WSOL ATA mismatch");
+        assert_eq!(wsol_ata, sell.handle.account, "resolved WSOL ATA mismatch");
         ixs.extend(wrap_ixs);
     }
 
@@ -150,7 +150,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     // Approve the settlement state PDA to pull sell tokens on the user's behalf.
     ixs.push(utils::spl_instructions::approve(
         &ctx.program_id,
-        &sell,
+        &sell.handle,
         &ctx.payer.pubkey(),
         sell_amount,
     )?);
@@ -158,14 +158,14 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     let intent = OrderIntent {
         owner: ctx.payer.pubkey(),
         sell: TokenAsset {
-            mint: sell.mint,
-            token_account: sell.ta,
+            mint: sell.handle.mint,
+            token_account: sell.handle.account,
         },
         buy: Asset::try_from(TokenAsset {
-            mint: buy.mint,
-            token_account: buy.ta,
+            mint: buy.handle.mint,
+            token_account: buy.handle.account,
         })
-        .map_err(|_| anyhow::anyhow!("buy mint {} is the native SOL marker", buy.mint))?,
+        .map_err(|_| anyhow::anyhow!("buy mint {} is the native SOL marker", buy.handle.mint))?,
         sell_amount,
         buy_amount,
         valid_to: common.valid_to,

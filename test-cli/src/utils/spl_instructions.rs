@@ -23,22 +23,24 @@ pub fn wrap_sol(
     ixs.extend(wsol.create_ata_ix(payer));
 
     ixs.push(solana_system_interface::instruction::transfer(
-        payer, &wsol.ta, amount,
+        payer,
+        &wsol.handle.account,
+        amount,
     ));
 
     ixs.push(
-        token_ix::sync_native(&wsol.token_program.address(), &wsol.ta)
+        token_ix::sync_native(&wsol.handle.token_program.address(), &wsol.handle.account)
             .context("failed to build SyncNative instruction")?,
     );
 
-    Ok((wsol.ta, ixs))
+    Ok((wsol.handle.account, ixs))
 }
 
 /// Build an `Approve` instruction delegating `amount` of `token` to the PDA
 /// derived from `program_id`.
 pub fn approve(
     program_id: &Pubkey,
-    token: &token::ResolvedToken,
+    token: &token::TokenAccountInfo,
     owner: &Pubkey,
     amount: u64,
 ) -> anyhow::Result<Instruction> {
@@ -46,7 +48,7 @@ pub fn approve(
 
     token_ix::approve(
         &token.token_program.address(),
-        &token.ta,
+        &token.account,
         &settlement_pda,
         owner,
         &[],

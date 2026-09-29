@@ -21,7 +21,7 @@ use solana_sdk::{
 };
 use std::collections::{HashMap, HashSet};
 
-use crate::utils::token::{resolve_from_token_account, ResolvedToken};
+use crate::utils::token::{resolve_from_token_account, TokenAccountInfo};
 
 use super::Context;
 
@@ -82,10 +82,10 @@ struct ResolvedIntent {
     data: OrderIntent,
 
     /// All the information about the sell account's TA and Mint
-    sell: ResolvedToken,
+    sell: TokenAccountInfo,
 
     /// All the information about the buy account's TA and Mint
-    buy: ResolvedToken,
+    buy: TokenAccountInfo,
 }
 
 pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
@@ -249,7 +249,7 @@ fn tally_and_register_buffer(
     ctx: &Context,
     tally: &mut HashMap<Pubkey, u64>,
     mint_buffers_to_create: &mut HashMap<TokenProgram, HashSet<Pubkey>>,
-    token: &ResolvedToken,
+    token: &TokenAccountInfo,
     amount: u64,
 ) -> anyhow::Result<()> {
     let mint = token.mint;
