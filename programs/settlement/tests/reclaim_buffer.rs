@@ -3,7 +3,7 @@ use cow_settlement_interface::token_program::TokenProgram;
 use cow_settlement_interface::Instruction;
 use cow_settlement_interface::{
     instruction::reclaim_buffer::ReclaimBuffer as ReclaimBufferRaw, pda::buffer::find_buffer_pda,
-    pda::state::find_state_pda, SettlementError,
+    pda::state::STATE_PDA, SettlementError,
 };
 use litesvm::LiteSVM;
 use solana_sdk::{
@@ -168,8 +168,6 @@ fn reclaims_to_the_settlements_own_state_pda() {
         },
     ) = common::setup_init();
 
-    let (recipient, _bump) = find_state_pda(&program_id);
-
     let mint = common::token::create_mint(&mut svm, &payer);
     let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
 
@@ -178,13 +176,13 @@ fn reclaims_to_the_settlements_own_state_pda() {
         .expect("buffer must exist before reclaim")
         .lamports;
     let recipient_before = svm
-        .get_account(&recipient)
+        .get_account(&STATE_PDA)
         .expect("state PDA must exist before reclaim");
 
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
-        reclaim_recipient: recipient,
+        reclaim_recipient: STATE_PDA,
         token_program: active_token::program(),
         mints: &[mint],
     };
@@ -197,7 +195,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
         "buffer PDA must be closed after reclaim"
     );
     let recipient_after = svm
-        .get_account(&recipient)
+        .get_account(&STATE_PDA)
         .expect("state PDA must still exist");
     assert_eq!(
         recipient_after.lamports - recipient_before.lamports,
@@ -512,13 +510,12 @@ fn max_buffers_reclaim_via_lookup_table(
     program_id: &Pubkey,
     reclaim_authority: &Keypair,
 ) -> usize {
-    let (state_pda, _bump) = find_state_pda(program_id);
     common::lookup_table::max_items_via_lookup_table(svm, |svm, n| {
         let buffers: Vec<(Pubkey, Pubkey)> =
             (0..n).map(|_| (unique_pubkey(), unique_pubkey())).collect();
         let ix = ReclaimBufferRaw {
             program_id: *program_id,
-            state_pda,
+            state_pda: STATE_PDA,
             reclaim_authority: reclaim_authority.pubkey(),
             reclaim_recipient: reclaim_authority.pubkey(),
             token_program: active_token::address(),

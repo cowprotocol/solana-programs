@@ -4,8 +4,8 @@ use std::ops::Deref;
 
 use cow_settlement_interface::{
     data::{
-        intent::{OrderIntent, OrderKind},
-        order::{EncodedOrderAccount, OrderAccount},
+        intent::{Asset, Flags, OrderKind},
+        order::{FillAmounts, OrderAccount},
     },
     instruction::{
         settle::{
@@ -14,7 +14,7 @@ use cow_settlement_interface::{
         },
         InstructionInputParsing,
     },
-    pda::buffer::validate_buffer_pda,
+    pda::{buffer::validate_buffer_pda, state::validate_is_state_pda},
     recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -29,9 +29,11 @@ use pinocchio::{
 };
 use pinocchio_token::instructions::Transfer;
 
+use crate::processor::utils::auth::with_state_pda_signer;
 use crate::processor::utils::{
-    auth::{check_state_pda, require_solver, with_state_pda_signer_from_bump},
+    auth::require_solver,
     cpi::is_cpi_call,
+    intent::OrderIntentAccessor,
     settle::validate_counterpart,
     token::{owning_token_program, read_token_account},
 };
@@ -47,7 +49,7 @@ pub fn process_begin_settle(
 
     let input = BeginSettleInput::parse(instruction_data, accounts)?;
 
-    let state_bump = check_state_pda(program_id, input.state_pda_account)?;
+    validate_is_state_pda(input.state_pda_account.address().as_array())?;
     require_solver(input.state_pda_account, input.solver_account)?;
 
     // We use `instructions_sysvar_account` from the input but this could be
@@ -76,7 +78,7 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    with_state_pda_signer_from_bump(state_bump, |signer| {
+    with_state_pda_signer(|signer| {
         settle_orders(
             program_id,
             input.state_pda_account,
@@ -206,7 +208,7 @@ fn settle_orders(
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
     // duplicates (settling the same order twice) without a separate scan.
-    let mut previous: Option<Address> = None;
+    let mut previous: Option<&Address> = None;
 
     let now = Clock::get()?.unix_timestamp;
 
@@ -216,7 +218,7 @@ fn settle_orders(
     let mut pushes = finalize_pushes(finalize_ix)?;
 
     for order in orders.iter() {
-        let order_pda_address = *order.order_pda.address();
+        let order_pda_address = order.order_pda.address();
         if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
         }
@@ -264,21 +266,25 @@ fn process_order(
         amounts,
     } = order;
 
-    // Decode the order body and prove its provenance: `load_from_pda` checks
-    // that `order_pda` is the canonical order PDA for the intent it stores.
-    let account = OrderAccount::load_from_pda(order_pda, program_id)?;
-    let intent = &account.intent;
-
-    if account.cancelled {
+    let mut order_pda = *order_pda;
+    // We intentionally keep the borrow alive. This is a security feature: for
+    // example, if the token transfer involves a CPI that cancels the order and
+    // recreates it, the transaction reverts. The borrow must live until we
+    // write back.
+    let mut order = OrderAccount::load_from_pda_mut(&mut order_pda, program_id)?;
+    if order.cancelled()? {
         return Err(SettlementError::OrderCancelled.into());
     }
+    let intent = OrderIntentAccessor::from_order(&order)?;
+    let prior_fill = order.filled_amounts();
+    let intent = &intent;
 
-    if now > i64::from(intent.valid_to) {
+    if now > i64::from(intent.valid_to()) {
         return Err(SettlementError::OrderExpired.into());
     }
 
     // The push paying this order must send to the order's buy token account.
-    if push.destination != &intent.buy_token_account {
+    if push.destination.as_array() != intent.buy_token_account() {
         return Err(SettlementError::PushDestinationMismatch.into());
     }
 
@@ -286,11 +292,17 @@ fn process_order(
     // This effectively transitively verifies `intent.buy_token_account`
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
-    validate_buffer_pda(program_id, push.source_buffer, &intent.buy_mint, push.bump)?;
+    // If its a native SOL buy order, the "source buffer" should be the state pda.
+    let buy_mint = intent.buy_mint();
+    if Asset::is_native_sol(buy_mint) {
+        validate_is_state_pda(push.source_buffer.as_array())?;
+    } else {
+        validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;
+    }
 
     // The sell token account must be the one named in the intent, owned by
     // the intent owner: an order can only sell funds its own owner controls.
-    if sell_token_account.address() != &intent.sell_token_account {
+    if sell_token_account.address().as_array() != intent.sell_token_account() {
         return Err(SettlementError::SellTokenAccountMismatch.into());
     }
     // The pulls below move this account's tokens, so they are issued against
@@ -305,12 +317,12 @@ fn process_order(
     // is left borrowing the account when the transfers below touch it.
     let sell_token = read_token_account(token_program, sell_token_account)
         .map_err(|_| SettlementError::SellTokenAccountInvalid)?;
-    if sell_token.owner != intent.owner {
+    if sell_token.owner.as_array() != intent.owner() {
         return Err(SettlementError::SellTokenOwnerMismatch.into());
     }
     // Like the buy side, the account could have been recreated for another
     // mint after the order was created.
-    if sell_token.mint != intent.sell_mint {
+    if sell_token.mint.as_array() != intent.sell_mint() {
         return Err(SettlementError::SellMintMismatch.into());
     }
 
@@ -330,24 +342,14 @@ fn process_order(
             )?;
     }
 
-    validate_limit_price(intent, amount_in, push.amount)?;
-    let (amount_withdrawn, amount_received) = validated_final_amounts(
-        intent,
-        account.amount_withdrawn,
-        account.amount_received,
-        amount_in,
-        push.amount,
-    )?;
+    let settled = FillAmounts {
+        withdrawn: amount_in,
+        received: push.amount,
+    };
+    validate_limit_price(intent, &settled)?;
+    let final_amounts = validated_final_amounts(intent, prior_fill, settled)?;
 
-    let updated: [u8; EncodedOrderAccount::SIZE] = EncodedOrderAccount::from(OrderAccount {
-        amount_withdrawn,
-        amount_received,
-        ..account
-    })
-    .into();
-    // A copied `AccountView` handle writes through to the same runtime account.
-    let mut order_pda = *order_pda;
-    order_pda.try_borrow_mut()?.copy_from_slice(&updated);
+    order.set_amounts(final_amounts);
 
     Ok(())
 }
@@ -358,19 +360,19 @@ fn process_order(
 /// settlement never excuses a bad one here.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn validate_limit_price(
-    intent: &OrderIntent,
-    amount_in: u64,
-    amount_out: u64,
+    intent: &OrderIntentAccessor,
+    settled: &FillAmounts,
 ) -> Result<(), SettlementError> {
+    let (amount_in, amount_out) = (settled.withdrawn, settled.received);
     // Limit price: the executed price must be at least the order's limit, that is,
     //   amount_out >= amount_in * (buy_amount / sell_amount),
     // rearranged division-free to avoid rounding.
     // Every factor is a `u64`, so each product is at most `u64::MAX^2 < u128::MAX`.
     let lhs = u128::from(amount_out)
-        .checked_mul(u128::from(intent.sell_amount))
+        .checked_mul(u128::from(intent.sell_amount()))
         .expect("u64 * u64 always fits in u128");
     let rhs = u128::from(amount_in)
-        .checked_mul(u128::from(intent.buy_amount))
+        .checked_mul(u128::from(intent.buy_amount()))
         .expect("u64 * u64 always fits in u128");
     if lhs < rhs {
         return Err(SettlementError::LimitPriceViolated);
@@ -387,37 +389,45 @@ fn validate_limit_price(
 /// non-`partially_fillable` order must be filled completely. The other side is
 /// bounded by the limit price.
 fn validated_final_amounts(
-    intent: &OrderIntent,
-    amount_withdrawn: u64,
-    amount_received: u64,
-    amount_in: u64,
-    amount_out: u64,
-) -> Result<(u64, u64), SettlementError> {
-    let amount_withdrawn = amount_withdrawn
-        .checked_add(amount_in)
+    intent: &OrderIntentAccessor,
+    prior: FillAmounts,
+    settled: FillAmounts,
+) -> Result<FillAmounts, SettlementError> {
+    let withdrawn = prior
+        .withdrawn
+        .checked_add(settled.withdrawn)
         .ok_or(SettlementError::AmountWithdrawnOverflow)?;
-    let amount_received = amount_received
-        .checked_add(amount_out)
+    let received = prior
+        .received
+        .checked_add(settled.received)
         .ok_or(SettlementError::AmountReceivedOverflow)?;
 
-    let (filled, order_amount) = match intent.flags.kind {
-        OrderKind::Sell => (amount_withdrawn, intent.sell_amount),
-        OrderKind::Buy => (amount_received, intent.buy_amount),
+    let Flags {
+        kind,
+        partially_fillable,
+        ..
+    } = intent.flags();
+    let (filled, order_amount) = match kind {
+        OrderKind::Sell => (withdrawn, intent.sell_amount()),
+        OrderKind::Buy => (received, intent.buy_amount()),
     };
-    if filled != order_amount && !intent.flags.partially_fillable {
+    if filled != order_amount && !partially_fillable {
         return Err(SettlementError::OrderNotExactlyFilled);
     } else if filled > order_amount {
         return Err(SettlementError::FillExceedsOrderAmount);
     }
 
-    Ok((amount_withdrawn, amount_received))
+    Ok(FillAmounts {
+        withdrawn,
+        received,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
-    use cow_settlement_interface::data::intent::Flags;
+    use cow_settlement_interface::data::intent::{EncodedOrderIntent, Flags, OrderIntent};
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
     use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
@@ -441,8 +451,8 @@ mod tests {
     }
 
     impl IntentSpec {
-        fn build(&self) -> OrderIntent {
-            OrderIntent {
+        fn build(&self) -> EncodedOrderIntent {
+            EncodedOrderIntent::from(&OrderIntent {
                 sell_amount: self.sell,
                 buy_amount: self.buy,
                 ..sample_intent(Flags {
@@ -450,7 +460,7 @@ mod tests {
                     kind: self.kind,
                     partially_fillable: self.partially_fillable,
                 })
-            }
+            })
         }
     }
 
@@ -497,15 +507,22 @@ mod tests {
             buy,
         } in cases
         {
-            let intent = IntentSpec {
+            let encoded = IntentSpec {
                 sell,
                 buy,
                 kind: OrderKind::Sell,
                 partially_fillable: true,
             }
             .build();
+            let intent = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
             assert_eq!(
-                validate_limit_price(&intent, a_in, a_out),
+                validate_limit_price(
+                    &intent,
+                    &FillAmounts {
+                        withdrawn: a_in,
+                        received: a_out
+                    }
+                ),
                 Ok(()),
                 "in={a_in} out={a_out} sell={sell} buy={buy}",
             );
@@ -542,15 +559,22 @@ mod tests {
             buy,
         } in cases
         {
-            let intent = IntentSpec {
+            let encoded = IntentSpec {
                 sell,
                 buy,
                 kind: OrderKind::Sell,
                 partially_fillable: true,
             }
             .build();
+            let intent = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
             assert_eq!(
-                validate_limit_price(&intent, a_in, a_out),
+                validate_limit_price(
+                    &intent,
+                    &FillAmounts {
+                        withdrawn: a_in,
+                        received: a_out
+                    }
+                ),
                 Err(SettlementError::LimitPriceViolated),
                 "in={a_in} out={a_out} sell={sell} buy={buy}",
             );
@@ -570,7 +594,7 @@ mod tests {
     }
 
     impl FillCase {
-        fn build(&self) -> OrderIntent {
+        fn build(&self) -> EncodedOrderIntent {
             self.intent.build()
         }
     }
@@ -730,22 +754,29 @@ mod tests {
         ];
 
         for case in cases {
-            let intent = case.build();
-            let expected = (
-                case.withdrawn
+            let encoded = case.build();
+            let intent = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
+            let expected = FillAmounts {
+                withdrawn: case
+                    .withdrawn
                     .checked_add(case.amount_in)
                     .expect("no overflow"),
-                case.received
+                received: case
+                    .received
                     .checked_add(case.amount_out)
                     .expect("no overflow"),
-            );
+            };
             assert_eq!(
                 validated_final_amounts(
                     &intent,
-                    case.withdrawn,
-                    case.received,
-                    case.amount_in,
-                    case.amount_out,
+                    FillAmounts {
+                        withdrawn: case.withdrawn,
+                        received: case.received,
+                    },
+                    FillAmounts {
+                        withdrawn: case.amount_in,
+                        received: case.amount_out,
+                    },
                 ),
                 Ok(expected),
                 "{case:?}",
@@ -941,14 +972,19 @@ mod tests {
         ];
 
         for (case, error) in cases {
-            let intent = case.build();
+            let encoded = case.build();
+            let intent = OrderIntentAccessor::attach(&encoded).expect("sample must attach");
             assert_eq!(
                 validated_final_amounts(
                     &intent,
-                    case.withdrawn,
-                    case.received,
-                    case.amount_in,
-                    case.amount_out,
+                    FillAmounts {
+                        withdrawn: case.withdrawn,
+                        received: case.received,
+                    },
+                    FillAmounts {
+                        withdrawn: case.amount_in,
+                        received: case.amount_out,
+                    },
                 ),
                 Err(error),
                 "{case:?}",
@@ -965,7 +1001,14 @@ mod tests {
             amount_in in any::<u64>(),
             push_amount in any::<u64>(),
         ) {
-            let _ = validate_limit_price(&intent, amount_in, push_amount);
+            let encoded = EncodedOrderIntent::from(&intent);
+            let _ = validate_limit_price(
+                &OrderIntentAccessor::attach(&encoded).expect("valid intent attaches"),
+                &FillAmounts {
+                    withdrawn: amount_in,
+                    received: push_amount,
+                },
+            );
         }
     }
 

@@ -1,14 +1,24 @@
 use cow_settlement_client::cow_settlement_interface::{
-    data::state::WIDTH_HEADER, instruction::initialize::Initialize as InitializeRaw,
-    pda::state::find_state_pda,
+    data::state::WIDTH_HEADER,
+    instruction::initialize::Initialize as InitializeRaw,
+    pda::state::{STATE_PDA, STATE_PDA_SEEDS},
+    SettlementError,
 };
 use cow_settlement_client::instruction::Initialize;
 use cow_settlement_client::pda::state::DecodedStateAccount;
-use solana_sdk::signature::Signer;
+use cow_settlement_interface::pda::state::STATE_PDA_AND_BUMP;
+use litesvm::LiteSVM;
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    transaction::Transaction,
+};
 
 use crate::common::{
+    assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    unique_keypair, unique_pubkey,
+    pda::find_noncanonical_pda,
+    unique_keypair, unique_pubkey, PROGRAM_SO,
 };
 
 mod common;
@@ -16,10 +26,9 @@ mod common;
 #[test]
 fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
-    let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_pubkey();
     let reclaim_authority = unique_pubkey();
-    let self_order_authority = unique_pubkey();
+    let settlement_owned_order_authority = unique_pubkey();
 
     // `payer` is both the transaction fee payer and the account funding the
     // state PDA's rent.
@@ -28,14 +37,14 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         payer: payer.pubkey(),
         manager,
         reclaim_authority,
-        self_order_authority,
+        settlement_owned_order_authority,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
         .expect("initialize should succeed");
 
     let account = svm
-        .get_account(&state_pda)
+        .get_account(&STATE_PDA)
         .expect("state PDA should exist after initialize");
     assert_eq!(
         account.owner, program_id,
@@ -48,7 +57,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         DecodedStateAccount {
             manager,
             reclaim_authority,
-            self_order_authority,
+            settlement_owned_order_authority,
         },
         "state PDA body must record the authorities"
     );
@@ -69,15 +78,14 @@ fn happy_path_initializes_state_pda_with_expected_data() {
 #[test]
 fn initializes_state_pda_when_address_is_prefunded() {
     let (mut svm, program_id, payer) = common::setup();
-    let (state_pda, _bump) = find_state_pda(&program_id);
 
-    common::pda::assert_security_creation_survives_prefund(&mut svm, &state_pda, |svm| {
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &STATE_PDA, |svm| {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
             manager: unique_pubkey(),
             reclaim_authority: unique_pubkey(),
-            self_order_authority: unique_pubkey(),
+            settlement_owned_order_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });
@@ -86,7 +94,6 @@ fn initializes_state_pda_when_address_is_prefunded() {
 #[test]
 fn funding_payer_can_differ_from_fee_payer() {
     let (mut svm, program_id, fee_payer) = common::setup();
-    let (_, _bump) = find_state_pda(&program_id);
 
     let funder = unique_keypair();
     let funder_airdrop = 1_000_000_000;
@@ -98,7 +105,7 @@ fn funding_payer_can_differ_from_fee_payer() {
         payer: funder.pubkey(),
         reclaim_authority: unique_pubkey(),
         manager: unique_pubkey(),
-        self_order_authority: unique_pubkey(),
+        settlement_owned_order_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -113,38 +120,101 @@ fn funding_payer_can_differ_from_fee_payer() {
     );
 }
 
+/// An `Initialize` against `program_id` that creates `state_pda`.
+fn initialize_at(
+    svm: &LiteSVM,
+    program_id: Pubkey,
+    payer: &Keypair,
+    state_pda: Pubkey,
+) -> Transaction {
+    let ix = InitializeRaw {
+        program_id,
+        payer: payer.pubkey(),
+        state_pda,
+        reclaim_authority: unique_pubkey(),
+        manager: unique_pubkey(),
+        settlement_owned_order_authority: unique_pubkey(),
+    };
+    common::signed_tx(svm, payer, payer, ix)
+}
+
 #[test]
 fn rejects_arbitrary_wrong_state_pda() {
     let (mut svm, program_id, payer) = common::setup();
 
-    // The program only signs for the canonical PDA, so the lower-level interface
-    // builder lets us point the instruction at a deliberately wrong address.
+    // The lower-level interface builder lets us point the instruction at a
+    // deliberately wrong address.
     let wrong_pda = unique_pubkey();
-    let ix = InitializeRaw {
-        program_id,
-        payer: payer.pubkey(),
-        state_pda: wrong_pda,
-        reclaim_authority: unique_pubkey(),
-        manager: unique_pubkey(),
-        self_order_authority: unique_pubkey(),
-    };
-    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+    let tx = initialize_at(&svm, program_id, &payer, wrong_pda);
 
-    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|meta| meta.err),
+        SettlementError::StateAccountMismatch,
+    );
+    assert!(svm.get_account(&wrong_pda).is_none());
+}
+
+#[test]
+fn rejects_the_state_pda_of_a_non_canonical_bump() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    // The lower-level interface builder lets us point the instruction at a
+    // deliberately wrong address.
+    let (noncanonical_bump, noncanonical_state_pda) =
+        find_noncanonical_pda(&program_id, STATE_PDA_SEEDS);
+    assert_ne!(noncanonical_bump, STATE_PDA_AND_BUMP.1);
+    let tx = initialize_at(&svm, program_id, &payer, noncanonical_state_pda);
+
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|meta| meta.err),
+        SettlementError::StateAccountMismatch,
+    );
+    assert!(svm.get_account(&noncanonical_state_pda).is_none());
+}
+
+/// This is effectively a test that the STATE_PDA constant must be checked as expected by the
+/// Initialize instruction, as changing the program ID changes the input to the instruction without
+/// changing the actual constant value.
+#[test]
+fn rejects_the_state_pda_of_an_undeclared_program_id() {
+    let (mut svm, _, payer) = common::setup();
+    let undeclared_id = unique_pubkey();
+    svm.add_program_from_file(undeclared_id, PROGRAM_SO)
+        .expect("compiled program .so not found, run `just build-program` first");
+    let (derived_pda, _) = Pubkey::find_program_address(&STATE_PDA_SEEDS, &undeclared_id);
+
+    let tx = initialize_at(&svm, undeclared_id, &payer, derived_pda);
+
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|meta| meta.err),
+        SettlementError::StateAccountMismatch,
+    );
+    assert!(svm.get_account(&derived_pda).is_none());
+}
+
+#[test]
+fn rejects_the_pinned_state_pda_under_an_undeclared_program_id() {
+    let (mut svm, _, payer) = common::setup();
+    let undeclared_id = unique_pubkey();
+    svm.add_program_from_file(undeclared_id, PROGRAM_SO)
+        .expect("compiled program .so not found, run `just build-program` first");
+
+    let tx = initialize_at(&svm, undeclared_id, &payer, STATE_PDA);
+
+    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &STATE_PDA);
 }
 
 #[test]
 fn rejects_initializing_twice() {
     let (mut svm, program_id, payer) = common::setup();
-    let (state_pda, _bump) = find_state_pda(&program_id);
 
-    common::pda::assert_recreate_is_rejected(&mut svm, &state_pda, |svm| {
+    common::pda::assert_recreate_is_rejected(&mut svm, &STATE_PDA, |svm| {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
             reclaim_authority: unique_pubkey(),
             manager: unique_pubkey(),
-            self_order_authority: unique_pubkey(),
+            settlement_owned_order_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });

@@ -26,9 +26,8 @@ use crate::SettlementInstruction;
 /// Builder for a `ReclaimBuffer` instruction that closes one buffer per
 /// `(buffer_pda, mint)` pair in `buffers`.
 ///
-/// `state_pda` must be the canonical PDA returned by
-/// [`crate::pda::state::find_state_pda`]. `reclaim_authority` must sign and
-/// must match the `reclaim_authority` recorded in the state PDA's data.
+/// `state_pda` must be [`crate::pda::state::STATE_PDA`]. `reclaim_authority`
+/// must sign and must match the `reclaim_authority` recorded in the state PDA's data.
 /// `reclaim_recipient` is the account receiving the closed buffer's lamports.
 /// Each `buffer_pda` must be the canonical PDA returned by
 /// [`crate::pda::buffer::find_buffer_pda`] for its paired `mint`, which is

@@ -1,15 +1,15 @@
-//! Integration tests for settling a `CreateSelfOrder`. The happy path
-//! draws buffered fees out through the ordinary `[BeginSettle, FinalizeSettle]`
-//! pair with no settlement-side code of its own. The confinement test shows the
-//! flip side: because the program forces the order's owner to the state PDA, a
-//! self order can only ever sell an account the state PDA owns, so it can
-//! never reach user funds.
+//! Integration tests for settling a `CreateSettlementOwnedOrder`. The happy
+//! path draws buffered fees out through the ordinary `[BeginSettle,
+//! FinalizeSettle]` pair with no settlement-side code of its own. The
+//! confinement test shows the flip side: because the program forces the order's
+//! owner to the state PDA, a settlement-owned order can only ever sell an
+//! account the state PDA owns, so it can never reach user funds.
 
 use crate::common::{
     assert_instruction_error,
     benchmark::BenchLabel,
     buffer,
-    order::{read_order, OrderBuilder},
+    order::{buy_account, buy_mint, read_order, OrderBuilder},
     register_solver, send, send_metered,
     settlement::{build_staged_settlement, StagedOrder},
     setup_init, token, unique_keypair,
@@ -21,7 +21,7 @@ use solana_sdk::signer::Signer;
 mod common;
 
 #[test]
-fn settling_a_self_order_withdraws_the_buffered_fees() {
+fn settling_a_settlement_owned_order_withdraws_the_buffered_fees() {
     let (mut svm, params) = setup_init();
 
     // A registered, funded solver settles the order.
@@ -35,7 +35,7 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     const FEES: u64 = 1_000_000;
     const PROCEEDS: u64 = 500_000;
     let intent = OrderBuilder::new(&mut svm, &params.program_id, &params.payer)
-        .self_order(&params.self_order)
+        .settlement_owned_order(&params.settlement_owned_order)
         .sell_amount(FEES)
         .buy_amount(PROCEEDS)
         .build();
@@ -45,17 +45,17 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.sell_mint,
+        &intent.sell.mint,
         FEES,
     );
 
     let fee_recipient =
-        token::create_token_account(&mut svm, &params.payer, &intent.sell_mint, &solver.pubkey());
+        token::create_token_account(&mut svm, &params.payer, &intent.sell.mint, &solver.pubkey());
     buffer::ensure_funded(
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.buy_mint,
+        &buy_mint(&intent),
         PROCEEDS,
     );
     let staged = StagedOrder {
@@ -69,12 +69,12 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     let instructions =
         build_staged_settlement(&params.program_id, &solver.pubkey(), &[staged], vec![]);
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
-        .expect("settling the self order should succeed");
+        .expect("settling the settlement-owned order should succeed");
 
     // The fees left the buffer for the solver, and the proceeds reached the
     // treasury out of the buy buffer.
     assert_eq!(
-        token::balance(&svm, &intent.sell_token_account),
+        token::balance(&svm, &intent.sell.token_account),
         0,
         "the fee buffer is drained"
     );
@@ -84,14 +84,14 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
         "the solver received the fees"
     );
     assert_eq!(
-        token::balance(&svm, &intent.buy_token_account),
+        token::balance(&svm, &buy_account(&intent)),
         PROCEEDS,
         "the treasury received the proceeds"
     );
     assert_eq!(
         token::balance(
             &svm,
-            &buffer::buffer_pda(&params.program_id, &intent.buy_mint)
+            &buffer::buffer_pda(&params.program_id, &buy_mint(&intent),)
         ),
         0,
         "the buy buffer paid out the proceeds"
@@ -104,14 +104,14 @@ fn settling_a_self_order_withdraws_the_buffered_fees() {
     assert_eq!(decoded.amount_received, PROCEEDS);
 }
 
-/// Forcing `intent.owner` to be the state PDA means a self order can only
+/// Forcing `intent.owner` to be the state PDA means a settlement-owned order can only
 /// sell an account the state PDA owns.
 /// However, we can still point the order at a user token account instead:
 /// creating it still succeeds (the sell account isn't checked), but settling
-/// reverts, so the self-order authority can never reach funds that aren't
+/// reverts, so the settlement-owned-order authority can never reach funds that aren't
 /// controlled by the state PDA.
 #[test]
-fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
+fn a_settlement_owned_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
     let (mut svm, params) = setup_init();
 
     let solver = unique_keypair();
@@ -129,11 +129,11 @@ fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
         token::create_token_account(&mut svm, &params.payer, &sell_mint, &victim.pubkey());
     token::mint_to(&mut svm, &params.payer, &sell_mint, &victim_account, FUNDS);
 
-    // A self order owned by the state PDA (as the program forces), but
-    // selling out of the victim's account rather than a buffer. Creation
+    // A settlement-owned order owned by the state PDA (as the program forces),
+    // but selling out of the victim's account rather than a buffer. Creation
     // succeeds: the sell account isn't validated until settlement.
     let intent = OrderBuilder::new(&mut svm, &params.program_id, &params.payer)
-        .self_order(&params.self_order)
+        .settlement_owned_order(&params.settlement_owned_order)
         .sell_token_account(&victim_account)
         .sell_amount(FUNDS)
         .buy_amount(PROCEEDS)
@@ -147,7 +147,7 @@ fn a_self_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
         &mut svm,
         &params.program_id,
         &params.payer,
-        &intent.buy_mint,
+        &buy_mint(&intent),
         PROCEEDS,
     );
     let staged = StagedOrder {

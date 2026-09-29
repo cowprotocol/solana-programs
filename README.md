@@ -93,6 +93,8 @@ There are two distinct flows depending on whether this is a first-time deploy or
 
 ### Initial deployment
 
+The program only works at the address in `declare_id!`, which its pinned state PDA is derived from. `initialize` rejects a deployment anywhere else.
+
 Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
 
 ```sh
@@ -111,9 +113,6 @@ just deploy <program-address> ../deployer-keypair.json
 ```
 
 `just deploy` finishes by running `initialize` to create the program's state PDA.
-
-If the deployment upgrades an existing program without bumping the major or minor cargo package version, 
-then this latter step fails and prints a warning that can be safely ignored.
 
 ### Verifying the deployment on-chain
 
@@ -156,8 +155,8 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 
 ### Breaking change
 
-- Create a new branch based off the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
-- [Bump the crate version](#bumping-the-crate-version) *by at least a minor version*.
+- Create a new branch based off the `main` branch, pull the latest changes. Make sure there are no local changes (`git status --porcelain` is empty).
+- Follow the instruction to [bump the versions in the project](#bumping-the-version-in-the-projects) *by at least a minor version*.
 - Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
 - Store the newly generated account in 1password (under "Settlement account by version").
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
@@ -176,15 +175,17 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 ### Patch update
 
 - Create a new branch based off the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
-- [Bump the crate version](#bumping-the-crate-version) by a patch version.
+- Follow the instruction to [bump the versions in the project](#bumping-the-version-in-the-projects) by a patch version.
 - Commit the code changes resulting from the changes above.
+- Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
-- [Update the programs](#how-to-deploy). The deployer keypair and the program keypair are in 1password (stored respectively under "Solana Deployer" and "Settlement account by version").
+- [Update the programs](#how-to-deploy). The deployer keypair is in 1password (stored under "Solana Deployer").
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
 - [Publish the IDL](#publishing-the-idl), if changed.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
 
-### Bumping the crate version
+### Bump the versions in the project
 
 You need to update Cargo's toml and lock file.
 Here is a list of commands to help bumping all relevant strings:

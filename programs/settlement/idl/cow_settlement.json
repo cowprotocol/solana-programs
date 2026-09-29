@@ -2,7 +2,7 @@
   "address": "C7PXyLpLQBh3Ce7e9DNj3rDVUvwqa5orDwQG5hs1rfNi",
   "metadata": {
     "name": "cow_settlement",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "spec": "0.1.0",
     "description": "CoW Protocol settlement program. Some of the properties and instructions of this program can't be represented via a standard IDL, please be careful to read the documentation on the function you are using. Both the program and this IDL are in early release phase and may contain errors.",
     "repository": "https://github.com/cowprotocol/solana-programs"
@@ -81,9 +81,9 @@
           "type": "pubkey"
         },
         {
-          "name": "self_order_authority",
+          "name": "settlement_owned_order_authority",
           "docs": [
-            "The initial holder of the SelfOrderAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
+            "The initial holder of the SettlementOwnedOrderAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
           ],
           "type": "pubkey"
         }
@@ -225,10 +225,58 @@
       ]
     },
     {
-      "name": "create_self_order",
+      "name": "cancel_order",
+      "docs": [
+        "Cancels an order so it can no longer be settled. Only the order owner may cancel.",
+        "If the order PDA doesn't exist yet, it's created already cancelled. For this, some arbitrary account needs to pay the rent and sign."
+      ],
+      "discriminator": [
+        11
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "docs": [
+            "Must match intent.owner; authenticates the cancellation."
+          ]
+        },
+        {
+          "name": "created_by",
+          "writable": true,
+          "signer": true,
+          "docs": [
+            "Funds the order PDA's rent when the order is created cancelled; the program only requires its signature in that case. Unused when an existing order is cancelled."
+          ]
+        },
+        {
+          "name": "order_pda",
+          "writable": true,
+          "docs": [
+            "The order to cancel. Its canonical seeds include sha256(intent), so it cannot be auto-derived by IDL-driven tooling."
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "intent",
+          "type": {
+            "defined": {
+              "name": "OrderIntent"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_settlement_owned_order",
       "docs": [
         "Create an order on behalf of the state PDA. Used to sell fees accumulated in the buffer accounts through a regular settlement.",
-        "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The self-order authority signs instead, and the program forces intent.owner to be the state PDA, so a self order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
+        "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The settlement-owned-order authority signs instead, and the program forces intent.owner to be the state PDA, so a settlement-owned order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
         "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe.",
         "The intent's created_on_chain flag must be set: this instruction implements that authentication scheme, and an intent flagged for off-chain Ed25519 authentication is rejected."
       ],
@@ -240,7 +288,7 @@
           "name": "authority",
           "signer": true,
           "docs": [
-            "Must match the self_order_authority recorded in the state PDA; authorizes the order without paying rent."
+            "Must match the settlement_owned_order_authority recorded in the state PDA; authorizes the order without paying rent."
           ]
         },
         {
@@ -282,7 +330,7 @@
             ]
           },
           "docs": [
-            "Names the self-order authority the signer is checked against and is the owner every self order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
+            "Names the settlement-owned-order authority the signer is checked against and is the owner every settlement-owned order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
           ]
         },
         {
@@ -361,7 +409,7 @@
       "name": "finalize_settle",
       "docs": [
         "Validates that a BeginSettle at `begin_ix_index` exists and points back at this instruction. Must not be called via CPI.",
-        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source buffer PDA. Please check the rust documentation for more information."
+        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source: the buy mint's buffer PDA, or the state PDA for an order buying native SOL. Please check the rust documentation for more information."
       ],
       "discriminator": [
         1
@@ -374,7 +422,7 @@
         {
           "name": "state_pda",
           "docs": [
-            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority."
+            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority, and pays the pushes of orders buying native SOL out of its own lamports."
           ]
         },
         {
@@ -783,7 +831,7 @@
     {
       "name": "OrderAccount",
       "docs": [
-        "Idiomatic representation of an order PDA's body."
+        "The body stored in an order PDA."
       ],
       "type": {
         "kind": "struct",
@@ -837,7 +885,7 @@
             "type": "pubkey"
           },
           {
-            "name": "self_order_authority",
+            "name": "settlement_owned_order_authority",
             "type": "pubkey"
           }
         ]
@@ -846,9 +894,9 @@
     {
       "name": "OrderIntent",
       "docs": [
-        "Canonical order intent. Also the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds,",
-        "and the exact wire format of create_order's `intent` argument. Field order and encoding here are load-bearing: they",
-        "must match this program's Rust definition exactly."
+        "Order intent. Its canonical encoding, `EncodedOrderIntent`, is the exact wire format of create_order's `intent`",
+        "argument and the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds. Field order",
+        "and encoding here are load-bearing: they must match this program's Rust definition exactly."
       ],
       "type": {
         "kind": "struct",
@@ -939,7 +987,7 @@
             "name": "ReclaimAuthority"
           },
           {
-            "name": "SelfOrderAuthority"
+            "name": "SettlementOwnedOrderAuthority"
           }
         ]
       }
@@ -984,7 +1032,7 @@
     {
       "code": 7,
       "name": "OwnerMismatch",
-      "msg": "An order-creation instruction's intent owner isn't the owner it must have: the signer for CreateOrder, the settlement state PDA for CreateSelfOrder."
+      "msg": "An order-creation instruction's intent owner isn't the owner it must have: the signer for CreateOrder, the settlement state PDA for CreateSettlementOwnedOrder."
     },
     {
       "code": 8,
@@ -1099,7 +1147,7 @@
     {
       "code": 30,
       "name": "OrderNotReclaimable",
-      "msg": "ReclaimOrder was called on an order that has is not yet eligible for reclaim."
+      "msg": "ReclaimOrder was called on an order that has not yet become eligible for reclaim."
     },
     {
       "code": 31,
@@ -1158,8 +1206,8 @@
     },
     {
       "code": 42,
-      "name": "UnauthorizedSelfOrder",
-      "msg": "CreateSelfOrder's self-order-authority account isn't a signer, or doesn't match the self_order_authority recorded in the settlement state PDA, so it may not create self orders."
+      "name": "UnauthorizedSettlementOwnedOrder",
+      "msg": "CreateSettlementOwnedOrder's settlement-owned-order-authority account isn't a signer, or doesn't match the settlement_owned_order_authority recorded in the settlement state PDA."
     }
   ]
 }

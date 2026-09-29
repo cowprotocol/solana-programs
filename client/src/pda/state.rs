@@ -9,7 +9,7 @@ use solana_program_error::ProgramError;
 pub struct DecodedStateAccount {
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
-    pub self_order_authority: Pubkey,
+    pub settlement_owned_order_authority: Pubkey,
 }
 
 impl TryFrom<&[u8]> for DecodedStateAccount {
@@ -20,7 +20,7 @@ impl TryFrom<&[u8]> for DecodedStateAccount {
         Ok(Self {
             manager: state.authority(Role::Manager),
             reclaim_authority: state.authority(Role::ReclaimAuthority),
-            self_order_authority: state.authority(Role::SelfOrderAuthority),
+            settlement_owned_order_authority: state.authority(Role::SettlementOwnedOrderAuthority),
         })
     }
 }
@@ -41,11 +41,11 @@ mod tests {
     fn decodes_the_header() {
         let manager = pubkey_from_seed("manager");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
-        let self_order_authority = pubkey_from_seed("self-order authority");
+        let settlement_owned_order_authority = pubkey_from_seed("settlement-owned-order authority");
         let bytes = state_bytes(&StateInitArgs {
             manager,
             reclaim_authority,
-            self_order_authority,
+            settlement_owned_order_authority,
         });
 
         let decoded = DecodedStateAccount::try_from(&bytes[..]).expect("valid state account");
@@ -54,7 +54,7 @@ mod tests {
             DecodedStateAccount {
                 manager,
                 reclaim_authority,
-                self_order_authority,
+                settlement_owned_order_authority,
             },
         );
     }
@@ -72,7 +72,7 @@ mod tests {
         let bytes = state_bytes(&StateInitArgs {
             manager: pubkey_from_seed("manager"),
             reclaim_authority: pubkey_from_seed("reclaim authority"),
-            self_order_authority: pubkey_from_seed("self-order authority"),
+            settlement_owned_order_authority: pubkey_from_seed("settlement-owned-order authority"),
         });
         assert!(DecodedStateAccount::try_from(&bytes[..WIDTH_HEADER - 1]).is_err());
     }

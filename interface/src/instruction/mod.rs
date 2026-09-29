@@ -7,9 +7,10 @@
 use solana_program_error::ProgramError;
 
 pub mod add_solver;
+pub mod cancel_order;
 pub mod create_buffer;
 pub mod create_order;
-pub mod create_self_order;
+pub mod create_settlement_owned_order;
 pub mod initialize;
 pub mod reclaim_buffer;
 pub mod reclaim_order;
@@ -59,7 +60,12 @@ pub enum SettlementInstruction {
     RemoveSolver = 9,
     /// Create an order on behalf of the state PDA. Used to sell fees
     /// accumulated in the buffer accounts through a regular settlement.
-    CreateSelfOrder = 10,
+    CreateSettlementOwnedOrder = 10,
+    /// Cancels an order so it can no longer be settled. Only the order owner
+    /// may cancel.
+    /// If the order PDA doesn't exist yet, it's created already cancelled. For
+    /// this, some arbitrary account needs to pay the rent and sign.
+    CancelOrder = 11,
 }
 
 impl SettlementInstruction {
