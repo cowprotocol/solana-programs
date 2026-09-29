@@ -28,7 +28,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
     let manager = unique_pubkey();
     let reclaim_authority = unique_pubkey();
-    let self_order_authority = unique_pubkey();
+    let settlement_owned_order_authority = unique_pubkey();
 
     // `payer` is both the transaction fee payer and the account funding the
     // state PDA's rent.
@@ -37,7 +37,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         payer: payer.pubkey(),
         manager,
         reclaim_authority,
-        self_order_authority,
+        settlement_owned_order_authority,
     };
     let tx = common::signed_tx(&svm, &payer, &payer, ix);
     send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
@@ -57,7 +57,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         DecodedStateAccount {
             manager,
             reclaim_authority,
-            self_order_authority,
+            settlement_owned_order_authority,
         },
         "state PDA body must record the authorities"
     );
@@ -85,7 +85,7 @@ fn initializes_state_pda_when_address_is_prefunded() {
             payer: payer.pubkey(),
             manager: unique_pubkey(),
             reclaim_authority: unique_pubkey(),
-            self_order_authority: unique_pubkey(),
+            settlement_owned_order_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });
@@ -105,7 +105,7 @@ fn funding_payer_can_differ_from_fee_payer() {
         payer: funder.pubkey(),
         reclaim_authority: unique_pubkey(),
         manager: unique_pubkey(),
-        self_order_authority: unique_pubkey(),
+        settlement_owned_order_authority: unique_pubkey(),
     };
     let tx = common::signed_tx(&svm, &fee_payer, &funder, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
@@ -133,7 +133,7 @@ fn initialize_at(
         state_pda,
         reclaim_authority: unique_pubkey(),
         manager: unique_pubkey(),
-        self_order_authority: unique_pubkey(),
+        settlement_owned_order_authority: unique_pubkey(),
     };
     common::signed_tx(svm, payer, payer, ix)
 }
@@ -214,7 +214,7 @@ fn rejects_initializing_twice() {
             payer: payer.pubkey(),
             reclaim_authority: unique_pubkey(),
             manager: unique_pubkey(),
-            self_order_authority: unique_pubkey(),
+            settlement_owned_order_authority: unique_pubkey(),
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });

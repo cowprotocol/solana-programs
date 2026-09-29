@@ -70,9 +70,9 @@ pub const CREATE_ORDER_RS: Source = Source {
     text: include_str!("../../../../interface/src/instruction/create_order.rs"),
 };
 
-pub const CREATE_SELF_ORDER_RS: Source = Source {
-    display: "interface/src/instruction/create_self_order.rs",
-    text: include_str!("../../../../interface/src/instruction/create_self_order.rs"),
+pub const CREATE_SETTLEMENT_OWNED_ORDER_RS: Source = Source {
+    display: "interface/src/instruction/create_settlement_owned_order.rs",
+    text: include_str!("../../../../interface/src/instruction/create_settlement_owned_order.rs"),
 };
 
 pub const CANCEL_ORDER_RS: Source = Source {

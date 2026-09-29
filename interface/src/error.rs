@@ -28,7 +28,7 @@ pub enum SettlementError {
     MismatchedCounterpartDiscriminator = 6,
     /// An order-creation instruction's intent owner isn't the owner it must
     /// have: the signer for `CreateOrder`, the settlement state PDA for
-    /// `CreateSelfOrder`.
+    /// `CreateSettlementOwnedOrder`.
     OwnerMismatch = 7,
     /// An account was provided that cannot be derived from the seeds recognized by the program
     AccountNotDerivable = 8,
@@ -100,7 +100,8 @@ pub enum SettlementError {
     /// `BeginSettle`: the order's cumulative `amount_received` would exceed
     /// `u64::MAX` once this settlement's push is added.
     AmountReceivedOverflow = 29,
-    /// `ReclaimOrder` was called on an order that has is not yet eligible for reclaim.
+    /// `ReclaimOrder` was called on an order that has not yet become eligible
+    /// for reclaim.
     OrderNotReclaimable = 30,
     /// `ReclaimOrder`'s `reclaim_recipient` account doesn't match the
     /// `created_by` address recorded in the order.
@@ -135,10 +136,10 @@ pub enum SettlementError {
     BufferSizeUnavailable = 40,
     /// The token program for a given token or mint is not supported.
     InvalidTokenProgram = 41,
-    /// `CreateSelfOrder`'s self-order-authority account isn't a signer, or
-    /// doesn't match the `self_order_authority` recorded in the settlement state
-    /// PDA, so it may not create self orders.
-    UnauthorizedSelfOrder = 42,
+    /// `CreateSettlementOwnedOrder`'s settlement-owned-order-authority account
+    /// isn't a signer, or doesn't match the `settlement_owned_order_authority`
+    /// recorded in the settlement state PDA.
+    UnauthorizedSettlementOwnedOrder = 42,
 }
 
 impl From<SettlementError> for u32 {

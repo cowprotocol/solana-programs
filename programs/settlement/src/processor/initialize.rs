@@ -19,7 +19,7 @@ pub fn process_initialize(
         state_pda,
         manager,
         reclaim_authority,
-        self_order_authority,
+        settlement_owned_order_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
     validate_is_state_pda(state_pda.address().as_array())?;
@@ -42,7 +42,7 @@ pub fn process_initialize(
         &StateInitArgs {
             manager,
             reclaim_authority,
-            self_order_authority,
+            settlement_owned_order_authority,
         },
     )?;
 
