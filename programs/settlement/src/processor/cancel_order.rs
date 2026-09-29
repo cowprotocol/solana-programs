@@ -61,7 +61,7 @@ mod tests {
         sample_order_fields, OrderFields, CANCELLED_OFFSET,
     };
     use cow_settlement_interface::data::order::SIZE;
-    use cow_settlement_interface::fixtures::{pubkey_from_seed, PROGRAM_ID};
+    use cow_settlement_interface::fixtures::pubkey_from_seed;
     use cow_settlement_interface::instruction::cancel_order::fixtures::{
         default_cancel_data, valid_intent_bytes, NUM_ACCOUNTS,
     };
@@ -69,6 +69,7 @@ mod tests {
         fake_account, fake_account_owned_by, fake_sequential_accounts, fake_signer,
     };
     use cow_settlement_interface::pda::order::find_order_pda;
+    use cow_settlement_interface::ID as PROGRAM_ID;
 
     use super::*;
 
@@ -91,7 +92,7 @@ mod tests {
         [
             fake_signer(owner),
             fake_signer(pubkey_from_seed("created by")),
-            fake_account_owned_by(pda_address, *PROGRAM_ID, &fields.encode()[..]),
+            fake_account_owned_by(pda_address, PROGRAM_ID, &fields.encode()[..]),
             fake_signer(pubkey_from_seed("system program")),
         ]
     }

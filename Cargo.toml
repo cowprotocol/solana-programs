@@ -22,6 +22,7 @@ anyhow = "1"
 arrayref = "0.3"
 bincode = "1"
 clap = { version = "4", features = ["derive", "env"] }
+const-crypto = "0.3"
 solana-commitment-config = "3"
 solana-program-pack = "3"
 solana-rpc-client = "4"

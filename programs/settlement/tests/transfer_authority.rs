@@ -152,7 +152,7 @@ authority_transfer_tests! {
     manager holds Manager and controls all authorities,
     solver_authority holds SolverAuthority,
     reclaim holds ReclaimAuthority,
-    self_order holds SelfOrderAuthority,
+    settlement_owned_order holds SettlementOwnedOrderAuthority,
 }
 
 /// Index of the signer account in a `TransferAuthority` instruction.

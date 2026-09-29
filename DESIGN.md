@@ -20,6 +20,8 @@ Every PDA the program derives starts with the same prefix seed: the string `sett
 
 Bumping the minor version relocates the program's entire account storage at once — the state account, every buffer, and every order.
 
+The state PDA's address and bump are pinned at compile time against the declared program ID, so handlers compare the account against a constant instead of deriving it on-chain. As a safeguard, `Initialize` still derives it, and it rejects a state account that doesn't match the constant.
+
 A bump is not a migration. There are some other consequences that should be considered before the new program version is deployed:
 
 - **User delegations stop working.** Users delegate their token accounts to the state PDA (see [user delegation](#user-delegation-ie-approvals)). A bump moves that address, so every user has to delegate again before they can trade.
@@ -36,7 +38,7 @@ The program grant privileged roles to specific accounts (_authorities_). They ar
 - Manager: the account that can update the address of all other roles.
 - Solver Authority: the account that can add and remove solvers.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
-- Self-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
+- Settlement-Owned-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
 
 ### Updating authorities
 
@@ -84,14 +86,14 @@ Limitation:
 
 Fees accumulate in the buffer accounts after a settlement is concluded.
 
-Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [self-order authority](#authorities).
+Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [settlement-owned-order authority](#authorities).
 
-The order is placed through the `CreateSelfOrder` instruction. The self-order authority can specify arbitrary order parameters, as long as the owner is the state PDA and the order is marked as created on-chain.
+The order is placed through the `CreateSettlementOwnedOrder` instruction. The settlement-owned-order authority can specify arbitrary order parameters, as long as the owner is the state PDA and the order is marked as created on-chain.
 
 Differences with Ethereum:
 
 - Solvers can't access the content of the buffers directly anymore (though they can do so indirectly by creating a dedicated order just to sweep the buffer).
-- `CreateSelfOrder` has a dedicated authority rather than requiring a solver.
+- `CreateSettlementOwnedOrder` has a dedicated authority rather than requiring a solver.
 - Creating a fee-withdrawal order is done directly through a dedicated instruction, not indirectly as the result of a call from the settlement context.
 
 ## User delegation (i.e., "approvals")

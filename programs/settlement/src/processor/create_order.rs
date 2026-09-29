@@ -93,13 +93,13 @@ pub(crate) fn process_new_onchain_order(
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, NUM_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_from, fake_sequential_accounts,
     };
+    use cow_settlement_interface::ID as PROGRAM_ID;
 
     use pinocchio::account::RuntimeAccount;
 

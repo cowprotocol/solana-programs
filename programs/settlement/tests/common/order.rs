@@ -3,8 +3,8 @@
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Asset, Flags, OrderIntent, OrderKind, TokenAsset,
 };
-use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
-use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
+use cow_settlement_client::cow_settlement_interface::pda::state::STATE_PDA;
+use cow_settlement_client::instruction::{CreateOrder, CreateSettlementOwnedOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
 use cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
 use litesvm::LiteSVM;
@@ -120,26 +120,26 @@ pub fn create_order_pda(
         .expect("create_order should succeed");
 }
 
-/// Place `intent` as a self order through `CreateSelfOrder`: an
-/// order owned by the state PDA, funded by `payer` and gated by the self-order
-/// `authority`, which co-signs.
-fn create_self_order_pda(
+/// Place `intent` as a settlement-owned order through
+/// `CreateSettlementOwnedOrder`: an order owned by the state PDA, funded by
+/// `payer` and gated by the settlement-owned-order `authority`, which co-signs.
+fn create_settlement_owned_order_pda(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     authority: &Keypair,
     intent: &OrderIntent,
 ) {
-    let ix = CreateSelfOrder {
+    let ix = CreateSettlementOwnedOrder {
         program_id: *program_id,
         authority: authority.pubkey(),
         created_by: payer.pubkey(),
         intent,
     };
-    // Fee-paid by `payer`, co-signed by the self-order `authority`.
+    // Fee-paid by `payer`, co-signed by the settlement-owned-order `authority`.
     let tx = signed_tx(svm, payer, authority, ix);
     svm.send_transaction(tx)
-        .expect("create_self_order should succeed");
+        .expect("create_settlement_owned_order should succeed");
 }
 
 /// How an [`OrderBuilder`] sources one side of an order.
@@ -204,8 +204,8 @@ impl TokenSource {
 /// own freshly generated mint, so the two differ unless a test pins one with
 /// [`OrderBuilder::sell_mint`] / [`OrderBuilder::buy_mint`].
 ///
-/// Calling [`OrderBuilder::self_order`] switches `build` to place a self order
-/// instead of a regular one.
+/// Calling [`OrderBuilder::settlement_owned_order`] switches `build` to place a
+/// settlement-owned order instead of a regular one.
 pub struct OrderBuilder<'a> {
     svm: &'a mut LiteSVM,
     program_id: &'a Pubkey,
@@ -213,7 +213,7 @@ pub struct OrderBuilder<'a> {
     intent: OrderIntent,
     sell: TokenSource,
     buy: TokenSource,
-    self_order_authority: Option<&'a Keypair>,
+    settlement_owned_order_authority: Option<&'a Keypair>,
 }
 
 impl<'a> OrderBuilder<'a> {
@@ -228,7 +228,7 @@ impl<'a> OrderBuilder<'a> {
             intent,
             sell: TokenSource::FreshMint,
             buy: TokenSource::FreshMint,
-            self_order_authority: None,
+            settlement_owned_order_authority: None,
         }
     }
 
@@ -297,9 +297,9 @@ impl<'a> OrderBuilder<'a> {
         self
     }
 
-    /// This will be a self order, not a normal order.
-    pub fn self_order(mut self, authority: &'a Keypair) -> Self {
-        self.self_order_authority = Some(authority);
+    /// This will be a settlement-owned order, not a normal order.
+    pub fn settlement_owned_order(mut self, authority: &'a Keypair) -> Self {
+        self.settlement_owned_order_authority = Some(authority);
         self
     }
 
@@ -311,26 +311,29 @@ impl<'a> OrderBuilder<'a> {
             mut intent,
             sell,
             buy,
-            self_order_authority,
+            settlement_owned_order_authority,
         } = self;
 
-        let Asset::TokenProgram(sell) =
-            sell.resolve(svm, program_id, payer, self_order_authority.is_some())
-        else {
+        let Asset::TokenProgram(sell) = sell.resolve(
+            svm,
+            program_id,
+            payer,
+            settlement_owned_order_authority.is_some(),
+        ) else {
             panic!("sell side cannot be native SOL");
         };
         intent.sell = sell;
 
         intent.buy = buy.resolve(svm, program_id, payer, false);
 
-        match self_order_authority {
+        match settlement_owned_order_authority {
             None => {
                 intent.owner = payer.pubkey();
                 create_order_pda(svm, program_id, payer, &intent);
             }
             Some(authority) => {
-                intent.owner = find_state_pda(program_id).0;
-                create_self_order_pda(svm, program_id, payer, authority, &intent);
+                intent.owner = STATE_PDA;
+                create_settlement_owned_order_pda(svm, program_id, payer, authority, &intent);
             }
         }
         intent

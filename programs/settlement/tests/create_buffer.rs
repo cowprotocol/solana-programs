@@ -2,7 +2,7 @@ use cow_settlement_client::cow_settlement_interface::{
     instruction::create_buffer::CreateBuffers as CreateBuffersRaw,
     pda::{
         buffer::{buffer_pda_seeds, find_buffer_pda},
-        state::find_state_pda,
+        state::STATE_PDA,
     },
 };
 use cow_settlement_client::instruction::CreateBuffers;
@@ -40,7 +40,6 @@ fn happy_path_creates_initialized_buffer_token_account() {
     let (mut svm, program_id, payer) = common::setup();
     let mint = common::token::create_mint(&mut svm, &payer);
     let (buffer_pda, _bump) = find_buffer_pda(&program_id, &mint);
-    let (state_pda, _) = find_state_pda(&program_id);
 
     let ix = CreateBuffers {
         program_id,
@@ -81,7 +80,7 @@ fn happy_path_creates_initialized_buffer_token_account() {
         .expect("buffer must be an initialized token account");
     assert_eq!(token_mint, mint, "buffer must track the given mint");
     assert_eq!(
-        owner, state_pda,
+        owner, STATE_PDA,
         "buffer authority must be the settlement state PDA"
     );
     assert_eq!(amount, 0, "a fresh buffer must hold no tokens");
@@ -201,7 +200,6 @@ common::also_under_token_2022!(happy_path_creates_multiple_buffers_in_one_instru
 #[test]
 fn happy_path_creates_multiple_buffers_in_one_instruction() {
     let (mut svm, program_id, payer) = common::setup();
-    let (state_pda, _) = find_state_pda(&program_id);
 
     let mints: Vec<Pubkey> = (0..3)
         .map(|_| common::token::create_mint(&mut svm, &payer))
@@ -238,7 +236,7 @@ fn happy_path_creates_multiple_buffers_in_one_instruction() {
             .expect("each buffer must be an initialized token account");
         assert_eq!(token_account.mint, *mint, "buffer must track its mint");
         assert_eq!(
-            token_account.owner, state_pda,
+            token_account.owner, STATE_PDA,
             "each buffer authority must be the settlement state PDA"
         );
         assert_eq!(
@@ -722,7 +720,6 @@ fn max_buffers_in_one_instruction() {
         // TODO: try to restore ``::default()` once Solana v4 gets more stable.
         ..ComputeBudget::new_with_defaults(false)
     });
-    let (state_pda, _) = find_state_pda(&program_id);
 
     let max_buffers = known_max_buffer_count(active_token::program());
     // A legacy transaction tops out around 15 buffers (32-byte keys inlined into
@@ -755,7 +752,7 @@ fn max_buffers_in_one_instruction() {
             .expect("each buffer must be an initialized token account");
         assert_eq!(token_account.mint, *mint, "each buffer must track its mint");
         assert_eq!(
-            token_account.owner, state_pda,
+            token_account.owner, STATE_PDA,
             "each buffer authority must be the settlement state PDA"
         );
         assert_eq!(

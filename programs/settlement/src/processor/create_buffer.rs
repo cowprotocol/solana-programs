@@ -5,7 +5,7 @@ use cow_settlement_interface::{
         create_buffer::{BufferAccounts, CreateBufferInput},
         InstructionInputParsing,
     },
-    pda::{buffer::buffer_pda_seeds, state::state_pda_seeds},
+    pda::{buffer::buffer_pda_seeds, state::STATE_PDA},
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 use pinocchio_token::instructions::InitializeAccount3;
@@ -21,10 +21,6 @@ pub fn process_create_buffer(
     instruction_data: &[u8],
 ) -> ProgramResult {
     let input = CreateBufferInput::parse(instruction_data, accounts)?;
-
-    // The buffers' token authority is the settlement state PDA, the single
-    // authority over every buffer. Derive it once for all buffers.
-    let (state_pda, _) = Address::find_program_address(&state_pda_seeds(), program_id);
 
     for BufferAccounts { buffer_pda, mint } in input.buffers() {
         // One buffer per token. `CanonicalPda::create_idempotent` derives the
@@ -56,7 +52,9 @@ pub fn process_create_buffer(
         // An existing buffer is already an initialized token account, so only
         // initialize a freshly created one.
         if created {
-            InitializeAccount3::new(buffer_pda, mint, &state_pda)
+            // The buffers' token authority is the settlement state PDA, the
+            // single authority over every buffer.
+            InitializeAccount3::new(buffer_pda, mint, &STATE_PDA)
                 .invoke_with_unverified_program(&token_program_id)?;
         }
     }
@@ -67,11 +65,11 @@ pub fn process_create_buffer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::create_buffer::fixtures::{
         create_buffer_data, NUM_SHARED_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use cow_settlement_interface::ID as PROGRAM_ID;
     use pinocchio::error::ProgramError;
 
     #[test]

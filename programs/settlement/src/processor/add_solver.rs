@@ -9,21 +9,16 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{add_solver::AddSolverInput, InstructionInputParsing},
+    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
 use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
-    AccountView, Address, ProgramResult, Resize,
+    AccountView, ProgramResult, Resize,
 };
 use pinocchio_system::instructions::Transfer;
 
-use crate::processor::utils::auth::check_state_pda;
-
-pub fn process_add_solver(
-    program_id: &Address,
-    accounts: &mut [AccountView],
-    instruction_data: &[u8],
-) -> ProgramResult {
+pub fn process_add_solver(accounts: &mut [AccountView], instruction_data: &[u8]) -> ProgramResult {
     let AddSolverInput {
         authority,
         payer,
@@ -31,7 +26,7 @@ pub fn process_add_solver(
         solver,
     } = AddSolverInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(program_id, state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
     // Only the solver authority may change the solver list. Attaching validates
     // the account; `grown_len` is the size it must reach to hold one more solver.
@@ -74,7 +69,6 @@ pub fn process_add_solver(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cow_settlement_interface::fixtures::PROGRAM_ID;
     use cow_settlement_interface::instruction::add_solver::fixtures::{
         add_solver_data, NUM_ACCOUNTS,
     };
@@ -87,7 +81,7 @@ mod tests {
         data.push(0); // trailing byte triggers a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_add_solver(&PROGRAM_ID, &mut accounts, &data),
+            process_add_solver(&mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -99,7 +93,7 @@ mod tests {
         let data = add_solver_data();
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_add_solver(&PROGRAM_ID, &mut accounts, &data),
+            process_add_solver(&mut accounts, &data),
             Err(SettlementError::StateAccountMismatch.into()),
         );
     }

@@ -9,7 +9,7 @@ use cow_settlement_interface::{
         cancel_order::CancelOrderInput,
         create_buffer::CreateBufferInput,
         create_order::CreateOrderInput,
-        create_self_order::CreateSelfOrderInput,
+        create_settlement_owned_order::CreateSettlementOwnedOrderInput,
         initialize::InitializeInput,
         reclaim_buffer::ReclaimBufferInput,
         reclaim_order::ReclaimOrderInput,
@@ -27,7 +27,7 @@ pub enum ParsedInstruction<'a, A> {
     Initialize(InitializeInput<'a, A>),
     CreateOrder(CreateOrderInput<'a, A>),
     CancelOrder(CancelOrderInput<'a, A>),
-    CreateSelfOrder(CreateSelfOrderInput<'a, A>),
+    CreateSettlementOwnedOrder(CreateSettlementOwnedOrderInput<'a, A>),
     CreateBuffer(CreateBufferInput<'a, A>),
     BeginSettle(BeginSettleInput<'a, A>),
     FinalizeSettle(FinalizeSettleInput<'a, A>),
@@ -54,9 +54,11 @@ pub fn parse_instruction<'a, A>(
         SettlementInstruction::CancelOrder => {
             ParsedInstruction::CancelOrder(CancelOrderInput::parse_body(remaining_data, accounts)?)
         }
-        SettlementInstruction::CreateSelfOrder => ParsedInstruction::CreateSelfOrder(
-            CreateSelfOrderInput::parse_body(remaining_data, accounts)?,
-        ),
+        SettlementInstruction::CreateSettlementOwnedOrder => {
+            ParsedInstruction::CreateSettlementOwnedOrder(
+                CreateSettlementOwnedOrderInput::parse_body(remaining_data, accounts)?,
+            )
+        }
         SettlementInstruction::CreateBuffer => ParsedInstruction::CreateBuffer(
             CreateBufferInput::parse_body(remaining_data, accounts)?,
         ),
@@ -88,8 +90,8 @@ pub fn parse_instruction<'a, A>(
 mod tests {
     use super::*;
     use crate::instruction::{
-        AddSolver, BeginSettle, CancelOrder, CreateBuffers, CreateOrder, CreateSelfOrder,
-        FinalizeSettle, Initialize, InitializedIntent, RemoveSolver,
+        AddSolver, BeginSettle, CancelOrder, CreateBuffers, CreateOrder,
+        CreateSettlementOwnedOrder, FinalizeSettle, Initialize, InitializedIntent, RemoveSolver,
     };
     use cow_settlement_interface::{
         data::intent::fixtures::sample_intent,
@@ -115,7 +117,7 @@ mod tests {
                 manager: payer,
                 solver_authority: payer,
                 reclaim_authority: payer,
-                self_order_authority: payer,
+                settlement_owned_order_authority: payer,
             }
             .into(),
             SettlementInstruction::CreateOrder => CreateOrder {
@@ -132,7 +134,7 @@ mod tests {
                 intent: &intent,
             }
             .into(),
-            SettlementInstruction::CreateSelfOrder => CreateSelfOrder {
+            SettlementInstruction::CreateSettlementOwnedOrder => CreateSettlementOwnedOrder {
                 program_id,
                 authority: payer,
                 created_by: payer,
@@ -214,7 +216,7 @@ mod tests {
             SettlementInstruction::Initialize,
             SettlementInstruction::CreateOrder,
             SettlementInstruction::CancelOrder,
-            SettlementInstruction::CreateSelfOrder,
+            SettlementInstruction::CreateSettlementOwnedOrder,
             SettlementInstruction::CreateBuffer,
             SettlementInstruction::BeginSettle,
             SettlementInstruction::FinalizeSettle,
@@ -236,7 +238,9 @@ mod tests {
                 ParsedInstruction::Initialize(_) => SettlementInstruction::Initialize,
                 ParsedInstruction::CreateOrder(_) => SettlementInstruction::CreateOrder,
                 ParsedInstruction::CancelOrder(_) => SettlementInstruction::CancelOrder,
-                ParsedInstruction::CreateSelfOrder(_) => SettlementInstruction::CreateSelfOrder,
+                ParsedInstruction::CreateSettlementOwnedOrder(_) => {
+                    SettlementInstruction::CreateSettlementOwnedOrder
+                }
                 ParsedInstruction::CreateBuffer(_) => SettlementInstruction::CreateBuffer,
                 ParsedInstruction::BeginSettle(_) => SettlementInstruction::BeginSettle,
                 ParsedInstruction::FinalizeSettle(_) => SettlementInstruction::FinalizeSettle,

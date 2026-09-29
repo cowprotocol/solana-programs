@@ -4,7 +4,7 @@ use crate::common::{active_token, token_2022::Extensions};
 
 use super::{send_with_signers, unique_keypair, unique_pubkey};
 use cow_settlement_client::cow_settlement_interface::{
-    pda::state::find_state_pda, token_program::TokenProgram,
+    pda::state::STATE_PDA, token_program::TokenProgram,
 };
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
@@ -337,22 +337,10 @@ pub fn clone_under_new_program(
 
 /// Fund `sell_token` with `amount` of its mint and approve the settlement state
 /// PDA as its delegate for the same `amount`, so the program can pull from it.
-pub fn fund_and_delegate(
-    svm: &mut LiteSVM,
-    program_id: &Pubkey,
-    payer: &Keypair,
-    sell_token: &Pubkey,
-    amount: u64,
-) {
+pub fn fund_and_delegate(svm: &mut LiteSVM, payer: &Keypair, sell_token: &Pubkey, amount: u64) {
     let mint = mint_of(svm, sell_token);
     mint_to(svm, payer, &mint, sell_token, amount);
-    delegate(
-        svm,
-        payer,
-        sell_token,
-        &find_state_pda(program_id).0,
-        amount,
-    );
+    delegate(svm, payer, sell_token, &STATE_PDA, amount);
 }
 
 /// Read the token balance of `account`. The two programs share the base layout

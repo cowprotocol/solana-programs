@@ -1,8 +1,8 @@
 //! Builders for the SPL token instructions the CLI needs in a settlement.
 
-use super::token;
+use super::{pda::find_state_pda, token};
 use anyhow::Context as _;
-use cow_settlement_client::cow_settlement_interface::{pda::state::find_state_pda, Pubkey};
+use cow_settlement_client::cow_settlement_interface::Pubkey;
 use solana_instruction::Instruction;
 use solana_rpc_client::rpc_client::RpcClient;
 use spl_token_interface::instruction::{self as token_ix};
@@ -42,7 +42,7 @@ pub fn approve(
     owner: &Pubkey,
     amount: u64,
 ) -> anyhow::Result<Instruction> {
-    let (settlement_pda, _) = find_state_pda(program_id);
+    let settlement_pda = find_state_pda(program_id);
 
     token_ix::approve(
         &spl_token_interface::id(),

@@ -3,7 +3,7 @@
 use cow_settlement_interface::{
     data::state::{StateAccount, StateInitArgs, WIDTH_HEADER},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
-    pda::state::state_pda_seeds,
+    pda::state::{validate_is_state_pda, STATE_PDA_SEEDS},
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 
@@ -20,21 +20,19 @@ pub fn process_initialize(
         manager,
         solver_authority,
         reclaim_authority,
-        self_order_authority,
+        settlement_owned_order_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
-    // There are no explicit account guards here: `CanonicalPda::create_new`
-    // rejects any `state_pda` other than the address those seeds derive, and
-    // reverts if it already exists.
-    // The system program is invoked by its fixed address, so the account in that
-    // slot is never referenced directly.
+    validate_is_state_pda(state_pda.address().as_array())?;
+
+    // We derive the actual expected state pda address on-chain during initialization for sanity.
     CanonicalPda {
         program_id,
         payer,
         pda: state_pda,
         size: WIDTH_HEADER as u64,
         owner: program_id,
-        seeds: state_pda_seeds(),
+        seeds: STATE_PDA_SEEDS,
     }
     .create_new()?;
 
@@ -46,7 +44,7 @@ pub fn process_initialize(
             manager,
             solver_authority,
             reclaim_authority,
-            self_order_authority,
+            settlement_owned_order_authority,
         },
     )?;
 

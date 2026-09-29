@@ -51,13 +51,7 @@ fn settle_with(
         let intent = order.intent;
         // Sell side: fund the account and delegate the pull to the state PDA,
         // then pull into a throwaway account of the same mint.
-        token::fund_and_delegate(
-            svm,
-            program_id,
-            payer,
-            &intent.sell.token_account,
-            order.amount_in,
-        );
+        token::fund_and_delegate(svm, payer, &intent.sell.token_account, order.amount_in);
         let sell_mint = token::mint_of(svm, &intent.sell.token_account);
         let destination = token::create_token_account(svm, payer, &sell_mint, &unique_pubkey());
         let pulls: &[Pull] = Box::leak(Box::new([Pull {
@@ -288,13 +282,7 @@ fn settles_with_the_token_program_slots_swapped() {
         &TokenProgram::SplToken.address(),
         &TokenProgram::SplToken.address(),
     );
-    token::fund_and_delegate(
-        &mut svm,
-        &program_id,
-        &payer,
-        &intent.sell.token_account,
-        100,
-    );
+    token::fund_and_delegate(&mut svm, &payer, &intent.sell.token_account, 100);
     let sell_mint = token::mint_of(&svm, &intent.sell.token_account);
     let buy_mint = token::mint_of(&svm, &buy_account(&intent));
     buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint, 100);
@@ -355,13 +343,7 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
         &TokenProgram::Token2022.address(),
         &TokenProgram::Token2022.address(),
     );
-    token::fund_and_delegate(
-        &mut svm,
-        &program_id,
-        &payer,
-        &intent.sell.token_account,
-        AMOUNT,
-    );
+    token::fund_and_delegate(&mut svm, &payer, &intent.sell.token_account, AMOUNT);
     buffer::ensure_funded(&mut svm, &program_id, &payer, &buy_mint(&intent), AMOUNT);
     let destination =
         token::create_token_account(&mut svm, &payer, &intent.sell.mint, &unique_pubkey());

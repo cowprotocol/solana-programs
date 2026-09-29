@@ -1,14 +1,13 @@
 use anyhow::Context as _;
 use clap::ValueEnum;
-use cow_settlement_client::cow_settlement_interface::{
-    data::state::StateAccount, pda::state::find_state_pda, Role,
-};
+use cow_settlement_client::cow_settlement_interface::{data::state::StateAccount, Role};
 
 use crate::cmd::Context;
 use crate::utils::output::print_summary;
+use crate::utils::pda::find_state_pda;
 
 pub fn run(ctx: Context) -> anyhow::Result<()> {
-    let (state_pda, _) = find_state_pda(&ctx.program_id);
+    let state_pda = find_state_pda(&ctx.program_id);
     let data = ctx
         .rpc
         .get_account_data(&state_pda)
