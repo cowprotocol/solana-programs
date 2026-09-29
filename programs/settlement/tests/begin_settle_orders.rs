@@ -33,7 +33,7 @@ use cow_settlement_client::cow_settlement_interface::{
         BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw,
         FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID,
     },
-    pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
+    pda::{buffer::find_buffer_pda, order::find_order_pda, state::STATE_PDA},
     Instruction, SettlementError, SettlementInstruction,
 };
 use cow_settlement_client::instruction::{
@@ -255,7 +255,7 @@ fn rejects_fabricated_program_owned_account() {
 
     let begin = BeginSettleRaw {
         program_id,
-        state_pda: find_state_pda(&program_id).0,
+        state_pda: STATE_PDA,
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
@@ -268,7 +268,7 @@ fn rejects_fabricated_program_owned_account() {
     // this instruction, we just want to make sure that `BeginSettle` validates.
     let finalize = FinalizeSettleRaw {
         program_id,
-        state_pda: find_state_pda(&program_id).0,
+        state_pda: STATE_PDA,
         begin_ix_index: 0,
         only_token_program: None,
         source_buffers: &[unique_pubkey()],
@@ -297,7 +297,7 @@ fn rejects_non_order_account_in_order_slot() {
     // instruction by hand.
     let begin = BeginSettleRaw {
         program_id,
-        state_pda: find_state_pda(&program_id).0,
+        state_pda: STATE_PDA,
         solver: solver.pubkey(),
         finalize_ix_index: 1,
         auction_id: 0,
@@ -309,7 +309,7 @@ fn rejects_non_order_account_in_order_slot() {
     // The finalize just carries a placeholder push matching the order in count.
     let finalize = FinalizeSettleRaw {
         program_id,
-        state_pda: find_state_pda(&program_id).0,
+        state_pda: STATE_PDA,
         begin_ix_index: 0,
         only_token_program: None,
         source_buffers: &[unique_pubkey()],
@@ -437,7 +437,7 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
     // We set up a standard token account, ready to trade
     let mint = common::token::create_mint(&mut svm, &payer);
     let account = common::token::create_token_account(&mut svm, &payer, &mint, &payer.pubkey());
-    common::token::fund_and_delegate(&mut svm, &program_id, &payer, &account, amount);
+    common::token::fund_and_delegate(&mut svm, &payer, &account, amount);
 
     // We clone the previous mint but assign it to a fake program
     let fake_token_program = create_account(&mut svm, &payer.pubkey(), &[]);
@@ -570,7 +570,7 @@ fn rejects_orders_in_wrong_address_order() {
         // The signing solver, registered by `setup_settle_ready`.
         AccountMeta::new_readonly(solver.pubkey(), true),
         AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
-        AccountMeta::new_readonly(find_state_pda(&program_id).0, false),
+        AccountMeta::new_readonly(STATE_PDA, false),
     ];
     // Narrowed to the legacy program, so Token-2022's slot holds the placeholder.
     accounts.extend(
@@ -603,7 +603,7 @@ fn rejects_orders_in_wrong_address_order() {
     let amounts = vec![0u64; orders.len()];
     let finalize = FinalizeSettleRaw {
         program_id,
-        state_pda: find_state_pda(&program_id).0,
+        state_pda: STATE_PDA,
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         source_buffers: &source_buffers,
@@ -724,7 +724,7 @@ fn pulls_funds_to_destination() {
         .build();
     let sell_token = intent.sell.token_account;
     let initial_amount = 42_000_000;
-    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
+    token::fund_and_delegate(&mut svm, &payer, &sell_token, initial_amount);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     let instructions = settle_and_pay_amounts(
@@ -770,7 +770,7 @@ fn rejects_pull_targeting_the_order_account() {
         .buy_amount(paid)
         .build();
     let sell_token = intent.sell.token_account;
-    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 42_000_000);
+    token::fund_and_delegate(&mut svm, &payer, &sell_token, 42_000_000);
 
     // Point the pull at the order's own PDA rather than a token account.
     let (order_pda, _) = find_order_pda(&program_id, &intent.uid());
@@ -809,7 +809,7 @@ fn pulls_to_multiple_destinations() {
         .build();
     let sell_token = intent.sell.token_account;
     let initial_amount: u64 = 1_000_000;
-    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, initial_amount);
+    token::fund_and_delegate(&mut svm, &payer, &sell_token, initial_amount);
     let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
     let dest1 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
@@ -870,14 +870,12 @@ fn pulls_from_multiple_orders() {
     let initial_amount_second = 31_337_000;
     token::fund_and_delegate(
         &mut svm,
-        &program_id,
         &payer,
         &first.sell.token_account,
         initial_amount_first,
     );
     token::fund_and_delegate(
         &mut svm,
-        &program_id,
         &payer,
         &second.sell.token_account,
         initial_amount_second,
@@ -938,7 +936,7 @@ fn rejects_pulls_summing_beyond_u64() {
         .sell_mint(&sell_mint)
         .build();
     let sell_token = intent.sell.token_account;
-    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, 1);
+    token::fund_and_delegate(&mut svm, &payer, &sell_token, 1);
     let dest0 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
     let dest1 = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
@@ -1038,10 +1036,9 @@ fn rejects_wrong_state_pda() {
     );
 
     // Swap the state PDA account `BeginSettle` references for a bogus one.
-    let (state_pda, _bump) = find_state_pda(&program_id);
     replace_first_matching_account(
         &mut instructions[usize::from(BEGIN_INDEX)],
-        &state_pda,
+        &STATE_PDA,
         unique_pubkey(),
     );
 
@@ -1065,7 +1062,7 @@ fn rejects_a_token_program_the_instruction_doesnt_name() {
         .buy_amount(amount)
         .build();
     let sell_token = intent.sell.token_account;
-    token::fund_and_delegate(&mut svm, &program_id, &payer, &sell_token, amount);
+    token::fund_and_delegate(&mut svm, &payer, &sell_token, amount);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     let mut instructions = settle_and_pay_amounts(
@@ -1150,13 +1147,7 @@ fn rejects_pull_exceeding_delegation() {
     let initial_amount = 42_000_000;
     let delegated = 100_000;
     token::mint_to(&mut svm, &payer, &sell_mint, &sell_token, initial_amount);
-    token::delegate(
-        &mut svm,
-        &payer,
-        &sell_token,
-        &find_state_pda(&program_id).0,
-        delegated,
-    );
+    token::delegate(&mut svm, &payer, &sell_token, &STATE_PDA, delegated);
     let destination = token::create_token_account(&mut svm, &payer, &sell_mint, &unique_pubkey());
 
     let instructions = settle_and_pay(
@@ -1254,7 +1245,7 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
     let (other_buffer, other_bump) = find_buffer_pda(&program_id, &other_mint);
     let finalize = FinalizeSettleRaw {
         program_id,
-        state_pda: find_state_pda(&program_id).0,
+        state_pda: STATE_PDA,
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         source_buffers: &[other_buffer],

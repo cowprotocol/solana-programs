@@ -1,14 +1,12 @@
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
-use cow_settlement_client::{
-    cow_settlement_interface::{pda::state::find_state_pda, Pubkey},
-    instruction::AddSolver,
-};
+use cow_settlement_client::{cow_settlement_interface::Pubkey, instruction::AddSolver};
 use solana_sdk::{signature::Signer, transaction::Transaction};
 
 use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
+use crate::utils::pda::find_state_pda;
 
 #[derive(ClapArgs)]
 pub struct AddArgs {
@@ -49,7 +47,7 @@ pub fn run(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
         .send_and_confirm_transaction(&tx)
         .context("transaction failed")?;
 
-    let (state_pda, _) = find_state_pda(&ctx.program_id);
+    let state_pda = find_state_pda(&ctx.program_id);
     print_summary(&[
         ("signature", &sig),
         ("added solver", &args.solver),

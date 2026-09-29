@@ -22,7 +22,7 @@ pub mod token_2022;
 pub(crate) use active_token::also_under_token_2022;
 
 use cow_settlement_client::instruction::{AddSolver, Initialize};
-use cow_settlement_interface::pda::state::find_state_pda;
+use cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_interface::Instruction;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{
@@ -72,11 +72,12 @@ pub fn unique_keypair() -> Keypair {
     Keypair::new_from_array(next_seed())
 }
 
-/// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under a freshly
-/// generated program ID, and airdrop a payer keypair.
+/// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under the declared
+/// program ID (the only one its pinned state PDA works under), and airdrop a
+/// payer keypair.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     let mut svm = LiteSVM::new();
-    let program_id = unique_pubkey();
+    let program_id = cow_settlement_interface::ID;
     svm.add_program_from_file(program_id, PROGRAM_SO)
         .expect("compiled program .so not found, run `just build-program` first");
 
@@ -105,7 +106,6 @@ pub struct InitializedParams {
 /// fee payer, the state PDA, and all authority keypairs.
 pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let (mut svm, program_id, payer) = setup();
-    let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_keypair();
     let reclaim = unique_keypair();
     let settlement_owned_order = unique_keypair();
@@ -126,7 +126,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
         InitializedParams {
             program_id,
             payer,
-            state_pda,
+            state_pda: STATE_PDA,
             manager,
             reclaim,
             settlement_owned_order,

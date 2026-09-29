@@ -8,7 +8,7 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{reclaim_buffer::ReclaimBufferInput, InstructionInputParsing},
-    pda::buffer::find_buffer_pda,
+    pda::{buffer::find_buffer_pda, state::validate_is_state_pda},
     Pubkey, Role, SettlementError,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
@@ -31,7 +31,9 @@ pub fn process_reclaim_buffer(
         buffers,
     } = ReclaimBufferInput::parse(instruction_data, accounts)?;
 
-    with_state_pda_signer(program_id, state_pda, |state_signer| {
+    validate_is_state_pda(state_pda.address().as_array())?;
+
+    with_state_pda_signer(|state_signer| {
         let reclaim_authority_pubkey: Pubkey =
             StateAccount::from_account(state_pda)?.authority(Role::ReclaimAuthority);
         if !reclaim_authority.is_signer()
@@ -74,7 +76,7 @@ pub fn process_reclaim_buffer(
 mod tests {
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::{StateInitArgs, WIDTH_HEADER};
-    use cow_settlement_interface::fixtures::{pubkey_from_seed, PROGRAM_ID, STATE_PDA};
+    use cow_settlement_interface::fixtures::pubkey_from_seed;
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_owned_by, fake_account_with_data, fake_sequential_accounts,
         fake_signer,
@@ -82,7 +84,9 @@ mod tests {
     use cow_settlement_interface::instruction::reclaim_buffer::fixtures::{
         reclaim_buffer_data, NUM_SHARED_ACCOUNTS,
     };
+    use cow_settlement_interface::pda::state::STATE_PDA;
     use cow_settlement_interface::token_program::TokenProgram;
+    use cow_settlement_interface::ID as PROGRAM_ID;
     use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use pinocchio::error::ProgramError;
     use solana_program_pack::Pack;
@@ -131,14 +135,14 @@ mod tests {
         let mint: Address = Address::new_from_array([2; 32]);
 
         [
-            fake_account_with_data(*STATE_PDA, &state_account_bytes(&base_init_args(), &[])), // state PDA
+            fake_account_with_data(STATE_PDA, &state_account_bytes(&base_init_args(), &[])), // state PDA
             fake_signer(AUTHORITY),             // reclaim authority
             fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
             fake_account_owned_by(
                 find_buffer_pda(&PROGRAM_ID, &mint).0,
                 SPL_TOKEN_PROGRAM_ID,
-                &empty_buffer_data(mint, *STATE_PDA),
+                &empty_buffer_data(mint, STATE_PDA),
             ), // buffer PDA
             fake_account(mint),                 // mint
         ]

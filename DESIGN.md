@@ -20,6 +20,8 @@ Every PDA the program derives starts with the same prefix seed: the string `sett
 
 Bumping the minor version relocates the program's entire account storage at once — the state account, every buffer, and every order.
 
+The state PDA's address and bump are pinned at compile time against the declared program ID, so handlers compare the account against a constant instead of deriving it on-chain. As a safeguard, `Initialize` still derives it, and it rejects a state account that doesn't match the constant.
+
 A bump is not a migration. There are some other consequences that should be considered before the new program version is deployed:
 
 - **User delegations stop working.** Users delegate their token accounts to the state PDA (see [user delegation](#user-delegation-ie-approvals)). A bump moves that address, so every user has to delegate again before they can trade.

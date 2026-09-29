@@ -2,7 +2,7 @@
 
 use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
-    pda::{order::find_order_pda, state::find_state_pda},
+    pda::{order::find_order_pda, state::STATE_PDA},
     Instruction, Pubkey,
 };
 
@@ -21,13 +21,12 @@ impl From<CreateSettlementOwnedOrder<'_>> for Instruction {
     fn from(builder: CreateSettlementOwnedOrder<'_>) -> Self {
         let encoded = EncodedOrderIntent::from(builder.intent);
         let (order_pda, _bump) = find_order_pda(&builder.program_id, &encoded.hash());
-        let (state_pda, _bump) = find_state_pda(&builder.program_id);
         let intent_bytes: [u8; EncodedOrderIntent::SIZE] = (&encoded).into();
         cow_settlement_interface::instruction::create_settlement_owned_order::CreateSettlementOwnedOrder {
             program_id: builder.program_id,
             authority: builder.authority,
             created_by: builder.created_by,
-            state_pda,
+            state_pda: STATE_PDA,
             order_pda,
             intent_bytes,
         }

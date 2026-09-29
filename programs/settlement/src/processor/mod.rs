@@ -65,13 +65,9 @@ pub fn process_instruction(
             process_reclaim_buffer(program_id, accounts, instruction_data)
         }
         SettlementInstruction::TransferAuthority => {
-            process_transfer_authority(program_id, accounts, instruction_data)
+            process_transfer_authority(accounts, instruction_data)
         }
-        SettlementInstruction::AddSolver => {
-            process_add_solver(program_id, accounts, instruction_data)
-        }
-        SettlementInstruction::RemoveSolver => {
-            process_remove_solver(program_id, accounts, instruction_data)
-        }
+        SettlementInstruction::AddSolver => process_add_solver(accounts, instruction_data),
+        SettlementInstruction::RemoveSolver => process_remove_solver(accounts, instruction_data),
     }
 }

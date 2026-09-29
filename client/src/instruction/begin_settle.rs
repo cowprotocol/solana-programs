@@ -2,7 +2,7 @@
 
 use cow_settlement_interface::{
     data::intent::OrderIntent,
-    pda::{order::find_order_pda, state::find_state_pda},
+    pda::{order::find_order_pda, state::STATE_PDA},
     Instruction, Pubkey,
 };
 
@@ -46,10 +46,9 @@ impl From<BeginSettle<'_>> for Instruction {
             sell_token_accounts.push(order.intent.sell.token_account);
             pull_lists.push(order.pulls);
         }
-        let (state_pda, _bump) = find_state_pda(&builder.program_id);
         cow_settlement_interface::instruction::settle::BeginSettle {
             program_id: builder.program_id,
-            state_pda,
+            state_pda: STATE_PDA,
             solver: builder.solver,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,

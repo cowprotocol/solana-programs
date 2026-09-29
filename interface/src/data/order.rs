@@ -603,9 +603,9 @@ mod tests {
 
     mod load_from_pda {
         use super::*;
-        use crate::fixtures::PROGRAM_ID;
         use crate::instruction::fixtures::fake_account_with_data;
         use crate::pda::order::find_order_pda;
+        use crate::ID as PROGRAM_ID;
 
         /// [`sample_order_bytes`] carrying its own canonical bump, plus the
         /// address of the PDA it belongs at.

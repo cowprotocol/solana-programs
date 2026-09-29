@@ -1,7 +1,7 @@
 //! Builder for the `ReclaimBuffer` instruction.
 
 use cow_settlement_interface::{
-    pda::{buffer::find_buffer_pda, state::find_state_pda},
+    pda::{buffer::find_buffer_pda, state::STATE_PDA},
     token_program::TokenProgram,
     Instruction, Pubkey,
 };
@@ -23,7 +23,6 @@ pub struct ReclaimBuffer<'a> {
 
 impl From<ReclaimBuffer<'_>> for Instruction {
     fn from(builder: ReclaimBuffer<'_>) -> Self {
-        let (state_pda, _bump) = find_state_pda(&builder.program_id);
         let buffers: Vec<(Pubkey, Pubkey)> = builder
             .mints
             .iter()
@@ -34,7 +33,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
             .collect();
         cow_settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
             program_id: builder.program_id,
-            state_pda,
+            state_pda: STATE_PDA,
             reclaim_authority: builder.reclaim_authority,
             reclaim_recipient: builder.reclaim_recipient,
             token_program: builder.token_program.address(),

@@ -93,6 +93,8 @@ There are two distinct flows depending on whether this is a first-time deploy or
 
 ### Initial deployment
 
+The program only works at the address in `declare_id!`, which its pinned state PDA is derived from. `initialize` rejects a deployment anywhere else.
+
 Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
 
 ```sh

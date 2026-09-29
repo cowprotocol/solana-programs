@@ -140,9 +140,6 @@ pub enum SettlementError {
     /// isn't a signer, or doesn't match the `settlement_owned_order_authority`
     /// recorded in the settlement state PDA.
     UnauthorizedSettlementOwnedOrder = 42,
-    /// `BeginSettle`: a paired `FinalizeSettle` push paying an order that buys
-    /// native SOL doesn't draw from the settlement state PDA.
-    PushSourceNotStatePda = 43,
 }
 
 impl From<SettlementError> for u32 {

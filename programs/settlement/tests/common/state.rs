@@ -1,5 +1,5 @@
 use cow_settlement_client::cow_settlement_interface::data::state::StateAccount;
-use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
+use cow_settlement_client::cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_client::instruction::Initialize;
 use litesvm::LiteSVM;
 use solana_sdk::pubkey::Pubkey;
@@ -15,17 +15,16 @@ pub fn initialize(svm: &mut litesvm::LiteSVM, payer: &Keypair, ix: Initialize) {
 /// order buying native SOL draws on.
 ///
 /// Returns the state PDA's new balance, rent for its own data included.
-pub fn add_lamports(svm: &mut LiteSVM, program_id: &Pubkey, amount: u64) -> u64 {
-    let (state_pda, _bump) = find_state_pda(program_id);
+pub fn add_lamports(svm: &mut LiteSVM, amount: u64) -> u64 {
     let mut account = svm
-        .get_account(&state_pda)
+        .get_account(&STATE_PDA)
         .expect("the state PDA should exist");
     account.lamports = account
         .lamports
         .checked_add(amount)
         .expect("the funded balance should fit in a u64");
     let funded = account.lamports;
-    svm.set_account(state_pda, account)
+    svm.set_account(STATE_PDA, account)
         .expect("set_account should succeed");
     funded
 }

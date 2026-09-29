@@ -1,11 +1,10 @@
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
-use cow_settlement_client::{
-    cow_settlement_interface::pda::state::find_state_pda, instruction::Initialize,
-};
+use cow_settlement_client::instruction::Initialize;
 use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
 
 use crate::utils::output::print_summary;
+use crate::utils::pda::find_state_pda;
 
 use super::Context;
 
@@ -26,7 +25,7 @@ pub struct InitializeArgs {
 
 pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    let (state_pda, _) = find_state_pda(&ctx.program_id);
+    let state_pda = find_state_pda(&ctx.program_id);
 
     if matches!(ctx.rpc.get_account(&state_pda), Ok(account) if account.owner == ctx.program_id) {
         print_summary(&[("statePda", &state_pda), ("status", &"already initialized")]);

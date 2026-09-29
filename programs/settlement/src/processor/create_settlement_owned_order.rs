@@ -13,12 +13,12 @@ use cow_settlement_interface::{
     instruction::{
         create_settlement_owned_order::CreateSettlementOwnedOrderInput, InstructionInputParsing,
     },
+    pda::state::validate_is_state_pda,
     Pubkey, Role, SettlementError,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 
 use crate::processor::create_order::process_new_onchain_order;
-use crate::processor::utils::auth::check_state_pda;
 
 pub fn process_create_settlement_owned_order(
     program_id: &Address,
@@ -33,7 +33,7 @@ pub fn process_create_settlement_owned_order(
         order_pda,
     } = CreateSettlementOwnedOrderInput::parse(instruction_data, accounts)?;
 
-    check_state_pda(program_id, state_pda)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
 
     // Only the settlement-owned-order authority may create settlement-owned
     // orders.
@@ -58,7 +58,7 @@ mod tests {
     use cow_settlement_interface::data::intent::{Flags, OrderIntent};
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::StateInitArgs;
-    use cow_settlement_interface::fixtures::{pubkey_from_seed, PROGRAM_ID, STATE_PDA};
+    use cow_settlement_interface::fixtures::pubkey_from_seed;
     use cow_settlement_interface::instruction::create_settlement_owned_order::fixtures::{
         settlement_owned_order_data, NUM_ACCOUNTS,
     };
@@ -66,6 +66,8 @@ mod tests {
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_with_data, fake_sequential_accounts, fake_signer,
     };
+    use cow_settlement_interface::pda::state::STATE_PDA;
+    use cow_settlement_interface::ID as PROGRAM_ID;
     use pinocchio::error::ProgramError;
     use std::sync::LazyLock;
 
@@ -107,7 +109,7 @@ mod tests {
         [
             fake_signer(*SETTLEMENT_OWNED_ORDER_AUTHORITY),
             fake_signer(pubkey_from_seed("base_accounts's created_by")),
-            fake_account_with_data(*STATE_PDA, &state_account_bytes(&base_init_args(), &[])),
+            fake_account_with_data(STATE_PDA, &state_account_bytes(&base_init_args(), &[])),
             fake_account(pubkey_from_seed("base_accounts's order pda")),
             fake_account(SYSTEM_PROGRAM_ID),
         ]
@@ -124,8 +126,8 @@ mod tests {
     }
 
     #[test]
-    fn process_create_settlement_owned_order_propagates_parse_error() {
-        let mut data = intent_data(*STATE_PDA, true);
+    fn process_create_self_order_propagates_parse_error() {
+        let mut data = intent_data(STATE_PDA, true);
         data.push(0); // trailing byte triggers a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
@@ -143,7 +145,7 @@ mod tests {
             process_create_settlement_owned_order(
                 &PROGRAM_ID,
                 &mut accounts,
-                &intent_data(*STATE_PDA, true)
+                &intent_data(STATE_PDA, true)
             ),
             Err(SettlementError::StateAccountMismatch.into()),
         );
@@ -157,7 +159,7 @@ mod tests {
             process_create_settlement_owned_order(
                 &PROGRAM_ID,
                 &mut accounts,
-                &intent_data(*STATE_PDA, true)
+                &intent_data(STATE_PDA, true)
             ),
             Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
         );
@@ -172,7 +174,7 @@ mod tests {
             process_create_settlement_owned_order(
                 &PROGRAM_ID,
                 &mut accounts,
-                &intent_data(*STATE_PDA, true)
+                &intent_data(STATE_PDA, true)
             ),
             Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
         );
@@ -192,7 +194,7 @@ mod tests {
     fn process_create_settlement_owned_order_rejects_intent_not_created_on_chain() {
         let mut accounts = base_accounts();
         // Owned by the state PDA, but not flagged as an on-chain creation.
-        let data = intent_data(*STATE_PDA, false);
+        let data = intent_data(STATE_PDA, false);
         assert_eq!(
             process_create_settlement_owned_order(&PROGRAM_ID, &mut accounts, &data),
             Err(SettlementError::OrderCreatedOnChainMismatch.into()),
