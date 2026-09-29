@@ -268,6 +268,7 @@ fn unpack_mint(data: &[u8]) -> Result<Mint, ProgramError> {
 mod tests {
     use super::*;
     use solana_program_pack::Pack as _;
+    use spl_token_2022_interface::extension::immutable_owner::ImmutableOwner;
     use spl_token_2022_interface::extension::mint_close_authority::MintCloseAuthority;
     use spl_token_2022_interface::extension::{
         BaseStateWithExtensionsMut as _, ExtensionType, StateWithExtensionsMut,
@@ -323,10 +324,39 @@ mod tests {
         data
     }
 
-    #[test]
-    fn unpacks_legacy_mint_and_token_account() {
-        assert_eq!(unpack_mint(&legacy_mint(6)).expect("mint").decimals, 6);
+    /// A Token-2022 token account carrying one extension, which appends the
+    /// account-type byte after `TokenAccount::LEN`.
+    fn extended_token_account(mint: Pubkey) -> Vec<u8> {
+        let len = ExtensionType::try_calculate_account_len::<TokenAccount>(&[
+            ExtensionType::ImmutableOwner,
+        ])
+        .expect("token account length with an immutable owner");
+        let mut data = vec![0u8; len];
 
+        let mut state = StateWithExtensionsMut::<TokenAccount>::unpack_uninitialized(&mut data)
+            .expect("empty token account");
+        state
+            .init_extension::<ImmutableOwner>(true)
+            .expect("immutable owner extension");
+        state.base = TokenAccount {
+            mint,
+            owner: Pubkey::new_unique(),
+            state: AccountState::Initialized,
+            ..Default::default()
+        };
+        state.pack_base();
+        state.init_account_type().expect("account type");
+
+        data
+    }
+
+    #[test]
+    fn unpacks_legacy_mint() {
+        assert_eq!(unpack_mint(&legacy_mint(6)).expect("mint").decimals, 6);
+    }
+
+    #[test]
+    fn unpacks_legacy_token_account() {
         let mint = Pubkey::new_unique();
         assert_eq!(
             unpack_token_account(&legacy_token_account(mint))
@@ -339,6 +369,17 @@ mod tests {
     #[test]
     fn unpacks_token_2022_mint_with_extensions() {
         assert_eq!(unpack_mint(&extended_mint(2)).expect("mint").decimals, 2);
+    }
+
+    #[test]
+    fn unpacks_token_2022_token_account_with_extensions() {
+        let mint = Pubkey::new_unique();
+        let data = extended_token_account(mint);
+        assert!(data.len() > TokenAccount::LEN);
+        assert_eq!(
+            unpack_token_account(&data).expect("token account").mint,
+            mint,
+        );
     }
 
     #[test]
