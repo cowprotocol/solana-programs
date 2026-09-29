@@ -6,6 +6,7 @@ use cow_settlement_client::cow_settlement_interface::{
 };
 use cow_settlement_client::instruction::Initialize;
 use cow_settlement_client::pda::state::DecodedStateAccount;
+use cow_settlement_interface::pda::state::STATE_PDA_AND_BUMP;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -16,6 +17,7 @@ use solana_sdk::{
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
+    pda::find_noncanonical_pda,
     unique_keypair, unique_pubkey, PROGRAM_SO,
 };
 
@@ -150,6 +152,24 @@ fn rejects_arbitrary_wrong_state_pda() {
         SettlementError::StateAccountMismatch,
     );
     assert!(svm.get_account(&wrong_pda).is_none());
+}
+
+#[test]
+fn rejects_the_state_pda_of_a_non_canonical_bump() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    // The lower-level interface builder lets us point the instruction at a
+    // deliberately wrong address.
+    let (noncanonical_bump, noncanonical_state_pda) =
+        find_noncanonical_pda(&program_id, STATE_PDA_SEEDS);
+    assert_ne!(noncanonical_bump, STATE_PDA_AND_BUMP.1);
+    let tx = initialize_at(&svm, program_id, &payer, noncanonical_state_pda);
+
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|meta| meta.err),
+        SettlementError::StateAccountMismatch,
+    );
+    assert!(svm.get_account(&noncanonical_state_pda).is_none());
 }
 
 /// This is effectively a test that the STATE_PDA constant must be checked as expected by the
