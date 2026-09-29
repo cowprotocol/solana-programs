@@ -338,7 +338,6 @@ mod tests {
 
     #[test]
     fn unpacks_token_2022_mint_with_extensions() {
-        // `Mint::unpack` rejects this outright: it insists on exactly `Mint::LEN`.
         assert_eq!(unpack_mint(&extended_mint(2)).expect("mint").decimals, 2);
     }
 
