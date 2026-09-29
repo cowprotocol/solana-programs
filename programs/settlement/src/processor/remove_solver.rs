@@ -102,7 +102,7 @@ mod tests {
             fake_account, fake_account_owned_by, fake_signer,
         };
         use cow_settlement_interface::instruction::remove_solver::RemoveSolver;
-        use cow_settlement_interface::pda::state::find_state_pda;
+        use cow_settlement_interface::pda::state::STATE_PDA;
         use cow_settlement_interface::{Instruction, Pubkey};
 
         proptest! {
@@ -122,12 +122,11 @@ mod tests {
                 // Mock the three accounts the handler parses. Only the manager
                 // signer and the state PDA carry meaning here; the rent recipient
                 // is never touched, since the reject happens before the refund.
-                let (state_pda_address, _bump) = find_state_pda(&PROGRAM_ID);
                 let mut accounts = [
                     fake_signer(manager),
                     fake_account(pubkey_from_seed("rent recipient")),
                     fake_account_owned_by(
-                        state_pda_address,
+                        STATE_PDA,
                         PROGRAM_ID,
                         &state_account_bytes(&header, &stored),
                     ),
@@ -137,7 +136,7 @@ mod tests {
                     program_id: PROGRAM_ID,
                     manager,
                     rent_recipient: pubkey_from_seed("rent recipient"),
-                    state_pda: state_pda_address,
+                    state_pda: STATE_PDA,
                     solver: absent,
                 })
                 .data;

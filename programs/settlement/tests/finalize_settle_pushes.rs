@@ -22,7 +22,7 @@ use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
 use cow_settlement_client::{
     cow_settlement_interface::{
         data::intent::{Asset, OrderIntent, TokenAsset},
-        pda::state::find_state_pda,
+        pda::state::STATE_PDA,
         Instruction, SettlementError,
     },
     instruction::TokenProgram,
@@ -222,10 +222,9 @@ fn rejects_wrong_state_pda() {
     }];
 
     let mut instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
-    let (state_pda, _bump) = find_state_pda(&program_id);
     replace_first_matching_account(
         &mut instructions[usize::from(FINALIZE_INDEX)],
-        &state_pda,
+        &STATE_PDA,
         unique_pubkey(),
     );
 

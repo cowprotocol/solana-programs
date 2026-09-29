@@ -2,7 +2,11 @@
 
 use cow_settlement_interface::{
     data::intent::{Asset, OrderIntent},
-    pda::{buffer::find_buffer_pda, order::find_order_pda, state::find_state_pda},
+    pda::{
+        buffer::find_buffer_pda,
+        order::find_order_pda,
+        state::{STATE_PDA, STATE_PDA_AND_BUMP},
+    },
     Instruction, Pubkey,
 };
 
@@ -57,11 +61,10 @@ impl From<FinalizeSettle<'_>> for Instruction {
         let mut destinations = Vec::with_capacity(num_orders);
         let mut bumps = Vec::with_capacity(num_orders);
         let mut amounts = Vec::with_capacity(num_orders);
-        let (state_pda, state_bump) = find_state_pda(&builder.program_id);
         for &i in &orders {
             let intent = builder.orders[i].intent;
             let (source, bump, destination) = match &intent.buy {
-                Asset::Native(account) => (state_pda, state_bump, *account),
+                Asset::Native(account) => (STATE_PDA, STATE_PDA_AND_BUMP.1, *account),
                 Asset::TokenProgram(token) => {
                     let (buffer, buffer_bump) = find_buffer_pda(&builder.program_id, &token.mint);
                     (buffer, buffer_bump, token.token_account)
@@ -74,7 +77,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
         }
         cow_settlement_interface::instruction::settle::FinalizeSettle {
             program_id: builder.program_id,
-            state_pda,
+            state_pda: STATE_PDA,
             begin_ix_index: builder.begin_ix_index,
             only_token_program: builder.only_token_program,
             source_buffers: &source_buffers,
@@ -130,9 +133,8 @@ mod tests {
             panic!("one order pushes once, got {} pushes", pushes.len());
         };
 
-        let (state_pda, state_bump) = find_state_pda(&program_id);
-        assert_eq!(push.source_buffer.address(), &state_pda);
-        assert_eq!(push.bump, state_bump);
+        assert_eq!(push.source_buffer.address(), &STATE_PDA);
+        assert_eq!(push.bump, STATE_PDA_AND_BUMP.1);
         assert_eq!(push.destination.address(), &recipient);
         assert_eq!(push.amount, 1_337);
     }
@@ -181,8 +183,7 @@ mod tests {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
                     let (buffer, bump, destination) = match &order.intent.buy {
                         Asset::Native(account) => {
-                            let (state, state_bump) = find_state_pda(&program_id);
-                            (state, state_bump, *account)
+                            (STATE_PDA, STATE_PDA_AND_BUMP.1, *account)
                         }
                         Asset::TokenProgram(token) => {
                             let (buffer, bump) = find_buffer_pda(&program_id, &token.mint);
@@ -213,8 +214,7 @@ mod tests {
                 parsed.instructions_sysvar_account.address(),
                 &INSTRUCTIONS_SYSVAR_ID,
             );
-            let (state_pda, _bump) = find_state_pda(&program_id);
-            prop_assert_eq!(parsed.state_pda_account.address(), &state_pda);
+            prop_assert_eq!(parsed.state_pda_account.address(), &STATE_PDA);
 
             let parsed_pushes: Vec<_> = parsed.pushes.iter().collect();
             prop_assert_eq!(parsed_pushes.len(), expected.len());

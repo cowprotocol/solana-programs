@@ -93,13 +93,7 @@ pub fn stage_order(
     amount_out: u64,
 ) -> StagedOrder {
     let amount_in: u64 = pulls.iter().sum();
-    token::fund_and_delegate(
-        svm,
-        program_id,
-        payer,
-        &intent.sell.token_account,
-        amount_in,
-    );
+    token::fund_and_delegate(svm, payer, &intent.sell.token_account, amount_in);
     let pulls = pulls
         .iter()
         .map(|&amount| Pull {
@@ -114,7 +108,7 @@ pub fn stage_order(
         .collect();
     match &intent.buy {
         Asset::Native(_) => {
-            state::add_lamports(svm, program_id, amount_out);
+            state::add_lamports(svm, amount_out);
         }
         Asset::TokenProgram(token) => {
             buffer::ensure_funded(svm, program_id, payer, &token.mint, amount_out);

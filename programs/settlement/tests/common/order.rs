@@ -3,7 +3,7 @@
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Asset, Flags, OrderIntent, OrderKind, TokenAsset,
 };
-use cow_settlement_client::cow_settlement_interface::pda::state::find_state_pda;
+use cow_settlement_client::cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_client::instruction::{CreateOrder, CreateSelfOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
 use cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
@@ -329,7 +329,7 @@ impl<'a> OrderBuilder<'a> {
                 create_order_pda(svm, program_id, payer, &intent);
             }
             Some(authority) => {
-                intent.owner = find_state_pda(program_id).0;
+                intent.owner = STATE_PDA;
                 create_self_order_pda(svm, program_id, payer, authority, &intent);
             }
         }

@@ -1,7 +1,7 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::state::WIDTH_HEADER,
     instruction::initialize::Initialize as InitializeRaw,
-    pda::state::{find_state_pda, STATE_PDA},
+    pda::state::{STATE_PDA, STATE_PDA_SEEDS},
     SettlementError,
 };
 use cow_settlement_client::instruction::Initialize;
@@ -24,7 +24,6 @@ mod common;
 #[test]
 fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, payer) = common::setup();
-    let (state_pda, _bump) = find_state_pda(&program_id);
     let manager = unique_pubkey();
     let reclaim_authority = unique_pubkey();
     let self_order_authority = unique_pubkey();
@@ -43,7 +42,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         .expect("initialize should succeed");
 
     let account = svm
-        .get_account(&state_pda)
+        .get_account(&STATE_PDA)
         .expect("state PDA should exist after initialize");
     assert_eq!(
         account.owner, program_id,
@@ -77,9 +76,8 @@ fn happy_path_initializes_state_pda_with_expected_data() {
 #[test]
 fn initializes_state_pda_when_address_is_prefunded() {
     let (mut svm, program_id, payer) = common::setup();
-    let (state_pda, _bump) = find_state_pda(&program_id);
 
-    common::pda::assert_security_creation_survives_prefund(&mut svm, &state_pda, |svm| {
+    common::pda::assert_security_creation_survives_prefund(&mut svm, &STATE_PDA, |svm| {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
@@ -94,7 +92,6 @@ fn initializes_state_pda_when_address_is_prefunded() {
 #[test]
 fn funding_payer_can_differ_from_fee_payer() {
     let (mut svm, program_id, fee_payer) = common::setup();
-    let (_, _bump) = find_state_pda(&program_id);
 
     let funder = unique_keypair();
     let funder_airdrop = 1_000_000_000;
@@ -164,7 +161,7 @@ fn rejects_the_state_pda_of_an_undeclared_program_id() {
     let undeclared_id = unique_pubkey();
     svm.add_program_from_file(undeclared_id, PROGRAM_SO)
         .expect("compiled program .so not found, run `just build-program` first");
-    let (derived_pda, _) = find_state_pda(&undeclared_id);
+    let (derived_pda, _) = Pubkey::find_program_address(&STATE_PDA_SEEDS, &undeclared_id);
 
     let tx = initialize_at(&svm, undeclared_id, &payer, derived_pda);
 
@@ -190,9 +187,8 @@ fn rejects_the_pinned_state_pda_under_an_undeclared_program_id() {
 #[test]
 fn rejects_initializing_twice() {
     let (mut svm, program_id, payer) = common::setup();
-    let (state_pda, _bump) = find_state_pda(&program_id);
 
-    common::pda::assert_recreate_is_rejected(&mut svm, &state_pda, |svm| {
+    common::pda::assert_recreate_is_rejected(&mut svm, &STATE_PDA, |svm| {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),

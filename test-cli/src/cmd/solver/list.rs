@@ -3,14 +3,13 @@ use std::io::IsTerminal as _;
 use anyhow::Context as _;
 use solana_hash::MAX_BASE58_LEN;
 
-use cow_settlement_client::cow_settlement_interface::{
-    data::state::StateAccount, pda::state::find_state_pda,
-};
+use cow_settlement_client::cow_settlement_interface::data::state::StateAccount;
 
 use crate::cmd::Context;
+use crate::utils::pda::find_state_pda;
 
 pub fn run(ctx: Context) -> anyhow::Result<()> {
-    let (state_pda, _) = find_state_pda(&ctx.program_id);
+    let state_pda = find_state_pda(&ctx.program_id);
     let data = ctx
         .rpc
         .get_account_data(&state_pda)

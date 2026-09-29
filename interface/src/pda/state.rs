@@ -12,7 +12,6 @@
 
 use solana_address::Address;
 use solana_program_error::ProgramError;
-use solana_pubkey::Pubkey;
 
 use crate::{pda::SETTLEMENT_SEED, SettlementError};
 
@@ -32,11 +31,6 @@ pub const STATE_PDA_SIGNER_SEEDS: [&[u8]; 2] = {
     [s0, &[STATE_PDA_AND_BUMP.1]]
 };
 
-/// Derive the canonical settlement state PDA address (and bump).
-pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&STATE_PDA_SEEDS, program_id)
-}
-
 /// Confirm `prospective_state_address` matches the settlement state PDA constant
 /// encoded in the program bytecode.
 #[inline]
@@ -53,15 +47,11 @@ pub fn validate_is_state_pda(prospective_state_address: &[u8; 32]) -> Result<(),
 mod tests {
     use super::*;
     use crate::pda::tests::assert_distinct_versions_yield_distinct_pdas;
-
-    #[test]
-    fn find_state_pda_uses_canonical_seeds() {
-        crate::pda::tests::assert_canonical_bump(find_state_pda, STATE_PDA_SEEDS);
-    }
+    use solana_pubkey::Pubkey;
 
     #[test]
     fn pinned_state_pda_is_canonical() {
-        let (pda, bump) = find_state_pda(&crate::ID);
+        let (pda, bump) = Pubkey::find_program_address(&STATE_PDA_SEEDS, &crate::ID);
         assert_eq!(
             STATE_PDA_AND_BUMP,
             (*pda.as_array(), bump),
@@ -91,8 +81,6 @@ mod tests {
 
     #[test]
     fn distinct_versions_yield_distinct_state_pdas() {
-        let (pda, _) = find_state_pda(&crate::ID);
-
-        assert_distinct_versions_yield_distinct_pdas(&pda, &[]);
+        assert_distinct_versions_yield_distinct_pdas(&STATE_PDA, &[]);
     }
 }

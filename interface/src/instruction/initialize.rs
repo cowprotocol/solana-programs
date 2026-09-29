@@ -21,9 +21,8 @@ use crate::SettlementInstruction;
 /// deallocated, so there's no need for a dedicated funding account separate
 /// from whoever pays for the deployment transaction.
 ///
-/// `state_pda` must be the canonical PDA returned by
-/// [`crate::pda::state::find_state_pda`]; the program derives the bump itself
-/// and rejects any other address.
+/// `state_pda` must be [`crate::pda::state::STATE_PDA`]; the program rejects
+/// any other address.
 ///
 /// `manager`, `reclaim_authority`, and `self_order_authority` are recorded
 /// verbatim in the state PDA's data: the account authorized to add and remove
