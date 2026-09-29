@@ -31,7 +31,10 @@ pub const STATE_PDA: Address =
 /// Seeds for signing as [`STATE_PDA`]: its canonical seeds followed by
 /// [`STATE_PDA_BUMP`]. The on-chain settlement handlers use this to construct
 /// the CPI signer.
-pub const STATE_PDA_SIGNER_SEEDS: [&[u8]; 2] = [STATE_PDA_SEEDS[0], &[STATE_PDA_BUMP]];
+pub const STATE_PDA_SIGNER_SEEDS: [&[u8]; 2] = {
+    let [s0] = STATE_PDA_SEEDS;
+    [s0, &[STATE_PDA_BUMP]]
+};
 
 /// Derive the canonical settlement state PDA address (and bump).
 pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
