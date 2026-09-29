@@ -28,9 +28,7 @@ pub const STATE_PDA_BUMP: u8 = 255;
 pub const STATE_PDA: Address =
     Address::derive_address_const(&STATE_PDA_SEEDS, Some(STATE_PDA_BUMP), &crate::ID);
 
-/// Seeds for signing as [`STATE_PDA`]: its canonical seeds followed by
-/// [`STATE_PDA_BUMP`]. The on-chain settlement handlers use this to construct
-/// the CPI signer.
+/// Seeds for signing as [`STATE_PDA`].
 pub const STATE_PDA_SIGNER_SEEDS: [&[u8]; 2] = {
     let [s0] = STATE_PDA_SEEDS;
     [s0, &[STATE_PDA_BUMP]]
