@@ -7,7 +7,7 @@ pub struct Initialize {
     pub payer: Pubkey,
     pub manager: Pubkey,
     pub reclaim_authority: Pubkey,
-    pub self_order_authority: Pubkey,
+    pub settlement_owned_order_authority: Pubkey,
 }
 
 impl From<Initialize> for Instruction {
@@ -19,7 +19,7 @@ impl From<Initialize> for Instruction {
             state_pda,
             manager: builder.manager,
             reclaim_authority: builder.reclaim_authority,
-            self_order_authority: builder.self_order_authority,
+            settlement_owned_order_authority: builder.settlement_owned_order_authority,
         }
         .into()
     }

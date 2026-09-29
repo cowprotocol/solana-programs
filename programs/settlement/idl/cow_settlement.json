@@ -81,9 +81,9 @@
           "type": "pubkey"
         },
         {
-          "name": "self_order_authority",
+          "name": "settlement_owned_order_authority",
           "docs": [
-            "The initial holder of the SelfOrderAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
+            "The initial holder of the SettlementOwnedOrderAuthority role: the account authorized to place orders that sell the protocol's own buffer balances."
           ],
           "type": "pubkey"
         }
@@ -273,10 +273,10 @@
       ]
     },
     {
-      "name": "create_self_order",
+      "name": "create_settlement_owned_order",
       "docs": [
         "Create an order on behalf of the state PDA. Used to sell fees accumulated in the buffer accounts through a regular settlement.",
-        "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The self-order authority signs instead, and the program forces intent.owner to be the state PDA, so a self order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
+        "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The settlement-owned-order authority signs instead, and the program forces intent.owner to be the state PDA, so a settlement-owned order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
         "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe.",
         "The intent's created_on_chain flag must be set: this instruction implements that authentication scheme, and an intent flagged for off-chain Ed25519 authentication is rejected."
       ],
@@ -288,7 +288,7 @@
           "name": "authority",
           "signer": true,
           "docs": [
-            "Must match the self_order_authority recorded in the state PDA; authorizes the order without paying rent."
+            "Must match the settlement_owned_order_authority recorded in the state PDA; authorizes the order without paying rent."
           ]
         },
         {
@@ -330,7 +330,7 @@
             ]
           },
           "docs": [
-            "Names the self-order authority the signer is checked against and is the owner every self order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
+            "Names the settlement-owned-order authority the signer is checked against and is the owner every settlement-owned order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
           ]
         },
         {
@@ -885,7 +885,7 @@
             "type": "pubkey"
           },
           {
-            "name": "self_order_authority",
+            "name": "settlement_owned_order_authority",
             "type": "pubkey"
           }
         ]
@@ -987,7 +987,7 @@
             "name": "ReclaimAuthority"
           },
           {
-            "name": "SelfOrderAuthority"
+            "name": "SettlementOwnedOrderAuthority"
           }
         ]
       }
@@ -1032,7 +1032,7 @@
     {
       "code": 7,
       "name": "OwnerMismatch",
-      "msg": "An order-creation instruction's intent owner isn't the owner it must have: the signer for CreateOrder, the settlement state PDA for CreateSelfOrder."
+      "msg": "An order-creation instruction's intent owner isn't the owner it must have: the signer for CreateOrder, the settlement state PDA for CreateSettlementOwnedOrder."
     },
     {
       "code": 8,
@@ -1147,7 +1147,7 @@
     {
       "code": 30,
       "name": "OrderNotReclaimable",
-      "msg": "ReclaimOrder was called on an order that has is not yet eligible for reclaim."
+      "msg": "ReclaimOrder was called on an order that has not yet become eligible for reclaim."
     },
     {
       "code": 31,
@@ -1206,8 +1206,8 @@
     },
     {
       "code": 42,
-      "name": "UnauthorizedSelfOrder",
-      "msg": "CreateSelfOrder's self-order-authority account isn't a signer, or doesn't match the self_order_authority recorded in the settlement state PDA, so it may not create self orders."
+      "name": "UnauthorizedSettlementOwnedOrder",
+      "msg": "CreateSettlementOwnedOrder's settlement-owned-order-authority account isn't a signer, or doesn't match the settlement_owned_order_authority recorded in the settlement state PDA."
     },
     {
       "code": 43,
