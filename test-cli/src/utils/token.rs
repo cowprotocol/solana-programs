@@ -342,18 +342,17 @@ mod tests {
     }
 
     #[test]
-    fn extended_mint_is_not_mistaken_for_a_token_account() {
-        // It is longer than `TokenAccount::LEN`, so only the account-type byte
-        // tells the two apart — which is why `interpret_token_from_user_input`
-        // may try the token account first.
-        let data = extended_mint(2);
-        assert!(data.len() > TokenAccount::LEN);
-        assert!(unpack_token_account(&data).is_err());
+    fn legacy_mint_is_not_mistaken_for_a_token_account() {
+        assert!(unpack_token_account(&legacy_mint(9)).is_err());
     }
 
     #[test]
-    fn legacy_mint_is_not_mistaken_for_a_token_account() {
-        assert!(unpack_token_account(&legacy_mint(9)).is_err());
+    fn extended_mint_is_not_mistaken_for_a_token_account() {
+        let data = extended_mint(2);
+        // Ensure that the extensions cause the account length to be greater than the 165 for a token account.
+        // That way we can see that decoding is dependent upon more than just the length being sufficient.
+        assert!(data.len() > TokenAccount::LEN);
+        assert!(unpack_token_account(&data).is_err());
     }
 
     #[test]
