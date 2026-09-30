@@ -5,7 +5,7 @@ use anyhow::Context as _;
 use cow_settlement_client::cow_settlement_interface::Pubkey;
 use solana_instruction::Instruction;
 use solana_rpc_client::rpc_client::RpcClient;
-use spl_token_interface::instruction::{self as token_ix};
+use spl_token_2022_interface::instruction::{self as token_ix};
 
 /// Build instructions that wrap `amount` lamports into the payer's WSOL ATA.
 ///
@@ -23,30 +23,32 @@ pub fn wrap_sol(
     ixs.extend(wsol.create_ata_ix(payer));
 
     ixs.push(solana_system_interface::instruction::transfer(
-        payer, &wsol.ta, amount,
+        payer,
+        &wsol.handle.account,
+        amount,
     ));
 
     ixs.push(
-        token_ix::sync_native(&spl_token_interface::id(), &wsol.ta)
+        token_ix::sync_native(&wsol.handle.token_program.address(), &wsol.handle.account)
             .context("failed to build SyncNative instruction")?,
     );
 
-    Ok((wsol.ta, ixs))
+    Ok((wsol.handle.account, ixs))
 }
 
-/// Build an `Approve` instruction delegating `amount` tokens on `token_account`
-/// to the PDA derived from `program_id`.
+/// Build an `Approve` instruction delegating `amount` of `token` to the PDA
+/// derived from `program_id`.
 pub fn approve(
     program_id: &Pubkey,
-    token_account: &Pubkey,
+    token: &token::TokenAccountInfo,
     owner: &Pubkey,
     amount: u64,
 ) -> anyhow::Result<Instruction> {
     let settlement_pda = find_state_pda(program_id);
 
     token_ix::approve(
-        &spl_token_interface::id(),
-        token_account,
+        &token.token_program.address(),
+        &token.account,
         &settlement_pda,
         owner,
         &[],

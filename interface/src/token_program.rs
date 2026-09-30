@@ -5,7 +5,7 @@ use solana_program_error::ProgramError;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
 /// A token program a token-moving instruction accepts.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum TokenProgram {
     /// The legacy SPL Token program.
     SplToken,
