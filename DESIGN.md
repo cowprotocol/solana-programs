@@ -50,9 +50,9 @@ Buffer accounts are token accounts that hold funds on behalf of the settlement p
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
-The buffer account for native SOL is the buffer PDA of the native SOL marker (the system program ID), an empty account owned by the settlement program whose funds on top of the necessary rent are paid out.
-
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
+
+The buffer account for native SOL is an empty account owned by the settlement program whose funds on top of the necessary rent are paid out. Its PDA is generated using seed `[SETTLEMENT_SEED, "native sol buffer"]`, and it is created alongside the state PDA by the `Initialize` instruction.
 
 A buffer (except for the native SOL buffer) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
 

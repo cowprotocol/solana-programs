@@ -15,6 +15,11 @@
 //! buffers must be drained under the old version before a bump ships, or their
 //! contents are stranded.
 //!
+//! Native SOL has a buffer of its own at [`NATIVE_SOL_BUFFER_PDA`]: an empty
+//! account owned by the settlement program, whose lamports on top of rent pay
+//! out orders buying native SOL. It isn't keyed by a mint, so its seeds follow
+//! a pattern of their own.
+//!
 //! Unlike the order PDA, which stores its own bump (see
 //! [`crate::data::order::OrderAccount`]), a buffer's layout belongs entirely to
 //! the token program, leaving no room for one.
@@ -23,6 +28,7 @@ use solana_address::Address;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
+use crate::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
 use crate::pda::{is_pda_with_signer_seeds, SETTLEMENT_SEED};
 use crate::SettlementError;
 
@@ -52,39 +58,66 @@ pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&buffer_pda_seeds(mint.as_array()), program_id)
 }
 
+/// Trailing seed identifying the native SOL buffer PDA.
+pub const NATIVE_SOL_BUFFER_SEED: &[u8] = b"native sol buffer";
+
+/// Canonical seed components for the native SOL buffer PDA.
+pub const NATIVE_SOL_BUFFER_PDA_SEEDS: [&[u8]; 2] = [SETTLEMENT_SEED, NATIVE_SOL_BUFFER_SEED];
+
+pub const NATIVE_SOL_BUFFER_PDA_AND_BUMP: ([u8; 32], u8) =
+    const_crypto::ed25519::derive_program_address(
+        &NATIVE_SOL_BUFFER_PDA_SEEDS,
+        crate::ID.as_array(),
+    );
+
+/// The buffer holding the lamports paid out to orders buying native SOL, under
+/// [`crate::ID`], derived at compile time.
+pub const NATIVE_SOL_BUFFER_PDA: Address =
+    Address::new_from_array(NATIVE_SOL_BUFFER_PDA_AND_BUMP.0);
+
+/// Derive the canonical native SOL buffer PDA address (and bump).
+pub fn find_native_sol_buffer_pda(program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&NATIVE_SOL_BUFFER_PDA_SEEDS, program_id)
+}
+
 /// A buffer PDA under [`crate::ID`] derived at compile time.
 struct KnownBuffer {
     mint: [u8; 32],
     address: [u8; 32],
 }
 
-/// The buffers of [`known_mints::KNOWN_MINTS`], in the same order, which the
+/// The native SOL buffer, keyed by [`ENCODED_NATIVE_SOL_TRANSFER`], followed by
+/// the buffers of [`known_mints::KNOWN_MINTS`] in the same order, which the
 /// program finds through [`KNOWN_BUFFER_SLOTS`] instead of paying for a
 /// `create_program_address` syscall.
 // Deriving this many PDAs in const eval trips the compiler's infinite-loop
 // guard, although it finishes in seconds.
 #[allow(long_running_const_eval)]
-const KNOWN_BUFFERS: [KnownBuffer; known_mints::KNOWN_MINTS.len()] = {
+const KNOWN_BUFFERS: [KnownBuffer; known_mints::KNOWN_MINTS.len() + 1] = {
     let mut buffers = [const {
         KnownBuffer {
             mint: [0; 32],
             address: [0; 32],
         }
-    }; known_mints::KNOWN_MINTS.len()];
+    }; known_mints::KNOWN_MINTS.len() + 1];
+    buffers[0] = KnownBuffer {
+        mint: ENCODED_NATIVE_SOL_TRANSFER.to_bytes(),
+        address: NATIVE_SOL_BUFFER_PDA_AND_BUMP.0,
+    };
     let mut i = 0;
-    while i < buffers.len() {
+    while i < known_mints::KNOWN_MINTS.len() {
         let mint = const_crypto::bs58::decode_pubkey(known_mints::KNOWN_MINTS[i]);
         let (address, _) = const_crypto::ed25519::derive_program_address(
             &buffer_pda_seeds(&mint),
             crate::ID.as_array(),
         );
-        buffers[i] = KnownBuffer { mint, address };
+        buffers[i + 1] = KnownBuffer { mint, address };
         i += 1;
     }
     buffers
 };
 
-/// Bits of the hash that pick a slot: 512 slots keep collisions among 64 mints
+/// Bits of the hash that pick a slot: 512 slots keep collisions among 64 buffers
 /// rare enough that a multiplier turns up within a few dozen attempts.
 const SLOT_BITS: u32 = 9;
 
@@ -165,7 +198,8 @@ fn known_buffer(mint: &[u8; 32]) -> Option<&'static KnownBuffer> {
 }
 
 /// Confirm `buffer` matches the derived buffer PDA for the mint bytes `mint`
-/// and `bump`.
+/// and `bump`, or is [`NATIVE_SOL_BUFFER_PDA`] if `mint` is
+/// [`ENCODED_NATIVE_SOL_TRANSFER`].
 ///
 /// A known mint is checked against its compile-time buffer alone, ignoring
 /// `bump`: nothing signs with a buffer's seeds, so the bump only matters for
@@ -255,9 +289,37 @@ mod tests {
     const USDC: Pubkey = Pubkey::from_str_const("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
     #[test]
+    fn pinned_native_sol_buffer_pda_is_canonical() {
+        let (pda, bump) = find_native_sol_buffer_pda(&crate::ID);
+        assert_eq!(NATIVE_SOL_BUFFER_PDA_AND_BUMP, (*pda.as_array(), bump));
+        crate::pda::tests::assert_canonical_bump(
+            find_native_sol_buffer_pda,
+            NATIVE_SOL_BUFFER_PDA_SEEDS,
+        );
+    }
+
+    #[test]
+    fn distinct_versions_yield_distinct_native_sol_buffer_pdas() {
+        assert_distinct_versions_yield_distinct_pdas(
+            &NATIVE_SOL_BUFFER_PDA,
+            &[NATIVE_SOL_BUFFER_SEED],
+        );
+    }
+
+    #[test]
+    fn native_sol_buffer_is_not_the_native_markers_mint_buffer() {
+        let (marker_buffer, _) = find_buffer_pda(&crate::ID, &ENCODED_NATIVE_SOL_TRANSFER);
+        assert_ne!(NATIVE_SOL_BUFFER_PDA, marker_buffer);
+    }
+
+    #[test]
     fn known_buffers_are_canonical() {
-        assert_eq!(KNOWN_BUFFERS.len(), known_mints::KNOWN_MINTS.len());
-        for known in &KNOWN_BUFFERS {
+        let [native, mints @ ..] = &KNOWN_BUFFERS;
+        assert_eq!(native.mint, ENCODED_NATIVE_SOL_TRANSFER.to_bytes());
+        assert_eq!(native.address, NATIVE_SOL_BUFFER_PDA_AND_BUMP.0);
+
+        assert_eq!(mints.len(), known_mints::KNOWN_MINTS.len());
+        for known in mints {
             let (pda, _) = find_buffer_pda(&crate::ID, &Pubkey::new_from_array(known.mint));
             assert_eq!(known.address, *pda.as_array());
         }
@@ -326,6 +388,31 @@ mod tests {
 
         let err = validate_buffer_pda(&crate::ID, &Pubkey::new_unique(), USDC.as_array(), bump)
             .expect_err("a non-canonical address must be rejected");
+        assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
+    }
+
+    #[test]
+    fn accepts_the_native_sol_buffer() {
+        validate_buffer_pda(
+            &crate::ID,
+            &NATIVE_SOL_BUFFER_PDA,
+            ENCODED_NATIVE_SOL_TRANSFER.as_array(),
+            NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
+        )
+        .expect("the native SOL buffer must be accepted");
+    }
+
+    #[test]
+    fn rejects_the_native_markers_mint_buffer_as_the_native_sol_buffer() {
+        let (pda, bump) = find_buffer_pda(&crate::ID, &ENCODED_NATIVE_SOL_TRANSFER);
+
+        let err = validate_buffer_pda(
+            &crate::ID,
+            &pda,
+            ENCODED_NATIVE_SOL_TRANSFER.as_array(),
+            bump,
+        )
+        .expect_err("only the native SOL buffer holds native SOL");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 

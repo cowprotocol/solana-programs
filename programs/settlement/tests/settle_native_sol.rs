@@ -11,16 +11,15 @@ use crate::common::{
     setup_settle_ready, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
-    data::intent::{Asset, OrderIntent, OrderKind, ENCODED_NATIVE_SOL_TRANSFER},
+    data::intent::{Asset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
     pda::{
-        buffer::find_buffer_pda,
-        state::{NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP, STATE_PDA},
+        buffer::{find_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP},
+        state::STATE_PDA,
     },
     SettlementError,
 };
-use cow_settlement_client::instruction::{CreateBuffers, FinalizedIntent};
-use cow_settlement_interface::token_program::TokenProgram;
+use cow_settlement_client::instruction::FinalizedIntent;
 use solana_sdk::{signer::Signer, transaction::TransactionError};
 
 mod common;
@@ -61,21 +60,14 @@ fn happy_path_sell_tokens_for_native_sol() {
     assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), before - 2_000_000);
 }
 
-/// The native SOL buffer `CreateBuffer` creates is one `FinalizeSettle` can pay
-/// out of, not just the account the other tests put in place.
+/// The native SOL buffer `Initialize` creates is one `FinalizeSettle` can pay
+/// out of.
 #[test]
-fn happy_path_pays_out_of_a_created_native_sol_buffer() {
+fn happy_path_pays_out_of_the_initialized_native_sol_buffer() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
-    let ix = CreateBuffers {
-        program_id,
-        payer: payer.pubkey(),
-        token_program: TokenProgram::SplToken,
-        mints: &[ENCODED_NATIVE_SOL_TRANSFER],
-    };
-    send(&mut svm, &payer, &[ix.into()]).expect("create_buffer should succeed");
     svm.airdrop(&NATIVE_SOL_BUFFER_PDA, 1_000_000)
         .expect("airdrop to the native SOL buffer should succeed");
     let funded = lamports(&svm, &NATIVE_SOL_BUFFER_PDA);

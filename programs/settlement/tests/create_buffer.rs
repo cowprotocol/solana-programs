@@ -2,11 +2,10 @@ use cow_settlement_client::cow_settlement_interface::{
     instruction::create_buffer::CreateBuffers as CreateBuffersRaw,
     pda::{
         buffer::{buffer_pda_seeds, find_buffer_pda},
-        state::{NATIVE_SOL_BUFFER_PDA, STATE_PDA},
+        state::STATE_PDA,
     },
 };
 use cow_settlement_client::instruction::CreateBuffers;
-use cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
 use cow_settlement_interface::token_program::TokenProgram;
 use litesvm_token::{
     get_spl_account,
@@ -195,66 +194,6 @@ fn happy_path_creates_native_token_buffer() {
         token_account.amount, 0,
         "a native buffer funded at the rent minimum starts with zero wrapped balance"
     );
-}
-
-/// `CreateBuffer` for the native SOL marker, the instruction any of the tests
-/// below sends. No token program is involved, so any listed one will do.
-fn create_native_sol_buffer(
-    svm: &litesvm::LiteSVM,
-    program_id: Pubkey,
-    payer: &solana_sdk::signature::Keypair,
-) -> solana_sdk::transaction::Transaction {
-    let ix = CreateBuffers {
-        program_id,
-        payer: payer.pubkey(),
-        token_program: TokenProgram::SplToken,
-        mints: &[ENCODED_NATIVE_SOL_TRANSFER],
-    };
-    common::signed_tx(svm, payer, payer, ix)
-}
-
-#[test]
-fn happy_path_creates_native_sol_buffer() {
-    let (mut svm, program_id, payer) = common::setup();
-    assert_eq!(
-        find_buffer_pda(&program_id, &ENCODED_NATIVE_SOL_TRANSFER).0,
-        NATIVE_SOL_BUFFER_PDA,
-    );
-
-    let tx = create_native_sol_buffer(&svm, program_id, &payer);
-    svm.send_transaction(tx)
-        .expect("create_buffer for the native SOL marker should succeed");
-
-    let account = svm
-        .get_account(&NATIVE_SOL_BUFFER_PDA)
-        .expect("native SOL buffer should exist after create_buffer");
-    assert_eq!(
-        account.owner, program_id,
-        "the native SOL buffer is owned by the settlement so it can move its lamports",
-    );
-    assert!(
-        account.data.is_empty(),
-        "the native SOL buffer holds no data"
-    );
-    common::assert_rent_exempt(&svm, &account);
-}
-
-#[test]
-fn creates_native_sol_buffer_when_address_is_prefunded() {
-    let (mut svm, program_id, payer) = common::setup();
-    common::pda::assert_security_creation_survives_prefund(
-        &mut svm,
-        &NATIVE_SOL_BUFFER_PDA,
-        |svm| create_native_sol_buffer(svm, program_id, &payer),
-    );
-}
-
-#[test]
-fn recreating_native_sol_buffer_is_idempotent() {
-    let (mut svm, program_id, payer) = common::setup();
-    common::pda::assert_recreate_is_noop(&mut svm, &NATIVE_SOL_BUFFER_PDA, |svm| {
-        create_native_sol_buffer(svm, program_id, &payer)
-    });
 }
 
 common::also_under_token_2022!(happy_path_creates_multiple_buffers_in_one_instruction);

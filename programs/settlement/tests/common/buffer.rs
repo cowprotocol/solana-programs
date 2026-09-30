@@ -1,13 +1,13 @@
 //! Buffer-account helpers for the settlement integration tests.
 
-use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
-use cow_settlement_client::cow_settlement_interface::pda::state::NATIVE_SOL_BUFFER_PDA;
+use cow_settlement_client::cow_settlement_interface::pda::buffer::{
+    find_buffer_pda, NATIVE_SOL_BUFFER_PDA,
+};
 use cow_settlement_client::cow_settlement_interface::Instruction;
 use cow_settlement_client::instruction::CreateBuffers;
 use cow_settlement_interface::token_program::TokenProgram;
 use litesvm::LiteSVM;
 use solana_sdk::{
-    account::Account,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::Transaction,
@@ -70,18 +70,14 @@ pub fn ensure_funded(
     pda
 }
 
-/// Credit the native SOL buffer with `amount` lamports. Useful for
-/// the native buffer.
+/// Credit the native SOL buffer `Initialize` created with `amount` lamports,
+/// the balance a push of an order buying native SOL draws on.
 ///
 /// Returns the buffer's new balance, rent included.
 pub fn add_native_lamports(svm: &mut LiteSVM, amount: u64) -> u64 {
-    let mut account = svm.get_account(&NATIVE_SOL_BUFFER_PDA).unwrap_or(Account {
-        lamports: svm.minimum_balance_for_rent_exemption(0),
-        data: Vec::new(),
-        owner: cow_settlement_client::cow_settlement_interface::ID,
-        executable: false,
-        rent_epoch: 0,
-    });
+    let mut account = svm
+        .get_account(&NATIVE_SOL_BUFFER_PDA)
+        .expect("the native SOL buffer should exist");
     account.lamports = account
         .lamports
         .checked_add(amount)

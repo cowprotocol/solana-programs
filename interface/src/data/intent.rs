@@ -143,7 +143,7 @@ impl TryFrom<TokenAsset> for Asset {
     /// wrapping it as a token side would encode an asset that decodes back as
     /// [`Asset::Native`].
     fn try_from(token: TokenAsset) -> Result<Self, Self::Error> {
-        if Self::is_native_sol(token.mint.as_array()) {
+        if token.mint == ENCODED_NATIVE_SOL_TRANSFER {
             return Err(NativeSolHasNoMint);
         }
         Ok(Asset::TokenProgram(token))
@@ -151,14 +151,6 @@ impl TryFrom<TokenAsset> for Asset {
 }
 
 impl Asset {
-    /// Whether the mint bytes `mint` name native SOL; see
-    /// [`ENCODED_NATIVE_SOL_TRANSFER`].
-    #[inline]
-    #[must_use]
-    pub fn is_native_sol(mint: &[u8; 32]) -> bool {
-        mint == ENCODED_NATIVE_SOL_TRANSFER.as_array()
-    }
-
     /// The `(mint, account)` pair as used on the wire: a token becomes a mint
     /// and token account; native SOL becomes [`ENCODED_NATIVE_SOL_TRANSFER`]
     /// and the address its lamports move on.
@@ -173,7 +165,7 @@ impl Asset {
     /// denotes, for callers that have a side in that shape rather than a chosen
     /// variant.
     pub fn decode(mint: Pubkey, account: Pubkey) -> Self {
-        if Self::is_native_sol(mint.as_array()) {
+        if mint == ENCODED_NATIVE_SOL_TRANSFER {
             Asset::Native(account)
         } else {
             Asset::TokenProgram(TokenAsset {
@@ -802,18 +794,23 @@ mod tests {
     }
 
     #[test]
-    fn native_sol_mint_is_the_system_program() {
-        assert!(Asset::is_native_sol(ENCODED_NATIVE_SOL_TRANSFER.as_array()));
+    fn native_sol_marker_is_no_token_program() {
         for program in TokenProgram::ALL {
-            assert!(!Asset::is_native_sol(program.address().as_array()));
+            assert_ne!(ENCODED_NATIVE_SOL_TRANSFER, program.address());
         }
     }
 
     #[test]
     fn an_spl_mint_is_not_native_sol() {
-        assert!(!Asset::is_native_sol(
-            pubkey_from_seed("some mint").as_array()
-        ));
+        let mint = pubkey_from_seed("some mint");
+        let token_account = pubkey_from_seed("some account");
+        assert_eq!(
+            Asset::decode(mint, token_account),
+            Asset::TokenProgram(TokenAsset {
+                mint,
+                token_account
+            }),
+        );
     }
 
     #[test]

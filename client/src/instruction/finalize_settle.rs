@@ -3,9 +3,9 @@
 use cow_settlement_interface::{
     data::intent::{Asset, OrderIntent},
     pda::{
-        buffer::find_buffer_pda,
+        buffer::{find_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP},
         order::find_order_pda,
-        state::{NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP, STATE_PDA},
+        state::STATE_PDA,
     },
     Instruction, Pubkey,
 };
@@ -26,8 +26,8 @@ pub struct FinalizedIntent<'a> {
 /// The destination is the order intent's buy account and the source is the
 /// canonical buffer PDA for its buy mint (see [`find_buffer_pda`]), the only
 /// buffer `BeginSettle` accepts as the source of that order's push. An order
-/// buying [`Asset::Native`] SOL has no buffer, so its source is the settlement
-/// state PDA, whose lamports pay it. The
+/// buying [`Asset::Native`] SOL is paid out of the lamports of
+/// [`NATIVE_SOL_BUFFER_PDA`] instead. The
 /// orders are sorted by their canonical order PDA (the same key
 /// [`BeginSettle`](super::begin_settle::BeginSettle) orders its settled-order
 /// list by) so the two instructions present the orders

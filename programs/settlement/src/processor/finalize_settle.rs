@@ -5,7 +5,7 @@ use cow_settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::state::{validate_is_state_pda, NATIVE_SOL_BUFFER_PDA},
+    pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::validate_is_state_pda},
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{

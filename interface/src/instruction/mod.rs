@@ -33,7 +33,8 @@ pub enum SettlementInstruction {
     FinalizeSettle = 1,
     /// Allocates a per-order PDA and writes the initial `OrderAccount` body.
     CreateOrder = 2,
-    /// Creates the singleton settlement state PDA. Succeeds only once.
+    /// Creates the singleton settlement state PDA and the native SOL buffer.
+    /// Succeeds only once.
     Initialize = 3,
     /// Creates one or more per-token buffer PDAs (token accounts) in a
     /// single instruction.
