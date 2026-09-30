@@ -112,12 +112,8 @@ const fn search_key(mint: &[u8; 32]) -> u64 {
     u64::from_le_bytes(*mint.first_chunk().expect("a mint is longer than 8 bytes"))
 }
 
-/// The compile-time buffer for `mint`, if it's one of the known mints and
-/// `program_id` is the one the table was derived under.
-fn known_buffer(program_id: &Address, mint: &[u8; 32]) -> Option<&'static KnownBuffer> {
-    if program_id != &crate::ID {
-        return None;
-    }
+/// The compile-time buffer for `mint`, if it's one of the known mints.
+fn known_buffer(mint: &[u8; 32]) -> Option<&'static KnownBuffer> {
     let index = KNOWN_BUFFER_KEYS.binary_search(&search_key(mint)).ok()?;
     KNOWN_BUFFERS.get(index).filter(|known| &known.mint == mint)
 }
@@ -127,7 +123,9 @@ fn known_buffer(program_id: &Address, mint: &[u8; 32]) -> Option<&'static KnownB
 ///
 /// A known mint is checked against its compile-time buffer alone, ignoring
 /// `bump`: nothing signs with a buffer's seeds, so the bump only matters for
-/// re-deriving the address.
+/// re-deriving the address. That buffer is derived under [`crate::ID`] whatever
+/// `program_id` is, which is sound because the program only works there (see
+/// [`crate::pda::state::STATE_PDA`]).
 #[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_buffer_pda(
@@ -136,7 +134,7 @@ pub fn validate_buffer_pda(
     mint: &[u8; 32],
     bump: u8,
 ) -> Result<(), ProgramError> {
-    let is_buffer = match known_buffer(program_id, mint) {
+    let is_buffer = match known_buffer(mint) {
         Some(known) => buffer.as_array() == &known.address,
         None => {
             is_pda_with_signer_seeds(buffer, program_id, buffer_pda_signer_seeds(mint, &[bump]))
@@ -220,12 +218,15 @@ mod tests {
     }
 
     #[test]
-    fn every_known_mint_has_a_known_buffer() {
+    fn every_known_mint_looks_up_its_own_buffer() {
         for mint in known_mints::KNOWN_MINTS {
             let mint = Pubkey::from_str_const(mint);
-            assert!(
-                known_buffer(&crate::ID, mint.as_array()).is_some(),
-                "{mint}"
+            let known = known_buffer(mint.as_array())
+                .unwrap_or_else(|| panic!("{mint} must have a known buffer"));
+            assert_eq!(known.mint, *mint.as_array());
+            assert_eq!(
+                known.address,
+                *find_buffer_pda(&crate::ID, &mint).0.as_array()
             );
         }
     }
@@ -234,12 +235,7 @@ mod tests {
     fn unknown_mint_sharing_a_search_key_has_no_known_buffer() {
         let mut mint = *USDC.as_array();
         mint[31] ^= 1;
-        assert!(known_buffer(&crate::ID, &mint).is_none());
-    }
-
-    #[test]
-    fn known_mint_under_another_program_has_no_known_buffer() {
-        assert!(known_buffer(&Pubkey::new_unique(), USDC.as_array()).is_none());
+        assert!(known_buffer(&mint).is_none());
     }
 
     #[test]
@@ -265,15 +261,6 @@ mod tests {
 
         validate_buffer_pda(&crate::ID, &pda, USDC.as_array(), bump ^ 1)
             .expect("the known buffer PDA must be accepted whatever the bump");
-    }
-
-    #[test]
-    fn derives_a_known_mint_buffer_under_another_program() {
-        let program_id = Pubkey::new_unique();
-        let (pda, bump) = find_buffer_pda(&program_id, &USDC);
-
-        validate_buffer_pda(&program_id, &pda, USDC.as_array(), bump)
-            .expect("the buffer PDA under another program must be accepted");
     }
 
     mod proptest {
