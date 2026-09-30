@@ -3,7 +3,9 @@
 //! Allocates one or more per-token buffer PDAs (see [`crate::pda::buffer`]) as
 //! SPL token accounts and initializes each with the settlement state PDA as its
 //! token authority. Each token is identified by its `mint` account; the buffer
-//! address must be the canonical PDA for that mint.
+//! address must be the canonical PDA for that mint. The native SOL marker
+//! [`crate::data::intent::ENCODED_NATIVE_SOL_TRANSFER`] as `mint` instead
+//! creates the native SOL buffer: an empty, settlement-owned account.
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;

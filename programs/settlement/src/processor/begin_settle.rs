@@ -14,7 +14,10 @@ use cow_settlement_interface::{
         },
         InstructionInputParsing,
     },
-    pda::{buffer::validate_buffer_pda, state::validate_is_state_pda},
+    pda::{
+        buffer::validate_buffer_pda,
+        state::{validate_is_native_sol_buffer_pda, validate_is_state_pda},
+    },
     recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -292,10 +295,10 @@ fn process_order(
     // This effectively transitively verifies `intent.buy_token_account`
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
-    // If its a native SOL buy order, the "source buffer" should be the state pda.
+    // If its a native SOL buy order, the "source buffer" should be the native SOL buffer.
     let buy_mint = intent.buy_mint();
     if Asset::is_native_sol(buy_mint) {
-        validate_is_state_pda(push.source_buffer.as_array())?;
+        validate_is_native_sol_buffer_pda(push.source_buffer.as_array())?;
     } else {
         validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;
     }

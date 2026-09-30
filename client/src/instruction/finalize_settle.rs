@@ -5,7 +5,7 @@ use cow_settlement_interface::{
     pda::{
         buffer::find_buffer_pda,
         order::find_order_pda,
-        state::{STATE_PDA, STATE_PDA_AND_BUMP},
+        state::{NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP, STATE_PDA},
     },
     Instruction, Pubkey,
 };
@@ -64,7 +64,11 @@ impl From<FinalizeSettle<'_>> for Instruction {
         for &i in &orders {
             let intent = builder.orders[i].intent;
             let (source, bump, destination) = match &intent.buy {
-                Asset::Native(account) => (STATE_PDA, STATE_PDA_AND_BUMP.1, *account),
+                Asset::Native(account) => (
+                    NATIVE_SOL_BUFFER_PDA,
+                    NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
+                    *account,
+                ),
                 Asset::TokenProgram(token) => {
                     let (buffer, buffer_bump) = find_buffer_pda(&builder.program_id, &token.mint);
                     (buffer, buffer_bump, token.token_account)
@@ -104,7 +108,7 @@ mod tests {
     };
 
     #[test]
-    fn native_sol_order_pushes_from_the_state_pda() {
+    fn native_sol_order_pushes_from_the_native_sol_buffer() {
         let program_id = pubkey_from_seed("program id");
         let recipient = pubkey_from_seed("recipient wallet");
         let intent = OrderIntent {
@@ -133,8 +137,8 @@ mod tests {
             panic!("one order pushes once, got {} pushes", pushes.len());
         };
 
-        assert_eq!(push.source_buffer.address(), &STATE_PDA);
-        assert_eq!(push.bump, STATE_PDA_AND_BUMP.1);
+        assert_eq!(push.source_buffer.address(), &NATIVE_SOL_BUFFER_PDA);
+        assert_eq!(push.bump, NATIVE_SOL_BUFFER_PDA_AND_BUMP.1);
         assert_eq!(push.destination.address(), &recipient);
         assert_eq!(push.amount, 1_337);
     }
@@ -183,7 +187,7 @@ mod tests {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
                     let (buffer, bump, destination) = match &order.intent.buy {
                         Asset::Native(account) => {
-                            (STATE_PDA, STATE_PDA_AND_BUMP.1, *account)
+                            (NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP.1, *account)
                         }
                         Asset::TokenProgram(token) => {
                             let (buffer, bump) = find_buffer_pda(&program_id, &token.mint);

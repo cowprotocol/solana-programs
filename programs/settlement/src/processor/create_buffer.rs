@@ -1,6 +1,7 @@
 //! `CreateBuffer` instruction handler.
 
 use cow_settlement_interface::{
+    data::intent::Asset,
     instruction::{
         create_buffer::{BufferAccounts, CreateBufferInput},
         InstructionInputParsing,
@@ -23,6 +24,24 @@ pub fn process_create_buffer(
     let input = CreateBufferInput::parse(instruction_data, accounts)?;
 
     for BufferAccounts { buffer_pda, mint } in input.buffers() {
+        let mint_key = mint.address().as_array();
+
+        // The native SOL marker's buffer holds plain lamports, which
+        // `FinalizeSettle` pays out by editing balances directly, so it's an
+        // empty account owned by the settlement program.
+        if Asset::is_native_sol(mint_key) {
+            let _ = CanonicalPda {
+                program_id,
+                payer: input.payer,
+                pda: buffer_pda,
+                size: 0,
+                owner: program_id,
+                seeds: buffer_pda_seeds(mint_key),
+            }
+            .create_idempotent()?;
+            continue;
+        }
+
         // One buffer per token. `CanonicalPda::create_idempotent` derives the
         // canonical bump and, by signing the allocation with the buffer seeds,
         // rejects any `buffer_pda` that isn't the canonical address. The buffer
@@ -38,7 +57,6 @@ pub fn process_create_buffer(
         let token_program = owning_token_program(mint)?;
         let token_program_id = token_program.address();
 
-        let mint_key = mint.address().as_array();
         let (created, _) = CanonicalPda {
             program_id,
             payer: input.payer,

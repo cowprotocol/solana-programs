@@ -10,7 +10,7 @@ use cow_settlement_interface::{
 use litesvm::LiteSVM;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
-use super::{buffer, state, token, unique_pubkey};
+use super::{buffer, token, unique_pubkey};
 
 /// Positions of the two instructions in the `[BeginSettle, FinalizeSettle]` pair
 /// the settlement tests build: begin first, finalize right after it. Each
@@ -108,7 +108,7 @@ pub fn stage_order(
         .collect();
     match &intent.buy {
         Asset::Native(_) => {
-            state::add_lamports(svm, amount_out);
+            buffer::add_native_lamports(svm, amount_out);
         }
         Asset::TokenProgram(token) => {
             buffer::ensure_funded(svm, program_id, payer, &token.mint, amount_out);
