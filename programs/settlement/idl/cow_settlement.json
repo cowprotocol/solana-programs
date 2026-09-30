@@ -1208,6 +1208,11 @@
       "code": 42,
       "name": "UnauthorizedSettlementOwnedOrder",
       "msg": "CreateSettlementOwnedOrder's settlement-owned-order-authority account isn't a signer, or doesn't match the settlement_owned_order_authority recorded in the settlement state PDA."
+    },
+    {
+      "code": 43,
+      "name": "ZeroOrderAmount",
+      "msg": "An intent has a zero sell or buy amount, which is not supported."
     }
   ]
 }

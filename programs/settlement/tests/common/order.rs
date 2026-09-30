@@ -1,5 +1,7 @@
 //! On-chain order construction shared by the settlement integration tests.
 
+use std::num::NonZeroU64;
+
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Asset, Flags, OrderIntent, OrderKind, TokenAsset,
 };
@@ -37,8 +39,8 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
             mint: Pubkey::new_from_array([0x55; 32]),
         })
         .expect("not native SOL"),
-        sell_amount: 1_000_000,
-        buy_amount: 2_000_000,
+        sell_amount: NonZeroU64::new(1_000_000).expect("nonzero"),
+        buy_amount: NonZeroU64::new(2_000_000).expect("nonzero"),
         valid_to: 0xdead_beef,
         flags: Flags {
             created_on_chain: true,
@@ -246,13 +248,14 @@ impl<'a> OrderBuilder<'a> {
 
     /// Set the order's sell amount (exact or maximum depending on `kind`).
     pub fn sell_amount(mut self, sell_amount: u64) -> Self {
-        self.intent.sell_amount = sell_amount;
+        self.intent.sell_amount =
+            NonZeroU64::new(sell_amount).expect("order amount must be nonzero");
         self
     }
 
     /// Set the order's buy amount (exact or minimum depending on `kind`).
     pub fn buy_amount(mut self, buy_amount: u64) -> Self {
-        self.intent.buy_amount = buy_amount;
+        self.intent.buy_amount = NonZeroU64::new(buy_amount).expect("order amount must be nonzero");
         self
     }
 

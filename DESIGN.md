@@ -137,6 +137,7 @@ struct OrderIntent {
 	}
 
 	// Amounts are interpreted as exact or maximum depending on kind.
+	// Each individually must be larger than zero.
 	sell_amount: u64
 	buy_amount: u64
 

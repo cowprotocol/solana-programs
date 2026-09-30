@@ -369,10 +369,10 @@ fn validate_limit_price(
     // rearranged division-free to avoid rounding.
     // Every factor is a `u64`, so each product is at most `u64::MAX^2 < u128::MAX`.
     let lhs = u128::from(amount_out)
-        .checked_mul(u128::from(intent.sell_amount()))
+        .checked_mul(u128::from(intent.sell_amount().get()))
         .expect("u64 * u64 always fits in u128");
     let rhs = u128::from(amount_in)
-        .checked_mul(u128::from(intent.buy_amount()))
+        .checked_mul(u128::from(intent.buy_amount().get()))
         .expect("u64 * u64 always fits in u128");
     if lhs < rhs {
         return Err(SettlementError::LimitPriceViolated);
@@ -408,8 +408,8 @@ fn validated_final_amounts(
         ..
     } = intent.flags();
     let (filled, order_amount) = match kind {
-        OrderKind::Sell => (withdrawn, intent.sell_amount()),
-        OrderKind::Buy => (received, intent.buy_amount()),
+        OrderKind::Sell => (withdrawn, intent.sell_amount().get()),
+        OrderKind::Buy => (received, intent.buy_amount().get()),
     };
     if filled != order_amount && !partially_fillable {
         return Err(SettlementError::OrderNotExactlyFilled);
@@ -426,6 +426,8 @@ fn validated_final_amounts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU64;
+
     use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
     use cow_settlement_interface::data::intent::{EncodedOrderIntent, Flags, OrderIntent};
     use cow_settlement_interface::instruction::fixtures::fake_account;
@@ -453,8 +455,8 @@ mod tests {
     impl IntentSpec {
         fn build(&self) -> EncodedOrderIntent {
             EncodedOrderIntent::from(&OrderIntent {
-                sell_amount: self.sell,
-                buy_amount: self.buy,
+                sell_amount: NonZeroU64::new(self.sell).expect("nonzero order amount"),
+                buy_amount: NonZeroU64::new(self.buy).expect("nonzero order amount"),
                 ..sample_intent(Flags {
                     created_on_chain: true,
                     kind: self.kind,
@@ -492,8 +494,6 @@ mod tests {
             Case { a_in: 0, a_out: 0, sell: 1_000, buy: 2_000 },
             // User gets free money!
             Case { a_in: 0, a_out: 1_337, sell: 1_000, buy: 2_000 },
-            // Donation by the user.
-            Case { a_in: 0, a_out: 1_337, sell: 1_337, buy: 0 },
             // The largest products the check can form, `u64::MAX * u64::MAX`.
             Case { a_in: MAX, a_out: MAX, sell: MAX, buy: MAX },
             // Pulling one token less at the maximal price beats the limit.
@@ -543,8 +543,6 @@ mod tests {
             Case { a_in: 1, a_out: 0, sell: 1_000, buy: 2_000 },
             // Price far below the limit.
             Case { a_in: 1, a_out: 1, sell: 1, buy: 1_000_000 },
-            // User wants free money, can't take funds from order.
-            Case { a_in: 1, a_out: 1_337, sell: 0, buy: MAX },
             // Straight-out stealing.
             Case { a_in: 42, a_out: 0, sell: 31_337, buy: 31_337 },
             // Paying one token less than the maximal amount must be caught,
@@ -704,20 +702,6 @@ mod tests {
                 intent: IntentSpec {
                     sell: MAX,
                     buy: 1,
-                    kind: OrderKind::Sell,
-                    partially_fillable: false,
-                },
-            },
-            // A degenerate zero-amount fill-or-kill order is trivially filled by
-            // a zero settlement (`filled == order_amount == 0`).
-            FillCase {
-                withdrawn: 0,
-                received: 0,
-                amount_in: 0,
-                amount_out: 0,
-                intent: IntentSpec {
-                    sell: 0,
-                    buy: 0,
                     kind: OrderKind::Sell,
                     partially_fillable: false,
                 },
@@ -904,38 +888,6 @@ mod tests {
                     },
                 },
                 OrderNotExactlyFilled,
-            ),
-            // A degenerate zero sell-amount order can't have anything pulled.
-            (
-                FillCase {
-                    withdrawn: 0,
-                    received: 0,
-                    amount_in: 1,
-                    amount_out: 0,
-                    intent: IntentSpec {
-                        sell: 0,
-                        buy: 1_000,
-                        kind: OrderKind::Sell,
-                        partially_fillable: true,
-                    },
-                },
-                FillExceedsOrderAmount,
-            ),
-            // A degenerate zero buy-amount order can't have anything delivered.
-            (
-                FillCase {
-                    withdrawn: 0,
-                    received: 0,
-                    amount_in: 0,
-                    amount_out: 1,
-                    intent: IntentSpec {
-                        sell: 1_000,
-                        buy: 0,
-                        kind: OrderKind::Buy,
-                        partially_fillable: true,
-                    },
-                },
-                FillExceedsOrderAmount,
             ),
             // The cumulative withdrawn total overflows a `u64`.
             (

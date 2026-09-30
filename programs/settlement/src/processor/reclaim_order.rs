@@ -76,6 +76,8 @@ fn is_reclaimable_before_expiry(
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
+
     use cow_settlement_interface::data::intent::Flags;
     use cow_settlement_interface::data::intent::{
         fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
@@ -135,7 +137,7 @@ mod tests {
 
         let intent = |created_on_chain| {
             EncodedOrderIntent::from(&OrderIntent {
-                sell_amount: SELL_AMOUNT,
+                sell_amount: NonZeroU64::new(SELL_AMOUNT).expect("nonzero"),
                 ..sample_intent(Flags {
                     created_on_chain,
                     kind: OrderKind::Sell,
