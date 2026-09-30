@@ -53,9 +53,6 @@ pub(crate) fn process_new_onchain_order(
     created_by: &AccountView,
     cancelled: bool,
 ) -> ProgramResult {
-    // `attach` validates the encoding, which includes rejecting a zero sell or
-    // buy amount, so a degenerate order can never be created (nor, since this is
-    // the only allocator, ever exist to be settled).
     let intent = OrderIntentAccessor::attach(intent_bytes)?;
     let intent_uid = intent.uid();
 

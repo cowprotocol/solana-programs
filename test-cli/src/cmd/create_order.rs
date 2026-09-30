@@ -76,13 +76,13 @@ struct ParsedOrder {
 /// Resolve a side's amount. An explicit amount must be non-zero (a typed `0`
 /// errors); an omitted one (the open-ended forms, `None`) defaults to 1, the
 /// smallest limit a non-zero order allows.
-fn resolve_amount(amount: Option<&str>, decimals: u8, side: &str) -> anyhow::Result<NonZeroU64> {
+fn resolve_amount(amount: Option<&str>, decimals: u8) -> anyhow::Result<NonZeroU64> {
     let Some(amount) = amount else {
         return Ok(NonZeroU64::MIN);
     };
     let raw = spl_token::try_ui_amount_into_amount(amount.to_string(), decimals)
-        .map_err(|_| anyhow::anyhow!("invalid {side} amount: {amount}"))?;
-    NonZeroU64::new(raw).ok_or_else(|| anyhow::anyhow!("{side} amount must be non-zero"))
+        .map_err(|_| anyhow::anyhow!("invalid value {amount:?}"))?;
+    NonZeroU64::new(raw).context("must be non-zero")
 }
 
 fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<ParsedOrder> {
@@ -122,8 +122,10 @@ fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<Par
     let sell = utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
     let buy = utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
 
-    let sell_amount = resolve_amount(sell_amount_str, sell.mint_data.decimals, "sell")?;
-    let buy_amount = resolve_amount(buy_amount_str, buy.mint_data.decimals, "buy")?;
+    let sell_amount =
+        resolve_amount(sell_amount_str, sell.mint_data.decimals).context("sell amount")?;
+    let buy_amount =
+        resolve_amount(buy_amount_str, buy.mint_data.decimals).context("buy amount")?;
 
     Ok(ParsedOrder {
         kind,
