@@ -169,19 +169,19 @@ pub fn interpret_token_from_user_input(
             create_ata: None,
         })
     } else if let Ok(mint) = unpack_mint(account.data()) {
-        let ta = get_associated_token_address_with_program_id(
+        let ata = get_associated_token_address_with_program_id(
             owner,
             token_account_or_mint,
             &token_program.address(),
         );
         Ok(TokenAccountDetails {
             handle: TokenAccountInfo {
-                account: ta,
+                account: ata,
                 mint: *token_account_or_mint,
                 token_program,
             },
             mint_data: mint,
-            create_ata: determine_create_ata(rpc, &ta, owner)?,
+            create_ata: determine_create_ata(rpc, &ata, owner)?,
         })
     } else {
         anyhow::bail!(
@@ -200,16 +200,16 @@ fn resolve_from_mint(
     mint: &Pubkey,
 ) -> anyhow::Result<TokenAccountDetails> {
     let (token_program, mint_data) = fetch_mint(rpc, mint)?;
-    let ta = get_associated_token_address_with_program_id(owner, mint, &token_program.address());
+    let ata = get_associated_token_address_with_program_id(owner, mint, &token_program.address());
 
     Ok(TokenAccountDetails {
         handle: TokenAccountInfo {
-            account: ta,
+            account: ata,
             mint: *mint,
             token_program,
         },
         mint_data,
-        create_ata: determine_create_ata(rpc, &ta, owner)?,
+        create_ata: determine_create_ata(rpc, &ata, owner)?,
     })
 }
 
