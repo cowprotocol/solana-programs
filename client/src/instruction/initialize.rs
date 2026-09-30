@@ -6,6 +6,7 @@ pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,
     pub manager: Pubkey,
+    pub solver_authority: Pubkey,
     pub reclaim_authority: Pubkey,
     pub settlement_owned_order_authority: Pubkey,
 }
@@ -17,6 +18,7 @@ impl From<Initialize> for Instruction {
             payer: builder.payer,
             state_pda: STATE_PDA,
             manager: builder.manager,
+            solver_authority: builder.solver_authority,
             reclaim_authority: builder.reclaim_authority,
             settlement_owned_order_authority: builder.settlement_owned_order_authority,
         }

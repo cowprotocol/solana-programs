@@ -13,21 +13,21 @@ pub struct AddArgs {
     /// Address of the solver to authorize
     solver: Pubkey,
 
-    /// Path to the manager keypair, which authorizes the change and must sign
-    /// it (defaults to the payer keypair, which always funds the state PDA's
-    /// growth)
+    /// Path to the solver-authority keypair, which authorizes the change and
+    /// must sign it (defaults to the payer keypair, which always funds the
+    /// state PDA's growth)
     #[arg(long)]
-    manager: Option<String>,
+    solver_authority: Option<String>,
 }
 
 pub fn run(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    let manager = read_keypair_or(args.manager, &ctx.payer)?;
-    let manager_pubkey = manager.pubkey();
+    let solver_authority = read_keypair_or(args.solver_authority, &ctx.payer)?;
+    let solver_authority_pubkey = solver_authority.pubkey();
 
     let ix = AddSolver {
         program_id: ctx.program_id,
-        manager: manager_pubkey,
+        authority: solver_authority_pubkey,
         payer,
         solver: args.solver,
     };
@@ -39,7 +39,7 @@ pub fn run(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     let tx = Transaction::new_signed_with_payer(
         &[ix.into()],
         Some(&payer),
-        &[&ctx.payer, &*manager],
+        &[&ctx.payer, &*solver_authority],
         blockhash,
     );
     let sig = ctx
@@ -51,7 +51,7 @@ pub fn run(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
     print_summary(&[
         ("signature", &sig),
         ("added solver", &args.solver),
-        ("manager", &manager_pubkey),
+        ("solverAuthority", &solver_authority_pubkey),
         ("statePda", &state_pda),
     ]);
 

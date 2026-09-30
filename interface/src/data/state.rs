@@ -7,12 +7,12 @@
 //!
 //! ```text
 //!  ┌──── discriminator
-//!  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───── ... ─────┬───────────────────────────────┐
-//!  ││            manager            │       reclaim_authority       │       settlement_owned_       │           solver[0]           │ other solvers │          solver[N-1]          │
-//!  ││                               │                               │        order_authority        │                               │               │                               │
-//!  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───── ... ─────┴───────────────────────────────┘
-//! 0 1                               33                              65                              97                             129              97 + 32·(N-1)                   97 + 32·N
-//!  └───────────────────────────────────────── header ──────────────────────────────────────────────┘└─────────────────────────────── sorted solvers ───────────────────────────────┘
+//!  ┌┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬───── ... ─────┬───────────────────────────────┐
+//!  ││            manager            │        solver_authority       │       reclaim_authority       │       settlement_owned_       │           solver[0]           │ other solvers │          solver[N-1]          │
+//!  ││                               │                               │                               │        order_authority        │                               │               │                               │
+//!  └┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴───── ... ─────┴───────────────────────────────┘
+//! 0 1                               33                              65                              97                             129                             161             129 + 32·(N-1)                  129 + 32·N
+//!  └───────────────────────────────────────────────────────────────── header ──────────────────────────────────────────────────────┘└─────────────────────────────── sorted solvers ───────────────────────────────┘
 //! ```
 //!
 //! [`StateAccount`] is a zero-copy accessor over an account's bytes, generic
@@ -43,7 +43,7 @@ pub const WIDTH_PUBKEY: usize = size_of::<Pubkey>();
 
 /// Length of the fixed header: the discriminator byte followed by one holder
 /// per [`Role`].
-pub const WIDTH_HEADER: usize = WIDTH_DISCRIMINATOR + 3 * WIDTH_PUBKEY;
+pub const WIDTH_HEADER: usize = WIDTH_DISCRIMINATOR + 4 * WIDTH_PUBKEY;
 
 /// A borrowed view over the bytes of a state acc, split into its
 /// discriminator and per-role slots so each can be named. The slots hold raw
@@ -51,6 +51,7 @@ pub const WIDTH_HEADER: usize = WIDTH_DISCRIMINATOR + 3 * WIDTH_PUBKEY;
 struct HeaderSlots<'a> {
     discriminator: &'a [u8; WIDTH_DISCRIMINATOR],
     manager: &'a [u8; WIDTH_PUBKEY],
+    solver_authority: &'a [u8; WIDTH_PUBKEY],
     reclaim_authority: &'a [u8; WIDTH_PUBKEY],
     settlement_owned_order_authority: &'a [u8; WIDTH_PUBKEY],
 }
@@ -59,6 +60,7 @@ struct HeaderSlots<'a> {
 struct HeaderSlotsMut<'a> {
     discriminator: &'a mut [u8; WIDTH_DISCRIMINATOR],
     manager: &'a mut [u8; WIDTH_PUBKEY],
+    solver_authority: &'a mut [u8; WIDTH_PUBKEY],
     reclaim_authority: &'a mut [u8; WIDTH_PUBKEY],
     settlement_owned_order_authority: &'a mut [u8; WIDTH_PUBKEY],
 }
@@ -66,9 +68,16 @@ struct HeaderSlotsMut<'a> {
 /// Split the header into its named slots.
 #[inline]
 fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
-    let (discriminator, manager, reclaim_authority, settlement_owned_order_authority) = array_refs![
+    let (
+        discriminator,
+        manager,
+        solver_authority,
+        reclaim_authority,
+        settlement_owned_order_authority,
+    ) = array_refs![
         header,
         WIDTH_DISCRIMINATOR,
+        WIDTH_PUBKEY,
         WIDTH_PUBKEY,
         WIDTH_PUBKEY,
         WIDTH_PUBKEY
@@ -76,6 +85,7 @@ fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
     HeaderSlots {
         discriminator,
         manager,
+        solver_authority,
         reclaim_authority,
         settlement_owned_order_authority,
     }
@@ -84,9 +94,16 @@ fn header_slots(header: &[u8; WIDTH_HEADER]) -> HeaderSlots<'_> {
 /// [`header_slots`] over a mutable header, for in-place writes.
 #[inline]
 fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
-    let (discriminator, manager, reclaim_authority, settlement_owned_order_authority) = mut_array_refs![
+    let (
+        discriminator,
+        manager,
+        solver_authority,
+        reclaim_authority,
+        settlement_owned_order_authority,
+    ) = mut_array_refs![
         header,
         WIDTH_DISCRIMINATOR,
+        WIDTH_PUBKEY,
         WIDTH_PUBKEY,
         WIDTH_PUBKEY,
         WIDTH_PUBKEY
@@ -94,6 +111,7 @@ fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
     HeaderSlotsMut {
         discriminator,
         manager,
+        solver_authority,
         reclaim_authority,
         settlement_owned_order_authority,
     }
@@ -104,6 +122,8 @@ fn header_slots_mut(header: &mut [u8; WIDTH_HEADER]) -> HeaderSlotsMut<'_> {
 pub struct StateInitArgs {
     /// The [`Role::Manager`] holder.
     pub manager: Pubkey,
+    /// The [`Role::SolverAuthority`] holder.
+    pub solver_authority: Pubkey,
     /// The [`Role::ReclaimAuthority`] holder.
     pub reclaim_authority: Pubkey,
     /// The [`Role::SettlementOwnedOrderAuthority`] holder.
@@ -143,6 +163,7 @@ impl<T: Deref<Target = [u8]>> StateAccount<T> {
         let slots = header_slots(self.header());
         let holder = match role {
             Role::Manager => slots.manager,
+            Role::SolverAuthority => slots.solver_authority,
             Role::ReclaimAuthority => slots.reclaim_authority,
             Role::SettlementOwnedOrderAuthority => slots.settlement_owned_order_authority,
         };
@@ -215,6 +236,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
             );
             *slots.discriminator = [DISCRIMINATOR];
             *slots.manager = args.manager.to_bytes();
+            *slots.solver_authority = args.solver_authority.to_bytes();
             *slots.reclaim_authority = args.reclaim_authority.to_bytes();
             *slots.settlement_owned_order_authority =
                 args.settlement_owned_order_authority.to_bytes();
@@ -234,6 +256,7 @@ impl<T: DerefMut<Target = [u8]>> StateAccount<T> {
         let slots = header_slots_mut(self.header_mut());
         let holder = match role {
             Role::Manager => slots.manager,
+            Role::SolverAuthority => slots.solver_authority,
             Role::ReclaimAuthority => slots.reclaim_authority,
             Role::SettlementOwnedOrderAuthority => slots.settlement_owned_order_authority,
         };
@@ -344,13 +367,16 @@ pub mod fixtures {
 
     /// Any valid [`StateInitArgs`].
     pub fn arb_init_params() -> impl Strategy<Value = StateInitArgs> {
-        (any::<[u8; 32]>(), any::<[u8; 32]>(), any::<[u8; 32]>()).prop_map(
-            |(manager, reclaim_authority, settlement_owned_order_authority)| StateInitArgs {
-                manager: Pubkey::new_from_array(manager),
-                reclaim_authority: Pubkey::new_from_array(reclaim_authority),
-                settlement_owned_order_authority: Pubkey::new_from_array(
-                    settlement_owned_order_authority,
-                ),
+        any::<[[u8; 32]; 4]>().prop_map(
+            |[manager, solver_authority, reclaim_authority, settlement_owned_order_authority]| {
+                StateInitArgs {
+                    manager: Pubkey::new_from_array(manager),
+                    solver_authority: Pubkey::new_from_array(solver_authority),
+                    reclaim_authority: Pubkey::new_from_array(reclaim_authority),
+                    settlement_owned_order_authority: Pubkey::new_from_array(
+                        settlement_owned_order_authority,
+                    ),
+                }
             },
         )
     }
@@ -368,6 +394,7 @@ mod tests {
 
     static SAMPLE_INIT_ARGS: LazyLock<StateInitArgs> = LazyLock::new(|| StateInitArgs {
         manager: pubkey_from_seed("SAMPLE_INIT_ARGS's sample manager"),
+        solver_authority: pubkey_from_seed("SAMPLE_INIT_ARGS's sample solver authority"),
         reclaim_authority: pubkey_from_seed("SAMPLE_INIT_ARGS's sample reclaim authority"),
         settlement_owned_order_authority: pubkey_from_seed(
             "SAMPLE_INIT_ARGS's sample settlement-owned-order authority",
@@ -389,17 +416,21 @@ mod tests {
 
     #[test]
     fn header_has_the_canonical_wire_layout() {
-        assert_eq!(WIDTH_HEADER, 97);
+        assert_eq!(WIDTH_HEADER, 129);
 
         let bytes = header_bytes();
         assert_eq!(bytes[0], SettlementAccount::SettlementState.discriminator());
         assert_eq!(&bytes[1..33], &SAMPLE_INIT_ARGS.manager.to_bytes()[..]);
         assert_eq!(
             &bytes[33..65],
-            &SAMPLE_INIT_ARGS.reclaim_authority.to_bytes()[..]
+            &SAMPLE_INIT_ARGS.solver_authority.to_bytes()[..]
         );
         assert_eq!(
             &bytes[65..97],
+            &SAMPLE_INIT_ARGS.reclaim_authority.to_bytes()[..]
+        );
+        assert_eq!(
+            &bytes[97..129],
             &SAMPLE_INIT_ARGS.settlement_owned_order_authority.to_bytes()[..]
         );
     }
@@ -407,15 +438,20 @@ mod tests {
     #[test]
     fn reads_role_holders_from_the_header() {
         let bytes = header_bytes();
+        let StateInitArgs {
+            manager,
+            solver_authority,
+            reclaim_authority,
+            settlement_owned_order_authority,
+        } = *SAMPLE_INIT_ARGS;
+
         let state = StateAccount::attach(&bytes[..]).expect("valid header");
-        assert_eq!(state.authority(Role::Manager), SAMPLE_INIT_ARGS.manager);
-        assert_eq!(
-            state.authority(Role::ReclaimAuthority),
-            SAMPLE_INIT_ARGS.reclaim_authority
-        );
+        assert_eq!(state.authority(Role::Manager), manager);
+        assert_eq!(state.authority(Role::SolverAuthority), solver_authority);
+        assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
         assert_eq!(
             state.authority(Role::SettlementOwnedOrderAuthority),
-            SAMPLE_INIT_ARGS.settlement_owned_order_authority
+            settlement_owned_order_authority
         );
     }
 
@@ -461,20 +497,31 @@ mod tests {
         }
     }
 
-    /// Generates one test, `set_authority_updates_only_<role>`, for `$role`.
-    macro_rules! set_authority_test {
-        ($name:ident: $role:expr) => {
-            #[test]
-            fn $name() {
-                assert_set_authority_updates_only($role);
+    /// Generates a `set_authority_updates_only_<role>` test for each listed role.
+    macro_rules! set_authority_tests {
+        ($($role:ident),+ $(,)?) => {
+            pastey::paste! {
+                $(
+                    #[test]
+                    fn [< set_authority_updates_only_ $role:snake >]() {
+                        assert_set_authority_updates_only(Role::$role);
+                    }
+                )+
             }
+
+            // Break the build if a `Role` is added without listing it in the
+            // macro.
+            const _: () = match Role::Manager {
+                $( Role::$role => {} ),+
+            };
         };
     }
 
-    set_authority_test!(set_authority_updates_only_manager: Role::Manager);
-    set_authority_test!(set_authority_updates_only_reclaim_authority: Role::ReclaimAuthority);
-    set_authority_test!(
-        set_authority_updates_only_settlement_owned_order_authority: Role::SettlementOwnedOrderAuthority
+    set_authority_tests!(
+        Manager,
+        SolverAuthority,
+        ReclaimAuthority,
+        SettlementOwnedOrderAuthority
     );
 
     #[test]
@@ -482,15 +529,20 @@ mod tests {
         let mut bytes = header_bytes().to_vec();
         bytes.push(0x42);
 
+        let StateInitArgs {
+            manager,
+            solver_authority,
+            reclaim_authority,
+            settlement_owned_order_authority,
+        } = *SAMPLE_INIT_ARGS;
+
         let state = StateAccount::attach(&bytes[..]).expect("header with trailing bytes is valid");
-        assert_eq!(state.authority(Role::Manager), SAMPLE_INIT_ARGS.manager);
-        assert_eq!(
-            state.authority(Role::ReclaimAuthority),
-            SAMPLE_INIT_ARGS.reclaim_authority
-        );
+        assert_eq!(state.authority(Role::Manager), manager);
+        assert_eq!(state.authority(Role::SolverAuthority), solver_authority);
+        assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
         assert_eq!(
             state.authority(Role::SettlementOwnedOrderAuthority),
-            SAMPLE_INIT_ARGS.settlement_owned_order_authority
+            settlement_owned_order_authority
         );
     }
 
@@ -597,8 +649,9 @@ mod tests {
                 StateAccount::initialize(&mut bytes[..], &header).expect("header fits");
 
                 let state = StateAccount::attach(&bytes[..]).expect("valid header");
-                let StateInitArgs { manager, reclaim_authority, settlement_owned_order_authority } = header;
+                let StateInitArgs { manager, solver_authority, reclaim_authority, settlement_owned_order_authority } = header;
                 prop_assert_eq!(state.authority(Role::Manager), manager);
+                prop_assert_eq!(state.authority(Role::SolverAuthority), solver_authority);
                 prop_assert_eq!(state.authority(Role::ReclaimAuthority), reclaim_authority);
                 prop_assert_eq!(
                     state.authority(Role::SettlementOwnedOrderAuthority),

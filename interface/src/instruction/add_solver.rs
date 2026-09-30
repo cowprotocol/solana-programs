@@ -1,9 +1,9 @@
 //! `AddSolver` instruction builder and parser.
 //!
 //! It inserts a solver into the sorted solver list stored in the state PDA (see
-//! [`crate::data::state`]). Only the manager may authorize it. The state PDA
-//! grows by one solver, so a `payer` funds the extra rent through a `Transfer`
-//! from the system program.
+//! [`crate::data::state`]). Only the solver authority may authorize it. The
+//! state PDA grows by one solver, so a `payer` funds the extra rent through a
+//! `Transfer` from the system program.
 
 use core::mem::size_of;
 
@@ -18,18 +18,18 @@ use crate::SettlementInstruction;
 
 /// Builder for an `AddSolver` instruction.
 ///
-/// `manager` authorizes the change and must be the state PDA's current manager;
-/// it signs but doesn't pay. `payer` funds the extra rent and signs the funding
-/// transfer. `solver` is inserted into the sorted solver list; adding one
-/// already present fails.
+/// `authority` authorizes the change and must be the state PDA's current solver
+/// authority; it signs but doesn't pay. `payer` funds the extra rent and signs
+/// the funding transfer. `solver` is inserted into the sorted solver list;
+/// adding one already present fails.
 ///
 /// Wire format: `[discriminator=8, solver (32 bytes)]`.
-/// Required accounts: `[manager (S), payer (W,S), state_pda (W),
+/// Required accounts: `[authority (S), payer (W,S), state_pda (W),
 /// system_program (R)]`. The system program must be available for the
 /// rent-funding `Transfer` CPI but doesn't need to sit at a specific position.
 pub struct AddSolver {
     pub program_id: Pubkey,
-    pub manager: Pubkey,
+    pub authority: Pubkey,
     pub payer: Pubkey,
     pub state_pda: Pubkey,
     pub solver: Pubkey,
@@ -42,7 +42,7 @@ impl From<AddSolver> for Instruction {
         Instruction {
             program_id: builder.program_id,
             accounts: vec![
-                AccountMeta::new_readonly(builder.manager, true),
+                AccountMeta::new_readonly(builder.authority, true),
                 AccountMeta::new(builder.payer, true),
                 AccountMeta::new(builder.state_pda, false),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
@@ -54,7 +54,7 @@ impl From<AddSolver> for Instruction {
 
 /// Parsed inputs of an `AddSolver` instruction.
 pub struct AddSolverInput<'a, A> {
-    pub manager: &'a A,
+    pub authority: &'a A,
     pub payer: &'a A,
     pub state_pda: &'a A,
     pub solver: Pubkey,
@@ -69,15 +69,16 @@ impl<'a, A> InstructionInputParsing<'a, A> for AddSolverInput<'a, A> {
             .map_err(|_| ProgramError::InvalidInstructionData)?;
         let solver = Pubkey::new_from_array(*solver);
 
-        // Accounts: [manager (S), payer (W,S), state_pda (W), system_program (R)].
-        // The system program needs to be present for the `Transfer` CPI but
-        // doesn't need to be referenced directly and can be at any later position.
-        let [manager, payer, state_pda, _system, ..] = accounts else {
+        // Accounts: [authority (S), payer (W,S), state_pda (W),
+        // system_program (R)]. The system program needs to be present for the
+        // `Transfer` CPI but doesn't need to be referenced directly and can be
+        // at any later position.
+        let [authority, payer, state_pda, _system, ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
         Ok(Self {
-            manager,
+            authority,
             payer,
             state_pda,
             solver,
@@ -94,8 +95,8 @@ pub mod fixtures {
 
     use super::AddSolver;
 
-    /// Number of accounts `AddSolver` expects: manager, payer, state PDA, system
-    /// program.
+    /// Number of accounts `AddSolver` expects: solver authority, payer, state
+    /// PDA, system program.
     pub const NUM_ACCOUNTS: usize = 4;
 
     /// `AddSolver` instruction data with placeholder addresses, for failure cases
@@ -104,7 +105,7 @@ pub mod fixtures {
         let zero = Address::default();
         Instruction::from(AddSolver {
             program_id: zero,
-            manager: zero,
+            authority: zero,
             payer: zero,
             state_pda: zero,
             solver: zero,
@@ -128,7 +129,7 @@ mod tests {
     #[test]
     fn add_solver_input_parses_valid_input() {
         let program_id = pubkey_from_seed("program id");
-        let manager = fake_account(pubkey_from_seed("manager"));
+        let authority = fake_account(pubkey_from_seed("solver authority"));
         let payer = fake_account(pubkey_from_seed("payer"));
         let state_pda = fake_account(pubkey_from_seed("state pda"));
         let system_program = fake_account(pubkey_from_seed("system program"));
@@ -136,22 +137,22 @@ mod tests {
 
         let data = Instruction::from(AddSolver {
             program_id,
-            manager: *manager.address(),
+            authority: *authority.address(),
             payer: *payer.address(),
             state_pda: *state_pda.address(),
             solver,
         })
         .data;
-        let accounts = [manager, payer, state_pda, system_program];
+        let accounts = [authority, payer, state_pda, system_program];
 
         let AddSolverInput {
-            manager: parsed_manager,
+            authority: parsed_authority,
             payer: parsed_payer,
             state_pda: parsed_state_pda,
             solver: parsed_solver,
         } = AddSolverInput::parse(&data, &accounts).expect("parse should succeed");
 
-        assert_eq!(parsed_manager.address(), manager.address());
+        assert_eq!(parsed_authority.address(), authority.address());
         assert_eq!(parsed_payer.address(), payer.address());
         assert_eq!(parsed_state_pda.address(), state_pda.address());
         assert_eq!(parsed_solver, solver);
@@ -195,7 +196,7 @@ mod tests {
         let solver = pubkey_from_seed("solver");
         let Instruction { data, .. } = AddSolver {
             program_id: pubkey_from_seed("program id"),
-            manager: pubkey_from_seed("manager"),
+            authority: pubkey_from_seed("solver authority"),
             payer: pubkey_from_seed("payer"),
             state_pda: pubkey_from_seed("state pda"),
             solver,
@@ -212,7 +213,7 @@ mod tests {
         let solver = Pubkey::new_from_array([0x11; 32]);
         let Instruction { data, .. } = AddSolver {
             program_id: pubkey_from_seed("program id"),
-            manager: pubkey_from_seed("manager"),
+            authority: pubkey_from_seed("solver authority"),
             payer: pubkey_from_seed("payer"),
             state_pda: pubkey_from_seed("state pda"),
             solver,
@@ -234,12 +235,12 @@ mod tests {
 
     #[test]
     fn instruction_has_expected_accounts() {
-        let manager = pubkey_from_seed("manager");
+        let authority = pubkey_from_seed("solver authority");
         let payer = pubkey_from_seed("payer");
         let state_pda = pubkey_from_seed("state pda");
         let Instruction { accounts, .. } = AddSolver {
             program_id: pubkey_from_seed("program id"),
-            manager,
+            authority,
             payer,
             state_pda,
             solver: pubkey_from_seed("solver"),
@@ -247,9 +248,10 @@ mod tests {
         .into();
 
         assert_eq!(accounts.len(), 4);
-        // The manager authorizes the change; the payer funds the extra rent; the
-        // state PDA is grown and written; the system program is only referenced.
-        assert_readonly_signer(&accounts[0], manager);
+        // The solver authority authorizes the change; the payer funds the extra
+        // rent; the state PDA is grown and written; the system program is only
+        // referenced.
+        assert_readonly_signer(&accounts[0], authority);
         assert_writable_signer(&accounts[1], payer);
         assert_writable_nonsigner(&accounts[2], state_pda);
         assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
