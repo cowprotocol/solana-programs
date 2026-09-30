@@ -58,8 +58,8 @@ struct KnownBuffer {
     address: [u8; 32],
 }
 
-/// The buffers of [`known_mints::KNOWN_MINTS`], ordered by [`search_key`] so
-/// the program can binary search [`KNOWN_BUFFER_KEYS`] instead of paying for a
+/// The buffers of [`known_mints::KNOWN_MINTS`], in the same order, which the
+/// program finds through [`KNOWN_BUFFER_SLOTS`] instead of paying for a
 /// `create_program_address` syscall.
 // Deriving this many PDAs in const eval trips the compiler's infinite-loop
 // guard, although it finishes in seconds.
@@ -78,44 +78,85 @@ const KNOWN_BUFFERS: [KnownBuffer; known_mints::KNOWN_MINTS.len()] = {
             &buffer_pda_seeds(&mint),
             crate::ID.as_array(),
         );
-        // Insertion sort: shift every buffer with a larger key up one slot.
-        let mut j = i;
-        while j > 0 && search_key(&buffers[j - 1].mint) > search_key(&mint) {
-            buffers.swap(j - 1, j);
-            j -= 1;
-        }
-        buffers[j] = KnownBuffer { mint, address };
+        buffers[i] = KnownBuffer { mint, address };
         i += 1;
     }
     buffers
 };
 
-/// The [`search_key`] of each of [`KNOWN_BUFFERS`], in the same order.
-const KNOWN_BUFFER_KEYS: [u64; KNOWN_BUFFERS.len()] = {
-    let mut keys = [0; KNOWN_BUFFERS.len()];
+/// Bits of the hash that pick a slot: 256 slots keep collisions among 64 mints
+/// rare enough that a multiplier turns up within a few thousand attempts.
+const SLOT_BITS: u32 = 8;
+
+/// Gives every one of [`KNOWN_BUFFERS`] its own slot in [`KNOWN_BUFFER_SLOTS`].
+const KNOWN_BUFFER_MULTIPLIER: u64 = find_slot_multiplier(&KNOWN_BUFFERS);
+
+/// The index into [`KNOWN_BUFFERS`] of the mint in each slot, or `u8::MAX` for
+/// an empty slot, which [`known_buffer`] then finds no buffer at.
+const KNOWN_BUFFER_SLOTS: [u8; 1 << SLOT_BITS] = {
+    assert!(
+        KNOWN_BUFFERS.len() < u8::MAX as usize,
+        "too many known mints for u8 indices"
+    );
+    let mut slots = [u8::MAX; 1 << SLOT_BITS];
     let mut i = 0;
-    while i < keys.len() {
-        keys[i] = search_key(&KNOWN_BUFFERS[i].mint);
-        // Strictly increasing, so a key identifies at most one known buffer.
-        assert!(
-            i == 0 || keys[i - 1] < keys[i],
-            "known mints must have distinct search keys"
-        );
+    while i < KNOWN_BUFFERS.len() {
+        slots[slot(&KNOWN_BUFFERS[i].mint, KNOWN_BUFFER_MULTIPLIER)] = i as u8;
         i += 1;
     }
-    keys
+    slots
 };
 
-/// The leading 8 bytes of `mint`: comparing a `u64` is cheaper on-chain than
-/// comparing the whole address.
-const fn search_key(mint: &[u8; 32]) -> u64 {
-    u64::from_le_bytes(*mint.first_chunk().expect("a mint is longer than 8 bytes"))
+/// Multiplicative hash of the leading 8 bytes of `mint`, keeping the top
+/// [`SLOT_BITS`] of the product.
+const fn slot(mint: &[u8; 32], multiplier: u64) -> usize {
+    let key = u64::from_le_bytes(*mint.first_chunk().expect("a mint is longer than 8 bytes"));
+    (key.wrapping_mul(multiplier) >> (u64::BITS - SLOT_BITS)) as usize
+}
+
+/// Try pseudo-random multipliers until one sends each of `buffers` to a
+/// distinct [`slot`].
+///
+/// Panics (at compile time, for [`KNOWN_BUFFER_MULTIPLIER`]) if none does,
+/// which is certain if two mints share their leading 8 bytes.
+const fn find_slot_multiplier(buffers: &[KnownBuffer]) -> u64 {
+    const ATTEMPTS: u32 = 100_000;
+    let mut state = 0u64;
+    let mut attempt = 0;
+    while attempt < ATTEMPTS {
+        // splitmix64
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut multiplier = state;
+        multiplier = (multiplier ^ (multiplier >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        multiplier = (multiplier ^ (multiplier >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        multiplier ^= multiplier >> 31;
+
+        let mut taken = [false; 1 << SLOT_BITS];
+        let mut i = 0;
+        while i < buffers.len() {
+            let slot = slot(&buffers[i].mint, multiplier);
+            if taken[slot] {
+                break;
+            }
+            taken[slot] = true;
+            i = i.checked_add(1).expect("i stays below the buffer count");
+        }
+        if i == buffers.len() {
+            return multiplier;
+        }
+        attempt = attempt
+            .checked_add(1)
+            .expect("attempt stays below ATTEMPTS");
+    }
+    panic!("no multiplier gives every known mint its own slot");
 }
 
 /// The compile-time buffer for `mint`, if it's one of the known mints.
 fn known_buffer(mint: &[u8; 32]) -> Option<&'static KnownBuffer> {
-    let index = KNOWN_BUFFER_KEYS.binary_search(&search_key(mint)).ok()?;
-    KNOWN_BUFFERS.get(index).filter(|known| &known.mint == mint)
+    let index = KNOWN_BUFFER_SLOTS[slot(mint, KNOWN_BUFFER_MULTIPLIER)];
+    KNOWN_BUFFERS
+        .get(usize::from(index))
+        .filter(|known| &known.mint == mint)
 }
 
 /// Confirm `buffer` matches the derived buffer PDA for the mint bytes `mint`
@@ -232,10 +273,38 @@ mod tests {
     }
 
     #[test]
-    fn unknown_mint_sharing_a_search_key_has_no_known_buffer() {
+    fn unknown_mint_sharing_a_slot_has_no_known_buffer() {
         let mut mint = *USDC.as_array();
         mint[31] ^= 1;
         assert!(known_buffer(&mint).is_none());
+    }
+
+    #[test]
+    fn unknown_mint_in_an_empty_slot_has_no_known_buffer() {
+        let mint = (0u64..)
+            .map(|seed| *crate::fixtures::pubkey_from_seed(&seed.to_string()).as_array())
+            .find(|mint| KNOWN_BUFFER_SLOTS[slot(mint, KNOWN_BUFFER_MULTIPLIER)] == u8::MAX)
+            .expect("most slots are empty");
+        assert!(known_buffer(&mint).is_none());
+    }
+
+    /// `find_slot_multiplier` runs in a const context, where this panic is a
+    /// compile error; calling it at runtime is the only way to observe it.
+    #[test]
+    #[should_panic(expected = "no multiplier gives every known mint its own slot")]
+    fn find_slot_multiplier_rejects_mints_sharing_their_leading_bytes() {
+        let mut other = *USDC.as_array();
+        other[31] ^= 1;
+        let _ = find_slot_multiplier(&[
+            KnownBuffer {
+                mint: *USDC.as_array(),
+                address: [0; 32],
+            },
+            KnownBuffer {
+                mint: other,
+                address: [0; 32],
+            },
+        ]);
     }
 
     #[test]
