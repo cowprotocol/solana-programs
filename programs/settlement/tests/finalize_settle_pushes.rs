@@ -29,7 +29,7 @@ use cow_settlement_client::{
 };
 use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
-    instruction::InstructionError, program_error::ProgramError, signer::Signer,
+    instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signer::Signer,
     transaction::TransactionError,
 };
 
@@ -58,6 +58,34 @@ fn finalizes_with_no_pushes() {
 fn pushes_a_single_order() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let mint = token::create_mint(&mut svm, &payer);
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_mint(&mint)
+        .build();
+    let funding = 1_000;
+    let buffer_pda = buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, funding);
+
+    let amount = 400;
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount,
+        }],
+    );
+    send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
+        .expect("a single push should be paid");
+
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), amount);
+    assert_eq!(token::balance(&svm, &buffer_pda), funding - amount);
+}
+
+#[test]
+fn pushes_a_single_order_of_a_known_mint() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    // USDC, one of the mints whose buffer the program knows at compile time.
+    let mint = Pubkey::from_str_const("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+    token::plant_mint(&mut svm, mint, &payer.pubkey());
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&mint)
         .build();
