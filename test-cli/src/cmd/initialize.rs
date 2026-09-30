@@ -10,10 +10,12 @@ use super::Context;
 
 #[derive(ClapArgs)]
 pub struct InitializeArgs {
-    /// Account authorized to add and remove solvers and to reassign every role
-    /// (defaults to the payer)
+    /// Account authorized to reassign every role (defaults to the payer)
     #[arg(long)]
     manager: Option<Pubkey>,
+    /// Account authorized to add and remove solvers (defaults to the payer)
+    #[arg(long)]
+    solver_authority: Option<Pubkey>,
     /// Account authorized to reclaim buffer rent (defaults to the payer)
     #[arg(long)]
     reclaim_authority: Option<Pubkey>,
@@ -36,6 +38,7 @@ pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
         program_id: ctx.program_id,
         payer,
         manager: args.manager.unwrap_or(payer),
+        solver_authority: args.solver_authority.unwrap_or(payer),
         reclaim_authority: args.reclaim_authority.unwrap_or(payer),
         settlement_owned_order_authority: args.settlement_owned_order_authority.unwrap_or(payer),
     };

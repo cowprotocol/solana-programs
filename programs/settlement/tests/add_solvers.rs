@@ -1,6 +1,6 @@
 //! Integration tests for the solver list stored in the state PDA: adding solvers
-//! (kept sorted, growing the account and funding the extra rent) and the manager
-//! gate on adding them.
+//! (kept sorted, growing the account and funding the extra rent) and the
+//! solver-authority gate on adding them.
 
 use cow_settlement_client::cow_settlement_interface::{
     data::state::{WIDTH_HEADER, WIDTH_PUBKEY},
@@ -26,17 +26,17 @@ use crate::common::{
 
 mod common;
 
-/// Build an `AddSolver` transaction authorized by the manager and paid by the
-/// payer, both of which sign. Split from [`add_solver`] so the happy-path test
-/// can submit the same transaction through the metered send.
+/// Build an `AddSolver` transaction authorized by the solver authority and paid
+/// by the payer, both of which sign. Split from [`add_solver`] so the
+/// happy-path test can submit the same transaction through the metered send.
 fn add_solver_tx(svm: &LiteSVM, params: &InitializedParams, solver: &Pubkey) -> Transaction {
     let ix = AddSolver {
         program_id: params.program_id,
-        manager: params.manager.pubkey(),
+        authority: params.solver_authority.pubkey(),
         payer: params.payer.pubkey(),
         solver: *solver,
     };
-    common::signed_tx(svm, &params.payer, &params.manager, ix)
+    common::signed_tx(svm, &params.payer, &params.solver_authority, ix)
 }
 
 /// Send an [`add_solver_tx`].
@@ -141,36 +141,36 @@ fn rejects_adding_an_existing_solver() {
 }
 
 #[test]
-fn rejects_adding_solver_if_manager_is_not_signer() {
+fn rejects_adding_solver_if_solver_authority_is_not_signer() {
     let (mut svm, params) = setup_init();
     let solver = unique_keypair().pubkey();
 
     let mut ix: Instruction = AddSolver {
         program_id: params.program_id,
-        manager: params.manager.pubkey(),
+        authority: params.solver_authority.pubkey(),
         payer: params.payer.pubkey(),
         solver,
     }
     .into();
     assert!(
-        ix.accounts[MANAGER_INDEX].is_signer && !ix.accounts[MANAGER_INDEX].is_writable,
-        "test sanity check failed: MANAGER_INDEX should point to the manager signer"
+        ix.accounts[AUTHORITY_INDEX].is_signer && !ix.accounts[AUTHORITY_INDEX].is_writable,
+        "test sanity check failed: AUTHORITY_INDEX should point to the authority signer"
     );
-    ix.accounts[MANAGER_INDEX].is_signer = false;
+    ix.accounts[AUTHORITY_INDEX].is_signer = false;
 
     let res = common::send(&mut svm, &params.payer, &[ix]);
     assert_instruction_error(res, SettlementError::UnauthorizedSolverManagement);
 }
 
 #[test]
-fn rejects_adding_solver_by_non_manager() {
+fn rejects_adding_solver_by_non_solver_authority() {
     let (mut svm, params) = setup_init();
     let solver = unique_keypair().pubkey();
 
     let stranger = unique_keypair();
     let ix = AddSolver {
         program_id: params.program_id,
-        manager: stranger.pubkey(),
+        authority: stranger.pubkey(),
         payer: params.payer.pubkey(),
         solver,
     };
@@ -262,22 +262,22 @@ fn rejects_growing_beyond_the_max_account_size() {
     );
 }
 
-/// Index of the manager account in an `AddSolver` instruction.
-const MANAGER_INDEX: usize = 0;
+/// Index of the authority account in an `AddSolver` instruction.
+const AUTHORITY_INDEX: usize = 0;
 
 #[test]
 fn rejects_adding_solver_if_state_pda_is_uninitialized() {
     let (mut svm, program_id, payer) = common::setup();
-    let manager = unique_keypair();
+    let solver_authority = unique_keypair();
     let solver = unique_keypair().pubkey();
 
     let ix = AddSolver {
         program_id,
-        manager: manager.pubkey(),
+        authority: solver_authority.pubkey(),
         payer: payer.pubkey(),
         solver,
     };
-    let tx = common::signed_tx(&svm, &payer, &manager, ix);
+    let tx = common::signed_tx(&svm, &payer, &solver_authority, ix);
     let res = svm.send_transaction(tx).map_err(|e| e.err);
     assert_instruction_error(res, InstructionError::InvalidAccountData);
 }

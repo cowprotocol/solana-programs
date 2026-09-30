@@ -115,6 +115,7 @@ mod tests {
                 program_id,
                 payer,
                 manager: payer,
+                solver_authority: payer,
                 reclaim_authority: payer,
                 settlement_owned_order_authority: payer,
             }
@@ -191,14 +192,14 @@ mod tests {
             .into(),
             SettlementInstruction::AddSolver => AddSolver {
                 program_id,
-                manager: payer,
+                authority: payer,
                 payer,
                 solver: pubkey_from_seed("solver"),
             }
             .into(),
             SettlementInstruction::RemoveSolver => RemoveSolver {
                 program_id,
-                manager: payer,
+                authority: payer,
                 rent_recipient: payer,
                 solver: pubkey_from_seed("solver"),
             }
