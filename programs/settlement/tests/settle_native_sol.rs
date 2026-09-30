@@ -15,9 +15,7 @@ use cow_settlement_client::cow_settlement_interface::{
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
     pda::{
         buffer::find_buffer_pda,
-        state::{
-            NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP, STATE_PDA, STATE_PDA_AND_BUMP,
-        },
+        state::{NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP, STATE_PDA},
     },
     SettlementError,
 };
