@@ -84,9 +84,9 @@ const KNOWN_BUFFERS: [KnownBuffer; known_mints::KNOWN_MINTS.len()] = {
     buffers
 };
 
-/// Bits of the hash that pick a slot: 256 slots keep collisions among 64 mints
-/// rare enough that a multiplier turns up within a few thousand attempts.
-const SLOT_BITS: u32 = 8;
+/// Bits of the hash that pick a slot: 512 slots keep collisions among 64 mints
+/// rare enough that a multiplier turns up within a few dozen attempts.
+const SLOT_BITS: u32 = 9;
 
 /// Gives every one of [`KNOWN_BUFFERS`] its own slot in [`KNOWN_BUFFER_SLOTS`].
 const KNOWN_BUFFER_MULTIPLIER: u64 = find_slot_multiplier(&KNOWN_BUFFERS);
@@ -114,34 +114,24 @@ const fn slot(mint: &[u8; 32], multiplier: u64) -> usize {
     (key.wrapping_mul(multiplier) >> (u64::BITS - SLOT_BITS)) as usize
 }
 
-/// Try pseudo-random multipliers until one sends each of `buffers` to a
-/// distinct [`slot`].
+/// Try the multipliers `SHA-256(0)`, `SHA-256(1)`, ... (each truncated to its
+/// first 8 bytes) until one sends each of `buffers` to a distinct [`slot`].
 ///
 /// Panics (at compile time, for [`KNOWN_BUFFER_MULTIPLIER`]) if none does,
 /// which is certain if two mints share their leading 8 bytes.
 const fn find_slot_multiplier(buffers: &[KnownBuffer]) -> u64 {
     const ATTEMPTS: u32 = 100_000;
-    let mut state = 0u64;
-    let mut attempt = 0;
+    let mut attempt: u32 = 0;
     while attempt < ATTEMPTS {
-        // splitmix64
-        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut multiplier = state;
-        multiplier = (multiplier ^ (multiplier >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        multiplier = (multiplier ^ (multiplier >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        multiplier ^= multiplier >> 31;
-
-        let mut taken = [false; 1 << SLOT_BITS];
-        let mut i = 0;
-        while i < buffers.len() {
-            let slot = slot(&buffers[i].mint, multiplier);
-            if taken[slot] {
-                break;
-            }
-            taken[slot] = true;
-            i = i.checked_add(1).expect("i stays below the buffer count");
-        }
-        if i == buffers.len() {
+        let digest = const_crypto::sha2::Sha256::new()
+            .update(&attempt.to_le_bytes())
+            .finalize();
+        let multiplier = u64::from_le_bytes(
+            *digest
+                .first_chunk()
+                .expect("a digest is longer than 8 bytes"),
+        );
+        if has_distinct_slots(buffers, multiplier) {
             return multiplier;
         }
         attempt = attempt
@@ -149,6 +139,21 @@ const fn find_slot_multiplier(buffers: &[KnownBuffer]) -> u64 {
             .expect("attempt stays below ATTEMPTS");
     }
     panic!("no multiplier gives every known mint its own slot");
+}
+
+/// Whether `multiplier` sends each of `buffers` to a different [`slot`].
+const fn has_distinct_slots(buffers: &[KnownBuffer], multiplier: u64) -> bool {
+    let mut taken = [false; 1 << SLOT_BITS];
+    let mut i = 0;
+    while i < buffers.len() {
+        let slot = slot(&buffers[i].mint, multiplier);
+        if taken[slot] {
+            return false;
+        }
+        taken[slot] = true;
+        i = i.checked_add(1).expect("i stays below the buffer count");
+    }
+    true
 }
 
 /// The compile-time buffer for `mint`, if it's one of the known mints.
