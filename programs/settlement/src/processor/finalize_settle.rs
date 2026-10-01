@@ -17,7 +17,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     lamports::move_lamports,
     settle::validate_counterpart,
-    token::{mint_decimals, owning_token_program, transfer},
+    token::{mint_decimals, owning_token_program, TokenTransfers},
 };
 
 pub fn process_finalize_settle(
@@ -50,8 +50,14 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
+    let mut transfers = TokenTransfers::new(input.extra_accounts);
     with_state_pda_signer(|state_pda_signer| {
-        push_funds(input.state_pda_account, state_pda_signer, input.pushes)
+        push_funds(
+            input.state_pda_account,
+            state_pda_signer,
+            &mut transfers,
+            input.pushes,
+        )
     })
 }
 
@@ -76,8 +82,9 @@ pub fn process_finalize_settle(
 /// in the CPI changed before it (it reverts with `UnbalancedInstruction`).
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(
-    state_pda_account: &AccountView,
+    state_pda_account: &'a AccountView,
     state_pda_signer: &Signer,
+    transfers: &mut TokenTransfers<'a>,
     pushes: Pushes<'a, AccountView>,
 ) -> ProgramResult {
     // Loop for orders not paying out native SOL
@@ -85,7 +92,7 @@ fn push_funds<'a>(
         if push.source_buffer.address() != state_pda_account.address() {
             let token_program = owning_token_program(push.destination)
                 .map_err(|_| SettlementError::InvalidTokenProgram)?;
-            transfer(
+            transfers.transfer(
                 token_program,
                 push.source_buffer,
                 push.mint,

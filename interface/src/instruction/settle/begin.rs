@@ -37,13 +37,14 @@ pub struct Pull {
 /// [transfer_count×n][amount: u64 LE ×T]`.
 /// Required accounts: `[solver (S,R), instructions_sysvar (R), state_pda (R),
 /// spl_token_program (R), token_2022_program (R)]` followed, per order, by
-/// `[order_pda (W), sell_token_account (W), sell_mint (R), destination (W)...]`.
-/// The token
+/// `[order_pda (W), sell_token_account (W), sell_mint (R), destination (W)...]`,
+/// then by any number of extra accounts. The token
 /// program accounts are there to allow CPI calls against the corresponding token
 /// program, and are otherwise not parsed or validated, so it is possible to replace
 /// these accounts with the system program (or any other program) if they are unused.
 /// A `sell_mint` holding [`UNCHECKED_MINT`](super::UNCHECKED_MINT) makes the
-/// order's pulls plain `Transfer`s; any other mint makes them `TransferChecked`.
+/// order's pulls plain `Transfer`s; any other mint makes them `TransferChecked`,
+/// each carrying all the extra accounts (for example, transfer hook accounts).
 ///
 /// `solver` must sign, and the solver must be registered in the state pda.
 ///
@@ -68,6 +69,8 @@ pub struct BeginSettle<'a> {
     pub sell_token_accounts: &'a [Pubkey],
     pub sell_mints: &'a [Option<Pubkey>],
     pub pulls: &'a [&'a [Pull]],
+    /// Appended to every `TransferChecked` this settlement issues.
+    pub extra_accounts: &'a [AccountMeta],
 }
 
 impl From<BeginSettle<'_>> for Instruction {
@@ -83,6 +86,7 @@ impl From<BeginSettle<'_>> for Instruction {
             sell_token_accounts,
             sell_mints,
             pulls,
+            extra_accounts,
         } = builder;
 
         // Sort the parallel lists together by order PDA address via a shared
@@ -138,6 +142,7 @@ impl From<BeginSettle<'_>> for Instruction {
                 accounts.push(AccountMeta::new(pull.destination, false));
             }
         }
+        accounts.extend_from_slice(extra_accounts);
 
         Instruction {
             program_id,
@@ -245,6 +250,9 @@ pub struct BeginSettleInput<'a, A> {
     pub instructions_sysvar_account: &'a A,
     pub state_pda_account: &'a A,
     pub orders: SettledOrders<'a, A>,
+    /// The accounts after the order accounts, passed on to every
+    /// `TransferChecked`.
+    pub extra_accounts: &'a [A],
 }
 
 /// This implementation defines how instruction bytes and accounts are laid out
@@ -291,14 +299,12 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
 
         // Each order contributes its order PDA, sell token account, sell mint,
         // and one destination per transfer, so the order accounts count is
-        // `3n + T`.
-        let expected_accounts = order_count
+        // `3n + T`. Whatever follows is extra accounts.
+        let (order_accounts, extra_accounts) = order_count
             .checked_mul(3)
             .and_then(|three_n| three_n.checked_add(transfer_count))
-            .ok_or(ProgramError::InvalidInstructionData)?;
-        if order_accounts.len() != expected_accounts {
-            return Err(SettlementError::AccountCountNotMatchingOrderCount.into());
-        }
+            .and_then(|expected_accounts| order_accounts.split_at_checked(expected_accounts))
+            .ok_or(SettlementError::AccountCountNotMatchingOrderCount)?;
 
         // The transfer counts must sum to `T` so that every destination account
         // is matched to exactly one amount and the order accounts are consumed
@@ -319,6 +325,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
                 counts,
                 amounts,
             },
+            extra_accounts,
         })
     }
 }
@@ -511,6 +518,8 @@ mod tests {
         let dest_a1 = Pubkey::new_from_array([0x06; 32]);
         let dest_b0 = Pubkey::new_from_array([0x07; 32]);
         let mint_b = Pubkey::new_from_array([0x08; 32]);
+        let extra_readonly = Pubkey::new_from_array([0x09; 32]);
+        let extra_writable = Pubkey::new_from_array([0x0a; 32]);
 
         // Order A has two transfers, order B has one.
         let Instruction { data, accounts, .. } = BeginSettle {
@@ -537,6 +546,10 @@ mod tests {
                     destination: dest_b0,
                     amount: 0x0506,
                 }],
+            ],
+            extra_accounts: &[
+                AccountMeta::new_readonly(extra_readonly, false),
+                AccountMeta::new(extra_writable, false),
             ],
             ..Default::default()
         }
@@ -572,10 +585,13 @@ mod tests {
             sell_b,
             mint_b,
             dest_b0,
+            extra_readonly,
+            extra_writable,
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts and mints are read-only; the rest are writable.
+        // The fixed accounts and mints are read-only; the rest are writable,
+        // and the extra accounts keep the privileges they were given.
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -583,7 +599,16 @@ mod tests {
             .collect();
         assert_eq!(
             writable,
-            vec![order_a, sell_a, dest_a0, dest_a1, order_b, sell_b, dest_b0,],
+            vec![
+                order_a,
+                sell_a,
+                dest_a0,
+                dest_a1,
+                order_b,
+                sell_b,
+                dest_b0,
+                extra_writable
+            ],
         );
         // The solver is the sole signer; none of the order accounts signs.
         let (_fixed, order_accounts) = accounts.split_at(FIXED_ACCOUNTS);
@@ -617,11 +642,13 @@ mod tests {
             instructions_sysvar_account,
             orders,
             state_pda_account,
+            extra_accounts,
         } = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(auction_id, 0x0102_0304_0506_0708);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(orders.iter().count(), 0);
+        assert!(extra_accounts.is_empty());
         assert_eq!(state_pda_account.address(), &state);
         assert_eq!(solver_account.address(), &solver);
     }
@@ -702,9 +729,11 @@ mod tests {
             instructions_sysvar_account,
             orders,
             state_pda_account,
+            extra_accounts,
         } = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(finalize_ix_index, 0x1337);
         assert_eq!(auction_id, AUCTION_ID);
+        assert!(extra_accounts.is_empty());
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(state_pda_account.address(), &state);
         assert_eq!(solver_account.address(), &solver);
@@ -844,10 +873,10 @@ mod tests {
     }
 
     #[test]
-    fn begin_settle_input_rejects_too_many_accounts() {
-        // One order with one transfer takes four order accounts, but five are
-        // supplied after the fixed accounts.
-        let accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 5 }>();
+    fn begin_settle_input_parses_extra_accounts() {
+        // One order with one transfer takes four order accounts; the two after
+        // them are extra accounts.
+        let accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 6 }>();
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
             [0, 0],                   // finalize index
@@ -856,9 +885,27 @@ mod tests {
             [0x01],                   // the order's transfer count
             0x1122u64.to_le_bytes(),
         ];
+        let BeginSettleInput {
+            orders,
+            extra_accounts,
+            ..
+        } = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
+
+        let order_accounts = &accounts[FIXED_ACCOUNTS..];
+        let mut orders = orders.iter();
+        let order = orders.next().expect("one settled order");
+        assert_eq!(order.order_pda.address(), order_accounts[0].address());
         assert_eq!(
-            BeginSettleInput::parse(&data, &accounts).err(),
-            Some(SettlementError::AccountCountNotMatchingOrderCount.into()),
+            order.sell_token_account.address(),
+            order_accounts[1].address()
+        );
+        assert_eq!(order.sell_mint.address(), order_accounts[2].address());
+        assert_eq!(order.destinations[0].address(), order_accounts[3].address());
+        assert!(orders.next().is_none());
+        let extra: Vec<&Address> = extra_accounts.iter().map(AccountView::address).collect();
+        assert_eq!(
+            extra,
+            [order_accounts[4].address(), order_accounts[5].address()]
         );
     }
 

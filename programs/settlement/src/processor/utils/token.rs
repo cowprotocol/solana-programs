@@ -1,17 +1,18 @@
 //! Token-program execution and token-account reads
 
-use core::slice;
+use core::{mem::MaybeUninit, slice};
 
 use cow_settlement_interface::{
     instruction::settle::UNCHECKED_MINT, token_program::TokenProgram, SettlementError,
 };
 use pinocchio::{
     address::address_eq,
-    cpi::{get_return_data, Signer},
+    cpi::{get_return_data, invoke_signed_unchecked, CpiAccount, Signer},
     error::ProgramError,
+    instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use pinocchio_token::instructions::{GetAccountDataSize, Transfer, TransferChecked};
+use pinocchio_token::instructions::{GetAccountDataSize, Transfer};
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
@@ -54,6 +55,9 @@ pub fn token_account_len(
     }
 }
 
+/// `TransferChecked`'s own accounts: `[source, mint, destination, authority]`.
+const TRANSFER_CHECKED_ACCOUNTS: usize = 4;
+
 /// The decimals of the mint behind `mint`, or `None` if `mint` is
 /// [`UNCHECKED_MINT`], which selects plain `Transfer` over `TransferChecked`.
 #[inline(always)]
@@ -76,28 +80,136 @@ pub fn mint_decimals(
     .map_err(|_| SettlementError::InvalidMint)
 }
 
-/// Move `amount` from `from` to `to` under `token_program`, signed by
-/// `authority` through `signer`. `decimals` comes from [`mint_decimals`]:
-/// `Some` issues a `TransferChecked` against `mint`, `None` a `Transfer`.
-#[allow(clippy::too_many_arguments)]
-#[inline(always)]
-pub fn transfer(
-    token_program: TokenProgram,
-    from: &AccountView,
-    mint: &AccountView,
-    to: &AccountView,
-    authority: &AccountView,
-    amount: u64,
-    decimals: Option<u8>,
-    signer: &Signer,
-) -> ProgramResult {
-    let signers = slice::from_ref(signer);
-    let program = token_program.address();
-    match decimals {
-        None => Transfer::new(from, to, authority, amount)
-            .invoke_signed_with_unverified_program(signers, &program),
-        Some(decimals) => TransferChecked::new(from, mint, to, authority, amount, decimals)
-            .invoke_signed_with_unverified_program(signers, &program),
+/// Token transfers signed by the state PDA, issued as `TransferChecked` with
+/// the instruction's extra accounts appended (for example, the accounts a
+/// transfer hook needs), or as plain `Transfer` when no decimals are given.
+///
+/// The first `TransferChecked` allocates the CPI account lists and writes the
+/// extra accounts into them; each transfer after only rewrites the leading
+/// [`TRANSFER_CHECKED_ACCOUNTS`].
+pub struct TokenTransfers<'a> {
+    extra_accounts: &'a [AccountView],
+    cpi_lists: Option<CpiLists<'a>>,
+}
+
+/// `TransferChecked`'s account lists, in instruction and CPI form.
+struct CpiLists<'a> {
+    instruction_accounts: Box<[MaybeUninit<InstructionAccount<'a>>]>,
+    cpi_accounts: Box<[MaybeUninit<CpiAccount<'a>>]>,
+}
+
+impl<'a> CpiLists<'a> {
+    fn new(extra_accounts: &'a [AccountView]) -> Self {
+        let len = TRANSFER_CHECKED_ACCOUNTS
+            .checked_add(extra_accounts.len())
+            .expect("the account count is bounded by the transaction size");
+        let mut instruction_accounts = Box::new_uninit_slice(len);
+        let mut cpi_accounts = Box::new_uninit_slice(len);
+        for ((instruction_account, cpi_account), extra) in instruction_accounts
+            [TRANSFER_CHECKED_ACCOUNTS..]
+            .iter_mut()
+            .zip(&mut cpi_accounts[TRANSFER_CHECKED_ACCOUNTS..])
+            .zip(extra_accounts)
+        {
+            instruction_account.write(InstructionAccount::new(
+                extra.address(),
+                extra.is_writable(),
+                extra.is_signer(),
+            ));
+            CpiAccount::init_from_account_view(extra, cpi_account);
+        }
+        Self {
+            instruction_accounts,
+            cpi_accounts,
+        }
+    }
+}
+
+impl<'a> TokenTransfers<'a> {
+    pub fn new(extra_accounts: &'a [AccountView]) -> Self {
+        Self {
+            extra_accounts,
+            cpi_lists: None,
+        }
+    }
+
+    /// Move `amount` from `from` to `to` under `token_program`, signed by
+    /// `authority` through `signer`. `decimals` comes from [`mint_decimals`]:
+    /// `Some` issues a `TransferChecked` against `mint`, `None` a `Transfer`.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    pub fn transfer(
+        &mut self,
+        token_program: TokenProgram,
+        from: &'a AccountView,
+        mint: &'a AccountView,
+        to: &'a AccountView,
+        authority: &'a AccountView,
+        amount: u64,
+        decimals: Option<u8>,
+        signer: &Signer,
+    ) -> ProgramResult {
+        let signers = slice::from_ref(signer);
+        let Some(decimals) = decimals else {
+            return Transfer::new(from, to, authority, amount)
+                .invoke_signed_with_unverified_program(signers, &token_program.address());
+        };
+
+        // The token program writes to `from` and `to`, so neither may be
+        // borrowed here. The extra accounts aren't checked: the only account
+        // this program holds borrowed across a transfer is an order PDA, which
+        // only this program can write and which it can't be reentered to do.
+        if from.is_borrowed() | to.is_borrowed() {
+            return Err(ProgramError::AccountBorrowFailed);
+        }
+        let fixed = [
+            (from, InstructionAccount::writable(from.address())),
+            (mint, InstructionAccount::readonly(mint.address())),
+            (to, InstructionAccount::writable(to.address())),
+            (
+                authority,
+                InstructionAccount::readonly_signer(authority.address()),
+            ),
+        ];
+        let extra_accounts = self.extra_accounts;
+        let CpiLists {
+            instruction_accounts,
+            cpi_accounts,
+        } = self
+            .cpi_lists
+            .get_or_insert_with(|| CpiLists::new(extra_accounts));
+        for (((account, meta), instruction_account), cpi_account) in fixed
+            .into_iter()
+            .zip(instruction_accounts.iter_mut())
+            .zip(cpi_accounts.iter_mut())
+        {
+            instruction_account.write(meta);
+            CpiAccount::init_from_account_view(account, cpi_account);
+        }
+
+        let mut data = [0u8; 10];
+        data[0] = pinocchio_token::instructions::TransferChecked::DISCRIMINATOR;
+        data[1..9].copy_from_slice(&amount.to_le_bytes());
+        data[9] = decimals;
+
+        // SAFETY: `CpiLists::new` and the loop above initialized every element of both
+        // lists, and the borrow check above covers the accounts the token
+        // program writes.
+        unsafe {
+            invoke_signed_unchecked(
+                &InstructionView {
+                    program_id: &token_program.address(),
+                    accounts: slice::from_raw_parts(
+                        instruction_accounts.as_ptr().cast(),
+                        instruction_accounts.len(),
+                    ),
+                    data: &data,
+                },
+                slice::from_raw_parts(cpi_accounts.as_ptr().cast(), cpi_accounts.len()),
+                signers,
+            );
+        }
+        Ok(())
     }
 }
 

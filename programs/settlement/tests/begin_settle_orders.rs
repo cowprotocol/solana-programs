@@ -1170,7 +1170,7 @@ fn rejects_pull_exceeding_delegation() {
 }
 
 #[test]
-fn rejects_extra_account() {
+fn rejects_missing_account() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
@@ -1185,11 +1185,9 @@ fn rejects_extra_account() {
         }],
     );
 
-    // Append one extra account to `BeginSettle`, so the account count no longer
-    // matches the `3n + T` the instruction data implies.
-    instructions[usize::from(BEGIN_INDEX)]
-        .accounts
-        .push(AccountMeta::new_readonly(unique_pubkey(), false));
+    // Drop the order's last account (its mint slot) from `BeginSettle`, leaving
+    // fewer accounts than the `3n + T` the instruction data implies.
+    instructions[usize::from(BEGIN_INDEX)].accounts.pop();
 
     assert_begin_error(
         send(&mut svm, &solver, &instructions),

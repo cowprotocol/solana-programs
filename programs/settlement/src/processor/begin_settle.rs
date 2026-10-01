@@ -34,7 +34,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
-    token::{mint_decimals, owning_token_program, read_token_account, transfer},
+    token::{mint_decimals, owning_token_program, read_token_account, TokenTransfers},
 };
 
 pub fn process_begin_settle(
@@ -77,11 +77,13 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
+    let mut transfers = TokenTransfers::new(input.extra_accounts);
     with_state_pda_signer(|signer| {
         settle_orders(
             program_id,
             input.state_pda_account,
             signer,
+            &mut transfers,
             &input.orders,
             &finalize_ix,
         )
@@ -94,9 +96,9 @@ pub fn process_begin_settle(
 ///
 /// These are the same [`Push`]es `FinalizeSettle` itself parses, seen through
 /// introspection rather than held as accounts: hence `Push<Address>` where the
-/// finalize has `Push<AccountView>`. A finalize with too few accounts for its
-/// pushes is rejected rather than read past its account metas; one with too
-/// many is left for the finalize's own parsing to reject.
+/// finalize has `Push<AccountView>`. Like the finalize's own parsing, a finalize
+/// with too few accounts for its pushes is rejected, and any accounts past them
+/// are extra accounts, ignored here.
 struct FinalizePushes<'a> {
     finalize_ix: &'a IntrospectedInstruction<'a>,
     bumps: &'a [u8],
@@ -210,11 +212,12 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
 /// Further validation and the actual pulls are processed through
 /// [`process_order`].
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn settle_orders(
+fn settle_orders<'a>(
     program_id: &Address,
-    state_pda_account: &AccountView,
+    state_pda_account: &'a AccountView,
     state_pda_signer: &Signer,
-    orders: &SettledOrders<'_, AccountView>,
+    transfers: &mut TokenTransfers<'a>,
+    orders: &SettledOrders<'a, AccountView>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
@@ -246,6 +249,7 @@ fn settle_orders(
             now,
             state_pda_account,
             state_pda_signer,
+            transfers,
         )?;
     }
 
@@ -262,13 +266,14 @@ fn settle_orders(
 /// mint. Once the order passes those checks, its pulls are executed and its
 /// settlement limit price is validated against the intent.
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn process_order(
+fn process_order<'a>(
     program_id: &Address,
-    order: SettledOrder<'_, AccountView>,
+    order: SettledOrder<'a, AccountView>,
     push: &Push<Address>,
     now: i64,
-    state_account: &AccountView,
+    state_account: &'a AccountView,
     state_pda_signer: &Signer,
+    transfers: &mut TokenTransfers<'a>,
 ) -> ProgramResult {
     let SettledOrder {
         order_pda,
@@ -349,7 +354,7 @@ fn process_order(
         amount_in = amount_in
             .checked_add(amount)
             .ok_or(SettlementError::PullAmountOverflow)?;
-        transfer(
+        transfers.transfer(
             token_program,
             sell_token_account,
             sell_mint,
@@ -455,7 +460,7 @@ mod tests {
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
-    use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
+    use solana_instruction::{AccountMeta, BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).
     const MAX: u64 = u64::MAX;
@@ -1094,16 +1099,21 @@ mod tests {
         /// `BeginSettle` settles against a paired `FinalizeSettle`'s pushes via
         /// [`FinalizePushes`]: each push's source buffer, destination, and mint
         /// (from the account metas) paired with its bump and amount (from the
-        /// instruction data). For any well-formed finalize those must match both
-        /// the builder's inputs and what `FinalizeSettleInput` parses from the
-        /// same instruction.
+        /// instruction data). For any well-formed finalize, extra accounts or
+        /// not, those must match both the builder's inputs and what
+        /// `FinalizeSettleInput` parses from the same instruction.
         #[test]
         fn finalize_pushes_matches_parser(
             program_id in any::<[u8; 32]>(),
             state_pda in any::<[u8; 32]>(),
             begin_ix_index in any::<u16>(),
             pushes in arb_pushes(0..=16usize),
+            extra_accounts in prop::collection::vec(any::<[u8; 32]>(), 0..=4usize),
         ) {
+            let extra_accounts: Vec<AccountMeta> = extra_accounts
+                .into_iter()
+                .map(|address| AccountMeta::new_readonly(Pubkey::new_from_array(address), false))
+                .collect();
             let ix = Instruction::from(FinalizeSettle {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
@@ -1113,6 +1123,7 @@ mod tests {
                 mints: &pushes.mints,
                 bumps: &pushes.bumps,
                 amounts: &pushes.amounts,
+                extra_accounts: &extra_accounts,
                 ..Default::default()
             });
 
