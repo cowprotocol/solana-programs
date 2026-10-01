@@ -58,9 +58,7 @@ struct KnownBuffer {
     address: [u8; 32],
 }
 
-/// The buffers of [`known_mints::KNOWN_MINTS`], in the same order, which the
-/// program finds through [`KNOWN_BUFFER_SLOTS`] instead of paying for a
-/// `create_program_address` syscall.
+/// The buffers of [`known_mints::KNOWN_MINTS`], in the same order.
 // Deriving this many PDAs in const eval trips the compiler's infinite-loop
 // guard, although it finishes in seconds.
 #[allow(long_running_const_eval)]
