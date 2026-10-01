@@ -363,7 +363,7 @@ fn rejects_a_native_push_from_a_buffer() {
         destinations: &[buy_sol_account(&intent)],
         bumps: &[buffer_bump],
         amounts: &[100],
-        only_token_program: None,
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -392,7 +392,7 @@ fn rejects_a_native_push_to_wrong_destination() {
         destinations: &[unique_pubkey()],
         bumps: &[STATE_PDA_AND_BUMP.1],
         amounts: &[100],
-        only_token_program: None,
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);

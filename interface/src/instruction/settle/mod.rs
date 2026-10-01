@@ -6,12 +6,24 @@ use solana_program_error::ProgramError;
 pub use crate::token_program::TokenProgram;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
+/// The address a settlement's mint slot holds when its transfers use plain
+/// `Transfer` instead of `TransferChecked`. The instructions sysvar is already
+/// in every settlement, so the placeholder takes no extra transaction space.
+pub const UNCHECKED_MINT: solana_pubkey::Pubkey = INSTRUCTIONS_SYSVAR_ID;
+
+/// The account filling a mint slot: `mint` when its transfers use
+/// `TransferChecked`, or [`UNCHECKED_MINT`] for plain `Transfer`.
+fn mint_slot(mint: Option<solana_pubkey::Pubkey>) -> solana_instruction::AccountMeta {
+    solana_instruction::AccountMeta::new_readonly(mint.unwrap_or(UNCHECKED_MINT), false)
+}
+
 mod begin;
 mod finalize;
 
 pub use begin::{BeginSettle, BeginSettleInput, Pull, SettledOrder, SettledOrders};
 pub use finalize::{
     finalize_push_data, FinalizeSettle, FinalizeSettleInput, Push, Pushes, FINALIZE_FIXED_ACCOUNTS,
+    FINALIZE_PUSH_ACCOUNTS,
 };
 
 /// Reads the first two bytes of a byte slice (instruction data) and
@@ -34,27 +46,37 @@ pub mod fixtures {
     use proptest::prelude::*;
     use solana_pubkey::Pubkey;
 
-    /// Strategy producing `count` random pushes as the parallel
-    /// `(source_buffers, destinations, bumps, amounts)` lists the
+    /// Random pushes as the parallel lists the
     /// [`FinalizeSettle`](super::FinalizeSettle) builder takes.
+    #[derive(Debug)]
+    pub struct ArbPushes {
+        pub source_buffers: Vec<Pubkey>,
+        pub destinations: Vec<Pubkey>,
+        pub mints: Vec<Option<Pubkey>>,
+        pub bumps: Vec<u8>,
+        pub amounts: Vec<u64>,
+    }
+
+    /// Strategy producing `count` random [`ArbPushes`].
     pub fn arb_pushes(
         count: impl Into<prop::collection::SizeRange>,
-    ) -> impl Strategy<Value = (Vec<Pubkey>, Vec<Pubkey>, Vec<u8>, Vec<u64>)> {
+    ) -> impl Strategy<Value = ArbPushes> {
         prop::collection::vec(
             (
                 any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
                 any::<[u8; 32]>().prop_map(Pubkey::new_from_array),
+                any::<Option<[u8; 32]>>().prop_map(|mint| mint.map(Pubkey::new_from_array)),
                 any::<u8>(),
                 any::<u64>(),
             ),
             count,
         )
-        .prop_map(|pushes| {
-            let source_buffers = pushes.iter().map(|&(source, ..)| source).collect();
-            let destinations = pushes.iter().map(|&(_, dest, ..)| dest).collect();
-            let bumps = pushes.iter().map(|&(.., bump, _)| bump).collect();
-            let amounts = pushes.iter().map(|&(.., amount)| amount).collect();
-            (source_buffers, destinations, bumps, amounts)
+        .prop_map(|pushes| ArbPushes {
+            source_buffers: pushes.iter().map(|push| push.0).collect(),
+            destinations: pushes.iter().map(|push| push.1).collect(),
+            mints: pushes.iter().map(|push| push.2).collect(),
+            bumps: pushes.iter().map(|push| push.3).collect(),
+            amounts: pushes.iter().map(|push| push.4).collect(),
         })
     }
 }

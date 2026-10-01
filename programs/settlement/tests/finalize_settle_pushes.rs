@@ -22,16 +22,14 @@ use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
 use cow_settlement_client::{
     cow_settlement_interface::{
         data::intent::{Asset, OrderIntent, TokenAsset},
+        instruction::settle::FINALIZE_FIXED_ACCOUNTS,
         pda::state::STATE_PDA,
         Instruction, SettlementError,
     },
     instruction::TokenProgram,
 };
 use litesvm_token::spl_token::error::TokenError;
-use solana_sdk::{
-    instruction::InstructionError, program_error::ProgramError, signer::Signer,
-    transaction::TransactionError,
-};
+use solana_sdk::{instruction::InstructionError, signer::Signer, transaction::TransactionError};
 
 mod common;
 
@@ -243,23 +241,22 @@ fn rejects_push_account_count_mismatch() {
         amount: 100,
     }];
 
-    // A well-formed single-push finalize (five accounts, a nine-byte push body)...
+    // A well-formed single-push finalize (seven accounts, a nine-byte push body)...
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &orders,
+        ..Default::default()
     });
     // ...with another push's worth of data bytes appended but no matching
-    // accounts. `BeginSettle` derives the push count from the (unchanged) account
-    // metas (one push, matching its one order and paying the right destination)
-    // so it passes. Only the finalize reads the data, where it now parses two
-    // pushes against two push accounts and rejects the mismatch. This is the
-    // account/data disagreement `BeginSettle` structurally can't see.
+    // accounts. `BeginSettle` reads the finalize's pushes first, sees two pushes
+    // in the data but accounts for only one, and rejects the finalize before it
+    // runs.
     finalize.data.extend_from_slice(&[0u8; 9]);
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
-    assert_finalize_error(
+    assert_instruction_error_at(
+        BEGIN_INDEX,
         send(&mut svm, &solver, &instructions),
         SettlementError::AccountCountNotMatchingPushCount,
     );
@@ -273,27 +270,18 @@ fn rejects_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
-        orders: &[],
+        ..Default::default()
     });
-    // ...with one of its fixed accounts popped. `BeginSettle` runs first
-    // but only reads push destinations off the accounts (finding none, matching
-    // its zero orders) so it passes. The finalize then can't even destructure
-    // its fixed accounts and raises `NotEnoughAccountKeys`.
+    // ...with one of its fixed accounts popped. `BeginSettle` runs first and
+    // reads the finalize's pushes, which start after the fixed accounts, so it
+    // rejects a finalize too short to hold even those.
     finalize.accounts.pop();
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
-    let err = send(&mut svm, &solver, &instructions)
-        .expect_err("a finalize missing a fixed account must be rejected");
-    let TransactionError::InstructionError(FINALIZE_INDEX, ix_err) = err else {
-        panic!("expected the finalize (index {FINALIZE_INDEX}) to fail, got {err:?}");
-    };
-    // Compare against the non-deprecated `ProgramError` variant the program
-    // returns; naming the `InstructionError` variant directly would touch a
-    // deprecated alias.
-    assert_eq!(
-        ProgramError::try_from(ix_err),
-        Ok(ProgramError::NotEnoughAccountKeys),
+    assert_instruction_error_at(
+        BEGIN_INDEX,
+        send(&mut svm, &solver, &instructions),
+        SettlementError::AccountCountNotMatchingPushCount,
     );
 }
 
@@ -361,10 +349,8 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
     );
 }
 
-// Similar to `rejects_too_few_accounts`, but pops two accounts instead of one.
-// This is because variable-length accounts in the instruction are naturally
-// grouped in pairs, so a single missing account could just be an unsuccessful
-// pairing rather than accounting for missing accounts.
+// Similar to `rejects_too_few_accounts`, but pops a whole push's accounts, so
+// the finalize still holds its fixed accounts.
 #[test]
 fn rejects_two_too_few_accounts() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -378,19 +364,18 @@ fn rejects_two_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &orders,
+        ..Default::default()
     });
-    // ...with that push's whole (source, destination) pair popped, so the data
-    // still declares one push while no push accounts remain.
-    finalize.accounts.pop();
-    finalize.accounts.pop();
+    // ...with that push's whole (source, destination, mint) triple popped, so
+    // the data still declares one push while no push accounts remain.
+    finalize.accounts.truncate(FINALIZE_FIXED_ACCOUNTS);
 
-    // The paired `Begin` settles no orders, so it never checks the push
-    // destinations: the inconsistency is left for the finalize's own
-    // account-count check to reject.
+    // The paired `Begin` settles no orders, but it still reads the finalize's
+    // pushes and rejects one declared without its accounts.
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
-    assert_finalize_error(
+    assert_instruction_error_at(
+        BEGIN_INDEX,
         send(&mut svm, &solver, &instructions),
         SettlementError::AccountCountNotMatchingPushCount,
     );
@@ -408,8 +393,8 @@ fn rejects_partial_push_amount() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &orders,
+        ..Default::default()
     });
     // Drop one byte so the trailing amount is no longer a whole `u64`.
     finalize.data.pop();

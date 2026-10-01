@@ -1,8 +1,17 @@
 //! Token-program execution and token-account reads
 
-use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
-use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView, Address};
-use pinocchio_token::instructions::GetAccountDataSize;
+use core::slice;
+
+use cow_settlement_interface::{
+    instruction::settle::UNCHECKED_MINT, token_program::TokenProgram, SettlementError,
+};
+use pinocchio::{
+    address::address_eq,
+    cpi::{get_return_data, Signer},
+    error::ProgramError,
+    AccountView, Address, ProgramResult,
+};
+use pinocchio_token::instructions::{GetAccountDataSize, Transfer, TransferChecked};
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
@@ -42,6 +51,53 @@ pub fn token_account_len(
                         .map_err(|_| SettlementError::BufferSizeUnavailable.into())
                 })
         }
+    }
+}
+
+/// The decimals of the mint behind `mint`, or `None` if `mint` is
+/// [`UNCHECKED_MINT`], which selects plain `Transfer` over `TransferChecked`.
+#[inline(always)]
+pub fn mint_decimals(
+    token_program: TokenProgram,
+    mint: &AccountView,
+) -> Result<Option<u8>, SettlementError> {
+    if address_eq(mint.address(), &UNCHECKED_MINT) {
+        return Ok(None);
+    }
+    match token_program {
+        TokenProgram::SplToken => {
+            pinocchio_token::state::Mint::from_account_view(mint).map(|mint| mint.decimals())
+        }
+        TokenProgram::Token2022 => {
+            pinocchio_token_2022::state::Mint::from_account_view(mint).map(|mint| mint.decimals())
+        }
+    }
+    .map(Some)
+    .map_err(|_| SettlementError::InvalidMint)
+}
+
+/// Move `amount` from `from` to `to` under `token_program`, signed by
+/// `authority` through `signer`. `decimals` comes from [`mint_decimals`]:
+/// `Some` issues a `TransferChecked` against `mint`, `None` a `Transfer`.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub fn transfer(
+    token_program: TokenProgram,
+    from: &AccountView,
+    mint: &AccountView,
+    to: &AccountView,
+    authority: &AccountView,
+    amount: u64,
+    decimals: Option<u8>,
+    signer: &Signer,
+) -> ProgramResult {
+    let signers = slice::from_ref(signer);
+    let program = token_program.address();
+    match decimals {
+        None => Transfer::new(from, to, authority, amount)
+            .invoke_signed_with_unverified_program(signers, &program),
+        Some(decimals) => TransferChecked::new(from, mint, to, authority, amount, decimals)
+            .invoke_signed_with_unverified_program(signers, &program),
     }
 }
 

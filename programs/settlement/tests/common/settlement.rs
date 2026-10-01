@@ -42,9 +42,8 @@ pub fn build_settlement(
         program_id: *program_id,
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
-        auction_id: 0,
-        only_token_program: None,
         orders: &begin_orders,
+        ..Default::default()
     };
     vec![begin.into(), finalize.into()]
 }
@@ -59,8 +58,8 @@ pub fn build_matching_settlement(
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders,
+        ..Default::default()
     };
     build_settlement(program_id, solver, orders, finalize)
 }
@@ -151,15 +150,14 @@ pub fn build_staged_settlement(
         program_id: *program_id,
         solver: *solver,
         finalize_ix_index: finalize_index(between.len()),
-        auction_id: 0,
-        only_token_program: None,
         orders: &begin_orders,
+        ..Default::default()
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &finalize_orders,
+        ..Default::default()
     };
 
     let mut instructions = vec![begin.into()];

@@ -31,7 +31,7 @@ use crate::common::{
 use cow_settlement_client::cow_settlement_interface::{
     instruction::settle::{
         BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw,
-        FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID,
+        FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID, UNCHECKED_MINT,
     },
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::STATE_PDA},
     Instruction, SettlementError, SettlementInstruction,
@@ -137,15 +137,14 @@ fn settle_and_pay_amounts(
         program_id: *program_id,
         solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
-        auction_id: 0,
-        only_token_program: None,
         orders,
+        ..Default::default()
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &settled,
+        ..Default::default()
     };
     vec![begin.into(), finalize.into()]
 }
@@ -258,23 +257,21 @@ fn rejects_fabricated_program_owned_account() {
         state_pda: STATE_PDA,
         solver: solver.pubkey(),
         finalize_ix_index: 1,
-        auction_id: 0,
-        only_token_program: None,
         order_pdas: &[fake_order],
         sell_token_accounts: &[sell_token],
         pulls: &no_pulls(1),
+        ..Default::default()
     };
     // Mostly placeholder values: the transaction will reject before reaching
     // this instruction, we just want to make sure that `BeginSettle` validates.
     let finalize = FinalizeSettleRaw {
         program_id,
         state_pda: STATE_PDA,
-        begin_ix_index: 0,
-        only_token_program: None,
         source_buffers: &[unique_pubkey()],
         destinations: &[buy_account(&intent)],
         bumps: &[0],
         amounts: &[0],
+        ..Default::default()
     };
     let instructions = vec![begin.into(), finalize.into()];
 
@@ -300,22 +297,20 @@ fn rejects_non_order_account_in_order_slot() {
         state_pda: STATE_PDA,
         solver: solver.pubkey(),
         finalize_ix_index: 1,
-        auction_id: 0,
-        only_token_program: None,
         order_pdas: &[sell_token],
         sell_token_accounts: &[sell_token],
         pulls: &no_pulls(1),
+        ..Default::default()
     };
     // The finalize just carries a placeholder push matching the order in count.
     let finalize = FinalizeSettleRaw {
         program_id,
         state_pda: STATE_PDA,
-        begin_ix_index: 0,
-        only_token_program: None,
         source_buffers: &[unique_pubkey()],
         destinations: &[unique_pubkey()],
         bumps: &[0],
         amounts: &[0],
+        ..Default::default()
     };
     let instructions = vec![begin.into(), finalize.into()];
 
@@ -580,6 +575,7 @@ fn rejects_orders_in_wrong_address_order() {
     for (order_pda, intent) in orders {
         accounts.push(AccountMeta::new_readonly(order_pda, false));
         accounts.push(AccountMeta::new(intent.sell.token_account, false));
+        accounts.push(AccountMeta::new_readonly(UNCHECKED_MINT, false));
     }
     let begin = Instruction {
         program_id,
@@ -605,11 +601,11 @@ fn rejects_orders_in_wrong_address_order() {
         program_id,
         state_pda: STATE_PDA,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         source_buffers: &source_buffers,
         destinations: &destinations,
         bumps: &bumps,
         amounts: &amounts,
+        ..Default::default()
     };
     let instructions = vec![begin, finalize.into()];
     assert_begin_error(
@@ -1190,7 +1186,7 @@ fn rejects_extra_account() {
     );
 
     // Append one extra account to `BeginSettle`, so the account count no longer
-    // matches the `2n + T` the instruction data implies.
+    // matches the `3n + T` the instruction data implies.
     instructions[usize::from(BEGIN_INDEX)]
         .accounts
         .push(AccountMeta::new_readonly(unique_pubkey(), false));
@@ -1213,8 +1209,8 @@ fn rejects_push_to_wrong_destination() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &orders,
+        ..Default::default()
     });
     // Redirect the push to an account that isn't the order's buy token account.
     // Finalize accounts: `[FINALIZE_FIXED_ACCOUNTS..., source, destination]`.
@@ -1247,11 +1243,11 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
         program_id,
         state_pda: STATE_PDA,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         source_buffers: &[other_buffer],
         destinations: &[buy_account(&intent)],
         bumps: &[other_bump],
         amounts: &[100],
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -1274,8 +1270,7 @@ fn rejects_fewer_pushes_than_orders() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
-        orders: &[],
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -1295,11 +1290,11 @@ fn rejects_more_pushes_than_orders() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &[FinalizedIntent {
             intent: &intent,
             amount: 0,
         }],
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
@@ -1321,8 +1316,8 @@ fn rejects_partial_push_amount_in_finalize_settle() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &orders,
+        ..Default::default()
     });
     // Drop one byte from the finalize intstruction so the trailing amount is no
     // longer a whole `u64`. `BeginSettle` reads the finalize's push amounts, so

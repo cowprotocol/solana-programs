@@ -367,7 +367,7 @@
       "name": "begin_settle",
       "docs": [
         "Pulls funds for a batch of orders. Must be paired in the same transaction with a FinalizeSettle at `finalize_ix_index`.",
-        "IDL LIMITATION: only the fixed-size prefix (finalize_ix_index, auction_id) is represented as typed arguments. After it, the real wire format is `[order_count: u8][transfer_count; order_count][amount: u64 LE; sum(transfer_count)]`. Please check the rust documentation for more information."
+        "IDL LIMITATION: only the fixed-size prefix (finalize_ix_index, auction_id) is represented as typed arguments. After it, the real wire format is `[order_count: u8][transfer_count; order_count][amount: u64 LE; sum(transfer_count)]`, and each order adds `[order_pda, sell_token_account, sell_mint, destination; transfer_count]` accounts. A sell_mint set to the instructions sysvar selects Transfer instead of TransferChecked. Please check the rust documentation for more information."
       ],
       "discriminator": [
         0
@@ -416,7 +416,7 @@
       "name": "finalize_settle",
       "docs": [
         "Validates that a BeginSettle at `begin_ix_index` exists and points back at this instruction. Must not be called via CPI.",
-        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source: the buy mint's buffer PDA, or the state PDA for an order buying native SOL. Please check the rust documentation for more information."
+        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source: the buy mint's buffer PDA, or the state PDA for an order buying native SOL. Each push adds `[source_buffer, destination, mint]` accounts. A mint set to the instructions sysvar selects Transfer instead of TransferChecked. Please check the rust documentation for more information."
       ],
       "discriminator": [
         1
@@ -1076,7 +1076,7 @@
     {
       "code": 13,
       "name": "AccountCountNotMatchingOrderCount",
-      "msg": "BeginSettle's order-account count doesn't match the structure its instruction data expects: n orders each contribute an order PDA and a sell token account, plus one destination account per transfer."
+      "msg": "BeginSettle's order-account count doesn't match the structure its instruction data expects: n orders each contribute an order PDA, a sell token account, a sell mint, plus one destination account per transfer."
     },
     {
       "code": 14,
@@ -1106,7 +1106,7 @@
     {
       "code": 19,
       "name": "AccountCountNotMatchingPushCount",
-      "msg": "FinalizeSettle's push-account count doesn't match its instruction data: each push contributes a source buffer and a destination account, so the count must be twice the number of push amounts."
+      "msg": "FinalizeSettle's push-account count doesn't match its instruction data: each push contributes a source buffer, a destination, and a mint, so the count must be three times the number of push amounts."
     },
     {
       "code": 20,
@@ -1222,6 +1222,11 @@
       "code": 42,
       "name": "UnauthorizedSettlementOwnedOrder",
       "msg": "CreateSettlementOwnedOrder's settlement-owned-order-authority account isn't a signer, or doesn't match the settlement_owned_order_authority recorded in the settlement state PDA."
+    },
+    {
+      "code": 43,
+      "name": "InvalidMint",
+      "msg": "A BeginSettle/FinalizeSettle mint account is neither the instructions sysvar nor a mint of the transfer's token program."
     }
   ]
 }
