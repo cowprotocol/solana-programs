@@ -9,7 +9,10 @@
 use cow_settlement_interface::token_program::TokenProgram;
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
 use spl_token_2022_interface::{
-    extension::{transfer_fee::instruction::initialize_transfer_fee_config, ExtensionType},
+    extension::{
+        transfer_fee::instruction::initialize_transfer_fee_config,
+        transfer_hook::instruction::initialize as initialize_transfer_hook, ExtensionType,
+    },
     instruction::{initialize_mint_close_authority, initialize_non_transferable_mint},
     state::{Account, Mint},
 };
@@ -30,6 +33,8 @@ pub enum Extensions {
     CloseAuthorityAndNonTransferable,
     #[default]
     CloseAuthorityAndTransferFee,
+    /// A transfer hook executing the given program.
+    TransferHook(Pubkey),
 }
 
 pub struct RequiredInitAccountExtensionType(ExtensionType);
@@ -65,6 +70,7 @@ impl Extensions {
                 ExtensionType::MintCloseAuthority,
                 ExtensionType::TransferFeeConfig,
             ],
+            Self::TransferHook(_) => &[ExtensionType::TransferHook],
         }
     }
 
@@ -132,6 +138,17 @@ impl Extensions {
                         FEE_BASIS_POINTS.try_into().unwrap(),
                         MAXIMUM_FEE,
                     ),
+                    ExtensionType::TransferHook => {
+                        let Self::TransferHook(hook_program) = self else {
+                            unreachable!("only `TransferHook` configures a transfer hook")
+                        };
+                        initialize_transfer_hook(
+                            &TOKEN_2022_PROGRAM_ID,
+                            mint,
+                            Some(*authority),
+                            Some(hook_program),
+                        )
+                    }
                     other => panic!("no initializer is wired up for {other:?}"),
                 }
                 .expect("extension initializer should build")

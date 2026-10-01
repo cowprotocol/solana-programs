@@ -3,7 +3,7 @@
 use cow_settlement_interface::{
     data::intent::OrderIntent,
     pda::{order::find_order_pda, state::STATE_PDA},
-    Instruction, Pubkey,
+    AccountMeta, Instruction, Pubkey,
 };
 
 // Reexport the interface's `Pull` and `TokenProgram` so the client provides
@@ -38,6 +38,9 @@ pub struct BeginSettle<'a> {
     /// mint use plain `Transfer`. Token-2022 mints with extensions such as
     /// transfer hooks or transfer fees require `TransferChecked`.
     pub transfer_checked_mints: &'a [Pubkey],
+    /// Appended to every `TransferChecked` (for example, transfer hook
+    /// accounts).
+    pub extra_accounts: &'a [AccountMeta],
 }
 
 impl From<BeginSettle<'_>> for Instruction {
@@ -70,6 +73,7 @@ impl From<BeginSettle<'_>> for Instruction {
             sell_token_accounts: &sell_token_accounts,
             sell_mints: &sell_mints,
             pulls: &pull_lists,
+            extra_accounts: builder.extra_accounts,
         }
         .into()
     }

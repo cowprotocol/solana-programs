@@ -82,12 +82,14 @@ pub fn finalize_push_data(instruction_data: &[u8]) -> Result<(&[u8], &[[u8; 8]])
 /// Required accounts:
 /// `[instructions_sysvar (R), state_pda (R), spl_token_program (R),
 /// token_2022_program (R)]` followed, per push, by `[source_buffer (W),
-/// destination (W), mint (R)]`. The two token programs are the slots
+/// destination (W), mint (R)]`, then by any number of extra accounts. The two
+/// token programs are the slots
 /// [`TokenProgram::ALL`] describes, there to name the programs this
 /// instruction's pushes are issued against; the matching `BeginSettle` carries
 /// the ones its pulls need.
 /// A `mint` holding [`UNCHECKED_MINT`](super::UNCHECKED_MINT) makes the push a
-/// plain `Transfer`; any other mint makes it a `TransferChecked`.
+/// plain `Transfer`; any other mint makes it a `TransferChecked` carrying all
+/// the extra accounts (for example, transfer hook accounts).
 ///
 /// `FinalizeSettle` only executes the transfers. Every push is validated by
 /// `BeginSettle`, which reads this instruction through introspection.
@@ -104,6 +106,8 @@ pub struct FinalizeSettle<'a> {
     pub mints: &'a [Option<Pubkey>],
     pub bumps: &'a [u8],
     pub amounts: &'a [u64],
+    /// Appended to every `TransferChecked` this settlement issues.
+    pub extra_accounts: &'a [AccountMeta],
 }
 
 impl From<FinalizeSettle<'_>> for Instruction {
@@ -118,6 +122,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             mints,
             bumps,
             amounts,
+            extra_accounts,
         } = builder;
 
         let data: Vec<u8> = core::iter::once(SettlementInstruction::FinalizeSettle.discriminator())
@@ -146,6 +151,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             accounts.push(AccountMeta::new(*destination, false));
             accounts.push(mint_slot(mints.get(i).copied().flatten()));
         }
+        accounts.extend_from_slice(extra_accounts);
 
         Instruction {
             program_id,
@@ -212,6 +218,9 @@ pub struct FinalizeSettleInput<'a, A> {
     pub instructions_sysvar_account: &'a A,
     pub state_pda_account: &'a A,
     pub pushes: Pushes<'a, A>,
+    /// The accounts after the push accounts, passed on to every
+    /// `TransferChecked`.
+    pub extra_accounts: &'a [A],
 }
 
 /// This implementation defines how instruction bytes and accounts are laid out
@@ -235,13 +244,14 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
         let push_count = bumps.len();
 
         // Each push contributes a source buffer, a destination, and a mint, so
-        // the push-account count is `3 * n`.
-        let (push_triples, []) = push_accounts.as_chunks::<FINALIZE_PUSH_ACCOUNTS>() else {
+        // the push-account count is `3 * n`. Whatever follows is extra accounts.
+        let (push_triples, _) = push_accounts.as_chunks::<FINALIZE_PUSH_ACCOUNTS>();
+        let Some(push_triples) = push_triples.get(..push_count) else {
             return Err(SettlementError::AccountCountNotMatchingPushCount.into());
         };
-        if push_triples.len() != push_count {
-            return Err(SettlementError::AccountCountNotMatchingPushCount.into());
-        }
+        let extra_accounts = push_accounts
+            .get(push_triples.as_flattened().len()..)
+            .expect("the push triples are a prefix of the push accounts");
 
         Ok(Self {
             begin_ix_index,
@@ -252,6 +262,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
                 bumps,
                 amounts,
             },
+            extra_accounts,
         })
     }
 }
@@ -364,6 +375,8 @@ mod tests {
         let source_b = Pubkey::new_from_array([0x03; 32]);
         let dest_b = Pubkey::new_from_array([0x04; 32]);
         let mint_a = Pubkey::new_from_array([0x05; 32]);
+        let extra_readonly = Pubkey::new_from_array([0x06; 32]);
+        let extra_writable = Pubkey::new_from_array([0x07; 32]);
 
         let ix = Instruction::from(FinalizeSettle {
             program_id,
@@ -374,6 +387,10 @@ mod tests {
             mints: &[Some(mint_a), None],
             bumps: &[0xa1, 0xb1],
             amounts: &[0x01020304, 0x05060708],
+            extra_accounts: &[
+                AccountMeta::new_readonly(extra_readonly, false),
+                AccountMeta::new(extra_writable, false),
+            ],
             ..Default::default()
         });
 
@@ -403,17 +420,23 @@ mod tests {
                 source_b,
                 dest_b,
                 UNCHECKED_MINT,
+                extra_readonly,
+                extra_writable,
             ],
         );
         // The fixed accounts and mints are read-only; the source buffers and
-        // destinations are writable for the transfers.
+        // destinations are writable for the transfers, and the extra accounts
+        // keep the privileges they were given.
         let writable: Vec<Pubkey> = ix
             .accounts
             .iter()
             .filter(|meta| meta.is_writable)
             .map(|meta| meta.pubkey)
             .collect();
-        assert_eq!(writable, vec![source_a, dest_a, source_b, dest_b]);
+        assert_eq!(
+            writable,
+            vec![source_a, dest_a, source_b, dest_b, extra_writable]
+        );
         assert!(ix.accounts.iter().all(|meta| !meta.is_signer));
     }
 
@@ -438,11 +461,13 @@ mod tests {
             instructions_sysvar_account,
             state_pda_account,
             pushes,
+            extra_accounts,
         } = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(begin_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(state_pda_account.address(), &state);
         assert_eq!(pushes.iter().count(), 0);
+        assert!(extra_accounts.is_empty());
     }
 
     #[test]
@@ -458,6 +483,7 @@ mod tests {
         let dest1 = pubkey_from_seed("destination 1");
         let mint0 = pubkey_from_seed("mint 0");
         let mint1 = pubkey_from_seed("mint 1");
+        let extra = pubkey_from_seed("extra");
         let accounts = [
             fake_account(sysvar),
             fake_account(state),
@@ -469,6 +495,7 @@ mod tests {
             fake_account(source),
             fake_account(dest1),
             fake_account(mint1),
+            fake_account(extra),
         ];
         let data = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
@@ -478,8 +505,11 @@ mod tests {
             0x3344u64.to_le_bytes(),
         ];
 
-        let FinalizeSettleInput { pushes, .. } =
-            FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
+        let FinalizeSettleInput {
+            pushes,
+            extra_accounts,
+            ..
+        } = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
 
         let parsed: Vec<(&Address, &Address, &Address, u8, u64)> = pushes
             .iter()
@@ -500,6 +530,10 @@ mod tests {
                 (&source, &dest1, &mint1, 0xfd, 0x3344),
             ],
         );
+        // Accounts past the pushes are extra accounts.
+        let extra_accounts: Vec<&Address> =
+            extra_accounts.iter().map(AccountView::address).collect();
+        assert_eq!(extra_accounts, [&extra]);
     }
 
     #[test]
@@ -593,9 +627,9 @@ mod tests {
     }
 
     #[test]
-    fn finalize_settle_input_rejects_account_count_mismatch() {
-        // One push (a bump byte then a `u64` amount) needs exactly three push
-        // accounts: its source buffer, destination, and mint.
+    fn finalize_settle_input_rejects_too_few_accounts() {
+        // One push (a bump byte then a `u64` amount) needs three push accounts:
+        // its source buffer, destination, and mint.
         let data: Vec<u8> = ix_data![
             [SettlementInstruction::FinalizeSettle.discriminator()],
             [13, 37], // begin index
@@ -606,12 +640,6 @@ mod tests {
         let too_few = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 2 }>();
         assert_eq!(
             FinalizeSettleInput::parse(&data, &too_few).err(),
-            Some(SettlementError::AccountCountNotMatchingPushCount.into()),
-        );
-
-        let too_many = fake_sequential_accounts::<{ FINALIZE_FIXED_ACCOUNTS + 4 }>();
-        assert_eq!(
-            FinalizeSettleInput::parse(&data, &too_many).err(),
             Some(SettlementError::AccountCountNotMatchingPushCount.into()),
         );
     }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["test-cli", "client", "interface", "programs/settlement", "programs/test/cpi-caller"]
+members = ["test-cli", "client", "interface", "programs/settlement", "programs/test/cpi-caller", "programs/test/transfer-hook"]
 
 [workspace.package]
 version = "0.4.1"
@@ -61,9 +61,11 @@ solana-sdk-ids = "3"
 solana-sha256-hasher = { version = "3", features = ["sha2"] }
 solana-system-interface = "3"
 spl-associated-token-account-interface = "2"
+spl-tlv-account-resolution = "0.11"
 spl-token = "9"
 spl-token-2022-interface = "3"
 spl-token-interface = "3"
+spl-transfer-hook-interface = "2"
 syn = { version = "2", features = ["full"] }
 
 [workspace.metadata.cli]

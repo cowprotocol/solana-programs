@@ -7,7 +7,7 @@ use cow_settlement_interface::{
         order::find_order_pda,
         state::{STATE_PDA, STATE_PDA_AND_BUMP},
     },
-    Instruction, Pubkey,
+    AccountMeta, Instruction, Pubkey,
 };
 
 use super::begin_settle::TokenProgram;
@@ -47,6 +47,9 @@ pub struct FinalizeSettle<'a> {
     /// mint use plain `Transfer`. Token-2022 mints with extensions such as
     /// transfer hooks or transfer fees require `TransferChecked`.
     pub transfer_checked_mints: &'a [Pubkey],
+    /// Appended to every `TransferChecked` (for example, transfer hook
+    /// accounts).
+    pub extra_accounts: &'a [AccountMeta],
 }
 
 impl From<FinalizeSettle<'_>> for Instruction {
@@ -96,6 +99,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             mints: &mints,
             bumps: &bumps,
             amounts: &amounts,
+            extra_accounts: builder.extra_accounts,
         }
         .into()
     }
