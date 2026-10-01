@@ -4,6 +4,9 @@ use cow_settlement_client::cow_settlement_interface::Pubkey;
 mod cmd;
 mod utils;
 
+// The generated Squads client refers to its program ID from the crate root.
+use utils::squads::SQUADS_MULTISIG_PROGRAM_ID;
+
 fn home_dir() -> String {
     std::env::var("HOME").expect("`HOME` env not available")
 }
@@ -44,7 +47,8 @@ struct Cli {
     )]
     rpc_url: String,
 
-    /// Path to the payer keypair (JSON format as written by `solana-keygen`)
+    /// Path to the payer keypair (JSON format as written by `solana-keygen`).
+    /// With `--squads-multisig`, the multisig member proposing the transaction
     #[arg(
         long,
         global = true,
@@ -56,6 +60,22 @@ struct Cli {
     /// Settlement program ID
     #[arg(long, global = true, default_value_t = cow_settlement_client::cow_settlement_interface::ID)]
     program_id: Pubkey,
+
+    /// Propose transactions to this Squads multisig instead of sending them,
+    /// with its vault standing in for the payer and every other signer
+    #[arg(long, global = true, env = "SQUADS_MULTISIG")]
+    squads_multisig: Option<Pubkey>,
+
+    /// Index of the Squads vault that executes proposed transactions (defaults
+    /// to 0)
+    #[arg(long, global = true)]
+    squads_vault_index: Option<u8>,
+
+    /// Approve the existing Squads transaction at this index instead of
+    /// proposing a new one. It must hold exactly the instructions the command
+    /// builds
+    #[arg(long, global = true)]
+    squads_transaction_index: Option<u64>,
 
     #[command(subcommand)]
     command: Commands,

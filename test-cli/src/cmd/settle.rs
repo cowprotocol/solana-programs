@@ -15,15 +15,13 @@ use cow_settlement_client::{
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_rpc_client::{api::config::RpcTransactionConfig, rpc_client::RpcClient};
-use solana_sdk::{
-    signature::{Signature, Signer},
-    transaction::Transaction,
-};
+use solana_sdk::signature::Signature;
 use std::collections::{HashMap, HashSet};
 
+use crate::utils::output::print_summary;
 use crate::utils::token::{resolve_from_token_account, TokenAccountInfo};
 
-use super::Context;
+use super::{Context, Proposed, Submission};
 
 #[derive(Args)]
 pub struct SettleArgs {
@@ -42,6 +40,9 @@ pub struct SettleArgs {
 enum SettleOutcome {
     /// Sent on-chain and confirmed.
     Sent { sig: Signature, units_consumed: u64 },
+
+    /// Proposed to a Squads multisig, to execute once approved.
+    Proposed(Proposed),
 
     /// `--dry-run`: simulated without an error.
     Simulated { units_consumed: u64 },
@@ -62,6 +63,15 @@ impl SettleOutcome {
                 sig,
                 units_consumed,
             } => format!("settle: {sig} ({units_consumed} CU)"),
+            Self::Proposed(Proposed {
+                transaction_index,
+                proposal,
+                created,
+                ..
+            }) => {
+                let action = if *created { "proposed as" } else { "approved" };
+                format!("settle: {action} Squads transaction {transaction_index} ({proposal})")
+            }
             Self::Simulated { units_consumed } => {
                 format!("settle: dry run (simulated success, {units_consumed} CU)")
             }
@@ -112,7 +122,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
 
     // `BeginSettle` is gated on a registered solver that signs. The fee payer
     // is assumed to be a solver.
-    let solver = ctx.payer.pubkey();
+    let solver = ctx.payer();
     let begin_ix = BeginSettle {
         program_id: ctx.program_id,
         solver,
@@ -141,22 +151,12 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     all_ixs.push(begin_ix.into());
     all_ixs.push(finalize_ix.into());
 
-    let blockhash = ctx.rpc.get_latest_blockhash().context("fetch blockhash")?;
-    let tx = Transaction::new_signed_with_payer(
-        &all_ixs,
-        Some(&ctx.payer.pubkey()),
-        &[&ctx.payer],
-        blockhash,
-    );
-
     let outcome = if args.dry_run {
         // A reverting simulation is still a successful RPC call, with the program error in
         // `value.err` — without checking it a failed settlement reads as a successful dry run.
         let simulated = ctx
-            .rpc
-            .simulate_transaction(&tx)
-            .with_context(|| "dry run simulation of settlement transaction failed")?
-            .value;
+            .simulate(&all_ixs)
+            .with_context(|| "dry run simulation of settlement transaction failed")?;
 
         match simulated.err {
             Some(err) => SettleOutcome::SimulationFailed {
@@ -171,10 +171,17 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
             },
         }
     } else {
-        let sig = ctx
-            .rpc
-            .send_and_confirm_transaction(&tx)
-            .context("settle transaction failed")?;
+        let sig = match ctx
+            .submit(&all_ixs, &[])
+            .context("settle transaction failed")?
+        {
+            Submission::Sent(sig) => sig,
+            Submission::Proposed(proposed) => {
+                let outcome = SettleOutcome::Proposed(proposed);
+                print_settlement_summary(&outcome, &intents);
+                return Ok(());
+            }
+        };
 
         // `get_transaction` sends no commitment, so the node defaults to `finalized` and
         // returns null for a tx that is merely confirmed. Ask at the client's own
@@ -311,7 +318,7 @@ fn prepare_setup_ixs(
         all_ixs.push(
             CreateBuffers {
                 program_id: ctx.program_id,
-                payer: ctx.payer.pubkey(),
+                payer: ctx.payer(),
                 token_program,
                 mints: &mints.into_iter().collect::<Vec<_>>(),
             }
@@ -363,6 +370,9 @@ fn compute_pulls(ctx: &Context, intents: &[ResolvedIntent]) -> Vec<[Pull; 1]> {
 
 fn print_settlement_summary(outcome: &SettleOutcome, intents: &[ResolvedIntent]) {
     println!("{}", outcome.status_line());
+    if let SettleOutcome::Proposed(proposed) = outcome {
+        print_summary(&proposed.summary());
+    }
     for (i, intent) in intents.iter().enumerate() {
         println!(
             "  order {i}: pulled {} (sell {}), pushed {} (buy {})",

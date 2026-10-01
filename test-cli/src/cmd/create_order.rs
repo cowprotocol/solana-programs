@@ -1,4 +1,3 @@
-use anyhow::Context as _;
 use clap::{Args as ClapArgs, Parser};
 use cow_settlement_client::{
     cow_settlement_interface::{
@@ -7,7 +6,6 @@ use cow_settlement_client::{
     },
     instruction::CreateOrder,
 };
-use solana_sdk::{signature::Signer, transaction::Transaction};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
@@ -103,8 +101,8 @@ fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<Par
         OrderKind::Buy => (b_tok, b_amount, *a_tok, *a_amount),
     };
 
-    let sell = utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
-    let buy = utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
+    let sell = utils::token::resolve(&ctx.rpc, &ctx.payer(), sell_tok)?;
+    let buy = utils::token::resolve(&ctx.rpc, &ctx.payer(), buy_tok)?;
 
     let sell_amount =
         spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell.mint_data.decimals)
@@ -139,24 +137,24 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
 
     if sell_is_sol {
         let (wsol_ata, wrap_ixs) =
-            utils::spl_instructions::wrap_sol(&ctx.rpc, &ctx.payer.pubkey(), sell_amount)?;
+            utils::spl_instructions::wrap_sol(&ctx.rpc, &ctx.payer(), sell_amount)?;
         assert_eq!(wsol_ata, sell.handle.account, "resolved WSOL ATA mismatch");
         ixs.extend(wrap_ixs);
     }
 
     // Create the account on the buy side if necessary
-    ixs.extend(buy.create_ata_ix(&ctx.payer.pubkey()));
+    ixs.extend(buy.create_ata_ix(&ctx.payer()));
 
     // Approve the settlement state PDA to pull sell tokens on the user's behalf.
     ixs.push(utils::spl_instructions::approve(
         &ctx.program_id,
         &sell.handle,
-        &ctx.payer.pubkey(),
+        &ctx.payer(),
         sell_amount,
     )?);
 
     let intent = OrderIntent {
-        owner: ctx.payer.pubkey(),
+        owner: ctx.payer(),
         sell: TokenAsset {
             mint: sell.handle.mint,
             token_account: sell.handle.account,
@@ -183,35 +181,18 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
     // owner == created_by: the payer both owns the order and funds the rent.
     let create_order_ix = CreateOrder {
         program_id: ctx.program_id,
-        owner: ctx.payer.pubkey(),
-        created_by: ctx.payer.pubkey(),
+        owner: ctx.payer(),
+        created_by: ctx.payer(),
         intent: &intent,
     };
 
     ixs.push(create_order_ix.into());
 
-    let blockhash = ctx
-        .rpc
-        .get_latest_blockhash()
-        .context("failed to fetch blockhash")?;
-    let tx = Transaction::new_signed_with_payer(
-        &ixs,
-        Some(&ctx.payer.pubkey()),
-        &[&ctx.payer],
-        blockhash,
-    );
-    let sig = ctx
-        .rpc
-        .send_and_confirm_transaction(&tx)
-        .context("transaction failed")?;
+    let submission = ctx.submit(&ixs, &[])?;
 
     let uid_hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
 
-    print_summary(&[
-        ("signature", &sig),
-        ("orderPda", &order_pda),
-        ("orderUid", &uid_hex),
-    ]);
+    print_summary(&submission.summary(&[("orderPda", &order_pda), ("orderUid", &uid_hex)]));
 
     Ok(())
 }
