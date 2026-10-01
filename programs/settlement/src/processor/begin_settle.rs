@@ -10,7 +10,7 @@ use cow_settlement_interface::{
     instruction::{
         settle::{
             finalize_push_data, BeginSettleInput, Push, SettledOrder, SettledOrders,
-            FINALIZE_FIXED_ACCOUNTS,
+            FINALIZE_FIXED_ACCOUNTS, FINALIZE_PUSH_ACCOUNTS,
         },
         InstructionInputParsing,
     },
@@ -27,7 +27,6 @@ use pinocchio::{
     },
     AccountView, Address, ProgramResult,
 };
-use pinocchio_token::instructions::Transfer;
 
 use crate::processor::utils::auth::with_state_pda_signer;
 use crate::processor::utils::{
@@ -35,7 +34,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
-    token::{owning_token_program, read_token_account},
+    token::{mint_decimals, owning_token_program, read_token_account, transfer},
 };
 
 pub fn process_begin_settle(
@@ -89,59 +88,71 @@ pub fn process_begin_settle(
     })
 }
 
-/// The `[source_buffer, destination]` address pair of each push carried by the
-/// paired `FinalizeSettle`, seen through instruction introspection, in order.
-///
-/// The push structure isn't validated here: the paired `FinalizeSettle` re-parses
-/// the same instruction from its own data and rejects a push count that disagrees
-/// with its accounts. The caller pairs these pushes with the settled orders
-/// one-to-one, which is what catches a count mismatch.
-fn push_accounts<'a>(
-    instruction: &'a IntrospectedInstruction<'a>,
-) -> impl Iterator<Item = (&'a Address, &'a Address)> {
-    // Each push occupies a `[source_buffer, destination]` meta pair after the
-    // fixed accounts.
-    let account_at = |index: usize| {
-        // The index stays below `num_account_metas`, so the lookup, whose only
-        // error is an out-of-bounds index, always succeeds.
-        &instruction
-            .get_instruction_account_at(index)
-            .expect("index within num_account_metas")
-            .key
-    };
-    (FINALIZE_FIXED_ACCOUNTS + 1..instruction.num_account_metas())
-        .step_by(2)
-        .map(move |destination_index| {
-            (
-                account_at(
-                    destination_index
-                        .checked_sub(1)
-                        .expect("a destination index is preceded by its source buffer"),
-                ),
-                account_at(destination_index),
-            )
-        })
-}
-
 /// The paired pushes `BeginSettle` settles against: each push's accounts (read
 /// from the finalize's account metas) with the bump and amount it carries (read
 /// from the finalize's instruction data), in push order.
 ///
 /// These are the same [`Push`]es `FinalizeSettle` itself parses, seen through
 /// introspection rather than held as accounts: hence `Push<Address>` where the
-/// finalize has `Push<AccountView>`.
-fn finalize_pushes<'a>(
+/// finalize has `Push<AccountView>`. A finalize with too few accounts for its
+/// pushes is rejected rather than read past its account metas; one with too
+/// many is left for the finalize's own parsing to reject.
+struct FinalizePushes<'a> {
     finalize_ix: &'a IntrospectedInstruction<'a>,
-) -> Result<impl Iterator<Item = Push<'a, Address>>, ProgramError> {
-    let data = finalize_push_data(finalize_ix.get_instruction_data())?;
-    Ok(push_accounts(finalize_ix).zip(data).map(
-        |((source_buffer, destination), (bump, amount))| Push {
-            source_buffer,
-            destination,
+    bumps: &'a [u8],
+    amounts: &'a [[u8; 8]],
+}
+
+impl<'a> FinalizePushes<'a> {
+    fn new(finalize_ix: &'a IntrospectedInstruction<'a>) -> Result<Self, ProgramError> {
+        let (bumps, amounts) = finalize_push_data(finalize_ix.get_instruction_data())?;
+        let push_accounts_end = bumps
+            .len()
+            .checked_mul(FINALIZE_PUSH_ACCOUNTS)
+            .and_then(|push_accounts| push_accounts.checked_add(FINALIZE_FIXED_ACCOUNTS))
+            .ok_or(SettlementError::AccountCountNotMatchingPushCount)?;
+        if finalize_ix.num_account_metas() < push_accounts_end {
+            return Err(SettlementError::AccountCountNotMatchingPushCount.into());
+        }
+        Ok(Self {
+            finalize_ix,
+            bumps,
+            amounts,
+        })
+    }
+
+    fn len(&self) -> usize {
+        self.bumps.len()
+    }
+
+    /// The push at `index`, or `None` past the last one.
+    fn get(&self, index: usize) -> Option<Push<'a, Address>> {
+        let (&bump, amount) = self.bumps.get(index).zip(self.amounts.get(index))?;
+        // Each push occupies a `[source_buffer, destination, mint]` meta triple
+        // after the fixed accounts.
+        #[allow(
+            clippy::arithmetic_side_effects,
+            reason = "index < len, and `new` checked the push accounts end didn't overflow"
+        )]
+        let source_index = FINALIZE_FIXED_ACCOUNTS + index * FINALIZE_PUSH_ACCOUNTS;
+        let account_at = |offset: usize| {
+            // SAFETY: `new` checked that every push's accounts are within
+            // `num_account_metas`.
+            #[allow(clippy::arithmetic_side_effects, reason = "as above")]
+            &unsafe {
+                self.finalize_ix
+                    .get_instruction_account_at_unchecked(source_index + offset)
+            }
+            .key
+        };
+        Some(Push {
+            source_buffer: account_at(0),
+            destination: account_at(1),
+            mint: account_at(2),
             bump,
-            amount,
-        },
-    ))
+            amount: u64::from_le_bytes(*amount),
+        })
+    }
 }
 
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
@@ -212,12 +223,12 @@ fn settle_orders(
 
     let now = Clock::get()?.unix_timestamp;
 
-    // Pull one push (destination and amount) per order; running out mid-loop
+    // Take one push (destination and amount) per order; running out mid-loop
     // means fewer pushes than orders. A leftover push (more pushes than orders)
     // is caught after.
-    let mut pushes = finalize_pushes(finalize_ix)?;
+    let pushes = FinalizePushes::new(finalize_ix)?;
 
-    for order in orders.iter() {
+    for (index, order) in orders.iter().enumerate() {
         let order_pda_address = order.order_pda.address();
         if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
@@ -225,7 +236,7 @@ fn settle_orders(
         previous = Some(order_pda_address);
 
         let push = pushes
-            .next()
+            .get(index)
             .ok_or(SettlementError::SettledOrderPushCountMismatch)?;
 
         process_order(
@@ -238,7 +249,7 @@ fn settle_orders(
         )?;
     }
 
-    if pushes.next().is_some() {
+    if pushes.len() != orders.len() {
         return Err(SettlementError::SettledOrderPushCountMismatch.into());
     }
 
@@ -262,6 +273,7 @@ fn process_order(
     let SettledOrder {
         order_pda,
         sell_token_account,
+        sell_mint,
         destinations,
         amounts,
     } = order;
@@ -328,18 +340,25 @@ fn process_order(
 
     // Pull the configured amounts out of the sell token account, summing them
     // into `amount_in` as we go. The state PDA is the SPL delegate, so it signs
-    // each transfer via `signer`.
+    // each transfer via `signer`. The token program checks `sell_mint` against
+    // the sell token account's mint on a `TransferChecked`.
+    let decimals = mint_decimals(token_program, sell_mint)?;
     let mut amount_in: u64 = 0;
     for (destination, amount) in destinations.iter().zip(amounts) {
         let amount = u64::from_le_bytes(*amount);
         amount_in = amount_in
             .checked_add(amount)
             .ok_or(SettlementError::PullAmountOverflow)?;
-        Transfer::new(sell_token_account, destination, state_account, amount)
-            .invoke_signed_with_unverified_program(
-                core::slice::from_ref(state_pda_signer),
-                &token_program.address(),
-            )?;
+        transfer(
+            token_program,
+            sell_token_account,
+            sell_mint,
+            destination,
+            state_account,
+            amount,
+            decimals,
+            state_pda_signer,
+        )?;
     }
 
     let settled = FillAmounts {
@@ -430,7 +449,9 @@ mod tests {
     use cow_settlement_interface::data::intent::{EncodedOrderIntent, Flags, OrderIntent};
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
+    use cow_settlement_interface::instruction::settle::{
+        FinalizeSettle, FinalizeSettleInput, UNCHECKED_MINT,
+    };
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
@@ -1051,35 +1072,56 @@ mod tests {
             .expect("the finalize is the only instruction, at index 0")
     }
 
+    /// A finalize whose accounts stop short of its last push's mint is rejected
+    /// rather than read past its account metas.
+    #[test]
+    fn finalize_pushes_rejects_too_few_accounts() {
+        let mut ix = Instruction::from(FinalizeSettle {
+            source_buffers: &[Pubkey::new_from_array([1; 32])],
+            destinations: &[Pubkey::new_from_array([2; 32])],
+            bumps: &[0xff],
+            amounts: &[42],
+            ..Default::default()
+        });
+        ix.accounts.pop();
+        assert_eq!(
+            FinalizePushes::new(&introspected_instruction(&ix)).err(),
+            Some(SettlementError::AccountCountNotMatchingPushCount.into()),
+        );
+    }
+
     proptest! {
         /// `BeginSettle` settles against a paired `FinalizeSettle`'s pushes via
-        /// `finalize_pushes`: each push's source buffer and destination (from the
-        /// account metas) paired with its bump and amount (from the instruction
-        /// data). For any well-formed finalize those must match both the builder's
-        /// inputs and what `FinalizeSettleInput` parses from the same instruction.
+        /// [`FinalizePushes`]: each push's source buffer, destination, and mint
+        /// (from the account metas) paired with its bump and amount (from the
+        /// instruction data). For any well-formed finalize those must match both
+        /// the builder's inputs and what `FinalizeSettleInput` parses from the
+        /// same instruction.
         #[test]
         fn finalize_pushes_matches_parser(
             program_id in any::<[u8; 32]>(),
             state_pda in any::<[u8; 32]>(),
             begin_ix_index in any::<u16>(),
-            (source_buffers, destinations, bumps, amounts) in arb_pushes(0..=16usize),
+            pushes in arb_pushes(0..=16usize),
         ) {
             let ix = Instruction::from(FinalizeSettle {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
                 begin_ix_index,
-                only_token_program: None,
-                source_buffers: &source_buffers,
-                destinations: &destinations,
-                bumps: &bumps,
-                amounts: &amounts,
+                source_buffers: &pushes.source_buffers,
+                destinations: &pushes.destinations,
+                mints: &pushes.mints,
+                bumps: &pushes.bumps,
+                amounts: &pushes.amounts,
+                ..Default::default()
             });
 
             let introspected_instruction = introspected_instruction(&ix);
+            let introspected_pushes = FinalizePushes::new(&introspected_instruction)
+                .expect("well-formed finalize data");
             let introspected: Vec<Push<'_, Address>> =
-                finalize_pushes(&introspected_instruction)
-                    .expect("well-formed finalize data")
-                    .collect();
+                (0..introspected_pushes.len()).map_while(|index| introspected_pushes.get(index)).collect();
+            prop_assert!(introspected_pushes.get(introspected_pushes.len()).is_none());
 
             let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
@@ -1091,19 +1133,28 @@ mod tests {
                 .map(|p| Push {
                     source_buffer: p.source_buffer.address(),
                     destination: p.destination.address(),
+                    mint: p.mint.address(),
                     bump: p.bump,
                     amount: p.amount
                 })
                 .collect();
 
             // The builder's inputs, the ground truth both views should recover.
-            let expected: Vec<Push<'_, Address>> = source_buffers
+            let mints: Vec<Pubkey> = pushes
+                .mints
                 .iter()
-                .zip(&destinations)
-                .zip(bumps.iter().copied().zip(amounts.iter().copied()))
-                .map(|((source_buffer, destination), (bump, amount))| Push {
+                .map(|mint| mint.unwrap_or(UNCHECKED_MINT))
+                .collect();
+            let expected: Vec<Push<'_, Address>> = pushes
+                .source_buffers
+                .iter()
+                .zip(&pushes.destinations)
+                .zip(&mints)
+                .zip(pushes.bumps.iter().copied().zip(pushes.amounts.iter().copied()))
+                .map(|(((source_buffer, destination), mint), (bump, amount))| Push {
                     source_buffer,
                     destination,
+                    mint,
                     bump,
                     amount,
                 })

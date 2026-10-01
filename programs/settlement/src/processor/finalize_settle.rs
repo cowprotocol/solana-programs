@@ -11,11 +11,13 @@ use cow_settlement_interface::{
 use pinocchio::{
     cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
 };
-use pinocchio_token::instructions::Transfer;
 
 use crate::processor::utils::{
-    auth::with_state_pda_signer, cpi::is_cpi_call, lamports::move_lamports,
-    settle::validate_counterpart, token::owning_token_program,
+    auth::with_state_pda_signer,
+    cpi::is_cpi_call,
+    lamports::move_lamports,
+    settle::validate_counterpart,
+    token::{mint_decimals, owning_token_program, transfer},
 };
 
 pub fn process_finalize_settle(
@@ -65,7 +67,8 @@ pub fn process_finalize_settle(
 ///    with the buy_mint.
 ///
 /// So ultimately, for an SPL push we are relying that the SPL token program
-/// rejects a transfer whose source and destination mints differ.
+/// rejects a transfer whose source and destination mints differ (and, on a
+/// `TransferChecked`, whose mint account differs from theirs).
 ///
 /// We use two separate loops to effectively separate the SPL Token payments
 /// from the native payments. This is because the SVM doesn't allow CPIs (in our
@@ -82,15 +85,15 @@ fn push_funds<'a>(
         if push.source_buffer.address() != state_pda_account.address() {
             let token_program = owning_token_program(push.destination)
                 .map_err(|_| SettlementError::InvalidTokenProgram)?;
-            Transfer::new(
+            transfer(
+                token_program,
                 push.source_buffer,
+                push.mint,
                 push.destination,
                 state_pda_account,
                 push.amount,
-            )
-            .invoke_signed_with_unverified_program(
-                core::slice::from_ref(state_pda_signer),
-                &token_program.address(),
+                mint_decimals(token_program, push.mint)?,
+                state_pda_signer,
             )?;
         }
     }

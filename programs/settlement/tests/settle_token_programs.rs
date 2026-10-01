@@ -73,15 +73,16 @@ fn settle_with(
         program_id: *program_id,
         solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
-        auction_id: 0,
         only_token_program: begin_program,
         orders: &initialized,
+        ..Default::default()
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: finalize_program,
         orders: &finalized,
+        ..Default::default()
     };
     let tx = Transaction::new_signed_with_payer(
         &[begin.into(), finalize.into()],
@@ -296,12 +297,11 @@ fn settles_with_the_token_program_slots_swapped() {
         program_id,
         solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
-        auction_id: 0,
-        only_token_program: None,
         orders: &[InitializedIntent {
             intent: &intent,
             pulls: &pulls,
         }],
+        ..Default::default()
     });
     // `BeginSettle`'s accounts are `[solver, sysvar, state, spl_token,
     // token_2022, ...]`, so exchanging the two slots leaves both programs
@@ -310,11 +310,11 @@ fn settles_with_the_token_program_slots_swapped() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        only_token_program: None,
         orders: &[FinalizedIntent {
             intent: &intent,
             amount: 100,
         }],
+        ..Default::default()
     };
 
     let tx = Transaction::new_signed_with_payer(
@@ -366,15 +366,16 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
             program_id,
             solver: solver.pubkey(),
             finalize_ix_index: FINALIZE_INDEX.into(),
-            auction_id: 0,
             only_token_program,
             orders: &initialized,
+            ..Default::default()
         };
         let finalize = FinalizeSettle {
             program_id,
             begin_ix_index: BEGIN_INDEX.into(),
             only_token_program,
             orders: &finalized,
+            ..Default::default()
         };
         Transaction::new_signed_with_payer(
             &[begin.into(), finalize.into()],

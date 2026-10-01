@@ -117,9 +117,8 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         program_id: ctx.program_id,
         solver,
         finalize_ix_index,
-        only_token_program: None,
         orders: &initialized_intents,
-        auction_id: 0,
+        ..Default::default()
     };
 
     // Send exactly each order's buy amount; any surplus tokens stay in the buffers.
@@ -134,8 +133,8 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     let finalize_ix = FinalizeSettle {
         program_id: ctx.program_id,
         begin_ix_index,
-        only_token_program: None,
         orders: &settled,
+        ..Default::default()
     };
 
     all_ixs.push(begin_ix.into());

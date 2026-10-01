@@ -19,6 +19,7 @@ pub struct InitializedIntent<'a> {
 }
 
 /// Builder for a `BeginSettle` instruction settling the given orders.
+#[derive(Default)]
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub solver: Pubkey,
@@ -33,17 +34,29 @@ pub struct BeginSettle<'a> {
     /// only token program you need here.
     pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [InitializedIntent<'a>],
+    /// The sell mints whose pulls use `TransferChecked`; pulls of any other
+    /// mint use plain `Transfer`. Token-2022 mints with extensions such as
+    /// transfer hooks or transfer fees require `TransferChecked`.
+    pub transfer_checked_mints: &'a [Pubkey],
 }
 
 impl From<BeginSettle<'_>> for Instruction {
     fn from(builder: BeginSettle<'_>) -> Self {
         let mut order_pdas = Vec::with_capacity(builder.orders.len());
         let mut sell_token_accounts = Vec::with_capacity(builder.orders.len());
+        let mut sell_mints = Vec::with_capacity(builder.orders.len());
         let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(builder.orders.len());
         for order in builder.orders {
             let (order_pda, _bump) = find_order_pda(&builder.program_id, &order.intent.uid());
             order_pdas.push(order_pda);
             sell_token_accounts.push(order.intent.sell.token_account);
+            let sell_mint = order.intent.sell.mint;
+            sell_mints.push(
+                builder
+                    .transfer_checked_mints
+                    .contains(&sell_mint)
+                    .then_some(sell_mint),
+            );
             pull_lists.push(order.pulls);
         }
         cow_settlement_interface::instruction::settle::BeginSettle {
@@ -55,6 +68,7 @@ impl From<BeginSettle<'_>> for Instruction {
             only_token_program: builder.only_token_program,
             order_pdas: &order_pdas,
             sell_token_accounts: &sell_token_accounts,
+            sell_mints: &sell_mints,
             pulls: &pull_lists,
         }
         .into()
@@ -95,9 +109,8 @@ mod tests {
                 program_id,
                 solver: pubkey_from_seed("solver"),
                 finalize_ix_index,
-                auction_id: 0,
-                only_token_program: None,
                 orders: &orders,
+                ..Default::default()
             });
 
             // Expected orders: each intent's canonical PDA paired with its sell
