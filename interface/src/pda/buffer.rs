@@ -83,7 +83,15 @@ const KNOWN_BUFFERS: [KnownBuffer; known_mints::KNOWN_MINTS.len()] = {
 };
 
 /// Bits of the hash that pick a slot: 512 slots keep collisions among 64 mints
-/// rare enough that a multiplier turns up within a few dozen attempts.
+/// The number of bits representing each input slot of `KNOWN_BUFFER_SLOTS`.
+/// More bits make `KNOWN_BUFFER_SLOTS` exponentially larger, and therefore
+/// increase the size of the program. However, more bits also make it easier to
+/// find a multiplier with no collisions, and therefore reduce compilation
+/// times.
+///
+/// The problem of avoiding collision is the same as the birthday paradox.
+/// As a rule of thumb, finding a multiplier requires an expected `e^(n²/(2m))`
+/// iterations, where `n` is the number of known mints and m is 2^SLOT_BITS.
 const SLOT_BITS: u32 = 9;
 
 /// Gives every one of [`KNOWN_BUFFERS`] its own slot in [`KNOWN_BUFFER_SLOTS`].
