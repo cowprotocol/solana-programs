@@ -29,13 +29,20 @@ build: build-program
     cargo build
 
 # Runs all the generated code jobs
-generate: generate-js-client
+generate: generate-js-client generate-squads-client
 
 # Builds the JS/TS client from IDL.
 [working-directory: 'programs/settlement/idl']
 @generate-js-client:
     corepack pnpm install --frozen-lockfile
     node generate.mjs
+
+# Builds the test CLI's Squads client from the vendored Squads IDL.
+[working-directory: 'test-cli/squads-idl']
+@generate-squads-client:
+    corepack pnpm install --frozen-lockfile
+    node generate.mjs
+    cargo fmt -p cow-test-cli
 
 # Run the test suite (builds the program first so the .so exists).
 test: build-program build-test-programs

@@ -945,11 +945,18 @@ name = "cow-test-cli"
 version = "0.4.1"
 dependencies = [
  "anyhow",
+ "borsh",
  "clap",
  "cow-settlement-client",
+ "num-derive",
+ "num-traits",
+ "solana-account-info",
+ "solana-address 2.6.1",
  "solana-commitment-config",
+ "solana-cpi",
  "solana-hash 4.5.0",
  "solana-instruction",
+ "solana-program-error",
  "solana-program-pack",
  "solana-pubkey 4.2.1",
  "solana-rpc-client",
@@ -958,6 +965,7 @@ dependencies = [
  "spl-associated-token-account-interface",
  "spl-token",
  "spl-token-2022-interface 3.1.1",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

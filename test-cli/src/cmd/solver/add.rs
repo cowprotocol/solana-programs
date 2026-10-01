@@ -1,10 +1,7 @@
-use anyhow::Context as _;
 use clap::Args as ClapArgs;
 use cow_settlement_client::{cow_settlement_interface::Pubkey, instruction::AddSolver};
-use solana_sdk::{signature::Signer, transaction::Transaction};
 
 use crate::cmd::Context;
-use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
 use crate::utils::pda::find_state_pda;
 
@@ -21,8 +18,8 @@ pub struct AddArgs {
 }
 
 pub fn run(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
-    let payer = ctx.payer.pubkey();
-    let solver_authority = read_keypair_or(args.solver_authority, &ctx.payer)?;
+    let payer = ctx.payer();
+    let solver_authority = ctx.signer_or(args.solver_authority)?;
     let solver_authority_pubkey = solver_authority.pubkey();
 
     let ix = AddSolver {
@@ -32,28 +29,14 @@ pub fn run(ctx: Context, args: AddArgs) -> anyhow::Result<()> {
         solver: args.solver,
     };
 
-    let blockhash = ctx
-        .rpc
-        .get_latest_blockhash()
-        .context("failed to fetch blockhash")?;
-    let tx = Transaction::new_signed_with_payer(
-        &[ix.into()],
-        Some(&payer),
-        &[&ctx.payer, &*solver_authority],
-        blockhash,
-    );
-    let sig = ctx
-        .rpc
-        .send_and_confirm_transaction(&tx)
-        .context("transaction failed")?;
+    let submission = ctx.submit(&[ix.into()], &[&solver_authority])?;
 
     let state_pda = find_state_pda(&ctx.program_id);
-    print_summary(&[
-        ("signature", &sig),
+    print_summary(&submission.summary(&[
         ("added solver", &args.solver),
         ("solverAuthority", &solver_authority_pubkey),
         ("statePda", &state_pda),
-    ]);
+    ]));
 
     Ok(())
 }

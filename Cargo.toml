@@ -21,6 +21,7 @@ keywords = ["solana", "cow-protocol", "defi", "trading", "settlement"]
 anyhow = "1"
 arrayref = "0.3"
 bincode = "1"
+borsh = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive", "env"] }
 const-crypto = "0.3"
 solana-commitment-config = "3"
@@ -31,6 +32,8 @@ hex-literal = "1"
 jsonschema = "0.30"
 litesvm = "0.15"
 litesvm-token = "0.15"
+num-derive = "0.4"
+num-traits = "0.2"
 num_enum = "0.7"
 pastey = "0.2"
 pinocchio = "0.11"
@@ -41,6 +44,7 @@ proptest = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 cow-settlement-client = { path = "client", version = "0.4.1" }
 cow-settlement-interface = { path = "interface", version = "0.4.1" }
+solana-account-info = "3"
 solana-account-view = "2"
 # Held below 2.7 on purpose. solana-address 2.7 switched to wincode 0.6, but the
 # released solana-rpc-client 4.1.x stack (pulled by test-cli) still builds against
@@ -50,6 +54,7 @@ solana-account-view = "2"
 solana-address = "~2.6"
 solana-address-lookup-table-interface = "3"
 solana-compute-budget = "4"
+solana-cpi = "3"
 solana-hash = "4"
 solana-instruction = "3"
 solana-instruction-error = "2"
@@ -65,6 +70,7 @@ spl-token = "9"
 spl-token-2022-interface = "3"
 spl-token-interface = "3"
 syn = { version = "2", features = ["full"] }
+thiserror = "2"
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.
