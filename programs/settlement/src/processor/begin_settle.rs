@@ -426,10 +426,10 @@ fn validated_final_amounts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::num::NonZeroU64;
 
     use cow_settlement_interface::data::intent::fixtures::{arb_order_intent, sample_intent};
     use cow_settlement_interface::data::intent::{EncodedOrderIntent, Flags, OrderIntent};
+    use cow_settlement_interface::fixtures::IntoNonZero;
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
     use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
@@ -455,8 +455,8 @@ mod tests {
     impl IntentSpec {
         fn build(&self) -> EncodedOrderIntent {
             EncodedOrderIntent::from(&OrderIntent {
-                sell_amount: NonZeroU64::new(self.sell).expect("nonzero order amount"),
-                buy_amount: NonZeroU64::new(self.buy).expect("nonzero order amount"),
+                sell_amount: self.sell.nz(),
+                buy_amount: self.buy.nz(),
                 ..sample_intent(Flags {
                     created_on_chain: true,
                     kind: self.kind,

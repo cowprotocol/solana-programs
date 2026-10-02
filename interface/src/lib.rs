@@ -33,8 +33,7 @@ pub mod fixtures {
     }
 
     /// Wrap a known-non-zero `u64` in a [`NonZeroU64`], as `amount.nz()`.
-    /// Panics on zero, with `#[track_caller]` pointing the panic at the call
-    /// site rather than here.
+    /// Used to make test code shorter.
     pub trait IntoNonZero {
         fn nz(self) -> NonZeroU64;
     }

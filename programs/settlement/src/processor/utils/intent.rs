@@ -116,11 +116,10 @@ pub fn fill_progress(intent: &OrderIntentAccessor, fill: FillAmounts) -> (u64, N
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZeroU64;
-
     use cow_settlement_interface::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
     use cow_settlement_interface::data::intent::OrderIntent;
     use cow_settlement_interface::data::order::fixtures::{sample_order_bytes, INTENT_OFFSET};
+    use cow_settlement_interface::fixtures::IntoNonZero;
 
     use super::*;
 
@@ -158,8 +157,8 @@ mod tests {
 
         let intent = |kind| {
             EncodedOrderIntent::from(&OrderIntent {
-                sell_amount: NonZeroU64::new(SELL_AMOUNT).expect("nonzero"),
-                buy_amount: NonZeroU64::new(BUY_AMOUNT).expect("nonzero"),
+                sell_amount: SELL_AMOUNT.nz(),
+                buy_amount: BUY_AMOUNT.nz(),
                 ..sample_intent(Flags {
                     kind,
                     ..Default::default()
