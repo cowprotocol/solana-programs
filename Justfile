@@ -31,8 +31,7 @@ build: build-program
 # Runs all the generated code jobs
 generate: generate-js-client
 
-# Refresh the most traded token mints whose buffer PDAs the settlement program
-# derives at compile time. Not part of `generate`: it snapshots live market data.
+# Refresh the most traded token mints for the quick access buffer lookup table. Pulls live market data.
 generate-known-mints:
     node interface/scripts/generate-known-mints.mjs
 
