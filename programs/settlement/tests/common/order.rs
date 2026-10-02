@@ -7,6 +7,7 @@ use cow_settlement_client::cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_client::instruction::{CreateOrder, CreateSettlementOwnedOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
 use cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
+use cow_settlement_interface::fixtures::IntoNonZero;
 use litesvm::LiteSVM;
 use solana_sdk::{
     pubkey::Pubkey,
@@ -37,8 +38,8 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
             mint: Pubkey::new_from_array([0x55; 32]),
         })
         .expect("not native SOL"),
-        sell_amount: 1_000_000,
-        buy_amount: 2_000_000,
+        sell_amount: 1_000_000.nz(),
+        buy_amount: 2_000_000.nz(),
         valid_to: 0xdead_beef,
         flags: Flags {
             created_on_chain: true,
@@ -246,13 +247,13 @@ impl<'a> OrderBuilder<'a> {
 
     /// Set the order's sell amount (exact or maximum depending on `kind`).
     pub fn sell_amount(mut self, sell_amount: u64) -> Self {
-        self.intent.sell_amount = sell_amount;
+        self.intent.sell_amount = sell_amount.nz();
         self
     }
 
     /// Set the order's buy amount (exact or minimum depending on `kind`).
     pub fn buy_amount(mut self, buy_amount: u64) -> Self {
-        self.intent.buy_amount = buy_amount;
+        self.intent.buy_amount = buy_amount.nz();
         self
     }
 

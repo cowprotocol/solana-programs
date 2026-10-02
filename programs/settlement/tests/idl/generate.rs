@@ -271,6 +271,10 @@ fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
         // `Flags` packs three fields into a single byte, which the IDL's type
         // grammar can't express. The byte is what the wire carries.
         ("OrderIntent", "flags") => Some(("flags".to_string(), json!("u8"))),
+        // The amounts are `NonZeroU64`; the wire carries a plain little-endian
+        // u64, and the IDL's type grammar has no non-zero integer.
+        ("OrderIntent", "sell_amount") => Some(("sell_amount".to_string(), json!("u64"))),
+        ("OrderIntent", "buy_amount") => Some(("buy_amount".to_string(), json!("u64"))),
         // The intent is stored in the wire's own shape; the IDL knows that
         // shape as `OrderIntent`, the name it gives the encoding everywhere
         // else.

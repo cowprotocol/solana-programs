@@ -127,7 +127,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .iter()
         .map(|intent| FinalizedIntent {
             intent: &intent.data,
-            amount: intent.data.buy_amount,
+            amount: intent.data.buy_amount.get(),
         })
         .collect();
 
@@ -294,14 +294,14 @@ fn prepare_setup_ixs(
             &mut sell_amount_pulled,
             &mut mint_buffers_to_create,
             &intent.sell,
-            intent.data.sell_amount,
+            intent.data.sell_amount.get(),
         )?;
         tally_and_register_buffer(
             ctx,
             &mut buy_amount_pushed,
             &mut mint_buffers_to_create,
             &intent.buy,
-            intent.data.buy_amount,
+            intent.data.buy_amount.get(),
         )?;
     }
 
@@ -355,7 +355,7 @@ fn compute_pulls(ctx: &Context, intents: &[ResolvedIntent]) -> Vec<[Pull; 1]> {
             let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, &intent.sell.mint);
             [Pull {
                 destination: buffer_pda,
-                amount: intent.data.sell_amount,
+                amount: intent.data.sell_amount.get(),
             }]
         })
         .collect()

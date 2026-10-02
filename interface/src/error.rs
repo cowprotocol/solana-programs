@@ -140,6 +140,8 @@ pub enum SettlementError {
     /// isn't a signer, or doesn't match the `settlement_owned_order_authority`
     /// recorded in the settlement state PDA.
     UnauthorizedSettlementOwnedOrder = 42,
+    /// An intent has a zero sell or buy amount, which is not supported.
+    ZeroOrderAmount = 43,
 }
 
 impl From<SettlementError> for u32 {

@@ -92,6 +92,7 @@ pub(crate) fn process_new_onchain_order(
 
 #[cfg(test)]
 mod tests {
+    use cow_settlement_interface::data::intent::fixtures::{BUY_AMOUNT_OFFSET, SELL_AMOUNT_OFFSET};
     use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, NUM_ACCOUNTS,
@@ -225,5 +226,28 @@ mod tests {
             process_create_order(&PROGRAM_ID, &mut accounts, &data),
             Err(SettlementError::OrderCreatedOnChainMismatch.into()),
         );
+    }
+
+    #[test]
+    fn process_create_order_rejects_zero_amount() {
+        // A zero amount can't be built through the NonZeroU64-typed
+        // OrderIntent, so we build the wire bytes directly: a valid intent with
+        // one amount slot zeroed.
+        for offset in [SELL_AMOUNT_OFFSET, BUY_AMOUNT_OFFSET] {
+            let mut intent_bytes = valid_intent_bytes();
+            intent_bytes[offset..offset + 8].fill(0);
+            let data = default_order_data(&intent_bytes);
+
+            let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+            accounts[0] = fake_account_from(RuntimeAccount {
+                is_signer: 1,
+                ..Default::default()
+            });
+
+            assert_eq!(
+                process_create_order(&PROGRAM_ID, &mut accounts, &data),
+                Err(SettlementError::ZeroOrderAmount.into()),
+            );
+        }
     }
 }
