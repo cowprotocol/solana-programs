@@ -335,12 +335,10 @@ fn rejects_when_intent_owner_differs_from_signer() {
 fn rejects_zero_amount() {
     let (mut svm, program_id, owner) = common::setup();
 
-    // A zero amount can't be built through the NonZeroU64-typed OrderIntent, so
-    // craft the wire bytes: a valid intent with one amount slot zeroed. The
-    // program must reject it and leave no order PDA behind for it to ever be
-    // settled.
     for offset in [fixtures::SELL_AMOUNT_OFFSET, fixtures::BUY_AMOUNT_OFFSET] {
         let intent = sample_intent(owner.pubkey());
+        // A zero amount can't be built through the NonZeroU64-typed
+        // OrderIntent, so we change the bytes by hand.
         let mut encoded: [u8; EncodedOrderIntent::SIZE] =
             (&EncodedOrderIntent::from(&intent)).into();
         encoded[offset..offset + 8].fill(0);
