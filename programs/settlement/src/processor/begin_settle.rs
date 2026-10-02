@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use cow_settlement_interface::{
     data::{
-        intent::{Asset, Flags, OrderKind},
+        intent::{Flags, OrderKind},
         order::{FillAmounts, OrderAccount},
     },
     instruction::{
@@ -292,13 +292,9 @@ fn process_order(
     // This effectively transitively verifies `intent.buy_token_account`
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
-    // If its a native SOL buy order, the "source buffer" should be the state pda.
-    let buy_mint = intent.buy_mint();
-    if Asset::is_native_sol(buy_mint) {
-        validate_is_state_pda(push.source_buffer.as_array())?;
-    } else {
-        validate_buffer_pda(push.source_buffer, buy_mint, push.bump)?;
-    }
+    // If its a native SOL buy order, the "source buffer" should be the native SOL buffer,
+    // which is also resolvable via this validation function.
+    validate_buffer_pda(push.source_buffer, intent.buy_mint(), push.bump)?;
 
     // The sell token account must be the one named in the intent, owned by
     // the intent owner: an order can only sell funds its own owner controls.

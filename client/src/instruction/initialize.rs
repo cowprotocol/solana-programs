@@ -1,6 +1,9 @@
 //! Builder for the `Initialize` instruction.
 
-use cow_settlement_interface::{pda::state::STATE_PDA, Instruction, Pubkey};
+use cow_settlement_interface::{
+    pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::STATE_PDA},
+    Instruction, Pubkey,
+};
 
 pub struct Initialize {
     pub program_id: Pubkey,
@@ -17,6 +20,7 @@ impl From<Initialize> for Instruction {
             program_id: builder.program_id,
             payer: builder.payer,
             state_pda: STATE_PDA,
+            native_sol_buffer: NATIVE_SOL_BUFFER_PDA,
             manager: builder.manager,
             solver_authority: builder.solver_authority,
             reclaim_authority: builder.reclaim_authority,
