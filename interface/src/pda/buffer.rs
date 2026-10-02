@@ -101,6 +101,7 @@ const KNOWN_BUFFER_MULTIPLIER: u64 = find_slot_multiplier(&KNOWN_BUFFERS);
 /// The index into [`KNOWN_BUFFERS`] of the mint in each slot, or `u8::MAX` for
 /// an empty slot, which [`known_buffer`] then finds no buffer at.
 const KNOWN_BUFFER_SLOTS: [u8; 1 << SLOT_BITS] = {
+    // Strictly less than MAX because the value is reserved for no buffer.
     assert!(
         KNOWN_BUFFERS.len() < u8::MAX as usize,
         "too many known mints for u8 indices"
