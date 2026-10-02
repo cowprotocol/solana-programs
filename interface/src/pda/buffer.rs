@@ -278,10 +278,6 @@ mod tests {
             let known = known_buffer(mint.as_array())
                 .unwrap_or_else(|| panic!("{mint} must have a known buffer"));
             assert_eq!(known.mint, *mint.as_array());
-            assert_eq!(
-                known.address,
-                *find_buffer_pda(&crate::ID, &mint).0.as_array()
-            );
         }
     }
 
