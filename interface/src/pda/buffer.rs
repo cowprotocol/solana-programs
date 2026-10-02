@@ -264,8 +264,12 @@ mod tests {
     const A_KNOWN_MINT: Pubkey = Pubkey::from_str_const(KNOWN_MINTS[0]);
 
     #[test]
-    fn known_buffers_are_canonical() {
+    fn known_buffers_len_maps_known_mints() {
         assert_eq!(KNOWN_BUFFERS.len(), known_mints::KNOWN_MINTS.len());
+    }
+
+    #[test]
+    fn known_buffers_are_canonical() {
         for known in &KNOWN_BUFFERS {
             let (pda, _) = find_buffer_pda(&crate::ID, &Pubkey::new_from_array(known.mint));
             assert_eq!(known.address, *pda.as_array());
