@@ -297,7 +297,7 @@ fn process_order(
     if Asset::is_native_sol(buy_mint) {
         validate_is_state_pda(push.source_buffer.as_array())?;
     } else {
-        validate_buffer_pda(program_id, push.source_buffer, buy_mint, push.bump)?;
+        validate_buffer_pda(push.source_buffer, buy_mint, push.bump)?;
     }
 
     // The sell token account must be the one named in the intent, owned by
