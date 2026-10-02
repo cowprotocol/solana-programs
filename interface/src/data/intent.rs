@@ -529,15 +529,15 @@ pub mod fixtures {
         (
             any::<[u8; EncodedOrderIntent::SIZE]>(),
             arb_flags_byte(),
-            any::<NonZeroU64>(),
-            any::<NonZeroU64>(),
+            1..=u64::MAX,
+            1..=u64::MAX,
         )
             .prop_map(|(mut bytes, flags, sell_amount, buy_amount)| {
                 bytes[FLAGS_OFFSET] = flags;
                 bytes[SELL_AMOUNT_OFFSET..SELL_AMOUNT_OFFSET.strict_add(size_of::<u64>())]
-                    .copy_from_slice(&sell_amount.get().to_le_bytes());
+                    .copy_from_slice(&sell_amount.to_le_bytes());
                 bytes[BUY_AMOUNT_OFFSET..BUY_AMOUNT_OFFSET.strict_add(size_of::<u64>())]
-                    .copy_from_slice(&buy_amount.get().to_le_bytes());
+                    .copy_from_slice(&buy_amount.to_le_bytes());
                 bytes
             })
     }
