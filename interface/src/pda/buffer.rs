@@ -185,7 +185,6 @@ fn known_buffer(mint: &[u8; 32]) -> Option<&'static KnownBuffer> {
 #[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_buffer_pda(
-    program_id: &Address,
     buffer: &Address,
     mint: &[u8; 32],
     bump: u8,
@@ -193,7 +192,7 @@ pub fn validate_buffer_pda(
     let is_buffer = match known_buffer(mint) {
         Some(known) => buffer.as_array() == &known.address,
         None => {
-            is_pda_with_signer_seeds(buffer, program_id, buffer_pda_signer_seeds(mint, &[bump]))
+            is_pda_with_signer_seeds(buffer, &crate::ID, buffer_pda_signer_seeds(mint, &[bump]))
         }
     };
     is_buffer
@@ -226,37 +225,34 @@ mod tests {
 
     #[test]
     fn accepts_a_valid_address() {
-        let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
-        let (pda, bump) = find_buffer_pda(&program_id, &mint);
+        let (pda, bump) = find_buffer_pda(&crate::ID, &mint);
 
         let buffer = crate::instruction::fixtures::fake_account(pda);
-        validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump)
+        validate_buffer_pda(&buffer.address(), mint.as_array(), bump)
             .expect("the canonical buffer PDA must be accepted");
     }
 
     #[test]
     fn rejects_an_invalid_address() {
-        let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
-        let (_, bump) = find_buffer_pda(&program_id, &mint);
+        let (_, bump) = find_buffer_pda(&crate::ID, &mint);
 
         // An account sitting at some other address is not the buffer.
         let buffer = crate::instruction::fixtures::fake_account(Pubkey::new_unique());
-        let err = validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump)
+        let err = validate_buffer_pda(&buffer.address(), mint.as_array(), bump)
             .expect_err("a non-canonical address must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
     #[test]
     fn rejects_a_wrong_bump() {
-        let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
-        let (pda, bump) = find_buffer_pda(&program_id, &mint);
+        let (pda, bump) = find_buffer_pda(&crate::ID, &mint);
 
         // The address is canonical but the carried bump doesn't derive it.
         let buffer = crate::instruction::fixtures::fake_account(pda);
-        let err = validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump ^ 1)
+        let err = validate_buffer_pda(&buffer.address(), mint.as_array(), bump ^ 1)
             .expect_err("a wrong bump must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
@@ -333,7 +329,7 @@ mod tests {
     fn accepts_the_known_buffer() {
         let (pda, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        validate_buffer_pda(&crate::ID, &pda, A_KNOWN_MINT.as_array(), bump)
+        validate_buffer_pda(&pda, A_KNOWN_MINT.as_array(), bump)
             .expect("the known buffer PDA must be accepted");
     }
 
@@ -341,13 +337,8 @@ mod tests {
     fn rejects_an_invalid_address_for_a_known_mint() {
         let (_, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        let err = validate_buffer_pda(
-            &crate::ID,
-            &Pubkey::new_unique(),
-            A_KNOWN_MINT.as_array(),
-            bump,
-        )
-        .expect_err("a non-canonical address must be rejected");
+        let err = validate_buffer_pda(&Pubkey::new_unique(), A_KNOWN_MINT.as_array(), bump)
+            .expect_err("a non-canonical address must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
@@ -355,7 +346,7 @@ mod tests {
     fn ignores_the_bump_for_a_known_mint() {
         let (pda, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        validate_buffer_pda(&crate::ID, &pda, A_KNOWN_MINT.as_array(), bump ^ 1)
+        validate_buffer_pda(&pda, A_KNOWN_MINT.as_array(), bump ^ 1)
             .expect("the known buffer PDA must be accepted whatever the bump");
     }
 
