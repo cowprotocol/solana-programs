@@ -22,7 +22,7 @@ use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
 use cow_settlement_client::{
     cow_settlement_interface::{
         data::intent::{Asset, OrderIntent, TokenAsset},
-        pda::state::STATE_PDA,
+        pda::{buffer::KNOWN_MINTS, state::STATE_PDA},
         Instruction, SettlementError,
     },
     instruction::TokenProgram,
@@ -83,8 +83,7 @@ fn pushes_a_single_order() {
 #[test]
 fn pushes_a_single_order_of_a_known_mint() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
-    // USDC, one of the mints whose buffer the program knows at compile time.
-    let mint = Pubkey::from_str_const("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+    let mint = Pubkey::from_str_const(KNOWN_MINTS[0]);
     token::plant_mint(&mut svm, mint, &payer.pubkey());
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&mint)

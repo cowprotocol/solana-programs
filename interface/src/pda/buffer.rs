@@ -33,6 +33,7 @@ use crate::pda::{is_pda_with_signer_seeds, SETTLEMENT_SEED};
 use crate::SettlementError;
 
 mod known_mints;
+pub use known_mints::KNOWN_MINTS;
 
 /// Trailing seed identifying the buffer PDAs.
 pub const BUFFER_SEED: &[u8] = b"buffer";
@@ -87,26 +88,22 @@ struct KnownBuffer {
 }
 
 /// The native SOL buffer, keyed by [`ENCODED_NATIVE_SOL_TRANSFER`], followed by
-/// the buffers of [`known_mints::KNOWN_MINTS`] in the same order, which the
-/// program finds through [`KNOWN_BUFFER_SLOTS`] instead of paying for a
-/// `create_program_address` syscall.
-// Deriving this many PDAs in const eval trips the compiler's infinite-loop
-// guard, although it finishes in seconds.
+/// the buffers of [`KNOWN_MINTS`] in the same order.
 #[allow(long_running_const_eval)]
-const KNOWN_BUFFERS: [KnownBuffer; known_mints::KNOWN_MINTS.len() + 1] = {
+const KNOWN_BUFFERS: [KnownBuffer; KNOWN_MINTS.len() + 1] = {
     let mut buffers = [const {
         KnownBuffer {
             mint: [0; 32],
             address: [0; 32],
         }
-    }; known_mints::KNOWN_MINTS.len() + 1];
+    }; KNOWN_MINTS.len() + 1];
     buffers[0] = KnownBuffer {
         mint: ENCODED_NATIVE_SOL_TRANSFER.to_bytes(),
-        address: NATIVE_SOL_BUFFER_PDA_AND_BUMP.0,
+        address: *NATIVE_SOL_BUFFER_PDA.as_array(),
     };
     let mut i = 0;
-    while i < known_mints::KNOWN_MINTS.len() {
-        let mint = const_crypto::bs58::decode_pubkey(known_mints::KNOWN_MINTS[i]);
+    while i < KNOWN_MINTS.len() {
+        let mint = const_crypto::bs58::decode_pubkey(KNOWN_MINTS[i]);
         let (address, _) = const_crypto::ed25519::derive_program_address(
             &buffer_pda_seeds(&mint),
             crate::ID.as_array(),
@@ -117,8 +114,16 @@ const KNOWN_BUFFERS: [KnownBuffer; known_mints::KNOWN_MINTS.len() + 1] = {
     buffers
 };
 
-/// Bits of the hash that pick a slot: 512 slots keep collisions among 64 buffers
-/// rare enough that a multiplier turns up within a few dozen attempts.
+/// Bits of the hash that pick a slot: 512 slots keep collisions among 64 mints
+/// The number of bits representing each input slot of `KNOWN_BUFFER_SLOTS`.
+/// More bits make `KNOWN_BUFFER_SLOTS` exponentially larger, and therefore
+/// increase the size of the program. However, more bits also make it easier to
+/// find a multiplier with no collisions, and therefore reduce compilation
+/// times.
+///
+/// The problem of avoiding collision is the same as the birthday paradox.
+/// As a rule of thumb, finding a multiplier requires an expected `e^(n²/(2m))`
+/// iterations, where `n` is the number of known mints and m is 2^SLOT_BITS.
 const SLOT_BITS: u32 = 9;
 
 /// Gives every one of [`KNOWN_BUFFERS`] its own slot in [`KNOWN_BUFFER_SLOTS`].
@@ -127,6 +132,7 @@ const KNOWN_BUFFER_MULTIPLIER: u64 = find_slot_multiplier(&KNOWN_BUFFERS);
 /// The index into [`KNOWN_BUFFERS`] of the mint in each slot, or `u8::MAX` for
 /// an empty slot, which [`known_buffer`] then finds no buffer at.
 const KNOWN_BUFFER_SLOTS: [u8; 1 << SLOT_BITS] = {
+    // Strictly less than MAX because the value is reserved for no buffer.
     assert!(
         KNOWN_BUFFERS.len() < u8::MAX as usize,
         "too many known mints for u8 indices"
@@ -149,6 +155,10 @@ const fn slot(mint: &[u8; 32], multiplier: u64) -> usize {
 
 /// Try the multipliers `SHA-256(0)`, `SHA-256(1)`, ... (each truncated to its
 /// first 8 bytes) until one sends each of `buffers` to a distinct [`slot`].
+///
+/// SHA-256 is utilized to provide a pseudorandom source of multipliers. Normally
+/// this shouldn't be necessary as the addresses themselves should already be effectively
+/// random, but its possible some of the KNOWN_MINTS use vanity addresses.
 ///
 /// Panics (at compile time, for [`KNOWN_BUFFER_MULTIPLIER`]) if none does,
 /// which is certain if two mints share their leading 8 bytes.
@@ -209,7 +219,6 @@ fn known_buffer(mint: &[u8; 32]) -> Option<&'static KnownBuffer> {
 #[inline]
 #[must_use = "ignoring the output means ignoring the validation result"]
 pub fn validate_buffer_pda(
-    program_id: &Address,
     buffer: &Address,
     mint: &[u8; 32],
     bump: u8,
@@ -217,7 +226,7 @@ pub fn validate_buffer_pda(
     let is_buffer = match known_buffer(mint) {
         Some(known) => buffer.as_array() == &known.address,
         None => {
-            is_pda_with_signer_seeds(buffer, program_id, buffer_pda_signer_seeds(mint, &[bump]))
+            is_pda_with_signer_seeds(buffer, &crate::ID, buffer_pda_signer_seeds(mint, &[bump]))
         }
     };
     is_buffer
@@ -250,43 +259,44 @@ mod tests {
 
     #[test]
     fn accepts_a_valid_address() {
-        let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
-        let (pda, bump) = find_buffer_pda(&program_id, &mint);
+        let (pda, bump) = find_buffer_pda(&crate::ID, &mint);
 
         let buffer = crate::instruction::fixtures::fake_account(pda);
-        validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump)
+        validate_buffer_pda(buffer.address(), mint.as_array(), bump)
             .expect("the canonical buffer PDA must be accepted");
     }
 
     #[test]
     fn rejects_an_invalid_address() {
-        let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
-        let (_, bump) = find_buffer_pda(&program_id, &mint);
+        let (_, bump) = find_buffer_pda(&crate::ID, &mint);
 
         // An account sitting at some other address is not the buffer.
         let buffer = crate::instruction::fixtures::fake_account(Pubkey::new_unique());
-        let err = validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump)
+        let err = validate_buffer_pda(buffer.address(), mint.as_array(), bump)
             .expect_err("a non-canonical address must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
     #[test]
     fn rejects_a_wrong_bump() {
-        let program_id = Pubkey::new_unique();
         let mint = Pubkey::new_unique();
-        let (pda, bump) = find_buffer_pda(&program_id, &mint);
+        let (pda, bump) = find_buffer_pda(&crate::ID, &mint);
 
         // The address is canonical but the carried bump doesn't derive it.
         let buffer = crate::instruction::fixtures::fake_account(pda);
-        let err = validate_buffer_pda(&program_id, buffer.address(), mint.as_array(), bump ^ 1)
+        let err = validate_buffer_pda(buffer.address(), mint.as_array(), bump ^ 1)
             .expect_err("a wrong bump must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
-    /// The USDC mint, one of [`known_mints::KNOWN_MINTS`].
-    const USDC: Pubkey = Pubkey::from_str_const("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+    const A_KNOWN_MINT: Pubkey = Pubkey::from_str_const(KNOWN_MINTS[0]);
+
+    #[test]
+    fn known_buffers_len_maps_known_mints_and_native_buffer() {
+        assert_eq!(KNOWN_BUFFERS.len(), KNOWN_MINTS.len() + 1);
+    }
 
     #[test]
     fn pinned_native_sol_buffer_pda_is_canonical() {
@@ -313,13 +323,18 @@ mod tests {
     }
 
     #[test]
-    fn known_buffers_are_canonical() {
-        let [native, mints @ ..] = &KNOWN_BUFFERS;
-        assert_eq!(native.mint, ENCODED_NATIVE_SOL_TRANSFER.to_bytes());
-        assert_eq!(native.address, NATIVE_SOL_BUFFER_PDA_AND_BUMP.0);
+    fn native_known_buffer_is_canonical() {
+        assert_eq!(
+            KNOWN_BUFFERS[0].mint,
+            ENCODED_NATIVE_SOL_TRANSFER.to_bytes()
+        );
+        assert_eq!(KNOWN_BUFFERS[0].address, NATIVE_SOL_BUFFER_PDA.to_bytes());
+    }
 
-        assert_eq!(mints.len(), known_mints::KNOWN_MINTS.len());
-        for known in mints {
+    #[test]
+    fn known_mint_buffers_are_canonical() {
+        // the first known buffer is the native buffer, which is seeded differently. so we skip it.
+        for known in &KNOWN_BUFFERS[1..] {
             let (pda, _) = find_buffer_pda(&crate::ID, &Pubkey::new_from_array(known.mint));
             assert_eq!(known.address, *pda.as_array());
         }
@@ -327,22 +342,26 @@ mod tests {
 
     #[test]
     fn every_known_mint_looks_up_its_own_buffer() {
-        for mint in known_mints::KNOWN_MINTS {
+        for mint in KNOWN_MINTS {
             let mint = Pubkey::from_str_const(mint);
             let known = known_buffer(mint.as_array())
                 .unwrap_or_else(|| panic!("{mint} must have a known buffer"));
             assert_eq!(known.mint, *mint.as_array());
-            assert_eq!(
-                known.address,
-                *find_buffer_pda(&crate::ID, &mint).0.as_array()
-            );
         }
     }
 
     #[test]
     fn unknown_mint_sharing_a_slot_has_no_known_buffer() {
-        let mut mint = *USDC.as_array();
+        let mut mint = *A_KNOWN_MINT.as_array();
         mint[31] ^= 1;
+
+        // ensure that the slot we will hit is still resolving to the original mint
+        assert_ne!(
+            KNOWN_BUFFER_SLOTS[slot(&mint, KNOWN_BUFFER_MULTIPLIER)],
+            u8::MAX
+        );
+
+        // even so it should resolve to none
         assert!(known_buffer(&mint).is_none());
     }
 
@@ -360,11 +379,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "no multiplier gives every known mint its own slot")]
     fn find_slot_multiplier_rejects_mints_sharing_their_leading_bytes() {
-        let mut other = *USDC.as_array();
+        let mut other = *A_KNOWN_MINT.as_array();
         other[31] ^= 1;
         let _ = find_slot_multiplier(&[
             KnownBuffer {
-                mint: *USDC.as_array(),
+                mint: *A_KNOWN_MINT.as_array(),
                 address: [0; 32],
             },
             KnownBuffer {
@@ -376,17 +395,17 @@ mod tests {
 
     #[test]
     fn accepts_the_known_buffer() {
-        let (pda, bump) = find_buffer_pda(&crate::ID, &USDC);
+        let (pda, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        validate_buffer_pda(&crate::ID, &pda, USDC.as_array(), bump)
+        validate_buffer_pda(&pda, A_KNOWN_MINT.as_array(), bump)
             .expect("the known buffer PDA must be accepted");
     }
 
     #[test]
     fn rejects_an_invalid_address_for_a_known_mint() {
-        let (_, bump) = find_buffer_pda(&crate::ID, &USDC);
+        let (_, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        let err = validate_buffer_pda(&crate::ID, &Pubkey::new_unique(), USDC.as_array(), bump)
+        let err = validate_buffer_pda(&Pubkey::new_unique(), A_KNOWN_MINT.as_array(), bump)
             .expect_err("a non-canonical address must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
@@ -394,7 +413,6 @@ mod tests {
     #[test]
     fn accepts_the_native_sol_buffer() {
         validate_buffer_pda(
-            &crate::ID,
             &NATIVE_SOL_BUFFER_PDA,
             ENCODED_NATIVE_SOL_TRANSFER.as_array(),
             NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
@@ -406,21 +424,16 @@ mod tests {
     fn rejects_the_native_markers_mint_buffer_as_the_native_sol_buffer() {
         let (pda, bump) = find_buffer_pda(&crate::ID, &ENCODED_NATIVE_SOL_TRANSFER);
 
-        let err = validate_buffer_pda(
-            &crate::ID,
-            &pda,
-            ENCODED_NATIVE_SOL_TRANSFER.as_array(),
-            bump,
-        )
-        .expect_err("only the native SOL buffer holds native SOL");
+        let err = validate_buffer_pda(&pda, ENCODED_NATIVE_SOL_TRANSFER.as_array(), bump)
+            .expect_err("only the native SOL buffer holds native SOL");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
     #[test]
     fn ignores_the_bump_for_a_known_mint() {
-        let (pda, bump) = find_buffer_pda(&crate::ID, &USDC);
+        let (pda, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        validate_buffer_pda(&crate::ID, &pda, USDC.as_array(), bump ^ 1)
+        validate_buffer_pda(&pda, A_KNOWN_MINT.as_array(), bump ^ 1)
             .expect("the known buffer PDA must be accepted whatever the bump");
     }
 

@@ -65,7 +65,6 @@ pub fn plant_mint(svm: &mut LiteSVM, mint: Pubkey, authority: &Pubkey) {
     let mut data = vec![0u8; Mint::LEN];
     Mint {
         mint_authority: Some(*authority).into(),
-        decimals: 6,
         is_initialized: true,
         ..Default::default()
     }
