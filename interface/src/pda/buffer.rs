@@ -123,6 +123,8 @@ const fn slot(mint: &[u8; 32], multiplier: u64) -> usize {
 /// Try the multipliers `SHA-256(0)`, `SHA-256(1)`, ... (each truncated to its
 /// first 8 bytes) until one sends each of `buffers` to a distinct [`slot`].
 ///
+/// SHA-256 is utilized to provide a pseudorandom source of multipliers, but any PRNG would work fine here.
+///
 /// Panics (at compile time, for [`KNOWN_BUFFER_MULTIPLIER`]) if none does,
 /// which is certain if two mints share their leading 8 bytes.
 const fn find_slot_multiplier(buffers: &[KnownBuffer]) -> u64 {
