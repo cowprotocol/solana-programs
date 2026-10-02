@@ -70,7 +70,7 @@ fn is_reclaimable_before_expiry(
     intent.flags().created_on_chain
         && (cancelled || {
             let (filled, order_amount) = fill_progress(intent, fill);
-            filled >= order_amount
+            filled >= order_amount.into()
         })
 }
 

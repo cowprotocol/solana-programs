@@ -107,10 +107,10 @@ impl<'a> OrderIntentAccessor<'a> {
 /// second return value is the amount that has been requested to be filled by
 /// the intent.
 #[inline]
-pub fn fill_progress(intent: &OrderIntentAccessor, fill: FillAmounts) -> (u64, u64) {
+pub fn fill_progress(intent: &OrderIntentAccessor, fill: FillAmounts) -> (u64, NonZeroU64) {
     match intent.flags().kind {
-        OrderKind::Sell => (fill.withdrawn, intent.sell_amount().get()),
-        OrderKind::Buy => (fill.received, intent.buy_amount().get()),
+        OrderKind::Sell => (fill.withdrawn, intent.sell_amount()),
+        OrderKind::Buy => (fill.received, intent.buy_amount()),
     }
 }
 
@@ -189,7 +189,7 @@ mod tests {
                 },
             );
             assert_eq!(
-                filled >= order_amount,
+                filled >= order_amount.into(),
                 expected,
                 "{kind:?} order withdrawn={withdrawn} received={received}",
             );
