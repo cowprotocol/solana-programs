@@ -67,8 +67,8 @@ fn assert_begin_error<T>(
 /// pulled. Guards these happy-path tests against a payment silently chosen
 /// below the limit.
 fn sanity_check_clears_limit(intent: &OrderIntent, pulled: u64, paid: u64) {
-    let proceeds = u128::from(paid).strict_mul(u128::from(intent.sell_amount));
-    let required = u128::from(intent.buy_amount).strict_mul(u128::from(pulled));
+    let proceeds = u128::from(paid).strict_mul(u128::from(intent.sell_amount.get()));
+    let required = u128::from(intent.buy_amount.get()).strict_mul(u128::from(pulled));
     assert!(
         proceeds >= required,
         "test setup error: paid {paid} for {pulled} pulled must clear the {}/{} limit",
@@ -1324,7 +1324,7 @@ fn rejects_partial_push_amount_in_finalize_settle() {
         only_token_program: None,
         orders: &orders,
     });
-    // Drop one byte from the finalize intstruction so the trailing amount is no
+    // Drop one byte from the finalize instruction so the trailing amount is no
     // longer a whole `u64`. `BeginSettle` reads the finalize's push amounts, so
     // it rejects the malformed encoding before the finalize instruction runs.
     finalize.data.pop();

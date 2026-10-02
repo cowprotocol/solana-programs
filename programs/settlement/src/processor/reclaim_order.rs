@@ -70,7 +70,7 @@ fn is_reclaimable_before_expiry(
     intent.flags().created_on_chain
         && (cancelled || {
             let (filled, order_amount) = fill_progress(intent, fill);
-            filled >= order_amount
+            filled >= order_amount.into()
         })
 }
 
@@ -81,6 +81,7 @@ mod tests {
         fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
     };
     use cow_settlement_interface::data::order::fixtures::OrderFields;
+    use cow_settlement_interface::fixtures::IntoNonZero;
     use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
@@ -135,7 +136,7 @@ mod tests {
 
         let intent = |created_on_chain| {
             EncodedOrderIntent::from(&OrderIntent {
-                sell_amount: SELL_AMOUNT,
+                sell_amount: SELL_AMOUNT.nz(),
                 ..sample_intent(Flags {
                     created_on_chain,
                     kind: OrderKind::Sell,

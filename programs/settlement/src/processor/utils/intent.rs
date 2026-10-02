@@ -1,5 +1,7 @@
 //! Zero-copy access to an order intent's canonical bytes.
 
+use core::num::NonZeroU64;
+
 use cow_settlement_interface::data::{
     intent::{check_bytes, hash_bytes, intent_slots, EncodedOrderIntent, Flags, OrderKind},
     order::{FillAmounts, OrderAccount},
@@ -11,8 +13,9 @@ use solana_hash::Hash;
 /// field. The settlement program reads intents through it, so it spends no
 /// compute copying fields it only compares.
 ///
-/// The flags byte is the only one that can fail to decode, so [`Self::attach`]
-/// validates it; every getter, [`Self::flags`] included, is infallible.
+/// [`Self::attach`] validates the encoding — the flags byte and the non-zero
+/// amounts — so every getter is infallible: [`Self::flags`] can't hit a
+/// reserved bit, and the `NonZeroU64` amount getters can't see a zero.
 #[derive(Debug)]
 pub struct OrderIntentAccessor<'a>(&'a [u8; EncodedOrderIntent::SIZE]);
 
@@ -63,16 +66,20 @@ impl<'a> OrderIntentAccessor<'a> {
         intent_slots(self.0).buy_mint
     }
 
-    /// Amount of the sell token; see `OrderIntent::sell_amount`.
+    /// Amount of the sell token; see `OrderIntent::sell_amount`. Non-zero:
+    /// `attach` rejects an encoding whose amounts are zero.
     #[inline]
-    pub fn sell_amount(&self) -> u64 {
-        u64::from_le_bytes(*intent_slots(self.0).sell_amount)
+    pub fn sell_amount(&self) -> NonZeroU64 {
+        NonZeroU64::new(u64::from_le_bytes(*intent_slots(self.0).sell_amount))
+            .unwrap_or_else(|| unreachable!("failure comes from all zero bits, which is an invariant enforced by the struct builder"))
     }
 
-    /// Amount of the buy token; see `OrderIntent::buy_amount`.
+    /// Amount of the buy token; see `OrderIntent::buy_amount`. Non-zero, like
+    /// `sell_amount`.
     #[inline]
-    pub fn buy_amount(&self) -> u64 {
-        u64::from_le_bytes(*intent_slots(self.0).buy_amount)
+    pub fn buy_amount(&self) -> NonZeroU64 {
+        NonZeroU64::new(u64::from_le_bytes(*intent_slots(self.0).buy_amount))
+            .unwrap_or_else(|| unreachable!("failure comes from all zero bits, which is an invariant enforced by the struct builder"))
     }
 
     /// Unix timestamp after which the order expires.
@@ -100,7 +107,7 @@ impl<'a> OrderIntentAccessor<'a> {
 /// second return value is the amount that has been requested to be filled by
 /// the intent.
 #[inline]
-pub fn fill_progress(intent: &OrderIntentAccessor, fill: FillAmounts) -> (u64, u64) {
+pub fn fill_progress(intent: &OrderIntentAccessor, fill: FillAmounts) -> (u64, NonZeroU64) {
     match intent.flags().kind {
         OrderKind::Sell => (fill.withdrawn, intent.sell_amount()),
         OrderKind::Buy => (fill.received, intent.buy_amount()),
@@ -112,6 +119,7 @@ mod tests {
     use cow_settlement_interface::data::intent::fixtures::{sample_intent, FLAGS_OFFSET};
     use cow_settlement_interface::data::intent::OrderIntent;
     use cow_settlement_interface::data::order::fixtures::{sample_order_bytes, INTENT_OFFSET};
+    use cow_settlement_interface::fixtures::IntoNonZero;
 
     use super::*;
 
@@ -149,8 +157,8 @@ mod tests {
 
         let intent = |kind| {
             EncodedOrderIntent::from(&OrderIntent {
-                sell_amount: SELL_AMOUNT,
-                buy_amount: BUY_AMOUNT,
+                sell_amount: SELL_AMOUNT.nz(),
+                buy_amount: BUY_AMOUNT.nz(),
                 ..sample_intent(Flags {
                     kind,
                     ..Default::default()
@@ -180,7 +188,7 @@ mod tests {
                 },
             );
             assert_eq!(
-                filled >= order_amount,
+                filled >= order_amount.into(),
                 expected,
                 "{kind:?} order withdrawn={withdrawn} received={received}",
             );
