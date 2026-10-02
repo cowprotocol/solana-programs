@@ -125,7 +125,9 @@ const fn slot(mint: &[u8; 32], multiplier: u64) -> usize {
 /// Try the multipliers `SHA-256(0)`, `SHA-256(1)`, ... (each truncated to its
 /// first 8 bytes) until one sends each of `buffers` to a distinct [`slot`].
 ///
-/// SHA-256 is utilized to provide a pseudorandom source of multipliers, but any PRNG would work fine here.
+/// SHA-256 is utilized to provide a pseudorandom source of multipliers. Normally
+/// this shouldn't be necessary as the addresses themselves should already be effectively
+/// random, but its possible some of the KNOWN_MINTS use vanity addresses.
 ///
 /// Panics (at compile time, for [`KNOWN_BUFFER_MULTIPLIER`]) if none does,
 /// which is certain if two mints share their leading 8 bytes.
