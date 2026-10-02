@@ -95,6 +95,7 @@ pub struct InitializedParams {
     pub payer: Keypair,
     pub state_pda: Pubkey,
     pub manager: Keypair,
+    pub solver_authority: Keypair,
     pub reclaim: Keypair,
     pub settlement_owned_order: Keypair,
 }
@@ -107,6 +108,7 @@ pub struct InitializedParams {
 pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let (mut svm, program_id, payer) = setup();
     let manager = unique_keypair();
+    let solver_authority = unique_keypair();
     let reclaim = unique_keypair();
     let settlement_owned_order = unique_keypair();
     state::initialize(
@@ -116,6 +118,7 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             program_id,
             payer: payer.pubkey(),
             manager: manager.pubkey(),
+            solver_authority: solver_authority.pubkey(),
             reclaim_authority: reclaim.pubkey(),
             settlement_owned_order_authority: settlement_owned_order.pubkey(),
         },
@@ -128,25 +131,26 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             payer,
             state_pda: STATE_PDA,
             manager,
+            solver_authority,
             reclaim,
             settlement_owned_order,
         },
     )
 }
 
-/// Register `solver` in the state PDA's solver list, authorized by the manager
-/// and paid by the fee payer.
+/// Register `solver` in the state PDA's solver list, authorized by the solver
+/// authority and paid by the fee payer.
 pub fn register_solver(svm: &mut LiteSVM, params: &InitializedParams, solver: &Pubkey) {
     let tx = Transaction::new_signed_with_payer(
         &[AddSolver {
             program_id: params.program_id,
-            manager: params.manager.pubkey(),
+            authority: params.solver_authority.pubkey(),
             payer: params.payer.pubkey(),
             solver: *solver,
         }
         .into()],
         Some(&params.payer.pubkey()),
-        &[&params.payer, &params.manager],
+        &[&params.payer, &params.solver_authority],
         svm.latest_blockhash(),
     );
     svm.send_transaction(tx)

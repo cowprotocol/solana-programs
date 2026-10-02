@@ -1,6 +1,6 @@
 //! Integration tests for removing solvers from the state PDA's list (shrinking
-//! the account and refunding rent) and the manager gate on removal. Adding
-//! solvers is covered by `add_solvers.rs`; the solver gate on settling by
+//! the account and refunding rent) and the solver-authority gate on removal.
+//! Adding solvers is covered by `add_solvers.rs`; the solver gate on settling by
 //! `settle_solver_auth.rs`.
 
 use cow_settlement_client::cow_settlement_interface::{
@@ -37,9 +37,10 @@ fn setup() -> (LiteSVM, InitializedParams, Pubkey) {
     (svm, params, rent_recipient)
 }
 
-/// Build a `RemoveSolver` transaction authorized by the manager, refunding the
-/// freed rent to `rent_recipient`. Signed by the payer and the manager. Split
-/// from [`remove_solver`] so the happy-path test can meter the same transaction.
+/// Build a `RemoveSolver` transaction authorized by the solver authority,
+/// refunding the freed rent to `rent_recipient`. Signed by the payer and the
+/// solver authority. Split from [`remove_solver`] so the happy-path test can
+/// meter the same transaction.
 fn remove_solver_tx(
     svm: &LiteSVM,
     params: &InitializedParams,
@@ -48,11 +49,11 @@ fn remove_solver_tx(
 ) -> Transaction {
     let ix = RemoveSolver {
         program_id: params.program_id,
-        manager: params.manager.pubkey(),
+        authority: params.solver_authority.pubkey(),
         rent_recipient: *rent_recipient,
         solver: *solver,
     };
-    common::signed_tx(svm, &params.payer, &params.manager, ix)
+    common::signed_tx(svm, &params.payer, &params.solver_authority, ix)
 }
 
 /// Send a [`remove_solver_tx`].
@@ -108,7 +109,7 @@ fn rejects_removing_absent_solver() {
 }
 
 #[test]
-fn rejects_removing_solver_by_non_manager() {
+fn rejects_removing_solver_by_non_solver_authority() {
     let (mut svm, params, rent_recipient) = setup();
     let solver = unique_keypair().pubkey();
     common::register_solver(&mut svm, &params, &solver);
@@ -116,7 +117,7 @@ fn rejects_removing_solver_by_non_manager() {
     let stranger = unique_keypair();
     let ix = RemoveSolver {
         program_id: params.program_id,
-        manager: stranger.pubkey(),
+        authority: stranger.pubkey(),
         rent_recipient,
         solver,
     };
@@ -127,30 +128,52 @@ fn rejects_removing_solver_by_non_manager() {
     );
 }
 
+/// The manager holds the authority-transfer power but no longer manages solvers:
+/// signing a `RemoveSolver` as the manager is rejected, proving the two roles
+/// are separated.
 #[test]
-fn rejects_removing_solver_if_manager_is_not_signer() {
+fn rejects_removing_solver_by_manager() {
     let (mut svm, params, rent_recipient) = setup();
     let solver = unique_keypair().pubkey();
     common::register_solver(&mut svm, &params, &solver);
 
-    // The correct manager, but with its signer flag cleared: authorization must
-    // require the manager to actually sign, not just be named.
+    let ix = RemoveSolver {
+        program_id: params.program_id,
+        authority: params.manager.pubkey(),
+        rent_recipient,
+        solver,
+    };
+    let tx = common::signed_tx(&svm, &params.payer, &params.manager, ix);
+    assert_instruction_error(
+        svm.send_transaction(tx).map(|_| ()).map_err(|e| e.err),
+        SettlementError::UnauthorizedSolverManagement,
+    );
+}
+
+#[test]
+fn rejects_removing_solver_if_solver_authority_is_not_signer() {
+    let (mut svm, params, rent_recipient) = setup();
+    let solver = unique_keypair().pubkey();
+    common::register_solver(&mut svm, &params, &solver);
+
+    // The correct solver authority, but with its signer flag cleared:
+    // authorization must require it to actually sign, not just be named.
     let mut ix: Instruction = RemoveSolver {
         program_id: params.program_id,
-        manager: params.manager.pubkey(),
+        authority: params.solver_authority.pubkey(),
         rent_recipient,
         solver,
     }
     .into();
 
-    /// Index of the manager account in a `RemoveSolver` instruction.
-    const MANAGER_INDEX: usize = 0;
+    /// Index of the authority account in a `RemoveSolver` instruction.
+    const AUTHORITY_INDEX: usize = 0;
     assert!(
-        ix.accounts[MANAGER_INDEX].is_signer
-            && ix.accounts[MANAGER_INDEX].pubkey == params.manager.pubkey(),
-        "sanity check: MANAGER_INDEX should point to the manager signer"
+        ix.accounts[AUTHORITY_INDEX].is_signer
+            && ix.accounts[AUTHORITY_INDEX].pubkey == params.solver_authority.pubkey(),
+        "sanity check: AUTHORITY_INDEX should point to the authority signer"
     );
-    ix.accounts[MANAGER_INDEX].is_signer = false;
+    ix.accounts[AUTHORITY_INDEX].is_signer = false;
 
     let res = common::send(&mut svm, &params.payer, &[ix]);
     assert_instruction_error(res, SettlementError::UnauthorizedSolverManagement);

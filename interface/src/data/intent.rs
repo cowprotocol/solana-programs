@@ -444,11 +444,11 @@ impl OrderIntent {
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
     use core::mem::size_of;
-    use core::num::NonZeroU64;
 
     use proptest::{prelude::*, strategy::Union};
 
     use super::{Asset, EncodedOrderIntent, Flags, OrderIntent, OrderKind, Pubkey, TokenAsset};
+    use crate::fixtures::IntoNonZero;
 
     /// Every valid [`OrderKind`].
     pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];

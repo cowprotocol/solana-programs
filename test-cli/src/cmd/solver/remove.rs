@@ -13,10 +13,10 @@ pub struct RemoveArgs {
     /// Address of the solver to revoke
     solver: Pubkey,
 
-    /// Path to the manager keypair, which authorizes the change and must sign
-    /// it (defaults to the payer keypair)
+    /// Path to the solver-authority keypair, which authorizes the change and
+    /// must sign it (defaults to the payer keypair)
     #[arg(long)]
-    manager: Option<String>,
+    solver_authority: Option<String>,
 
     /// Account that receives the rent freed by removing the solver (defaults to
     /// the payer)
@@ -26,14 +26,14 @@ pub struct RemoveArgs {
 
 pub fn run(ctx: Context, args: RemoveArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    let manager = read_keypair_or(args.manager, &ctx.payer)?;
-    let manager_pubkey = manager.pubkey();
+    let solver_authority = read_keypair_or(args.solver_authority, &ctx.payer)?;
+    let solver_authority_pubkey = solver_authority.pubkey();
     // The freed rent lands on the payer unless another recipient is named.
     let rent_recipient = args.rent_recipient.unwrap_or(payer);
 
     let ix = RemoveSolver {
         program_id: ctx.program_id,
-        manager: manager_pubkey,
+        authority: solver_authority_pubkey,
         rent_recipient,
         solver: args.solver,
     };
@@ -45,7 +45,7 @@ pub fn run(ctx: Context, args: RemoveArgs) -> anyhow::Result<()> {
     let tx = Transaction::new_signed_with_payer(
         &[ix.into()],
         Some(&payer),
-        &[&ctx.payer, &*manager],
+        &[&ctx.payer, &*solver_authority],
         blockhash,
     );
     let sig = ctx
@@ -57,7 +57,7 @@ pub fn run(ctx: Context, args: RemoveArgs) -> anyhow::Result<()> {
     print_summary(&[
         ("signature", &sig),
         ("removed solver", &args.solver),
-        ("manager", &manager_pubkey),
+        ("solverAuthority", &solver_authority_pubkey),
         ("rentRecipient", &rent_recipient),
         ("statePda", &state_pda),
     ]);

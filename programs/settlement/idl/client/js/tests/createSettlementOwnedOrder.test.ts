@@ -16,18 +16,15 @@ describe("createSettlementOwnedOrder", () => {
   });
 
   it("resolves the order PDA and creates an order owned by the state PDA", async () => {
-    const [payer, manager, reclaimAuthority, settlementOwnedOrderAuthority] = await Promise.all([
-      generateKeyPairSigner(),
-      generateKeyPairSigner(),
-      generateKeyPairSigner(),
-      generateKeyPairSigner(),
-    ]);
+    const [payer, manager, solverAuthority, reclaimAuthority, settlementOwnedOrderAuthority] =
+      await Promise.all(Array.from({ length: 5 }, () => generateKeyPairSigner()));
     svm.airdrop(payer.address, lamports(1_000_000_000n));
 
     // Put a settlement-owned-order authority on record so it can place the order.
     const initialize = await getInitializeInstructionAsync({
       payer,
       manager: manager.address,
+      solverAuthority: solverAuthority.address,
       reclaimAuthority: reclaimAuthority.address,
       settlementOwnedOrderAuthority: settlementOwnedOrderAuthority.address,
     });
