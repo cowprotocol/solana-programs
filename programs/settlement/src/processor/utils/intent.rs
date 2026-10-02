@@ -71,7 +71,7 @@ impl<'a> OrderIntentAccessor<'a> {
     #[inline]
     pub fn sell_amount(&self) -> NonZeroU64 {
         NonZeroU64::new(u64::from_le_bytes(*intent_slots(self.0).sell_amount))
-            .unwrap_or_else(|| unreachable!("attach rejects zero bits"))
+            .unwrap_or_else(|| unreachable!("failure comes from all zero bits, which is an invariant enforced by the struct builder"))
     }
 
     /// Amount of the buy token; see `OrderIntent::buy_amount`. Non-zero, like
@@ -79,7 +79,7 @@ impl<'a> OrderIntentAccessor<'a> {
     #[inline]
     pub fn buy_amount(&self) -> NonZeroU64 {
         NonZeroU64::new(u64::from_le_bytes(*intent_slots(self.0).buy_amount))
-            .unwrap_or_else(|| unreachable!("attach rejects zero bits"))
+            .unwrap_or_else(|| unreachable!("failure comes from all zero bits, which is an invariant enforced by the struct builder"))
     }
 
     /// Unix timestamp after which the order expires.
