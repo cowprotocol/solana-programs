@@ -31,10 +31,6 @@ build: build-program
 # Runs all the generated code jobs
 generate: generate-js-client
 
-# Refresh the most traded token mints for the quick access buffer lookup table. Pulls live market data.
-generate-known-mints:
-    node interface/scripts/generate-known-mints.mjs
-
 # Builds the JS/TS client from IDL.
 [working-directory: 'programs/settlement/idl']
 @generate-js-client:
