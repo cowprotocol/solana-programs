@@ -290,6 +290,14 @@ mod tests {
     fn unknown_mint_sharing_a_slot_has_no_known_buffer() {
         let mut mint = *A_KNOWN_MINT.as_array();
         mint[31] ^= 1;
+
+        // ensure that the slot we will hit is still resolving to the original mint
+        assert_ne!(
+            KNOWN_BUFFER_SLOTS[slot(&mint, KNOWN_BUFFER_MULTIPLIER)],
+            u8::MAX
+        );
+
+        // even so it should resolve to none
         assert!(known_buffer(&mint).is_none());
     }
 
