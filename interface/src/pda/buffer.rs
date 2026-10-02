@@ -27,6 +27,7 @@ use crate::pda::{is_pda_with_signer_seeds, SETTLEMENT_SEED};
 use crate::SettlementError;
 
 mod known_mints;
+pub use known_mints::KNOWN_MINTS;
 
 /// Trailing seed identifying the buffer PDAs.
 pub const BUFFER_SEED: &[u8] = b"buffer";
@@ -259,8 +260,7 @@ mod tests {
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
-    /// The USDC mint, one of [`known_mints::KNOWN_MINTS`].
-    const USDC: Pubkey = Pubkey::from_str_const("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+    const A_KNOWN_MINT: Pubkey = Pubkey::from_str_const(KNOWN_MINTS[0]);
 
     #[test]
     fn known_buffers_are_canonical() {
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn unknown_mint_sharing_a_slot_has_no_known_buffer() {
-        let mut mint = *USDC.as_array();
+        let mut mint = *A_KNOWN_MINT.as_array();
         mint[31] ^= 1;
         assert!(known_buffer(&mint).is_none());
     }
@@ -306,11 +306,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "no multiplier gives every known mint its own slot")]
     fn find_slot_multiplier_rejects_mints_sharing_their_leading_bytes() {
-        let mut other = *USDC.as_array();
+        let mut other = *A_KNOWN_MINT.as_array();
         other[31] ^= 1;
         let _ = find_slot_multiplier(&[
             KnownBuffer {
-                mint: *USDC.as_array(),
+                mint: *A_KNOWN_MINT.as_array(),
                 address: [0; 32],
             },
             KnownBuffer {
@@ -322,26 +322,31 @@ mod tests {
 
     #[test]
     fn accepts_the_known_buffer() {
-        let (pda, bump) = find_buffer_pda(&crate::ID, &USDC);
+        let (pda, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        validate_buffer_pda(&crate::ID, &pda, USDC.as_array(), bump)
+        validate_buffer_pda(&crate::ID, &pda, A_KNOWN_MINT.as_array(), bump)
             .expect("the known buffer PDA must be accepted");
     }
 
     #[test]
     fn rejects_an_invalid_address_for_a_known_mint() {
-        let (_, bump) = find_buffer_pda(&crate::ID, &USDC);
+        let (_, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        let err = validate_buffer_pda(&crate::ID, &Pubkey::new_unique(), USDC.as_array(), bump)
-            .expect_err("a non-canonical address must be rejected");
+        let err = validate_buffer_pda(
+            &crate::ID,
+            &Pubkey::new_unique(),
+            A_KNOWN_MINT.as_array(),
+            bump,
+        )
+        .expect_err("a non-canonical address must be rejected");
         assert_eq!(err, SettlementError::PushSourceNotBuffer.into());
     }
 
     #[test]
     fn ignores_the_bump_for_a_known_mint() {
-        let (pda, bump) = find_buffer_pda(&crate::ID, &USDC);
+        let (pda, bump) = find_buffer_pda(&crate::ID, &A_KNOWN_MINT);
 
-        validate_buffer_pda(&crate::ID, &pda, USDC.as_array(), bump ^ 1)
+        validate_buffer_pda(&crate::ID, &pda, A_KNOWN_MINT.as_array(), bump ^ 1)
             .expect("the known buffer PDA must be accepted whatever the bump");
     }
 

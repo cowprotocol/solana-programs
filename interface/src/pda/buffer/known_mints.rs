@@ -1,6 +1,6 @@
 /// The 63 verified tokens sampled by a snapshot of Jupiter's trading API
 /// Sorted by address for easier diffing
-pub(super) const KNOWN_MINTS: [&str; 63] = [
+pub const KNOWN_MINTS: [&str; 63] = [
     "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4", // JLP
     "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo", // PYUSD
     "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH", // USDG
