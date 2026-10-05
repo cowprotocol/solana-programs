@@ -95,12 +95,19 @@ fn push_funds<'a>(
         }
     }
 
-    // Loop for orders paying out native SOL
-    for push in pushes.iter() {
-        if push.source_buffer.address() == &NATIVE_SOL_BUFFER_PDA {
-            let mut source = *push.source_buffer;
-            let mut destination = *push.destination;
-            move_lamports(&mut source, &mut destination, push.amount)?;
+    // Loop for orders paying out native SOL. They all draw on the one native
+    // SOL buffer, so its handle is dereferenced once and reused: a copied handle
+    // writes through to the same account, so the debits still accumulate.
+    if let Some(mut source) = pushes
+        .iter()
+        .find(|push| push.source_buffer.address() == &NATIVE_SOL_BUFFER_PDA)
+        .map(|push| *push.source_buffer)
+    {
+        for push in pushes.iter() {
+            if push.source_buffer.address() == &NATIVE_SOL_BUFFER_PDA {
+                let mut destination = *push.destination;
+                move_lamports(&mut source, &mut destination, push.amount)?;
+            }
         }
     }
 
