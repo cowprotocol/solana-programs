@@ -9,7 +9,7 @@ use cow_settlement_interface::{
     },
     instruction::{
         settle::{
-            finalize_push_data, BeginSettleInput, Push, SettledOrder, SettledOrders,
+            finalize_push_data, BeginSettleInput, SettledOrder, SettledOrders,
             FINALIZE_FIXED_ACCOUNTS, FINALIZE_PUSH_ACCOUNTS,
         },
         InstructionInputParsing,
@@ -88,9 +88,8 @@ pub fn process_begin_settle(
     })
 }
 
-/// The `[source_buffer, destination, mint]` address triple of each push carried
-/// by the paired `FinalizeSettle`, seen through instruction introspection, in
-/// order.
+/// The `[source_buffer, destination]` address pair of each push carried by the
+/// paired `FinalizeSettle`, seen through instruction introspection, in order.
 ///
 /// The push structure isn't validated here: the paired `FinalizeSettle` re-parses
 /// the same instruction from its own data and rejects a push count that disagrees
@@ -98,10 +97,10 @@ pub fn process_begin_settle(
 /// one-to-one, which is what catches a count mismatch.
 fn push_accounts<'a>(
     instruction: &'a IntrospectedInstruction<'a>,
-) -> impl Iterator<Item = (&'a Address, &'a Address, &'a Address)> {
+) -> impl Iterator<Item = (&'a Address, &'a Address)> {
     // Each push occupies a `[source_buffer, destination, mint]` meta triple
-    // after the fixed accounts. Stepping over each triple's last index means a
-    // trailing partial triple is never yielded.
+    // after the fixed accounts. The mint is skipped: it only selects between
+    // `Transfer` and `TransferChecked`, and the token program checks it.
     let account_at = |index: usize| {
         // The index stays below `num_account_metas`, so the lookup, whose only
         // error is an out-of-bounds index, always succeeds.
@@ -110,40 +109,43 @@ fn push_accounts<'a>(
             .expect("index within num_account_metas")
             .key
     };
-    (FINALIZE_FIXED_ACCOUNTS + FINALIZE_PUSH_ACCOUNTS - 1..instruction.num_account_metas())
+    (FINALIZE_FIXED_ACCOUNTS + 1..instruction.num_account_metas())
         .step_by(FINALIZE_PUSH_ACCOUNTS)
-        .map(move |mint_index| {
-            let preceding = |offset: usize| {
-                mint_index
-                    .checked_sub(offset)
-                    .expect("a mint index is preceded by the rest of its push")
-            };
+        .map(move |destination_index| {
             (
-                account_at(preceding(2)),
-                account_at(preceding(1)),
-                account_at(mint_index),
+                account_at(
+                    destination_index
+                        .checked_sub(1)
+                        .expect("a destination index is preceded by its source buffer"),
+                ),
+                account_at(destination_index),
             )
         })
+}
+
+/// A push of the paired `FinalizeSettle` as `BeginSettle` validates it: the
+/// fields of a [`Push`] except its mint.
+#[derive(Debug, PartialEq, Eq)]
+struct PairedPush<'a> {
+    source_buffer: &'a Address,
+    destination: &'a Address,
+    bump: u8,
+    amount: u64,
 }
 
 /// The paired pushes `BeginSettle` settles against: each push's accounts (read
 /// from the finalize's account metas) with the bump and amount it carries (read
 /// from the finalize's instruction data), in push order.
-///
-/// These are the same [`Push`]es `FinalizeSettle` itself parses, seen through
-/// introspection rather than held as accounts: hence `Push<Address>` where the
-/// finalize has `Push<AccountView>`.
 fn finalize_pushes<'a>(
     finalize_ix: &'a IntrospectedInstruction<'a>,
-) -> Result<impl Iterator<Item = Push<'a, Address>>, ProgramError> {
+) -> Result<impl Iterator<Item = PairedPush<'a>>, ProgramError> {
     let (bumps, amounts) = finalize_push_data(finalize_ix.get_instruction_data())?;
     Ok(push_accounts(finalize_ix)
         .zip(bumps.iter().zip(amounts))
         .map(
-            |((source_buffer, destination, mint), (&bump, amount))| Push {
+            |((source_buffer, destination), (&bump, amount))| PairedPush {
                 source_buffer,
                 destination,
-                mint,
                 bump,
                 amount: u64::from_le_bytes(*amount),
             },
@@ -260,7 +262,7 @@ fn settle_orders(
 fn process_order(
     program_id: &Address,
     order: SettledOrder<'_, AccountView>,
-    push: &Push<Address>,
+    push: &PairedPush,
     now: i64,
     state_account: &AccountView,
     state_pda_signer: &Signer,
@@ -446,9 +448,7 @@ mod tests {
     use cow_settlement_interface::fixtures::IntoNonZero;
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
-    use cow_settlement_interface::instruction::settle::{
-        FinalizeSettle, FinalizeSettleInput, MINT_PLACEHOLDER,
-    };
+    use cow_settlement_interface::instruction::settle::{FinalizeSettle, FinalizeSettleInput};
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
@@ -1019,30 +1019,11 @@ mod tests {
             .expect("the finalize is the only instruction, at index 0")
     }
 
-    /// A finalize whose accounts stop short of its last push's mint yields no
-    /// push for it rather than reading past its account metas; the finalize's
-    /// own parsing rejects the count mismatch.
-    #[test]
-    fn finalize_pushes_skips_partial_push() {
-        let mut ix = Instruction::from(FinalizeSettle {
-            source_buffers: &[Pubkey::new_from_array([1; 32])],
-            destinations: &[Pubkey::new_from_array([2; 32])],
-            mints: &[None],
-            bumps: &[0xff],
-            amounts: &[42],
-            ..Default::default()
-        });
-        ix.accounts.pop();
-        let introspected_instruction = introspected_instruction(&ix);
-        let pushes = finalize_pushes(&introspected_instruction).expect("well-formed finalize data");
-        assert_eq!(pushes.count(), 0);
-    }
-
     proptest! {
         /// `BeginSettle` settles against a paired `FinalizeSettle`'s pushes via
-        /// `finalize_pushes`: each push's source buffer, destination, and mint
-        /// (from the account metas) paired with its bump and amount (from the
-        /// instruction data). For any well-formed finalize those must match both
+        /// `finalize_pushes`: each push's source buffer and destination (from the
+        /// account metas) paired with its bump and amount (from the instruction
+        /// data). For any well-formed finalize those must match both
         /// the builder's inputs and what `FinalizeSettleInput` parses from the
         /// same instruction.
         #[test]
@@ -1065,7 +1046,7 @@ mod tests {
             });
 
             let introspected_instruction = introspected_instruction(&ix);
-            let introspected: Vec<Push<'_, Address>> =
+            let introspected: Vec<PairedPush> =
                 finalize_pushes(&introspected_instruction)
                     .expect("well-formed finalize data")
                     .collect();
@@ -1074,34 +1055,26 @@ mod tests {
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
             let parsed_raw = FinalizeSettleInput::parse(&ix.data, &accounts)
                 .expect("a well-formed finalize parses");
-            let parsed: Vec<Push<'_, Address>> = parsed_raw
+            let parsed: Vec<PairedPush> = parsed_raw
                 .pushes
                 .iter()
-                .map(|p| Push {
+                .map(|p| PairedPush {
                     source_buffer: p.source_buffer.address(),
                     destination: p.destination.address(),
-                    mint: p.mint.address(),
                     bump: p.bump,
                     amount: p.amount
                 })
                 .collect();
 
             // The builder's inputs, the ground truth both views should recover.
-            let mints: Vec<Pubkey> = pushes
-                .mints
-                .iter()
-                .map(|mint| mint.unwrap_or(MINT_PLACEHOLDER))
-                .collect();
-            let expected: Vec<Push<'_, Address>> = pushes
+            let expected: Vec<PairedPush> = pushes
                 .source_buffers
                 .iter()
                 .zip(&pushes.destinations)
-                .zip(&mints)
                 .zip(pushes.bumps.iter().copied().zip(pushes.amounts.iter().copied()))
-                .map(|(((source_buffer, destination), mint), (bump, amount))| Push {
+                .map(|((source_buffer, destination), (bump, amount))| PairedPush {
                     source_buffer,
                     destination,
-                    mint,
                     bump,
                     amount,
                 })
