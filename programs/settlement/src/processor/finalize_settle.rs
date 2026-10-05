@@ -50,7 +50,7 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    let mut transfers = TokenTransfers::new(input.extra_accounts);
+    let mut transfers = TokenTransfers::new(input.extra_transfer_accounts);
     with_state_pda_signer(|state_pda_signer| {
         push_funds(
             input.state_pda_account,
@@ -99,7 +99,7 @@ fn push_funds<'a>(
                 push.destination,
                 state_pda_account,
                 push.amount,
-                mint_decimals(token_program, push.mint)?,
+                mint_decimals(push.mint)?,
                 state_pda_signer,
             )?;
         }

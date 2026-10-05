@@ -6,16 +6,14 @@ use crate::common::{
     assert_instruction_error, assert_instruction_error_at,
     benchmark::BenchLabel,
     order::{buy_account, buy_mint, OrderBuilder},
-    replace_first_matching_account, send_metered, send_with_signers,
-    settlement::{stage_order, StagedOrder, BEGIN_INDEX, FINALIZE_INDEX},
+    replace_first_matching_account, send, send_metered,
+    settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token,
     token_2022::{Extensions, FEE_BASIS_POINTS},
     transfer_hook::{TransferHook, REJECTED},
     unique_pubkey,
 };
-use cow_settlement_client::cow_settlement_interface::{
-    data::intent::OrderIntent, AccountMeta, Instruction, SettlementError,
-};
+use cow_settlement_client::cow_settlement_interface::{AccountMeta, Instruction, SettlementError};
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, TokenProgram,
 };
@@ -28,6 +26,7 @@ use solana_sdk::{
     transaction::TransactionError,
 };
 use spl_token_2022_interface::error::TokenError as Token2022Error;
+use std::slice;
 
 mod common;
 
@@ -72,35 +71,27 @@ fn settlement(
         program_id: *program_id,
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
+        auction_id: 0,
+        only_token_program: None,
         orders: &[InitializedIntent {
             intent: &order.intent,
             pulls: &order.pulls,
+            use_transfer_checked: checked.mints.contains(&order.intent.sell.mint),
         }],
-        transfer_checked_mints: checked.mints,
-        extra_accounts: checked.begin_extra_accounts,
-        ..Default::default()
+        extra_transfer_accounts: checked.begin_extra_accounts,
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &[FinalizedIntent {
             intent: &order.intent,
             amount: order.amount_out,
+            use_transfer_checked: checked.mints.contains(&buy_mint(&order.intent)),
         }],
-        transfer_checked_mints: checked.mints,
-        extra_accounts: checked.finalize_extra_accounts,
-        ..Default::default()
+        extra_transfer_accounts: checked.finalize_extra_accounts,
     };
     vec![begin.into(), finalize.into()]
-}
-
-fn send(
-    svm: &mut LiteSVM,
-    payer: &Keypair,
-    solver: &Keypair,
-    instructions: &[Instruction],
-) -> Result<TransactionMetadata, TransactionError> {
-    send_with_signers(svm, payer, &[solver], instructions)
 }
 
 /// The order's sell side was pulled in full and its buy side paid `received`.
@@ -111,10 +102,6 @@ fn assert_settled(svm: &LiteSVM, order: &StagedOrder, received: u64) {
     assert_eq!(token::balance(svm, &buy_account(&order.intent)), received);
 }
 
-fn sell_mint(intent: &OrderIntent) -> Pubkey {
-    intent.sell.mint
-}
-
 #[test]
 fn settles_both_token_programs_with_transfer_checked() {
     for program in TokenProgram::ALL {
@@ -123,16 +110,14 @@ fn settles_both_token_programs_with_transfer_checked() {
         let buy = token::create_mint_under(&mut svm, &payer, &program.address(), Extensions::None);
         let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
 
-        let instructions = settlement(
+        let instructions = build_staged_settlement(
             &program_id,
             &solver.pubkey(),
-            &order,
-            &Checked {
-                mints: &[sell, buy],
-                ..Default::default()
-            },
+            slice::from_ref(&order),
+            vec![],
+            &[sell, buy],
         );
-        send(&mut svm, &payer, &solver, &instructions)
+        send(&mut svm, &solver, &instructions)
             .unwrap_or_else(|error| panic!("{program:?} should settle checked: {error:?}"));
 
         assert_settled(&svm, &order, AMOUNT);
@@ -148,14 +133,12 @@ fn settles_a_single_order_with_transfer_checked() {
     let buy = token::create_mint(&mut svm, &payer);
     let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
 
-    let instructions = settlement(
+    let instructions = build_staged_settlement(
         &program_id,
         &solver.pubkey(),
-        &order,
-        &Checked {
-            mints: &[sell, buy],
-            ..Default::default()
-        },
+        slice::from_ref(&order),
+        vec![],
+        &[sell, buy],
     );
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
         .expect("a checked settlement should settle");
@@ -173,22 +156,26 @@ fn transfer_fee_mints_settle_only_with_transfer_checked() {
     let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
 
     // Token-2022 refuses a plain `Transfer` of a mint charging a fee.
-    let unchecked = settlement(&program_id, &solver.pubkey(), &order, &Checked::default());
+    let unchecked = build_staged_settlement(
+        &program_id,
+        &solver.pubkey(),
+        slice::from_ref(&order),
+        vec![],
+        &[],
+    );
     assert_instruction_error(
-        send(&mut svm, &payer, &solver, &unchecked),
+        send(&mut svm, &solver, &unchecked),
         InstructionError::Custom(Token2022Error::MintRequiredForTransfer as u32),
     );
 
-    let checked = settlement(
+    let checked = build_staged_settlement(
         &program_id,
         &solver.pubkey(),
-        &order,
-        &Checked {
-            mints: &[sell, buy],
-            ..Default::default()
-        },
+        slice::from_ref(&order),
+        vec![],
+        &[sell, buy],
     );
-    send(&mut svm, &payer, &solver, &checked).expect("a checked settlement should pay the fee");
+    send(&mut svm, &solver, &checked).expect("a checked settlement should pay the fee");
 
     // The fee is withheld from what each transfer delivers, the pull's included.
     let fee = AMOUNT * FEE_BASIS_POINTS / 10_000;
@@ -224,7 +211,7 @@ fn extra_accounts_dont_affect_plain_transfers() {
             ..Default::default()
         },
     );
-    send(&mut svm, &payer, &solver, &instructions).expect("extra accounts should be ignored");
+    send(&mut svm, &solver, &instructions).expect("extra accounts should be ignored");
 
     assert_settled(&svm, &order, AMOUNT);
 }
@@ -234,7 +221,6 @@ fn extra_accounts_dont_affect_plain_transfers() {
 struct HookedOrder {
     svm: LiteSVM,
     program_id: Pubkey,
-    payer: Keypair,
     solver: Keypair,
     hook: TransferHook,
     hooked_mint: Pubkey,
@@ -260,7 +246,6 @@ impl HookedOrder {
         Self {
             svm,
             program_id,
-            payer,
             solver,
             hook,
             hooked_mint,
@@ -284,7 +269,7 @@ impl HookedOrder {
                 finalize_extra_accounts,
             },
         );
-        send(&mut self.svm, &self.payer, &self.solver, &instructions)
+        send(&mut self.svm, &self.solver, &instructions)
     }
 }
 
@@ -343,15 +328,18 @@ fn rejects_a_mint_slot_that_isnt_a_mint() {
     let sell = token::create_mint(&mut svm, &payer);
     let buy = token::create_mint(&mut svm, &payer);
     let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
-    let checked = Checked {
-        mints: &[sell, buy],
-        ..Default::default()
-    };
+    let checked = [sell, buy];
 
     // The sell mint only appears in `BeginSettle`, the buy mint only in
     // `FinalizeSettle`, each as that instruction's mint slot.
     for (index, mint) in [(BEGIN_INDEX, sell), (FINALIZE_INDEX, buy)] {
-        let mut instructions = settlement(&program_id, &solver.pubkey(), &order, &checked);
+        let mut instructions = build_staged_settlement(
+            &program_id,
+            &solver.pubkey(),
+            slice::from_ref(&order),
+            vec![],
+            &checked,
+        );
         replace_first_matching_account(
             &mut instructions[usize::from(index)],
             &mint,
@@ -359,39 +347,10 @@ fn rejects_a_mint_slot_that_isnt_a_mint() {
         );
         assert_instruction_error_at(
             index,
-            send(&mut svm, &payer, &solver, &instructions),
+            send(&mut svm, &solver, &instructions),
             SettlementError::InvalidMint,
         );
     }
-}
-
-#[test]
-fn rejects_a_mint_of_the_other_token_program() {
-    let (mut svm, program_id, payer, solver) = setup_settle_ready();
-    let sell = token::create_mint(&mut svm, &payer);
-    let buy = token::create_mint(&mut svm, &payer);
-    let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
-    let foreign = token::create_mint_under(
-        &mut svm,
-        &payer,
-        &TokenProgram::Token2022.address(),
-        Extensions::None,
-    );
-
-    let mut instructions = settlement(
-        &program_id,
-        &solver.pubkey(),
-        &order,
-        &Checked {
-            mints: &[sell],
-            ..Default::default()
-        },
-    );
-    replace_first_matching_account(&mut instructions[0], &sell, foreign);
-    assert_instruction_error(
-        send(&mut svm, &payer, &solver, &instructions),
-        SettlementError::InvalidMint,
-    );
 }
 
 #[test]
@@ -400,22 +359,25 @@ fn token_program_rejects_a_mint_other_than_the_transferred_one() {
     let sell = token::create_mint(&mut svm, &payer);
     let buy = token::create_mint(&mut svm, &payer);
     let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
-    let checked = Checked {
-        mints: &[sell, buy],
-        ..Default::default()
-    };
+    let checked = [sell, buy];
 
     // Swapping in the order's other mint: a real mint of the right program,
     // just not the one the transfer moves.
     for (index, mint, other) in [
         (BEGIN_INDEX, sell, buy_mint(&order.intent)),
-        (FINALIZE_INDEX, buy, sell_mint(&order.intent)),
+        (FINALIZE_INDEX, buy, order.intent.sell.mint),
     ] {
-        let mut instructions = settlement(&program_id, &solver.pubkey(), &order, &checked);
+        let mut instructions = build_staged_settlement(
+            &program_id,
+            &solver.pubkey(),
+            slice::from_ref(&order),
+            vec![],
+            &checked,
+        );
         replace_first_matching_account(&mut instructions[usize::from(index)], &mint, other);
         assert_instruction_error_at(
             index,
-            send(&mut svm, &payer, &solver, &instructions),
+            send(&mut svm, &solver, &instructions),
             InstructionError::Custom(TokenError::MintMismatch as u32),
         );
     }

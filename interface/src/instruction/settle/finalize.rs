@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{recover_discriminator, SettlementError, SettlementInstruction};
 
-use super::{mint_slot, recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID};
+use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER};
 
 /// The number of fixed accounts every `FinalizeSettle` carries before its push
 /// accounts: the instructions sysvar, the settlement state PDA, and one slot per
@@ -87,9 +87,9 @@ pub fn finalize_push_data(instruction_data: &[u8]) -> Result<(&[u8], &[[u8; 8]])
 /// [`TokenProgram::ALL`] describes, there to name the programs this
 /// instruction's pushes are issued against; the matching `BeginSettle` carries
 /// the ones its pulls need.
-/// A `mint` holding [`UNCHECKED_MINT`](super::UNCHECKED_MINT) makes the push a
-/// plain `Transfer`; any other mint makes it a `TransferChecked` carrying all
-/// the extra accounts (for example, transfer hook accounts).
+/// A `mint` holding [`MINT_PLACEHOLDER`] makes the push a
+/// plain `Transfer`; any other mint makes it a `TransferChecked`.
+/// Any `TransferChecked` calls will carry the specified `extra_transfer_accounts`
 ///
 /// `FinalizeSettle` only executes the transfers. Every push is validated by
 /// `BeginSettle`, which reads this instruction through introspection.
@@ -149,7 +149,10 @@ impl From<FinalizeSettle<'_>> for Instruction {
         for (i, (source, destination)) in source_buffers.iter().zip(destinations).enumerate() {
             accounts.push(AccountMeta::new(*source, false));
             accounts.push(AccountMeta::new(*destination, false));
-            accounts.push(mint_slot(mints.get(i).copied().flatten()));
+            accounts.push(AccountMeta::new_readonly(
+                mints[i].unwrap_or(MINT_PLACEHOLDER),
+                false,
+            ));
         }
         accounts.extend_from_slice(extra_accounts);
 
@@ -169,8 +172,6 @@ impl From<FinalizeSettle<'_>> for Instruction {
 pub struct Push<'a, A> {
     pub source_buffer: &'a A,
     pub destination: &'a A,
-    /// The buy mint for a `TransferChecked` push, or the system program for a
-    /// plain `Transfer` push.
     pub mint: &'a A,
     pub bump: u8,
     pub amount: u64,
@@ -220,7 +221,7 @@ pub struct FinalizeSettleInput<'a, A> {
     pub pushes: Pushes<'a, A>,
     /// The accounts after the push accounts, passed on to every
     /// `TransferChecked`.
-    pub extra_accounts: &'a [A],
+    pub extra_transfer_accounts: &'a [A],
 }
 
 /// This implementation defines how instruction bytes and accounts are laid out
@@ -249,7 +250,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
         let Some(push_triples) = push_triples.get(..push_count) else {
             return Err(SettlementError::AccountCountNotMatchingPushCount.into());
         };
-        let extra_accounts = push_accounts
+        let extra_transfer_accounts = push_accounts
             .get(push_triples.as_flattened().len()..)
             .expect("the push triples are a prefix of the push accounts");
 
@@ -262,7 +263,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for FinalizeSettleInput<'a, A> {
                 bumps,
                 amounts,
             },
-            extra_accounts,
+            extra_transfer_accounts,
         })
     }
 }
@@ -275,7 +276,6 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
-    use crate::instruction::settle::UNCHECKED_MINT;
     use crate::instruction::tests::assert_readonly_nonsigner;
     use crate::token_program::TokenProgram;
     use hex_literal::hex;
@@ -419,7 +419,7 @@ mod tests {
                 mint_a,
                 source_b,
                 dest_b,
-                UNCHECKED_MINT,
+                MINT_PLACEHOLDER,
                 extra_readonly,
                 extra_writable,
             ],
@@ -461,13 +461,13 @@ mod tests {
             instructions_sysvar_account,
             state_pda_account,
             pushes,
-            extra_accounts,
+            extra_transfer_accounts,
         } = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
         assert_eq!(begin_ix_index, 0x1337);
         assert_eq!(instructions_sysvar_account.address(), &sysvar);
         assert_eq!(state_pda_account.address(), &state);
         assert_eq!(pushes.iter().count(), 0);
-        assert!(extra_accounts.is_empty());
+        assert!(extra_transfer_accounts.is_empty());
     }
 
     #[test]
@@ -507,7 +507,7 @@ mod tests {
 
         let FinalizeSettleInput {
             pushes,
-            extra_accounts,
+            extra_transfer_accounts,
             ..
         } = FinalizeSettleInput::parse(&data, &accounts).expect("parse should succeed");
 
@@ -531,9 +531,11 @@ mod tests {
             ],
         );
         // Accounts past the pushes are extra accounts.
-        let extra_accounts: Vec<&Address> =
-            extra_accounts.iter().map(AccountView::address).collect();
-        assert_eq!(extra_accounts, [&extra]);
+        let extra_transfer_accounts: Vec<&Address> = extra_transfer_accounts
+            .iter()
+            .map(AccountView::address)
+            .collect();
+        assert_eq!(extra_transfer_accounts, [&extra]);
     }
 
     #[test]

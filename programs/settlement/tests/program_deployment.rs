@@ -33,12 +33,18 @@ fn program_can_be_invoked() {
                 program_id,
                 solver: solver.pubkey(),
                 finalize_ix_index: 1,
-                ..Default::default()
+                auction_id: 0,
+                only_token_program: None,
+                orders: &[],
+                extra_transfer_accounts: &[],
             }
             .into(),
             FinalizeSettle {
                 program_id,
-                ..Default::default()
+                begin_ix_index: 0,
+                only_token_program: None,
+                orders: &[],
+                extra_transfer_accounts: &[],
             }
             .into(),
         ],

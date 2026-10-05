@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{SettlementError, SettlementInstruction};
 
-use super::{mint_slot, recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID};
+use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER};
 
 /// A single transfer made when settling an order: `amount` tokens sent from the
 /// order's sell token account to `destination`.
@@ -24,7 +24,7 @@ pub struct Pull {
 /// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
 /// - `sell_token_accounts[i]` is the order's sell token account,
 /// - `sell_mints[i]` is the order's sell mint if its pulls use
-///   `TransferChecked`, or `None` (or missing) for plain `Transfer`,
+///   `TransferChecked`, or `None` for plain `Transfer`,
 /// - `pulls[i]` the list of [`Pull`]s to perform from that order's sell token
 ///   account, each sending an amount from the `i`-th order sell token account
 ///   to a destination.
@@ -42,9 +42,9 @@ pub struct Pull {
 /// program accounts are there to allow CPI calls against the corresponding token
 /// program, and are otherwise not parsed or validated, so it is possible to replace
 /// these accounts with the system program (or any other program) if they are unused.
-/// A `sell_mint` holding [`UNCHECKED_MINT`](super::UNCHECKED_MINT) makes the
-/// order's pulls plain `Transfer`s; any other mint makes them `TransferChecked`,
-/// each carrying all the extra accounts (for example, transfer hook accounts).
+/// A `sell_mint` holding [`MINT_PLACEHOLDER`] makes the
+/// order's pulls plain `Transfer`s; any other mint makes them `TransferChecked`.
+/// Any `TransferChecked` calls will carry the specified `extra_transfer_accounts`
 ///
 /// `solver` must sign, and the solver must be registered in the state pda.
 ///
@@ -70,7 +70,7 @@ pub struct BeginSettle<'a> {
     pub sell_mints: &'a [Option<Pubkey>],
     pub pulls: &'a [&'a [Pull]],
     /// Appended to every `TransferChecked` this settlement issues.
-    pub extra_accounts: &'a [AccountMeta],
+    pub extra_transfer_accounts: &'a [AccountMeta],
 }
 
 impl From<BeginSettle<'_>> for Instruction {
@@ -86,7 +86,7 @@ impl From<BeginSettle<'_>> for Instruction {
             sell_token_accounts,
             sell_mints,
             pulls,
-            extra_accounts,
+            extra_transfer_accounts,
         } = builder;
 
         // Sort the parallel lists together by order PDA address via a shared
@@ -137,12 +137,16 @@ impl From<BeginSettle<'_>> for Instruction {
             // Writable accounts settling the order: its sell token account and the
             // recipient of each transfer.
             accounts.push(AccountMeta::new(sell_token_accounts[i], false));
-            accounts.push(mint_slot(sell_mints.get(i).copied().flatten()));
+            // Read account for the sell token mint in case TransferChecked is needed
+            accounts.push(AccountMeta::new_readonly(
+                sell_mints[i].unwrap_or(MINT_PLACEHOLDER),
+                false,
+            ));
             for pull in pulls[i] {
                 accounts.push(AccountMeta::new(pull.destination, false));
             }
         }
-        accounts.extend_from_slice(extra_accounts);
+        accounts.extend_from_slice(extra_transfer_accounts);
 
         Instruction {
             program_id,
@@ -338,7 +342,6 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
-    use crate::instruction::settle::UNCHECKED_MINT;
     use crate::instruction::tests::{assert_readonly_nonsigner, assert_readonly_signer};
     use crate::token_program::TokenProgram;
     use hex_literal::hex;
@@ -477,7 +480,7 @@ mod tests {
             TokenProgram::Token2022.address(),
             low_order_pda,
             low_sell_token_account,
-            UNCHECKED_MINT,
+            MINT_PLACEHOLDER,
             high_order_pda,
             high_sell_token_account,
             high_sell_mint,
@@ -547,7 +550,7 @@ mod tests {
                     amount: 0x0506,
                 }],
             ],
-            extra_accounts: &[
+            extra_transfer_accounts: &[
                 AccountMeta::new_readonly(extra_readonly, false),
                 AccountMeta::new(extra_writable, false),
             ],
@@ -578,7 +581,7 @@ mod tests {
             TokenProgram::Token2022.address(),
             order_a,
             sell_a,
-            UNCHECKED_MINT,
+            MINT_PLACEHOLDER,
             dest_a0,
             dest_a1,
             order_b,

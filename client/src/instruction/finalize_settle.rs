@@ -18,6 +18,10 @@ use super::begin_settle::TokenProgram;
 pub struct FinalizedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub amount: u64,
+    /// Certain token2022 mints require transfers to use TransferChecked
+    /// instead of Transfer instruction, which requires supplying an additional account.
+    /// Alters whether the buy mint is supplied as an input RO account to toggle this behavior.
+    pub use_transfer_checked: bool,
 }
 
 /// Builder for a `FinalizeSettle` instruction pushing each order's proceeds to
@@ -32,7 +36,6 @@ pub struct FinalizedIntent<'a> {
 /// [`BeginSettle`](super::begin_settle::BeginSettle) orders its settled-order
 /// list by) so the two instructions present the orders
 /// in the same order and their lists line up.
-#[derive(Default)]
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub begin_ix_index: u16,
@@ -43,13 +46,9 @@ pub struct FinalizeSettle<'a> {
     /// only token program you need here.
     pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [FinalizedIntent<'a>],
-    /// The buy mints whose pushes use `TransferChecked`; pushes of any other
-    /// mint use plain `Transfer`. Token-2022 mints with extensions such as
-    /// transfer hooks or transfer fees require `TransferChecked`.
-    pub transfer_checked_mints: &'a [Pubkey],
     /// Appended to every `TransferChecked` (for example, transfer hook
     /// accounts).
-    pub extra_accounts: &'a [AccountMeta],
+    pub extra_transfer_accounts: &'a [AccountMeta],
 }
 
 impl From<FinalizeSettle<'_>> for Instruction {
@@ -76,10 +75,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
                 Asset::Native(account) => (STATE_PDA, STATE_PDA_AND_BUMP.1, *account, None),
                 Asset::TokenProgram(token) => {
                     let (buffer, buffer_bump) = find_buffer_pda(&builder.program_id, &token.mint);
-                    let mint = builder
-                        .transfer_checked_mints
-                        .contains(&token.mint)
-                        .then_some(token.mint);
+                    let mint = builder.orders[i].use_transfer_checked.then_some(token.mint);
                     (buffer, buffer_bump, token.token_account, mint)
                 }
             };
@@ -99,7 +95,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             mints: &mints,
             bumps: &bumps,
             amounts: &amounts,
-            extra_accounts: builder.extra_accounts,
+            extra_accounts: builder.extra_transfer_accounts,
         }
         .into()
     }
@@ -114,7 +110,7 @@ mod tests {
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
-            settle::{FinalizeSettleInput, Push, INSTRUCTIONS_SYSVAR_ID, UNCHECKED_MINT},
+            settle::{FinalizeSettleInput, Push, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER},
             InstructionInputParsing,
         },
     };
@@ -129,11 +125,14 @@ mod tests {
         };
         let ix = Instruction::from(FinalizeSettle {
             program_id,
+            begin_ix_index: 0,
+            only_token_program: None,
+            extra_transfer_accounts: &[],
             orders: &[FinalizedIntent {
                 intent: &intent,
                 amount: 1_337,
+                use_transfer_checked: false,
             }],
-            ..Default::default()
         });
 
         let accounts: Vec<_> = ix
@@ -173,13 +172,15 @@ mod tests {
                 .map(|(intent, amount)| FinalizedIntent {
                     intent,
                     amount: *amount,
+                    use_transfer_checked: false
                 })
                 .collect();
             let ix = Instruction::from(FinalizeSettle {
                 program_id,
                 begin_ix_index,
+                only_token_program: None,
                 orders: &orders,
-                ..Default::default()
+                extra_transfer_accounts: &[],
             });
 
             // Expected pushes: each order's buffer PDA (and its canonical bump),
@@ -241,7 +242,7 @@ mod tests {
                     bump,
                     amount
                 } = push;
-                prop_assert_eq!(mint.address(), &UNCHECKED_MINT);
+                prop_assert_eq!(mint.address(), &MINT_PLACEHOLDER);
                 prop_assert_eq!(source_buffer.address(), &expected.buffer);
                 prop_assert_eq!(destination.address(), &expected.destination);
                 prop_assert_eq!(bump, &expected.bump);

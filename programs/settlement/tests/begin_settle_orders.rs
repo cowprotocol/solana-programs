@@ -31,7 +31,7 @@ use crate::common::{
 use cow_settlement_client::cow_settlement_interface::{
     instruction::settle::{
         BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw,
-        FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID, UNCHECKED_MINT,
+        FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER,
     },
     pda::{buffer::find_buffer_pda, order::find_order_pda, state::STATE_PDA},
     Instruction, SettlementError, SettlementInstruction,
@@ -67,8 +67,8 @@ fn assert_begin_error<T>(
 /// pulled. Guards these happy-path tests against a payment silently chosen
 /// below the limit.
 fn sanity_check_clears_limit(intent: &OrderIntent, pulled: u64, paid: u64) {
-    let proceeds = u128::from(paid).strict_mul(u128::from(intent.sell_amount));
-    let required = u128::from(intent.buy_amount).strict_mul(u128::from(pulled));
+    let proceeds = u128::from(paid).strict_mul(u128::from(intent.sell_amount.get()));
+    let required = u128::from(intent.buy_amount.get()).strict_mul(u128::from(pulled));
     assert!(
         proceeds >= required,
         "test setup error: paid {paid} for {pulled} pulled must clear the {}/{} limit",
@@ -129,6 +129,7 @@ fn settle_and_pay_amounts(
             FinalizedIntent {
                 intent: order.intent,
                 amount,
+                use_transfer_checked: false,
             }
         })
         .collect();
@@ -137,14 +138,17 @@ fn settle_and_pay_amounts(
         program_id: *program_id,
         solver: solver.pubkey(),
         finalize_ix_index: FINALIZE_INDEX.into(),
+        auction_id: 0,
+        only_token_program: None,
         orders,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &settled,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     };
     vec![begin.into(), finalize.into()]
 }
@@ -162,6 +166,7 @@ fn settles_a_single_order() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
@@ -183,7 +188,11 @@ fn settles_multiple_orders() {
 
     let orders: Vec<InitializedIntent> = intents
         .iter()
-        .map(|intent| InitializedIntent { intent, pulls: &[] })
+        .map(|intent| InitializedIntent {
+            intent,
+            pulls: &[],
+            use_transfer_checked: false,
+        })
         .collect();
     let instructions = settle_and_pay(&mut svm, &program_id, &payer, &solver, &orders);
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
@@ -217,6 +226,7 @@ fn rejects_wrong_stored_bump() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -259,6 +269,7 @@ fn rejects_fabricated_program_owned_account() {
         finalize_ix_index: 1,
         order_pdas: &[fake_order],
         sell_token_accounts: &[sell_token],
+        sell_mints: &[None],
         pulls: &no_pulls(1),
         ..Default::default()
     };
@@ -269,6 +280,7 @@ fn rejects_fabricated_program_owned_account() {
         state_pda: STATE_PDA,
         source_buffers: &[unique_pubkey()],
         destinations: &[buy_account(&intent)],
+        mints: &[None],
         bumps: &[0],
         amounts: &[0],
         ..Default::default()
@@ -299,6 +311,7 @@ fn rejects_non_order_account_in_order_slot() {
         finalize_ix_index: 1,
         order_pdas: &[sell_token],
         sell_token_accounts: &[sell_token],
+        sell_mints: &[None],
         pulls: &no_pulls(1),
         ..Default::default()
     };
@@ -308,6 +321,7 @@ fn rejects_non_order_account_in_order_slot() {
         state_pda: STATE_PDA,
         source_buffers: &[unique_pubkey()],
         destinations: &[unique_pubkey()],
+        mints: &[None],
         bumps: &[0],
         amounts: &[0],
         ..Default::default()
@@ -336,6 +350,7 @@ fn rejects_sell_token_account_mismatch() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     replace_first_matching_account(
@@ -382,6 +397,7 @@ fn rejects_sell_token_owner_mismatch() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -414,6 +430,7 @@ fn rejects_non_token_sell_account() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -464,6 +481,7 @@ fn rejects_sell_account_under_a_unsupported_token_program() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -493,6 +511,7 @@ fn rejects_sell_token_account_recreated_for_another_mint() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -515,10 +534,12 @@ fn rejects_duplicate_orders() {
             InitializedIntent {
                 intent: &intent,
                 pulls: &[],
+                use_transfer_checked: false,
             },
             InitializedIntent {
                 intent: &intent,
                 pulls: &[],
+                use_transfer_checked: false,
             },
         ],
     );
@@ -575,7 +596,7 @@ fn rejects_orders_in_wrong_address_order() {
     for (order_pda, intent) in orders {
         accounts.push(AccountMeta::new_readonly(order_pda, false));
         accounts.push(AccountMeta::new(intent.sell.token_account, false));
-        accounts.push(AccountMeta::new_readonly(UNCHECKED_MINT, false));
+        accounts.push(AccountMeta::new_readonly(MINT_PLACEHOLDER, false));
     }
     let begin = Instruction {
         program_id,
@@ -603,6 +624,7 @@ fn rejects_orders_in_wrong_address_order() {
         begin_ix_index: BEGIN_INDEX.into(),
         source_buffers: &source_buffers,
         destinations: &destinations,
+        mints: &[None; 2],
         bumps: &bumps,
         amounts: &amounts,
         ..Default::default()
@@ -646,6 +668,7 @@ fn rejects_cancelled_order() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -673,6 +696,7 @@ fn rejects_expired_order() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -699,6 +723,7 @@ fn settles_order_at_exact_valid_to() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     send(&mut svm, &solver, &instructions)
@@ -734,6 +759,7 @@ fn pulls_funds_to_destination() {
                 destination,
                 amount,
             }],
+            use_transfer_checked: false,
         }],
         &[paid],
     );
@@ -786,6 +812,7 @@ fn rejects_pull_targeting_the_order_account() {
                 destination: order_pda,
                 amount,
             }],
+            use_transfer_checked: false,
         }],
         &[paid],
     );
@@ -830,6 +857,7 @@ fn pulls_to_multiple_destinations() {
                     amount: pulled1,
                 },
             ],
+            use_transfer_checked: false,
         }],
         &[paid],
     );
@@ -897,6 +925,7 @@ fn pulls_from_multiple_orders() {
                     destination: dest_first,
                     amount: pulled_first,
                 }],
+                use_transfer_checked: false,
             },
             InitializedIntent {
                 intent: &second,
@@ -904,6 +933,7 @@ fn pulls_from_multiple_orders() {
                     destination: dest_second,
                     amount: pulled_second,
                 }],
+                use_transfer_checked: false,
             },
         ],
         &[paid_first, paid_second],
@@ -956,6 +986,7 @@ fn rejects_pulls_summing_beyond_u64() {
                     amount: u64::MAX,
                 },
             ],
+            use_transfer_checked: false,
         }],
         &[0],
     );
@@ -995,6 +1026,7 @@ fn zero_pulls_moves_nothing() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
     let transaction = Transaction::new_signed_with_payer(
@@ -1028,6 +1060,7 @@ fn rejects_wrong_state_pda() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
 
@@ -1072,6 +1105,7 @@ fn rejects_a_token_program_the_instruction_doesnt_name() {
                 destination,
                 amount,
             }],
+            use_transfer_checked: false,
         }],
         &[amount],
     );
@@ -1122,6 +1156,7 @@ fn rejects_pull_delegated_to_incorrect_address() {
                 destination,
                 amount,
             }],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -1157,6 +1192,7 @@ fn rejects_pull_exceeding_delegation() {
                 destination,
                 amount: 200_000,
             }],
+            use_transfer_checked: false,
         }],
     );
     assert_begin_error(
@@ -1182,6 +1218,7 @@ fn rejects_missing_account() {
         &[InitializedIntent {
             intent: &intent,
             pulls: &[],
+            use_transfer_checked: false,
         }],
     );
 
@@ -1202,13 +1239,15 @@ fn rejects_push_to_wrong_destination() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
 
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &orders,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     });
     // Redirect the push to an account that isn't the order's buy token account.
     // Finalize accounts: `[FINALIZE_FIXED_ACCOUNTS..., source, destination]`.
@@ -1233,6 +1272,7 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
     buffer::ensure_funded(&mut svm, &program_id, &payer, &other_mint, 1_000);
 
@@ -1243,6 +1283,7 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
         begin_ix_index: BEGIN_INDEX.into(),
         source_buffers: &[other_buffer],
         destinations: &[buy_account(&intent)],
+        mints: &[None],
         bumps: &[other_bump],
         amounts: &[100],
         ..Default::default()
@@ -1262,13 +1303,16 @@ fn rejects_fewer_pushes_than_orders() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
 
     // A finalize carrying no pushes, paired with a begin settling one order.
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        ..Default::default()
+        only_token_program: None,
+        orders: &[],
+        extra_transfer_accounts: &[],
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -1288,11 +1332,13 @@ fn rejects_more_pushes_than_orders() {
     let finalize = FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &[FinalizedIntent {
             intent: &intent,
             amount: 0,
+            use_transfer_checked: false,
         }],
-        ..Default::default()
+        extra_transfer_accounts: &[],
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
@@ -1309,15 +1355,17 @@ fn rejects_partial_push_amount_in_finalize_settle() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
 
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &orders,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     });
-    // Drop one byte from the finalize intstruction so the trailing amount is no
+    // Drop one byte from the finalize instruction so the trailing amount is no
     // longer a whole `u64`. `BeginSettle` reads the finalize's push amounts, so
     // it rejects the malformed encoding before the finalize instruction runs.
     finalize.data.pop();

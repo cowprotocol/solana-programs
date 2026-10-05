@@ -36,14 +36,17 @@ pub fn build_settlement(
         .map(|order| InitializedIntent {
             intent: order.intent,
             pulls: &[],
+            use_transfer_checked: false,
         })
         .collect();
     let begin = BeginSettle {
         program_id: *program_id,
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
+        auction_id: 0,
+        only_token_program: None,
         orders: &begin_orders,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     };
     vec![begin.into(), finalize.into()]
 }
@@ -58,8 +61,9 @@ pub fn build_matching_settlement(
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     };
     build_settlement(program_id, solver, orders, finalize)
 }
@@ -123,19 +127,22 @@ pub fn stage_order(
 
 /// Build the instructions settling `orders`: a `BeginSettle` at [`BEGIN_INDEX`]
 /// carrying each order's pulls, `between` right after it, and the matching
-/// `FinalizeSettle` last, pushing each order's `amount_out`. Submit the result
+/// `FinalizeSettle` last, pushing each order's `amount_out`. Transfers of
+/// `transfer_checked_mints` go through `TransferChecked`. Submit the result
 /// with [`send`](super::send).
 pub fn build_staged_settlement(
     program_id: &Pubkey,
     solver: &Pubkey,
     orders: &[StagedOrder],
     between: Vec<Instruction>,
+    transfer_checked_mints: &[Pubkey],
 ) -> Vec<Instruction> {
     let begin_orders: Vec<InitializedIntent> = orders
         .iter()
         .map(|order| InitializedIntent {
             intent: &order.intent,
             pulls: &order.pulls,
+            use_transfer_checked: transfer_checked_mints.contains(&order.intent.sell.mint),
         })
         .collect();
     let finalize_orders: Vec<FinalizedIntent> = orders
@@ -143,6 +150,10 @@ pub fn build_staged_settlement(
         .map(|order| FinalizedIntent {
             intent: &order.intent,
             amount: order.amount_out,
+            use_transfer_checked: match &order.intent.buy {
+                Asset::TokenProgram(token) => transfer_checked_mints.contains(&token.mint),
+                Asset::Native(_) => false,
+            },
         })
         .collect();
 
@@ -150,14 +161,17 @@ pub fn build_staged_settlement(
         program_id: *program_id,
         solver: *solver,
         finalize_ix_index: finalize_index(between.len()),
+        auction_id: 0,
+        only_token_program: None,
         orders: &begin_orders,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &finalize_orders,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     };
 
     let mut instructions = vec![begin.into()];

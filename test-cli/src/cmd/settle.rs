@@ -102,6 +102,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .map(|(intent, pulls)| InitializedIntent {
             intent: &intent.data,
             pulls,
+            use_transfer_checked: false,
         })
         .collect();
 
@@ -117,8 +118,10 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         program_id: ctx.program_id,
         solver,
         finalize_ix_index,
+        only_token_program: None,
         orders: &initialized_intents,
-        ..Default::default()
+        auction_id: 0,
+        extra_transfer_accounts: &[],
     };
 
     // Send exactly each order's buy amount; any surplus tokens stay in the buffers.
@@ -126,15 +129,17 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .iter()
         .map(|intent| FinalizedIntent {
             intent: &intent.data,
-            amount: intent.data.buy_amount,
+            amount: intent.data.buy_amount.get(),
+            use_transfer_checked: false,
         })
         .collect();
 
     let finalize_ix = FinalizeSettle {
         program_id: ctx.program_id,
         begin_ix_index,
+        only_token_program: None,
         orders: &settled,
-        ..Default::default()
+        extra_transfer_accounts: &[],
     };
 
     all_ixs.push(begin_ix.into());
@@ -293,14 +298,14 @@ fn prepare_setup_ixs(
             &mut sell_amount_pulled,
             &mut mint_buffers_to_create,
             &intent.sell,
-            intent.data.sell_amount,
+            intent.data.sell_amount.get(),
         )?;
         tally_and_register_buffer(
             ctx,
             &mut buy_amount_pushed,
             &mut mint_buffers_to_create,
             &intent.buy,
-            intent.data.buy_amount,
+            intent.data.buy_amount.get(),
         )?;
     }
 
@@ -354,7 +359,7 @@ fn compute_pulls(ctx: &Context, intents: &[ResolvedIntent]) -> Vec<[Pull; 1]> {
             let (buffer_pda, _) = find_buffer_pda(&ctx.program_id, &intent.sell.mint);
             [Pull {
                 destination: buffer_pda,
-                amount: intent.data.sell_amount,
+                amount: intent.data.sell_amount.get(),
             }]
         })
         .collect()

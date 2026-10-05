@@ -16,10 +16,13 @@ pub use cow_settlement_interface::instruction::settle::{Pull, TokenProgram};
 pub struct InitializedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub pulls: &'a [Pull],
+    /// Certain token2022 mints require transfers to use TransferChecked
+    /// instead of Transfer instruction, which requires supplying an additional account.
+    /// Alters whether the sell mint is supplied as an input RO account to toggle this behavior.
+    pub use_transfer_checked: bool,
 }
 
 /// Builder for a `BeginSettle` instruction settling the given orders.
-#[derive(Default)]
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub solver: Pubkey,
@@ -34,13 +37,9 @@ pub struct BeginSettle<'a> {
     /// only token program you need here.
     pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [InitializedIntent<'a>],
-    /// The sell mints whose pulls use `TransferChecked`; pulls of any other
-    /// mint use plain `Transfer`. Token-2022 mints with extensions such as
-    /// transfer hooks or transfer fees require `TransferChecked`.
-    pub transfer_checked_mints: &'a [Pubkey],
     /// Appended to every `TransferChecked` (for example, transfer hook
     /// accounts).
-    pub extra_accounts: &'a [AccountMeta],
+    pub extra_transfer_accounts: &'a [AccountMeta],
 }
 
 impl From<BeginSettle<'_>> for Instruction {
@@ -54,12 +53,7 @@ impl From<BeginSettle<'_>> for Instruction {
             order_pdas.push(order_pda);
             sell_token_accounts.push(order.intent.sell.token_account);
             let sell_mint = order.intent.sell.mint;
-            sell_mints.push(
-                builder
-                    .transfer_checked_mints
-                    .contains(&sell_mint)
-                    .then_some(sell_mint),
-            );
+            sell_mints.push(order.use_transfer_checked.then_some(sell_mint));
             pull_lists.push(order.pulls);
         }
         cow_settlement_interface::instruction::settle::BeginSettle {
@@ -73,7 +67,7 @@ impl From<BeginSettle<'_>> for Instruction {
             sell_token_accounts: &sell_token_accounts,
             sell_mints: &sell_mints,
             pulls: &pull_lists,
-            extra_accounts: builder.extra_accounts,
+            extra_transfer_accounts: builder.extra_transfer_accounts,
         }
         .into()
     }
@@ -107,14 +101,16 @@ mod tests {
             // laid out correctly.
             let orders: Vec<InitializedIntent> = intents
                 .iter()
-                .map(|intent| InitializedIntent { intent, pulls: &[] })
+                .map(|intent| InitializedIntent { intent, pulls: &[], use_transfer_checked: false })
                 .collect();
             let ix = Instruction::from(BeginSettle {
                 program_id,
                 solver: pubkey_from_seed("solver"),
                 finalize_ix_index,
+                auction_id: 0,
+                only_token_program: None,
                 orders: &orders,
-                ..Default::default()
+                extra_transfer_accounts: &[]
             });
 
             // Expected orders: each intent's canonical PDA paired with its sell

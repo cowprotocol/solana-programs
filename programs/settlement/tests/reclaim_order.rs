@@ -220,7 +220,7 @@ fn happy_path_on_chain_order_fully_filled_is_reclaimable_before_expiry() {
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
     // A sell order is full once its whole sell amount has been withdrawn.
     patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
-        amount_withdrawn: order.intent.sell_amount,
+        amount_withdrawn: order.intent.sell_amount.get(),
         ..order
     });
 
@@ -274,7 +274,7 @@ fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
     // One token short of a full fill: the order can still be settled, so its
     // PDA has to stay.
     patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
-        amount_withdrawn: order.intent.sell_amount - 1,
+        amount_withdrawn: order.intent.sell_amount.get() - 1,
         ..order
     });
 
@@ -304,7 +304,7 @@ fn off_chain_order_is_reclaimable_only_once_expired() {
     let pda = hack_write_order(&mut svm, &program_id, &intent, &owner.pubkey(), |order| {
         DecodedOrderAccount {
             cancelled: true,
-            amount_withdrawn: order.intent.sell_amount,
+            amount_withdrawn: order.intent.sell_amount.get(),
             ..order
         }
     });
@@ -555,7 +555,8 @@ fn rejects_reclaim_of_a_partially_filled_order() {
     const PARTIAL_FILL: u64 = SETTLED_SELL_AMOUNT / 3;
     let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, PARTIAL_FILL);
 
-    let instructions = build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![]);
+    let instructions =
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![], &[]);
     send(&mut svm, &solver, &instructions).expect("a partial settlement should succeed");
     assert_eq!(
         read_order(&svm, &order_pda).amount_withdrawn,
@@ -602,7 +603,7 @@ fn reclaim_mid_settlement_succeeds() {
     }
     .instruction();
     let instructions =
-        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![reclaim]);
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![reclaim], &[]);
 
     // The `payer` that created the order signs nothing here and pays no fee (the
     // solver does), so its balance moves by the returned rent alone.

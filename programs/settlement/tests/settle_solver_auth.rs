@@ -85,7 +85,11 @@ fn non_signing_solver_may_not_settle() {
     let mut begin_settle: Instruction = BeginSettle {
         program_id: params.program_id,
         solver: solver.pubkey(),
-        ..Default::default()
+        finalize_ix_index: 0,
+        auction_id: 0,
+        only_token_program: None,
+        orders: &[],
+        extra_transfer_accounts: &[],
     }
     .into();
 

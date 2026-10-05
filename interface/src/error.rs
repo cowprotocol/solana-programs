@@ -140,9 +140,11 @@ pub enum SettlementError {
     /// isn't a signer, or doesn't match the `settlement_owned_order_authority`
     /// recorded in the settlement state PDA.
     UnauthorizedSettlementOwnedOrder = 42,
-    /// A `BeginSettle`/`FinalizeSettle` mint account is neither the
-    /// instructions sysvar nor a mint of the transfer's token program.
-    InvalidMint = 43,
+    /// An intent has a zero sell or buy amount, which is not supported.
+    ZeroOrderAmount = 43,
+    /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
+    /// was not able to be parsed as such.
+    InvalidMint = 44,
 }
 
 impl From<SettlementError> for u32 {

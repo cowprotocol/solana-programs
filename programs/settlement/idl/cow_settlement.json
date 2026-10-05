@@ -1225,8 +1225,13 @@
     },
     {
       "code": 43,
+      "name": "ZeroOrderAmount",
+      "msg": "An intent has a zero sell or buy amount, which is not supported."
+    },
+    {
+      "code": 44,
       "name": "InvalidMint",
-      "msg": "A BeginSettle/FinalizeSettle mint account is neither the instructions sysvar nor a mint of the transfer's token program."
+      "msg": "A mint account supplied to BeginSettle or FinalizeSettle was not able to be parsed as such."
     }
   ]
 }

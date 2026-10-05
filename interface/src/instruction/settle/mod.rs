@@ -6,16 +6,11 @@ use solana_program_error::ProgramError;
 pub use crate::token_program::TokenProgram;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
-/// The address a settlement's mint slot holds when its transfers use plain
-/// `Transfer` instead of `TransferChecked`. The instructions sysvar is already
-/// in every settlement, so the placeholder takes no extra transaction space.
-pub const UNCHECKED_MINT: solana_pubkey::Pubkey = INSTRUCTIONS_SYSVAR_ID;
-
-/// The account filling a mint slot: `mint` when its transfers use
-/// `TransferChecked`, or [`UNCHECKED_MINT`] for plain `Transfer`.
-fn mint_slot(mint: Option<solana_pubkey::Pubkey>) -> solana_instruction::AccountMeta {
-    solana_instruction::AccountMeta::new_readonly(mint.unwrap_or(UNCHECKED_MINT), false)
-}
+/// Only some tokens which necessitate the use of the `TransferChecked` instruction
+/// require the RO mint account to be specified. To reduce unnecessary account
+/// dependency, the instructions sysvar may be provided instead of the mint to
+/// call `Transfer` instead.
+pub const MINT_PLACEHOLDER: solana_pubkey::Pubkey = INSTRUCTIONS_SYSVAR_ID;
 
 mod begin;
 mod finalize;

@@ -316,8 +316,8 @@ impl<T: DerefMut<Target = [u8]>> OrderAccount<T> {
 pub mod fixtures {
     use proptest::prelude::*;
 
-    use super::{EncodedOrderIntent, OrderAccount, Pubkey, SIZE};
-    use crate::data::intent::fixtures::{arb_order_intent, sample_intent};
+    use super::{EncodedOrderIntent, OrderAccount, Pubkey, DISCRIMINATOR, SIZE};
+    use crate::data::intent::fixtures::{arb_intent_bytes, arb_order_intent, sample_intent};
     use crate::data::intent::OrderIntent;
 
     // Hardcoded but verified in a sanity-check test.
@@ -395,6 +395,19 @@ pub mod fixtures {
                 },
             )
     }
+
+    /// Any order-account bytes that decode: a valid order discriminator and
+    /// cancelled byte wrapping [`arb_intent_bytes`].
+    pub fn arb_order_bytes() -> impl Strategy<Value = [u8; SIZE]> {
+        (any::<[u8; SIZE]>(), any::<bool>(), arb_intent_bytes()).prop_map(
+            |(mut bytes, cancelled, intent)| {
+                bytes[DISCRIMINATOR_OFFSET] = DISCRIMINATOR;
+                bytes[CANCELLED_OFFSET] = cancelled as u8;
+                bytes[INTENT_OFFSET..].copy_from_slice(&intent);
+                bytes
+            },
+        )
+    }
 }
 
 #[cfg(test)]
@@ -404,7 +417,6 @@ mod tests {
         DISCRIMINATOR_OFFSET, INTENT_OFFSET,
     };
     use super::*;
-    use crate::data::intent::fixtures::FLAGS_OFFSET;
     use crate::data::intent::OrderIntent;
 
     #[test]
@@ -672,7 +684,7 @@ mod tests {
         use ::proptest::{prelude::*, test_runner::TestCaseError};
 
         use super::*;
-        use crate::data::{intent::fixtures::arb_flags_byte, order::fixtures::arb_order_account};
+        use crate::data::order::fixtures::{arb_order_account, arb_order_bytes};
 
         proptest! {
             // For any order fields, the bytes `OrderFields::encode` writes read
@@ -707,18 +719,10 @@ mod tests {
                 );
             }
 
-            // For any bytes whose `cancelled` byte and intent flags are valid,
-            // reading every field back and re-encoding reproduces the same bytes.
+            // For any decodable order bytes, reading every field back and
+            // re-encoding reproduces the same bytes.
             #[test]
-            fn bytes_roundtrip(
-                mut bytes in any::<[u8; SIZE]>(),
-                cancelled in any::<bool>(),
-                flags in arb_flags_byte(),
-            ) {
-                bytes[DISCRIMINATOR_OFFSET] = DISCRIMINATOR;
-                bytes[CANCELLED_OFFSET] = cancelled as u8;
-                bytes[INTENT_OFFSET + FLAGS_OFFSET] = flags;
-
+            fn bytes_roundtrip(bytes in arb_order_bytes()) {
                 let order = OrderAccount::attach(&bytes[..])
                     .map_err(|e| TestCaseError::fail(format!("attach failed: {e:?}")))?;
                 let filled = order.filled_amounts();

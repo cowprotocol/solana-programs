@@ -58,6 +58,20 @@ pub fn create_native_mint(svm: &mut LiteSVM) {
     );
 }
 
+/// Plant a mint at `mint`, an address no test holds the keypair for (such as a
+/// real token's), under the legacy SPL Token program with `authority` as its
+/// mint authority.
+pub fn plant_mint(svm: &mut LiteSVM, mint: Pubkey, authority: &Pubkey) {
+    let mut data = vec![0u8; Mint::LEN];
+    Mint {
+        mint_authority: Some(*authority).into(),
+        is_initialized: true,
+        ..Default::default()
+    }
+    .pack_into_slice(&mut data);
+    super::create_account_at(svm, mint, &TokenProgram::SplToken.address(), &data);
+}
+
 /// Create a fresh mint under [`active_token::program`], whose mint authority is
 /// `payer`, and return its address.
 pub fn create_mint(svm: &mut LiteSVM, payer: &Keypair) -> Pubkey {

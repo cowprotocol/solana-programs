@@ -3,16 +3,18 @@
 use core::{mem::MaybeUninit, slice};
 
 use cow_settlement_interface::{
-    instruction::settle::UNCHECKED_MINT, token_program::TokenProgram, SettlementError,
+    instruction::settle::MINT_PLACEHOLDER, token_program::TokenProgram, SettlementError,
 };
 use pinocchio::{
-    address::address_eq,
     cpi::{get_return_data, invoke_signed_unchecked, CpiAccount, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
 use pinocchio_token::instructions::{GetAccountDataSize, Transfer};
+
+use solana_program_pack::Pack;
+use spl_token_2022_interface::state::Mint;
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
@@ -58,26 +60,26 @@ pub fn token_account_len(
 /// `TransferChecked`'s own accounts: `[source, mint, destination, authority]`.
 const TRANSFER_CHECKED_ACCOUNTS: usize = 4;
 
-/// The decimals of the mint behind `mint`, or `None` if `mint` is
-/// [`UNCHECKED_MINT`], which selects plain `Transfer` over `TransferChecked`.
+/// Retrieves the decimals from the data of `mint`, or `None` if `mint` is
+/// [`MINT_PLACEHOLDER`].
+/// The Option in the Result of this function should be supplied directly to
+/// [`TokenTransfers::transfer`].
 #[inline(always)]
-pub fn mint_decimals(
-    token_program: TokenProgram,
-    mint: &AccountView,
-) -> Result<Option<u8>, SettlementError> {
-    if address_eq(mint.address(), &UNCHECKED_MINT) {
-        return Ok(None);
-    }
-    match token_program {
-        TokenProgram::SplToken => {
-            pinocchio_token::state::Mint::from_account_view(mint).map(|mint| mint.decimals())
+pub fn mint_decimals(mint: &AccountView) -> Result<Option<u8>, ProgramError> {
+    match *mint.address() {
+        MINT_PLACEHOLDER => Ok(None),
+        _ => {
+            let mint_data = mint.try_borrow()?;
+
+            let mint_contents = mint_data
+                .get(..Mint::LEN)
+                .ok_or(SettlementError::InvalidMint)?;
+
+            Mint::unpack(mint_contents)
+                .map(|m| Some(m.decimals))
+                .map_err(|_| SettlementError::InvalidMint.into())
         }
-        TokenProgram::Token2022 => {
-            pinocchio_token_2022::state::Mint::from_account_view(mint).map(|mint| mint.decimals())
-        }
     }
-    .map(Some)
-    .map_err(|_| SettlementError::InvalidMint)
 }
 
 /// Token transfers signed by the state PDA, issued as `TransferChecked` with
@@ -134,8 +136,10 @@ impl<'a> TokenTransfers<'a> {
     }
 
     /// Move `amount` from `from` to `to` under `token_program`, signed by
-    /// `authority` through `signer`. `decimals` comes from [`mint_decimals`]:
-    /// `Some` issues a `TransferChecked` against `mint`, `None` a `Transfer`.
+    /// `authority` through `signer`.
+    /// It is indended supply the result of [`mint_decimals`] to `decimals`.
+    /// Whether or not `decimals` is supplied determines the transfer instruction
+    /// which is used.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     pub fn transfer(

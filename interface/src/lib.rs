@@ -22,11 +22,26 @@ pub use role::Role;
 /// for this crate's own `cargo test`) so other crates can reuse them.
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
+    use core::num::NonZeroU64;
+
     use crate::Pubkey;
 
     /// Deterministically generate a [`Pubkey`] by hashing a seed string, for
     /// building fixtures with stable, readable addresses.
     pub fn pubkey_from_seed(seed: &str) -> Pubkey {
         Pubkey::new_from_array(solana_sha256_hasher::hash(seed.as_bytes()).to_bytes())
+    }
+
+    /// Wrap a known-non-zero `u64` in a [`NonZeroU64`], as `amount.nz()`.
+    /// Used to make test code shorter.
+    pub trait IntoNonZero {
+        fn nz(self) -> NonZeroU64;
+    }
+
+    impl IntoNonZero for u64 {
+        #[track_caller]
+        fn nz(self) -> NonZeroU64 {
+            NonZeroU64::new(self).expect("value must be non-zero")
+        }
     }
 }
