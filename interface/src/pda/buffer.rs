@@ -87,28 +87,57 @@ struct KnownBuffer {
     address: [u8; 32],
 }
 
-/// The native SOL buffer, keyed by [`ENCODED_NATIVE_SOL_TRANSFER`], followed by
-/// the buffers of [`KNOWN_MINTS`] in the same order.
+/// The buffers of [`KNOWN_MINTS`], in the same order. They are generated at
+/// compile time for CU efficiency reasons.
+// Deriving this many PDAs in const eval trips the compiler's infinite-loop
+// guard, although it finishes in seconds.
 #[allow(long_running_const_eval)]
-const KNOWN_BUFFERS: [KnownBuffer; KNOWN_MINTS.len() + 1] = {
+const KNOWN_MINT_BUFFERS: [KnownBuffer; KNOWN_MINTS.len()] = {
     let mut buffers = [const {
         KnownBuffer {
             mint: [0; 32],
             address: [0; 32],
         }
-    }; KNOWN_MINTS.len() + 1];
-    buffers[0] = KnownBuffer {
-        mint: ENCODED_NATIVE_SOL_TRANSFER.to_bytes(),
-        address: *NATIVE_SOL_BUFFER_PDA.as_array(),
-    };
+    }; KNOWN_MINTS.len()];
     let mut i = 0;
-    while i < KNOWN_MINTS.len() {
+    while i < buffers.len() {
         let mint = const_crypto::bs58::decode_pubkey(KNOWN_MINTS[i]);
         let (address, _) = const_crypto::ed25519::derive_program_address(
             &buffer_pda_seeds(&mint),
             crate::ID.as_array(),
         );
-        buffers[i + 1] = KnownBuffer { mint, address };
+        buffers[i] = KnownBuffer { mint, address };
+        i += 1;
+    }
+    buffers
+};
+
+/// The native SOL buffer as a [`KnownBuffer`]. Unlike the mint buffers, it's
+/// keyed by the marker [`ENCODED_NATIVE_SOL_TRANSFER`] rather than a real mint,
+/// and seeded on its own (see [`NATIVE_SOL_BUFFER_PDA`]).
+const NATIVE_SOL_KNOWN_BUFFER: KnownBuffer = KnownBuffer {
+    mint: ENCODED_NATIVE_SOL_TRANSFER.to_bytes(),
+    address: *NATIVE_SOL_BUFFER_PDA.as_array(),
+};
+
+/// Every buffer [`known_buffer`] resolves: the native SOL buffer followed by
+/// the per-mint [`KNOWN_MINT_BUFFERS`].
+/// They serve two different purposes: the native SOL buffer enables the SOL buy
+/// flow, while the other buffers are a CU-efficiency trick.
+const KNOWN_BUFFERS: [KnownBuffer; KNOWN_MINT_BUFFERS.len() + 1] = {
+    let mut buffers = [const {
+        KnownBuffer {
+            mint: [0; 32],
+            address: [0; 32],
+        }
+    }; KNOWN_MINT_BUFFERS.len() + 1];
+    buffers[0] = NATIVE_SOL_KNOWN_BUFFER;
+    let mut i = 0;
+    while i < KNOWN_MINT_BUFFERS.len() {
+        buffers[i + 1] = KnownBuffer {
+            mint: KNOWN_MINT_BUFFERS[i].mint,
+            address: KNOWN_MINT_BUFFERS[i].address,
+        };
         i += 1;
     }
     buffers
@@ -333,8 +362,7 @@ mod tests {
 
     #[test]
     fn known_mint_buffers_are_canonical() {
-        // the first known buffer is the native buffer, which is seeded differently. so we skip it.
-        for known in &KNOWN_BUFFERS[1..] {
+        for known in &KNOWN_MINT_BUFFERS {
             let (pda, _) = find_buffer_pda(&crate::ID, &Pubkey::new_from_array(known.mint));
             assert_eq!(known.address, *pda.as_array());
         }
