@@ -23,13 +23,15 @@ use cow_settlement_client::{
     cow_settlement_interface::{
         data::intent::{Asset, OrderIntent, TokenAsset},
         instruction::settle::FINALIZE_FIXED_ACCOUNTS,
-        pda::state::STATE_PDA,
+        pda::{buffer::KNOWN_MINTS, state::STATE_PDA},
         Instruction, SettlementError,
     },
     instruction::TokenProgram,
 };
 use litesvm_token::spl_token::error::TokenError;
-use solana_sdk::{instruction::InstructionError, signer::Signer, transaction::TransactionError};
+use solana_sdk::{
+    instruction::InstructionError, pubkey::Pubkey, signer::Signer, transaction::TransactionError,
+};
 
 mod common;
 
@@ -56,6 +58,33 @@ fn finalizes_with_no_pushes() {
 fn pushes_a_single_order() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let mint = token::create_mint(&mut svm, &payer);
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_mint(&mint)
+        .build();
+    let funding = 1_000;
+    let buffer_pda = buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, funding);
+
+    let amount = 400;
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount,
+        }],
+    );
+    send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
+        .expect("a single push should be paid");
+
+    assert_eq!(token::balance(&svm, &buy_account(&intent)), amount);
+    assert_eq!(token::balance(&svm, &buffer_pda), funding - amount);
+}
+
+#[test]
+fn pushes_a_single_order_of_a_known_mint() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let mint = Pubkey::from_str_const(KNOWN_MINTS[0]);
+    token::plant_mint(&mut svm, mint, &payer.pubkey());
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_mint(&mint)
         .build();

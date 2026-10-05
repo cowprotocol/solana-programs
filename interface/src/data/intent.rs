@@ -14,12 +14,15 @@
 //! the encoding doesn't define.
 
 use core::mem::size_of;
+use core::num::NonZeroU64;
 
 use arrayref::{array_refs, mut_array_refs};
 use derive_more::Deref;
 use solana_hash::Hash;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
+
+use crate::SettlementError;
 
 /// The address an encoded intent carries as a mint to trade native SOL rather
 /// than a token; see [`Asset::Native`].
@@ -186,7 +189,6 @@ impl Asset {
 
 /// Order intent. Its canonical encoding, [`EncodedOrderIntent`], is the exact wire format of create_order's `intent`
 /// argument and the exact bytes hashed (SHA-256) to produce the order UID used in the order PDA's seeds.
-#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OrderIntent {
     /// Account authorized to create and invalidate this order and whose
@@ -205,15 +207,15 @@ pub struct OrderIntent {
     /// account implicitly encodes the recipient
     pub buy: Asset,
 
-    /// Amount of the sell token. For `Sell` orders this is the exact
-    /// amount to be sold (subject to `partially_fillable`); for `Buy`
-    /// orders it is the maximum the user is willing to spend.
-    pub sell_amount: u64,
+    /// Amount of the sell token. For `Sell` orders this is the exact amount to
+    /// be sold (subject to `partially_fillable`); for `Buy` orders it is the
+    /// maximum the user is willing to spend. Must be non-zero.
+    pub sell_amount: NonZeroU64,
 
-    /// Amount of the buy token. For `Buy` orders this is the exact amount
-    /// to be received (subject to `partially_fillable`); for `Sell`
-    /// orders it is the minimum the user is willing to receive.
-    pub buy_amount: u64,
+    /// Amount of the buy token. For `Buy` orders this is the exact amount to be
+    /// received (subject to `partially_fillable`); for `Sell` orders it is the
+    /// minimum the user is willing to receive. Must be non-zero.
+    pub buy_amount: NonZeroU64,
 
     /// Unix timestamp after which the order expires.
     /// The order cannot be executed after expiration.
@@ -275,7 +277,12 @@ impl EncodedOrderIntent {
 #[must_use = "ignoring the result skips the validation"]
 #[inline]
 pub fn check_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Result<(), ProgramError> {
-    Flags::try_from(*intent_slots(bytes).flags).map(drop)
+    let slots = intent_slots(bytes);
+    Flags::try_from(*slots.flags)?;
+    if u64::from_le_bytes(*slots.sell_amount) == 0 || u64::from_le_bytes(*slots.buy_amount) == 0 {
+        return Err(SettlementError::ZeroOrderAmount.into());
+    }
+    Ok(())
 }
 
 pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
@@ -382,8 +389,8 @@ impl From<&OrderIntent> for EncodedOrderIntent {
         let (buy_mint_address, buy_account) = intent.buy.encode();
         *buy_token = buy_account.to_bytes();
         *buy_mint = buy_mint_address.to_bytes();
-        *sell_amount = intent.sell_amount.to_le_bytes();
-        *buy_amount = intent.buy_amount.to_le_bytes();
+        *sell_amount = intent.sell_amount.get().to_le_bytes();
+        *buy_amount = intent.buy_amount.get().to_le_bytes();
         *valid_to = intent.valid_to.to_le_bytes();
         *flags = intent.flags.into();
         *app_data = intent.app_data;
@@ -415,8 +422,10 @@ impl TryFrom<&[u8; EncodedOrderIntent::SIZE]> for OrderIntent {
                 Pubkey::new_from_array(*slots.buy_mint),
                 Pubkey::new_from_array(*slots.buy_token),
             ),
-            sell_amount: u64::from_le_bytes(*slots.sell_amount),
-            buy_amount: u64::from_le_bytes(*slots.buy_amount),
+            sell_amount: NonZeroU64::new(u64::from_le_bytes(*slots.sell_amount))
+                .ok_or(SettlementError::ZeroOrderAmount)?,
+            buy_amount: NonZeroU64::new(u64::from_le_bytes(*slots.buy_amount))
+                .ok_or(SettlementError::ZeroOrderAmount)?,
             valid_to: u32::from_le_bytes(*slots.valid_to),
             flags: Flags::try_from(*slots.flags)?,
             app_data: *slots.app_data,
@@ -434,20 +443,43 @@ impl OrderIntent {
 
 #[cfg(any(test, feature = "test-fixtures"))]
 pub mod fixtures {
+    use core::mem::size_of;
+
     use proptest::{prelude::*, strategy::Union};
 
-    use super::{Asset, Flags, OrderIntent, OrderKind, Pubkey, TokenAsset};
+    use super::{Asset, EncodedOrderIntent, Flags, OrderIntent, OrderKind, Pubkey, TokenAsset};
+    use crate::fixtures::IntoNonZero;
 
     /// Every valid [`OrderKind`].
     pub const ALL_ORDER_KINDS: [OrderKind; 2] = [OrderKind::Sell, OrderKind::Buy];
 
-    // Hardcoded but verified in a sanity-check test.
+    // Byte offsets of the fields within an encoded intent. Hardcoded but
+    // verified in a sanity-check test.
+    pub const SELL_AMOUNT_OFFSET: usize = 160;
+    pub const BUY_AMOUNT_OFFSET: usize = 168;
     pub const FLAGS_OFFSET: usize = 180;
 
     impl Default for Asset {
         /// Native SOL on the all-zero address, the side an all-zero encoding
         fn default() -> Self {
             Asset::Native(Pubkey::default())
+        }
+    }
+
+    impl Default for OrderIntent {
+        /// Every field takes its zero value except the amounts, which are
+        /// `NonZeroU64` and so default to arbitrary small non-zero constants.
+        fn default() -> Self {
+            OrderIntent {
+                owner: Pubkey::default(),
+                sell: TokenAsset::default(),
+                buy: Asset::default(),
+                sell_amount: 42.nz(),
+                buy_amount: 1337.nz(),
+                valid_to: 0,
+                flags: Flags::default(),
+                app_data: [0; 32],
+            }
         }
     }
 
@@ -462,8 +494,8 @@ pub mod fixtures {
                 token_account: Pubkey::new_from_array([0x44; 32]),
                 mint: Pubkey::new_from_array([0x55; 32]),
             }),
-            sell_amount: 0x0123_4567_89ab_cdef,
-            buy_amount: 0xfedc_ba98_7654_3210,
+            sell_amount: 0x0123_4567_89ab_cdef.nz(),
+            buy_amount: 0xfedc_ba98_7654_3210.nz(),
             valid_to: 0xdead_beef,
             flags,
             app_data: [0x66; 32],
@@ -489,6 +521,25 @@ pub mod fixtures {
     /// Any flags byte the decoder accepts.
     pub fn arb_flags_byte() -> impl Strategy<Value = u8> {
         any::<u8>().prop_map(|byte| byte & Flags::DEFINED)
+    }
+
+    /// Any encoded-intent bytes that decode: random bytes with a valid flags
+    /// byte and non-zero amounts (the amounts are `NonZeroU64`).
+    pub fn arb_intent_bytes() -> impl Strategy<Value = [u8; EncodedOrderIntent::SIZE]> {
+        (
+            any::<[u8; EncodedOrderIntent::SIZE]>(),
+            arb_flags_byte(),
+            1..=u64::MAX,
+            1..=u64::MAX,
+        )
+            .prop_map(|(mut bytes, flags, sell_amount, buy_amount)| {
+                bytes[FLAGS_OFFSET] = flags;
+                bytes[SELL_AMOUNT_OFFSET..SELL_AMOUNT_OFFSET.strict_add(size_of::<u64>())]
+                    .copy_from_slice(&sell_amount.to_le_bytes());
+                bytes[BUY_AMOUNT_OFFSET..BUY_AMOUNT_OFFSET.strict_add(size_of::<u64>())]
+                    .copy_from_slice(&buy_amount.to_le_bytes());
+                bytes
+            })
     }
 
     /// Any flags byte the decoder rejects.
@@ -520,8 +571,8 @@ pub mod fixtures {
             any::<[u8; 32]>(),
             any::<[u8; 32]>(),
             arb_asset(),
-            any::<u64>(),
-            any::<u64>(),
+            1..=u64::MAX,
+            1..=u64::MAX,
             any::<u32>(),
             arb_flags(),
             any::<[u8; 32]>(),
@@ -545,8 +596,8 @@ pub mod fixtures {
                             token_account: Pubkey::new_from_array(sell_tok),
                         },
                         buy,
-                        sell_amount,
-                        buy_amount,
+                        sell_amount: sell_amount.nz(),
+                        buy_amount: buy_amount.nz(),
                         valid_to,
                         flags,
                         app_data: app,
@@ -558,12 +609,13 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::intent::fixtures::FLAGS_OFFSET;
+    use crate::data::intent::fixtures::{BUY_AMOUNT_OFFSET, FLAGS_OFFSET, SELL_AMOUNT_OFFSET};
 
     use super::fixtures::sample_intent;
     use super::*;
     use crate::fixtures::pubkey_from_seed;
     use crate::token_program::TokenProgram;
+    use crate::SettlementError;
 
     // Every shape an `OrderIntent` can take on its validated axes: the
     // `created_on_chain` flag bit, the `kind` enum, and the
@@ -835,10 +887,31 @@ mod tests {
     }
 
     #[test]
-    fn default_intent_is_the_all_zero_encoding() {
-        let intent = OrderIntent::default();
-        let encoded = EncodedOrderIntent::from(&intent);
-        assert_eq!(*encoded, [0u8; EncodedOrderIntent::SIZE]);
+    fn all_zero_bytes_do_not_decode() {
+        let bytes = [0u8; EncodedOrderIntent::SIZE];
+        assert_eq!(
+            OrderIntent::try_from(&bytes).err(),
+            Some(SettlementError::ZeroOrderAmount.into()),
+        );
+    }
+
+    #[test]
+    fn sanity_check_amounts_decode_from_their_slots() {
+        // Two distinct non-zero markers, one per slot, must read back from the
+        // matching field. This pins SELL_AMOUNT_OFFSET and BUY_AMOUNT_OFFSET to
+        // the decoder without leaning on the sample's other bytes.
+        let valid: [u8; EncodedOrderIntent::SIZE] =
+            *EncodedOrderIntent::from(&sample_intent(Default::default()));
+        let sell_marker: u64 = 0x1111_2222_3333_4444;
+        let buy_marker: u64 = 0x5555_6666_7777_8888;
+        let mut marked = valid;
+        marked[SELL_AMOUNT_OFFSET..SELL_AMOUNT_OFFSET + size_of::<u64>()]
+            .copy_from_slice(&sell_marker.to_le_bytes());
+        marked[BUY_AMOUNT_OFFSET..BUY_AMOUNT_OFFSET + size_of::<u64>()]
+            .copy_from_slice(&buy_marker.to_le_bytes());
+        let decoded = OrderIntent::try_from(&marked).expect("non-zero amounts decode");
+        assert_eq!(decoded.sell_amount.get(), sell_marker);
+        assert_eq!(decoded.buy_amount.get(), buy_marker);
     }
 
     // Property-based tests, non-deterministic.
@@ -847,7 +920,8 @@ mod tests {
 
         use super::*;
         use crate::data::intent::fixtures::{
-            arb_asset, arb_flags_byte, arb_invalid_flags_byte, arb_order_intent, FLAGS_OFFSET,
+            arb_asset, arb_intent_bytes, arb_invalid_flags_byte, arb_order_intent,
+            BUY_AMOUNT_OFFSET, FLAGS_OFFSET, SELL_AMOUNT_OFFSET,
         };
 
         proptest! {
@@ -868,30 +942,40 @@ mod tests {
                 prop_assert_eq!(decoded, intent);
             }
 
-            // For any bytes whose flags slot is valid, decoding and then
-            // re-encoding produces back the original bytes.
+            // For any decodable intent bytes, decoding and then re-encoding
+            // produces back the original bytes.
             #[test]
-            fn bytes_roundtrip(
-                mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
-                flags in arb_flags_byte(),
-            ) {
-                bytes[FLAGS_OFFSET] = flags;
+            fn bytes_roundtrip(bytes in arb_intent_bytes()) {
                 let intent = OrderIntent::try_from(&bytes)
                     .map_err(|e| TestCaseError::fail(format!("decode failed: {e:?}")))?;
                 prop_assert_eq!(*EncodedOrderIntent::from(&intent), bytes);
             }
 
-            // Symmetric: any bytes whose flags byte carries a reserved bit
+            // Symmetric: intent bytes whose flags byte carries a reserved bit
             // return `InvalidInstructionData`.
             #[test]
             fn rejects_reserved_flag_bits(
-                mut bytes in any::<[u8; EncodedOrderIntent::SIZE]>(),
+                mut bytes in arb_intent_bytes(),
                 bad_flags in arb_invalid_flags_byte(),
             ) {
                 bytes[FLAGS_OFFSET] = bad_flags;
                 prop_assert_eq!(
                     OrderIntent::try_from(&bytes),
                     Err(ProgramError::InvalidInstructionData),
+                );
+            }
+
+            // The same, for the amounts: otherwise-valid intent bytes with
+            // either amount slot zeroed fail to decode with `ZeroOrderAmount`.
+            #[test]
+            fn rejects_zero_amount(
+                mut bytes in arb_intent_bytes(),
+                offset in prop_oneof![Just(SELL_AMOUNT_OFFSET), Just(BUY_AMOUNT_OFFSET)],
+            ) {
+                bytes[offset..offset.strict_add(size_of::<u64>())].fill(0);
+                prop_assert_eq!(
+                    OrderIntent::try_from(&bytes),
+                    Err(SettlementError::ZeroOrderAmount.into()),
                 );
             }
 

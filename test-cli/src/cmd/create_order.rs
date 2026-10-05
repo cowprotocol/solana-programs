@@ -8,6 +8,7 @@ use cow_settlement_client::{
     instruction::CreateOrder,
 };
 use solana_sdk::{signature::Signer, transaction::Transaction};
+use std::num::NonZeroU64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::Context;
@@ -66,10 +67,22 @@ pub fn run_buy(ctx: Context, args: BuyOrSellArgs) -> anyhow::Result<()> {
 struct ParsedOrder {
     kind: OrderKind,
     sell: TokenAccountDetails,
-    sell_amount: u64,
+    sell_amount: NonZeroU64,
     sell_is_sol: bool,
     buy: TokenAccountDetails,
-    buy_amount: u64,
+    buy_amount: NonZeroU64,
+}
+
+/// Resolve a side's amount. An explicit amount must be non-zero (a typed `0`
+/// errors); an omitted one (the open-ended forms, `None`) defaults to 1, the
+/// smallest limit a non-zero order allows.
+fn resolve_amount(amount: Option<&str>, decimals: u8) -> anyhow::Result<NonZeroU64> {
+    let Some(amount) = amount else {
+        return Ok(NonZeroU64::MIN);
+    };
+    let raw = spl_token::try_ui_amount_into_amount(amount.to_string(), decimals)
+        .map_err(|_| anyhow::anyhow!("invalid value {amount:?}"))?;
+    NonZeroU64::new(raw).context("must be non-zero")
 }
 
 fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<ParsedOrder> {
@@ -85,33 +98,34 @@ fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<Par
 
     // next token could be "for" or "with" (ignored), a second token, or a numeric amount
 
-    // a/b are in the order the user typed them, not sell/buy order.
-    let (b_tok, b_amount) = match terms[2..] {
-        [] => ("SOL", "0"),
-        ["for" | "with", b] => (b, "0"),
-        ["for" | "with", buy_amount, b] => (b, buy_amount),
-        [b] => (b, "0"),
-        [buy_amount, b] => (b, buy_amount),
+    // a/b are in the order the user typed them, not sell/buy order. The counter
+    // amount is optional: an omitted one (the open-ended forms) is `None`.
+    let (b_tok, b_amount): (&str, Option<&str>) = match terms[2..] {
+        [] => ("SOL", None),
+        ["for" | "with", b] => (b, None),
+        ["for" | "with", buy_amount, b] => (b, Some(buy_amount)),
+        [b] => (b, None),
+        [buy_amount, b] => (b, Some(buy_amount)),
         _ => anyhow::bail!(
             "cannot interpret {:?}; run `cow sell --help` for usage",
             terms
         ),
     };
 
+    // The exact side (`a_amount`) is always given; only the counter side can be
+    // omitted.
     let (sell_tok, sell_amount_str, buy_tok, buy_amount_str) = match kind {
-        OrderKind::Sell => (*a_tok, *a_amount, b_tok, b_amount),
-        OrderKind::Buy => (b_tok, b_amount, *a_tok, *a_amount),
+        OrderKind::Sell => (*a_tok, Some(*a_amount), b_tok, b_amount),
+        OrderKind::Buy => (b_tok, b_amount, *a_tok, Some(*a_amount)),
     };
 
     let sell = utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), sell_tok)?;
     let buy = utils::token::resolve(&ctx.rpc, &ctx.payer.pubkey(), buy_tok)?;
 
     let sell_amount =
-        spl_token::try_ui_amount_into_amount(sell_amount_str.to_string(), sell.mint_data.decimals)
-            .map_err(|_| anyhow::anyhow!("invalid sell amount: {sell_amount_str}"))?;
+        resolve_amount(sell_amount_str, sell.mint_data.decimals).context("sell amount")?;
     let buy_amount =
-        spl_token::try_ui_amount_into_amount(buy_amount_str.to_string(), buy.mint_data.decimals)
-            .map_err(|_| anyhow::anyhow!("invalid buy amount: {buy_amount_str}"))?;
+        resolve_amount(buy_amount_str, buy.mint_data.decimals).context("buy amount")?;
 
     Ok(ParsedOrder {
         kind,
@@ -139,7 +153,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
 
     if sell_is_sol {
         let (wsol_ata, wrap_ixs) =
-            utils::spl_instructions::wrap_sol(&ctx.rpc, &ctx.payer.pubkey(), sell_amount)?;
+            utils::spl_instructions::wrap_sol(&ctx.rpc, &ctx.payer.pubkey(), sell_amount.get())?;
         assert_eq!(wsol_ata, sell.handle.account, "resolved WSOL ATA mismatch");
         ixs.extend(wrap_ixs);
     }
@@ -152,7 +166,7 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         &ctx.program_id,
         &sell.handle,
         &ctx.payer.pubkey(),
-        sell_amount,
+        sell_amount.get(),
     )?);
 
     let intent = OrderIntent {
