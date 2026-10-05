@@ -62,22 +62,23 @@ fn settlement(
         program_id: *program_id,
         solver: *solver,
         finalize_ix_index: FINALIZE_INDEX.into(),
+        auction_id: 0,
+        only_token_program: None,
         orders: &[InitializedIntent {
             intent: &order.intent,
             pulls: &order.pulls,
+            use_transfer_checked: transfer_checked_mints.contains(&order.intent.sell.mint),
         }],
-        transfer_checked_mints,
-        ..Default::default()
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &[FinalizedIntent {
             intent: &order.intent,
             amount: order.amount_out,
+            use_transfer_checked: transfer_checked_mints.contains(&buy_mint(&order.intent)),
         }],
-        transfer_checked_mints,
-        ..Default::default()
     };
     vec![begin.into(), finalize.into()]
 }
@@ -190,27 +191,6 @@ fn rejects_a_mint_slot_that_isnt_a_mint() {
             SettlementError::InvalidMint,
         );
     }
-}
-
-#[test]
-fn rejects_a_mint_of_the_other_token_program() {
-    let (mut svm, program_id, payer, solver) = setup_settle_ready();
-    let sell = token::create_mint(&mut svm, &payer);
-    let buy = token::create_mint(&mut svm, &payer);
-    let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
-    let foreign = token::create_mint_under(
-        &mut svm,
-        &payer,
-        &TokenProgram::Token2022.address(),
-        Extensions::None,
-    );
-
-    let mut instructions = settlement(&program_id, &solver.pubkey(), &order, &[sell]);
-    replace_first_matching_account(&mut instructions[0], &sell, foreign);
-    assert_instruction_error(
-        send(&mut svm, &payer, &solver, &instructions),
-        SettlementError::InvalidMint,
-    );
 }
 
 #[test]

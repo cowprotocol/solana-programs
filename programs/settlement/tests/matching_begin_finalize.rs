@@ -37,13 +37,16 @@ fn run_sequence(
                 program_id: *program_id,
                 solver: solver.pubkey(),
                 finalize_ix_index: *idx,
-                ..Default::default()
+                auction_id: 0,
+                only_token_program: None,
+                orders: &[],
             }
             .into(),
             AbstractInstruction::Fin(idx) => FinalizeSettle {
                 program_id: *program_id,
                 begin_ix_index: *idx,
-                ..Default::default()
+                only_token_program: None,
+                orders: &[],
             }
             .into(),
             // 0-lamport self-transfer: a side-effect-free instruction that
@@ -189,13 +192,17 @@ fn rejects_non_instructions_sysvar_account_at_position_one() {
         program_id,
         solver: solver.pubkey(),
         finalize_ix_index: 1,
-        ..Default::default()
+        auction_id: 0,
+        only_token_program: None,
+        orders: &[],
     }
     .into();
     begin.accounts[1] = AccountMeta::new_readonly(payer.pubkey(), false);
     let finalize = FinalizeSettle {
         program_id,
-        ..Default::default()
+        begin_ix_index: 0,
+        only_token_program: None,
+        orders: &[],
     };
 
     let tx = Transaction::new_signed_with_payer(
@@ -225,14 +232,18 @@ fn rejects_counterpart_instruction_in_different_program() {
         program_id,
         solver: solver.pubkey(),
         finalize_ix_index: 1,
-        ..Default::default()
+        auction_id: 0,
+        only_token_program: None,
+        orders: &[],
     };
     // We build a transaction that looks like a valid finalize_settle but
     // calling a different program. It doesn't really matter what program
     // we use here because execution isn't expected to reach this point.
     let stranger = FinalizeSettle {
         program_id: solana_system_interface::program::ID,
-        ..Default::default()
+        begin_ix_index: 0,
+        only_token_program: None,
+        orders: &[],
     };
 
     let instructions = [begin.into(), stranger.into()];
@@ -285,7 +296,9 @@ fn rejects_cpi_call_to_begin_settle() {
             program_id: settlement_id,
             solver: solver.pubkey(),
             finalize_ix_index: 1,
-            ..Default::default()
+            auction_id: 0,
+            only_token_program: None,
+            orders: &[],
         },
     );
 
@@ -316,7 +329,9 @@ fn rejects_cpi_call_to_finalize_settle() {
         cpi_caller_id,
         FinalizeSettle {
             program_id: settlement_id,
-            ..Default::default()
+            begin_ix_index: 0,
+            only_token_program: None,
+            orders: &[],
         },
     );
 
@@ -348,7 +363,9 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
         program_id,
         solver: solver.pubkey(),
         finalize_ix_index: 1,
-        ..Default::default()
+        auction_id: 0,
+        only_token_program: None,
+        orders: &[],
     };
     // Uses the settlement program, but no data: `recover_discriminator` fails
     // on the empty payload before any kind check can run.
@@ -389,7 +406,9 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
         program_id,
         solver: solver.pubkey(),
         finalize_ix_index: 1,
-        ..Default::default()
+        auction_id: 0,
+        only_token_program: None,
+        orders: &[],
     };
     // Same program as `begin`, with a valid discriminator but no trailing
     // counterpart-index bytes: `recover_discriminator` succeeds, then

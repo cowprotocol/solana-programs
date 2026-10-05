@@ -342,7 +342,7 @@ fn process_order(
     // into `amount_in` as we go. The state PDA is the SPL delegate, so it signs
     // each transfer via `signer`. The token program checks `sell_mint` against
     // the sell token account's mint on a `TransferChecked`.
-    let decimals = mint_decimals(token_program, sell_mint)?;
+    let decimals = mint_decimals(sell_mint)?;
     let mut amount_in: u64 = 0;
     for (destination, amount) in destinations.iter().zip(amounts) {
         let amount = u64::from_le_bytes(*amount);
@@ -452,7 +452,7 @@ mod tests {
     use cow_settlement_interface::instruction::fixtures::fake_account;
     use cow_settlement_interface::instruction::settle::fixtures::arb_pushes;
     use cow_settlement_interface::instruction::settle::{
-        FinalizeSettle, FinalizeSettleInput, UNCHECKED_MINT,
+        FinalizeSettle, FinalizeSettleInput, MINT_PLACEHOLDER,
     };
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
@@ -1031,6 +1031,7 @@ mod tests {
         let mut ix = Instruction::from(FinalizeSettle {
             source_buffers: &[Pubkey::new_from_array([1; 32])],
             destinations: &[Pubkey::new_from_array([2; 32])],
+            mints: &[None],
             bumps: &[0xff],
             amounts: &[42],
             ..Default::default()
@@ -1095,7 +1096,7 @@ mod tests {
             let mints: Vec<Pubkey> = pushes
                 .mints
                 .iter()
-                .map(|mint| mint.unwrap_or(UNCHECKED_MINT))
+                .map(|mint| mint.unwrap_or(MINT_PLACEHOLDER))
                 .collect();
             let expected: Vec<Push<'_, Address>> = pushes
                 .source_buffers

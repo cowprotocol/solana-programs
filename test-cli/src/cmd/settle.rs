@@ -102,6 +102,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .map(|(intent, pulls)| InitializedIntent {
             intent: &intent.data,
             pulls,
+            use_transfer_checked: false,
         })
         .collect();
 
@@ -117,8 +118,9 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         program_id: ctx.program_id,
         solver,
         finalize_ix_index,
+        only_token_program: None,
         orders: &initialized_intents,
-        ..Default::default()
+        auction_id: 0,
     };
 
     // Send exactly each order's buy amount; any surplus tokens stay in the buffers.
@@ -127,14 +129,15 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .map(|intent| FinalizedIntent {
             intent: &intent.data,
             amount: intent.data.buy_amount.get(),
+            use_transfer_checked: false,
         })
         .collect();
 
     let finalize_ix = FinalizeSettle {
         program_id: ctx.program_id,
         begin_ix_index,
+        only_token_program: None,
         orders: &settled,
-        ..Default::default()
     };
 
     all_ixs.push(begin_ix.into());

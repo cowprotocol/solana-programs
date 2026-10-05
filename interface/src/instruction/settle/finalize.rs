@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{recover_discriminator, SettlementError, SettlementInstruction};
 
-use super::{mint_slot, recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID};
+use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER};
 
 /// The number of fixed accounts every `FinalizeSettle` carries before its push
 /// accounts: the instructions sysvar, the settlement state PDA, and one slot per
@@ -144,7 +144,11 @@ impl From<FinalizeSettle<'_>> for Instruction {
         for (i, (source, destination)) in source_buffers.iter().zip(destinations).enumerate() {
             accounts.push(AccountMeta::new(*source, false));
             accounts.push(AccountMeta::new(*destination, false));
-            accounts.push(mint_slot(mints.get(i).copied().flatten()));
+            // Read account for the buy token mint in case TransferChecked is needed
+            accounts.push(AccountMeta::new_readonly(
+                mints[i].unwrap_or(MINT_PLACEHOLDER),
+                false,
+            ));
         }
 
         Instruction {
@@ -264,7 +268,6 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
-    use crate::instruction::settle::UNCHECKED_MINT;
     use crate::instruction::tests::assert_readonly_nonsigner;
     use crate::token_program::TokenProgram;
     use hex_literal::hex;
@@ -402,7 +405,7 @@ mod tests {
                 mint_a,
                 source_b,
                 dest_b,
-                UNCHECKED_MINT,
+                MINT_PLACEHOLDER,
             ],
         );
         // The fixed accounts and mints are read-only; the source buffers and

@@ -3,15 +3,17 @@
 use core::slice;
 
 use cow_settlement_interface::{
-    instruction::settle::UNCHECKED_MINT, token_program::TokenProgram, SettlementError,
+    instruction::settle::MINT_PLACEHOLDER, token_program::TokenProgram, SettlementError,
 };
 use pinocchio::{
-    address::address_eq,
     cpi::{get_return_data, Signer},
     error::ProgramError,
     AccountView, Address, ProgramResult,
 };
 use pinocchio_token::instructions::{GetAccountDataSize, Transfer, TransferChecked};
+
+use solana_program_pack::Pack;
+use spl_token_2022_interface::state::Mint;
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
@@ -55,25 +57,24 @@ pub fn token_account_len(
 }
 
 /// The decimals of the mint behind `mint`, or `None` if `mint` is
-/// [`UNCHECKED_MINT`], which selects plain `Transfer` over `TransferChecked`.
+/// [`MINT_PLACEHOLDER`].
+/// The Option in the Result of this function should be supplied directly to [`transfer`].
 #[inline(always)]
-pub fn mint_decimals(
-    token_program: TokenProgram,
-    mint: &AccountView,
-) -> Result<Option<u8>, SettlementError> {
-    if address_eq(mint.address(), &UNCHECKED_MINT) {
-        return Ok(None);
-    }
-    match token_program {
-        TokenProgram::SplToken => {
-            pinocchio_token::state::Mint::from_account_view(mint).map(|mint| mint.decimals())
+pub fn mint_decimals(mint: &AccountView) -> Result<Option<u8>, ProgramError> {
+    match *mint.address() {
+        MINT_PLACEHOLDER => Ok(None),
+        _ => {
+            let mint_data = mint.try_borrow()?;
+
+            let mint_contents = mint_data
+                .get(..Mint::LEN)
+                .ok_or(SettlementError::InvalidMint)?;
+
+            Mint::unpack(mint_contents)
+                .map(|m| Some(m.decimals))
+                .map_err(|_| SettlementError::InvalidMint.into())
         }
-        TokenProgram::Token2022 => {
-            pinocchio_token_2022::state::Mint::from_account_view(mint).map(|mint| mint.decimals())
-        }
     }
-    .map(Some)
-    .map_err(|_| SettlementError::InvalidMint)
 }
 
 /// Move `amount` from `from` to `to` under `token_program`, signed by

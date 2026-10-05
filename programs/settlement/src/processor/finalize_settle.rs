@@ -92,7 +92,7 @@ fn push_funds<'a>(
                 push.destination,
                 state_pda_account,
                 push.amount,
-                mint_decimals(token_program, push.mint)?,
+                mint_decimals(push.mint)?,
                 state_pda_signer,
             )?;
         }

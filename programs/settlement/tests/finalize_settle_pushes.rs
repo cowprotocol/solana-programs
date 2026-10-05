@@ -71,6 +71,7 @@ fn pushes_a_single_order() {
         &[FinalizedIntent {
             intent: &intent,
             amount,
+            use_transfer_checked: false,
         }],
     );
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
@@ -98,6 +99,7 @@ fn pushes_a_single_order_of_a_known_mint() {
         &[FinalizedIntent {
             intent: &intent,
             amount,
+            use_transfer_checked: false,
         }],
     );
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
@@ -133,10 +135,12 @@ fn pushes_several_orders_from_one_buffer() {
             FinalizedIntent {
                 intent: &intent0,
                 amount: amount0,
+                use_transfer_checked: false,
             },
             FinalizedIntent {
                 intent: &intent1,
                 amount: amount1,
+                use_transfer_checked: false,
             },
         ],
     );
@@ -175,10 +179,12 @@ fn pushes_several_orders_from_different_buffers() {
             FinalizedIntent {
                 intent: &intent0,
                 amount: amount0,
+                use_transfer_checked: false,
             },
             FinalizedIntent {
                 intent: &intent1,
                 amount: amount1,
+                use_transfer_checked: false,
             },
         ],
     );
@@ -209,6 +215,7 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
         &[FinalizedIntent {
             intent: &intent,
             amount: 100,
+            use_transfer_checked: false,
         }],
     );
     assert_finalize_error(
@@ -224,6 +231,7 @@ fn rejects_a_token_program_the_instruction_doesnt_name() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
+        use_transfer_checked: false,
     }];
 
     let mut instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
@@ -246,6 +254,7 @@ fn rejects_wrong_state_pda() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
+        use_transfer_checked: false,
     }];
 
     let mut instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
@@ -268,14 +277,15 @@ fn rejects_push_account_count_mismatch() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
 
     // A well-formed single-push finalize (seven accounts, a nine-byte push body)...
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &orders,
-        ..Default::default()
     });
     // ...with another push's worth of data bytes appended but no matching
     // accounts. `BeginSettle` reads the finalize's pushes first, sees two pushes
@@ -299,7 +309,8 @@ fn rejects_too_few_accounts() {
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
-        ..Default::default()
+        only_token_program: None,
+        orders: &[],
     });
     // ...with one of its fixed accounts popped. `BeginSettle` runs first and
     // reads the finalize's pushes, which start after the fixed accounts, so it
@@ -334,6 +345,7 @@ fn rejects_invalid_buy_token_account() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
+        use_transfer_checked: false,
     }];
 
     let instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
@@ -369,6 +381,7 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
+        use_transfer_checked: false,
     }];
 
     let instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
@@ -387,14 +400,15 @@ fn rejects_two_too_few_accounts() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 1_000,
+        use_transfer_checked: false,
     }];
 
     // A well-formed single-push finalize...
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &orders,
-        ..Default::default()
     });
     // ...with that push's whole (source, destination, mint) triple popped, so
     // the data still declares one push while no push accounts remain.
@@ -417,13 +431,14 @@ fn rejects_partial_push_amount() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
 
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
+        only_token_program: None,
         orders: &orders,
-        ..Default::default()
     });
     // Drop one byte so the trailing amount is no longer a whole `u64`.
     finalize.data.pop();

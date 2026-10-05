@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{SettlementError, SettlementInstruction};
 
-use super::{mint_slot, recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID};
+use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER};
 
 /// A single transfer made when settling an order: `amount` tokens sent from the
 /// order's sell token account to `destination`.
@@ -133,7 +133,11 @@ impl From<BeginSettle<'_>> for Instruction {
             // Writable accounts settling the order: its sell token account and the
             // recipient of each transfer.
             accounts.push(AccountMeta::new(sell_token_accounts[i], false));
-            accounts.push(mint_slot(sell_mints.get(i).copied().flatten()));
+            // Read account for the sell token mint in case TransferChecked is needed
+            accounts.push(AccountMeta::new_readonly(
+                sell_mints[i].unwrap_or(MINT_PLACEHOLDER),
+                false,
+            ));
             for pull in pulls[i] {
                 accounts.push(AccountMeta::new(pull.destination, false));
             }
@@ -331,7 +335,6 @@ mod tests {
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
     use crate::instruction::settle::tests::ix_data;
-    use crate::instruction::settle::UNCHECKED_MINT;
     use crate::instruction::tests::{assert_readonly_nonsigner, assert_readonly_signer};
     use crate::token_program::TokenProgram;
     use hex_literal::hex;
@@ -470,7 +473,7 @@ mod tests {
             TokenProgram::Token2022.address(),
             low_order_pda,
             low_sell_token_account,
-            UNCHECKED_MINT,
+            MINT_PLACEHOLDER,
             high_order_pda,
             high_sell_token_account,
             high_sell_mint,
@@ -565,7 +568,7 @@ mod tests {
             TokenProgram::Token2022.address(),
             order_a,
             sell_a,
-            UNCHECKED_MINT,
+            MINT_PLACEHOLDER,
             dest_a0,
             dest_a1,
             order_b,
