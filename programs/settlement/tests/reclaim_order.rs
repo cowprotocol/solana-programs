@@ -555,7 +555,8 @@ fn rejects_reclaim_of_a_partially_filled_order() {
     const PARTIAL_FILL: u64 = SETTLED_SELL_AMOUNT / 3;
     let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, PARTIAL_FILL);
 
-    let instructions = build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![]);
+    let instructions =
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![], &[]);
     send(&mut svm, &solver, &instructions).expect("a partial settlement should succeed");
     assert_eq!(
         read_order(&svm, &order_pda).amount_withdrawn,
@@ -602,7 +603,7 @@ fn reclaim_mid_settlement_succeeds() {
     }
     .instruction();
     let instructions =
-        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![reclaim]);
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![reclaim], &[]);
 
     // The `payer` that created the order signs nothing here and pays no fee (the
     // solver does), so its balance moves by the returned rent alone.

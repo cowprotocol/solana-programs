@@ -46,7 +46,7 @@ fn happy_path_sell_tokens_for_native_sol() {
     let before = lamports(&svm, &STATE_PDA);
 
     let instructions =
-        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new());
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new(), &[]);
     send_metered(
         &mut svm,
         &solver,
