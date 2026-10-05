@@ -30,7 +30,8 @@ use cow_settlement_client::{
 };
 use litesvm_token::spl_token::error::TokenError;
 use solana_sdk::{
-    instruction::InstructionError, pubkey::Pubkey, signer::Signer, transaction::TransactionError,
+    instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey, signer::Signer,
+    transaction::TransactionError,
 };
 
 mod common;
@@ -288,14 +289,15 @@ fn rejects_push_account_count_mismatch() {
         orders: &orders,
     });
     // ...with another push's worth of data bytes appended but no matching
-    // accounts. `BeginSettle` reads the finalize's pushes first, sees two pushes
-    // in the data but accounts for only one, and rejects the finalize before it
-    // runs.
+    // accounts. `BeginSettle` derives the push count from the (unchanged) account
+    // metas (one push, matching its one order and paying the right destination)
+    // so it passes. Only the finalize reads the data, where it now parses two
+    // pushes against one push's accounts and rejects the mismatch. This is the
+    // account/data disagreement `BeginSettle` structurally can't see.
     finalize.data.extend_from_slice(&[0u8; 9]);
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
-    assert_instruction_error_at(
-        BEGIN_INDEX,
+    assert_finalize_error(
         send(&mut svm, &solver, &instructions),
         SettlementError::AccountCountNotMatchingPushCount,
     );
@@ -312,16 +314,24 @@ fn rejects_too_few_accounts() {
         only_token_program: None,
         orders: &[],
     });
-    // ...with one of its fixed accounts popped. `BeginSettle` runs first and
-    // reads the finalize's pushes, which start after the fixed accounts, so it
-    // rejects a finalize too short to hold even those.
+    // ...with one of its fixed accounts popped. `BeginSettle` runs first
+    // but only reads push accounts after the fixed ones (finding none, matching
+    // its zero orders) so it passes. The finalize then can't even destructure
+    // its fixed accounts and raises `NotEnoughAccountKeys`.
     finalize.accounts.pop();
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
-    assert_instruction_error_at(
-        BEGIN_INDEX,
-        send(&mut svm, &solver, &instructions),
-        SettlementError::AccountCountNotMatchingPushCount,
+    let err = send(&mut svm, &solver, &instructions)
+        .expect_err("a finalize missing a fixed account must be rejected");
+    let TransactionError::InstructionError(FINALIZE_INDEX, ix_err) = err else {
+        panic!("expected the finalize (index {FINALIZE_INDEX}) to fail, got {err:?}");
+    };
+    // Compare against the non-deprecated `ProgramError` variant the program
+    // returns; naming the `InstructionError` variant directly would touch a
+    // deprecated alias.
+    assert_eq!(
+        ProgramError::try_from(ix_err),
+        Ok(ProgramError::NotEnoughAccountKeys),
     );
 }
 
@@ -414,11 +424,11 @@ fn rejects_two_too_few_accounts() {
     // the data still declares one push while no push accounts remain.
     finalize.accounts.truncate(FINALIZE_FIXED_ACCOUNTS);
 
-    // The paired `Begin` settles no orders, but it still reads the finalize's
-    // pushes and rejects one declared without its accounts.
+    // The paired `Begin` settles no orders, so it never checks the push
+    // destinations: the inconsistency is left for the finalize's own
+    // account-count check to reject.
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
-    assert_instruction_error_at(
-        BEGIN_INDEX,
+    assert_finalize_error(
         send(&mut svm, &solver, &instructions),
         SettlementError::AccountCountNotMatchingPushCount,
     );

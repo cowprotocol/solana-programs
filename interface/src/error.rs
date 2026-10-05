@@ -143,8 +143,8 @@ pub enum SettlementError {
     UnauthorizedSettlementOwnedOrder = 42,
     /// An intent has a zero sell or buy amount, which is not supported.
     ZeroOrderAmount = 43,
-    /// A `BeginSettle`/`FinalizeSettle` mint account is neither the
-    /// instructions sysvar nor a mint of the transfer's token program.
+    /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
+    /// was not able to be parsed as such.
     InvalidMint = 44,
 }
 

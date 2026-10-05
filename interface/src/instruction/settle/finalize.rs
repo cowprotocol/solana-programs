@@ -86,7 +86,7 @@ pub fn finalize_push_data(instruction_data: &[u8]) -> Result<(&[u8], &[[u8; 8]])
 /// [`TokenProgram::ALL`] describes, there to name the programs this
 /// instruction's pushes are issued against; the matching `BeginSettle` carries
 /// the ones its pulls need.
-/// A `mint` holding [`UNCHECKED_MINT`](super::UNCHECKED_MINT) makes the push a
+/// A `mint` holding [`MINT_PLACEHOLDER`](super::MINT_PLACEHOLDER) makes the push a
 /// plain `Transfer`; any other mint makes it a `TransferChecked`.
 ///
 /// `FinalizeSettle` only executes the transfers. Every push is validated by
@@ -144,7 +144,6 @@ impl From<FinalizeSettle<'_>> for Instruction {
         for (i, (source, destination)) in source_buffers.iter().zip(destinations).enumerate() {
             accounts.push(AccountMeta::new(*source, false));
             accounts.push(AccountMeta::new(*destination, false));
-            // Read account for the buy token mint in case TransferChecked is needed
             accounts.push(AccountMeta::new_readonly(
                 mints[i].unwrap_or(MINT_PLACEHOLDER),
                 false,
@@ -167,8 +166,6 @@ impl From<FinalizeSettle<'_>> for Instruction {
 pub struct Push<'a, A> {
     pub source_buffer: &'a A,
     pub destination: &'a A,
-    /// The buy mint for a `TransferChecked` push, or the system program for a
-    /// plain `Transfer` push.
     pub mint: &'a A,
     pub bump: u8,
     pub amount: u64,

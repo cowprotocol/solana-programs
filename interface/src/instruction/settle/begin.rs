@@ -24,7 +24,7 @@ pub struct Pull {
 /// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
 /// - `sell_token_accounts[i]` is the order's sell token account,
 /// - `sell_mints[i]` is the order's sell mint if its pulls use
-///   `TransferChecked`, or `None` (or missing) for plain `Transfer`,
+///   `TransferChecked`, or `None` for plain `Transfer`,
 /// - `pulls[i]` the list of [`Pull`]s to perform from that order's sell token
 ///   account, each sending an amount from the `i`-th order sell token account
 ///   to a destination.
@@ -42,7 +42,7 @@ pub struct Pull {
 /// program accounts are there to allow CPI calls against the corresponding token
 /// program, and are otherwise not parsed or validated, so it is possible to replace
 /// these accounts with the system program (or any other program) if they are unused.
-/// A `sell_mint` holding [`UNCHECKED_MINT`](super::UNCHECKED_MINT) makes the
+/// A `sell_mint` holding [`MINT_PLACEHOLDER`](super::MINT_PLACEHOLDER) makes the
 /// order's pulls plain `Transfer`s; any other mint makes them `TransferChecked`.
 ///
 /// `solver` must sign, and the solver must be registered in the state pda.

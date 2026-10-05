@@ -6,9 +6,10 @@ use solana_program_error::ProgramError;
 pub use crate::token_program::TokenProgram;
 pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
-/// Only some tokens which necessitate the use of TransferChecked require the RO
-/// mint account to be specified. The instructions sysvar is already
-/// in every settlement, so the placeholder takes no extra transaction space.
+/// Only some tokens which necessitate the use of the `TransferChecked` instruction
+/// require the RO mint account to be specified. To reduce unnecessary account
+/// dependency, the instructions sysvar may be provided instead of the mint to
+/// call `Transfer` instead.
 pub const MINT_PLACEHOLDER: solana_pubkey::Pubkey = INSTRUCTIONS_SYSVAR_ID;
 
 mod begin;

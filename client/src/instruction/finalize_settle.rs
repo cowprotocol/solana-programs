@@ -19,8 +19,8 @@ pub struct FinalizedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub amount: u64,
     /// Certain token2022 mints require transfers to use TransferChecked
-    /// instead of Transfer instruction. Alters whether the buy mint is supplied
-    /// as an input RO account to the instruction.
+    /// instead of Transfer instruction, which requires supplying an additional account.
+    /// Alters whether the buy mint is supplied as an input RO account to toggle this behavior.
     pub use_transfer_checked: bool,
 }
 

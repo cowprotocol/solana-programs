@@ -56,7 +56,7 @@ pub fn token_account_len(
     }
 }
 
-/// The decimals of the mint behind `mint`, or `None` if `mint` is
+/// Retrieves the decimals from the data of `mint`, or `None` if `mint` is
 /// [`MINT_PLACEHOLDER`].
 /// The Option in the Result of this function should be supplied directly to [`transfer`].
 #[inline(always)]
@@ -78,8 +78,10 @@ pub fn mint_decimals(mint: &AccountView) -> Result<Option<u8>, ProgramError> {
 }
 
 /// Move `amount` from `from` to `to` under `token_program`, signed by
-/// `authority` through `signer`. `decimals` comes from [`mint_decimals`]:
-/// `Some` issues a `TransferChecked` against `mint`, `None` a `Transfer`.
+/// `authority` through `signer`.
+/// It is indended supply the result of [`mint_decimals`] to `decimals`.
+/// Whether or not `decimals` is supplied determines the transfer instruction
+/// which is used.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub fn transfer(

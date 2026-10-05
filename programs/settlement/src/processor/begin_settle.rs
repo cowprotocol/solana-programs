@@ -88,71 +88,66 @@ pub fn process_begin_settle(
     })
 }
 
+/// The `[source_buffer, destination, mint]` address triple of each push carried
+/// by the paired `FinalizeSettle`, seen through instruction introspection, in
+/// order.
+///
+/// The push structure isn't validated here: the paired `FinalizeSettle` re-parses
+/// the same instruction from its own data and rejects a push count that disagrees
+/// with its accounts. The caller pairs these pushes with the settled orders
+/// one-to-one, which is what catches a count mismatch.
+fn push_accounts<'a>(
+    instruction: &'a IntrospectedInstruction<'a>,
+) -> impl Iterator<Item = (&'a Address, &'a Address, &'a Address)> {
+    // Each push occupies a `[source_buffer, destination, mint]` meta triple
+    // after the fixed accounts. Stepping over each triple's last index means a
+    // trailing partial triple is never yielded.
+    let account_at = |index: usize| {
+        // The index stays below `num_account_metas`, so the lookup, whose only
+        // error is an out-of-bounds index, always succeeds.
+        &instruction
+            .get_instruction_account_at(index)
+            .expect("index within num_account_metas")
+            .key
+    };
+    (FINALIZE_FIXED_ACCOUNTS + FINALIZE_PUSH_ACCOUNTS - 1..instruction.num_account_metas())
+        .step_by(FINALIZE_PUSH_ACCOUNTS)
+        .map(move |mint_index| {
+            let preceding = |offset: usize| {
+                mint_index
+                    .checked_sub(offset)
+                    .expect("a mint index is preceded by the rest of its push")
+            };
+            (
+                account_at(preceding(2)),
+                account_at(preceding(1)),
+                account_at(mint_index),
+            )
+        })
+}
+
 /// The paired pushes `BeginSettle` settles against: each push's accounts (read
 /// from the finalize's account metas) with the bump and amount it carries (read
 /// from the finalize's instruction data), in push order.
 ///
 /// These are the same [`Push`]es `FinalizeSettle` itself parses, seen through
 /// introspection rather than held as accounts: hence `Push<Address>` where the
-/// finalize has `Push<AccountView>`. A finalize with too few accounts for its
-/// pushes is rejected rather than read past its account metas; one with too
-/// many is left for the finalize's own parsing to reject.
-struct FinalizePushes<'a> {
+/// finalize has `Push<AccountView>`.
+fn finalize_pushes<'a>(
     finalize_ix: &'a IntrospectedInstruction<'a>,
-    bumps: &'a [u8],
-    amounts: &'a [[u8; 8]],
-}
-
-impl<'a> FinalizePushes<'a> {
-    fn new(finalize_ix: &'a IntrospectedInstruction<'a>) -> Result<Self, ProgramError> {
-        let (bumps, amounts) = finalize_push_data(finalize_ix.get_instruction_data())?;
-        let push_accounts_end = bumps
-            .len()
-            .checked_mul(FINALIZE_PUSH_ACCOUNTS)
-            .and_then(|push_accounts| push_accounts.checked_add(FINALIZE_FIXED_ACCOUNTS))
-            .ok_or(SettlementError::AccountCountNotMatchingPushCount)?;
-        if finalize_ix.num_account_metas() < push_accounts_end {
-            return Err(SettlementError::AccountCountNotMatchingPushCount.into());
-        }
-        Ok(Self {
-            finalize_ix,
-            bumps,
-            amounts,
-        })
-    }
-
-    fn len(&self) -> usize {
-        self.bumps.len()
-    }
-
-    /// The push at `index`, or `None` past the last one.
-    fn get(&self, index: usize) -> Option<Push<'a, Address>> {
-        let (&bump, amount) = self.bumps.get(index).zip(self.amounts.get(index))?;
-        // Each push occupies a `[source_buffer, destination, mint]` meta triple
-        // after the fixed accounts.
-        #[allow(
-            clippy::arithmetic_side_effects,
-            reason = "index < len, and `new` checked the push accounts end didn't overflow"
-        )]
-        let source_index = FINALIZE_FIXED_ACCOUNTS + index * FINALIZE_PUSH_ACCOUNTS;
-        let account_at = |offset: usize| {
-            // SAFETY: `new` checked that every push's accounts are within
-            // `num_account_metas`.
-            #[allow(clippy::arithmetic_side_effects, reason = "as above")]
-            &unsafe {
-                self.finalize_ix
-                    .get_instruction_account_at_unchecked(source_index + offset)
-            }
-            .key
-        };
-        Some(Push {
-            source_buffer: account_at(0),
-            destination: account_at(1),
-            mint: account_at(2),
-            bump,
-            amount: u64::from_le_bytes(*amount),
-        })
-    }
+) -> Result<impl Iterator<Item = Push<'a, Address>>, ProgramError> {
+    let (bumps, amounts) = finalize_push_data(finalize_ix.get_instruction_data())?;
+    Ok(push_accounts(finalize_ix)
+        .zip(bumps.iter().zip(amounts))
+        .map(
+            |((source_buffer, destination, mint), (&bump, amount))| Push {
+                source_buffer,
+                destination,
+                mint,
+                bump,
+                amount: u64::from_le_bytes(*amount),
+            },
+        ))
 }
 
 /// Reject a `BeginSettle` whose pair encloses another settlement: no
@@ -223,12 +218,12 @@ fn settle_orders(
 
     let now = Clock::get()?.unix_timestamp;
 
-    // Take one push (destination and amount) per order; running out mid-loop
+    // Pull one push (destination and amount) per order; running out mid-loop
     // means fewer pushes than orders. A leftover push (more pushes than orders)
     // is caught after.
-    let pushes = FinalizePushes::new(finalize_ix)?;
+    let mut pushes = finalize_pushes(finalize_ix)?;
 
-    for (index, order) in orders.iter().enumerate() {
+    for order in orders.iter() {
         let order_pda_address = order.order_pda.address();
         if previous.is_some_and(|previous| order_pda_address <= previous) {
             return Err(SettlementError::OrdersNotStrictlyIncreasing.into());
@@ -236,7 +231,7 @@ fn settle_orders(
         previous = Some(order_pda_address);
 
         let push = pushes
-            .get(index)
+            .next()
             .ok_or(SettlementError::SettledOrderPushCountMismatch)?;
 
         process_order(
@@ -249,7 +244,7 @@ fn settle_orders(
         )?;
     }
 
-    if pushes.len() != orders.len() {
+    if pushes.next().is_some() {
         return Err(SettlementError::SettledOrderPushCountMismatch.into());
     }
 
@@ -1024,10 +1019,11 @@ mod tests {
             .expect("the finalize is the only instruction, at index 0")
     }
 
-    /// A finalize whose accounts stop short of its last push's mint is rejected
-    /// rather than read past its account metas.
+    /// A finalize whose accounts stop short of its last push's mint yields no
+    /// push for it rather than reading past its account metas; the finalize's
+    /// own parsing rejects the count mismatch.
     #[test]
-    fn finalize_pushes_rejects_too_few_accounts() {
+    fn finalize_pushes_skips_partial_push() {
         let mut ix = Instruction::from(FinalizeSettle {
             source_buffers: &[Pubkey::new_from_array([1; 32])],
             destinations: &[Pubkey::new_from_array([2; 32])],
@@ -1037,15 +1033,14 @@ mod tests {
             ..Default::default()
         });
         ix.accounts.pop();
-        assert_eq!(
-            FinalizePushes::new(&introspected_instruction(&ix)).err(),
-            Some(SettlementError::AccountCountNotMatchingPushCount.into()),
-        );
+        let introspected_instruction = introspected_instruction(&ix);
+        let pushes = finalize_pushes(&introspected_instruction).expect("well-formed finalize data");
+        assert_eq!(pushes.count(), 0);
     }
 
     proptest! {
         /// `BeginSettle` settles against a paired `FinalizeSettle`'s pushes via
-        /// [`FinalizePushes`]: each push's source buffer, destination, and mint
+        /// `finalize_pushes`: each push's source buffer, destination, and mint
         /// (from the account metas) paired with its bump and amount (from the
         /// instruction data). For any well-formed finalize those must match both
         /// the builder's inputs and what `FinalizeSettleInput` parses from the
@@ -1070,11 +1065,10 @@ mod tests {
             });
 
             let introspected_instruction = introspected_instruction(&ix);
-            let introspected_pushes = FinalizePushes::new(&introspected_instruction)
-                .expect("well-formed finalize data");
             let introspected: Vec<Push<'_, Address>> =
-                (0..introspected_pushes.len()).map_while(|index| introspected_pushes.get(index)).collect();
-            prop_assert!(introspected_pushes.get(introspected_pushes.len()).is_none());
+                finalize_pushes(&introspected_instruction)
+                    .expect("well-formed finalize data")
+                    .collect();
 
             let accounts: Vec<AccountView> =
                 ix.accounts.iter().map(|account| fake_account(account.pubkey)).collect();
