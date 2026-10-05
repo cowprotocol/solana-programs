@@ -109,6 +109,10 @@ const KNOWN_MINT_BUFFERS: [KnownBuffer; KNOWN_MINTS.len()] = {
         buffers[i] = KnownBuffer { mint, address };
         i += 1;
     }
+    assert!(
+        i == buffers.len(),
+        "the mint buffer list has an unfilled slot"
+    );
     buffers
 };
 
@@ -132,14 +136,15 @@ const KNOWN_BUFFERS: [KnownBuffer; KNOWN_MINT_BUFFERS.len() + 1] = {
         }
     }; KNOWN_MINT_BUFFERS.len() + 1];
     buffers[0] = NATIVE_SOL_KNOWN_BUFFER;
-    let mut i = 0;
-    while i < KNOWN_MINT_BUFFERS.len() {
-        buffers[i + 1] = KnownBuffer {
-            mint: KNOWN_MINT_BUFFERS[i].mint,
-            address: KNOWN_MINT_BUFFERS[i].address,
+    let mut i = 1;
+    while i < buffers.len() {
+        buffers[i] = KnownBuffer {
+            mint: KNOWN_MINT_BUFFERS[i - 1].mint,
+            address: KNOWN_MINT_BUFFERS[i - 1].address,
         };
         i += 1;
     }
+    assert!(i == buffers.len(), "the merged list has an unfilled slot");
     buffers
 };
 
