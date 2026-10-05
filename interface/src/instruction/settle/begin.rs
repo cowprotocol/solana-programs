@@ -42,7 +42,7 @@ pub struct Pull {
 /// program accounts are there to allow CPI calls against the corresponding token
 /// program, and are otherwise not parsed or validated, so it is possible to replace
 /// these accounts with the system program (or any other program) if they are unused.
-/// A `sell_mint` holding [`MINT_PLACEHOLDER`](super::MINT_PLACEHOLDER) makes the
+/// A `sell_mint` holding [`MINT_PLACEHOLDER`] makes the
 /// order's pulls plain `Transfer`s; any other mint makes them `TransferChecked`.
 ///
 /// `solver` must sign, and the solver must be registered in the state pda.

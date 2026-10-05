@@ -86,7 +86,7 @@ pub fn finalize_push_data(instruction_data: &[u8]) -> Result<(&[u8], &[[u8; 8]])
 /// [`TokenProgram::ALL`] describes, there to name the programs this
 /// instruction's pushes are issued against; the matching `BeginSettle` carries
 /// the ones its pulls need.
-/// A `mint` holding [`MINT_PLACEHOLDER`](super::MINT_PLACEHOLDER) makes the push a
+/// A `mint` holding [`MINT_PLACEHOLDER`] makes the push a
 /// plain `Transfer`; any other mint makes it a `TransferChecked`.
 ///
 /// `FinalizeSettle` only executes the transfers. Every push is validated by

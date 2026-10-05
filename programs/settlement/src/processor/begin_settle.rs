@@ -124,7 +124,7 @@ fn push_accounts<'a>(
 }
 
 /// A push of the paired `FinalizeSettle` as `BeginSettle` validates it: the
-/// fields of a [`Push`] except its mint.
+/// fields of a [`Push`](cow_settlement_interface::instruction::settle::Push) except its mint.
 #[derive(Debug, PartialEq, Eq)]
 struct PairedPush<'a> {
     source_buffer: &'a Address,
