@@ -224,6 +224,60 @@ fn happy_path_multiple_native_orders_can_settle() {
     );
 }
 
+/// Many distinct orders all buying native SOL, settled in one transaction and
+/// benched. Every push draws on the one native SOL buffer, so this measures the
+/// native payout loop at scale.
+#[test]
+fn happy_path_many_native_orders() {
+    /// Distinct native SOL buy orders the settlement carries. The most that fit
+    /// a settlement in one legacy transaction, under the 1232-byte packet limit.
+    const NATIVE_ORDER_COUNT: u8 = 7;
+
+    // The amount pushed to the `i`th order. Distinct per order, so no assertion
+    // below passes on a payout that landed in the wrong account.
+    let amount = |i: u8| 1_000_000 + u64::from(i) * 10_000;
+
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intents: Vec<_> = (0..NATIVE_ORDER_COUNT)
+        .map(|i| {
+            OrderBuilder::new(&mut svm, &program_id, &payer)
+                .buy_sol()
+                .salt(i)
+                .build()
+        })
+        .collect();
+
+    let total: u64 = (0..NATIVE_ORDER_COUNT).map(amount).sum();
+    let funded = buffer::add_native_lamports(&mut svm, total * 2);
+
+    // The builder sorts the orders by PDA, so the order they are listed in here
+    // doesn't matter.
+    let orders: Vec<_> = (0..NATIVE_ORDER_COUNT)
+        .map(|i| FinalizedIntent {
+            intent: &intents[usize::from(i)],
+            amount: amount(i),
+        })
+        .collect();
+
+    let instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
+    send_metered(
+        &mut svm,
+        &solver,
+        &instructions,
+        common::benchmark::BenchLabel::Settle,
+    )
+    .expect("many native orders should settle in one transaction");
+
+    for (i, intent) in intents.iter().enumerate() {
+        assert_eq!(
+            lamports(&svm, &buy_sol_account(intent)),
+            amount(i as u8),
+            "native order {i} should be paid out of the native SOL buffer",
+        );
+    }
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded - total);
+}
+
 /// Two orders paying out to the same address both land there: the second
 /// credit adds to the first rather than overwriting it.
 #[test]
