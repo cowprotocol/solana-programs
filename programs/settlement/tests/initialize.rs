@@ -1,7 +1,10 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::state::WIDTH_HEADER,
     instruction::initialize::Initialize as InitializeRaw,
-    pda::state::{STATE_PDA, STATE_PDA_SEEDS},
+    pda::{
+        buffer::{find_native_sol_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_SEEDS},
+        state::{STATE_PDA, STATE_PDA_SEEDS},
+    },
     SettlementError,
 };
 use cow_settlement_client::instruction::Initialize;
@@ -76,13 +79,33 @@ fn happy_path_initializes_state_pda_with_expected_data() {
         "state PDA must hold exactly the rent minimum: {} != {}",
         account.lamports, rent,
     );
+
+    assert_eq!(
+        find_native_sol_buffer_pda(&program_id).0,
+        NATIVE_SOL_BUFFER_PDA
+    );
+    let native_sol_buffer = svm
+        .get_account(&NATIVE_SOL_BUFFER_PDA)
+        .expect("native SOL buffer should exist after initialize");
+    assert_eq!(
+        native_sol_buffer.owner, program_id,
+        "the native SOL buffer is owned by the settlement so it can move its lamports",
+    );
+    assert!(
+        native_sol_buffer.data.is_empty(),
+        "the native SOL buffer holds no data"
+    );
+    assert_eq!(
+        native_sol_buffer.lamports,
+        svm.minimum_balance_for_rent_exemption(0),
+        "the native SOL buffer must hold exactly the rent minimum",
+    );
 }
 
-#[test]
-fn initializes_state_pda_when_address_is_prefunded() {
+fn initialize_with_prefund(account: &Pubkey) {
     let (mut svm, program_id, payer) = common::setup();
 
-    common::pda::assert_security_creation_survives_prefund(&mut svm, &STATE_PDA, |svm| {
+    common::pda::assert_security_creation_survives_prefund(&mut svm, account, |svm| {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
@@ -93,6 +116,16 @@ fn initializes_state_pda_when_address_is_prefunded() {
         };
         common::signed_tx(svm, &payer, &payer, ix)
     });
+}
+
+#[test]
+fn initializes_state_pda_when_address_is_prefunded() {
+    initialize_with_prefund(&STATE_PDA);
+}
+
+#[test]
+fn initializes_native_sol_buffer_when_address_is_prefunded() {
+    initialize_with_prefund(&NATIVE_SOL_BUFFER_PDA);
 }
 
 #[test]
@@ -116,12 +149,13 @@ fn funding_payer_can_differ_from_fee_payer() {
     svm.send_transaction(tx).expect("initialize should succeed");
 
     // The rent came out of the funder, not the fee payer: the funder paid no
-    // transaction fee, so its balance dropped by exactly the PDA rent.
-    let rent = svm.minimum_balance_for_rent_exemption(WIDTH_HEADER);
+    // transaction fee, so its balance dropped by exactly the PDAs' rent.
+    let rent = svm.minimum_balance_for_rent_exemption(WIDTH_HEADER)
+        + svm.minimum_balance_for_rent_exemption(0);
     assert_eq!(
         common::lamports(&svm, &funder.pubkey()),
         funder_airdrop - rent,
-        "funder should have paid exactly the PDA rent",
+        "funder should have paid exactly the PDAs' rent",
     );
 }
 
@@ -132,10 +166,23 @@ fn initialize_at(
     payer: &Keypair,
     state_pda: Pubkey,
 ) -> Transaction {
+    initialize_with(svm, program_id, payer, state_pda, NATIVE_SOL_BUFFER_PDA)
+}
+
+/// An `Initialize` against `program_id` that creates `state_pda` and
+/// `native_sol_buffer`.
+fn initialize_with(
+    svm: &LiteSVM,
+    program_id: Pubkey,
+    payer: &Keypair,
+    state_pda: Pubkey,
+    native_sol_buffer: Pubkey,
+) -> Transaction {
     let ix = InitializeRaw {
         program_id,
         payer: payer.pubkey(),
         state_pda,
+        native_sol_buffer,
         manager: unique_pubkey(),
         solver_authority: unique_pubkey(),
         reclaim_authority: unique_pubkey(),
@@ -158,6 +205,29 @@ fn rejects_arbitrary_wrong_state_pda() {
         SettlementError::StateAccountMismatch,
     );
     assert!(svm.get_account(&wrong_pda).is_none());
+}
+
+#[test]
+fn rejects_arbitrary_wrong_native_sol_buffer() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    let wrong_buffer = unique_pubkey();
+    let tx = initialize_with(&svm, program_id, &payer, STATE_PDA, wrong_buffer);
+
+    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_buffer);
+    assert!(svm.get_account(&STATE_PDA).is_none());
+}
+
+#[test]
+fn rejects_the_native_sol_buffer_of_a_non_canonical_bump() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    let (_bump, noncanonical_buffer) =
+        find_noncanonical_pda(&program_id, NATIVE_SOL_BUFFER_PDA_SEEDS);
+    let tx = initialize_with(&svm, program_id, &payer, STATE_PDA, noncanonical_buffer);
+
+    common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &noncanonical_buffer);
+    assert!(svm.get_account(&STATE_PDA).is_none());
 }
 
 #[test]

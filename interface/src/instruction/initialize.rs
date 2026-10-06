@@ -1,6 +1,7 @@
 //! `Initialize` instruction builder.
 //!
-//! Allocates the singleton settlement state PDA (see [`crate::pda::state`]).
+//! Allocates the singleton settlement state PDA (see [`crate::pda::state`])
+//! and the native SOL buffer (see [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`]).
 
 use core::mem::size_of;
 
@@ -16,33 +17,35 @@ use crate::SettlementInstruction;
 
 /// Builder for an `Initialize` instruction.
 ///
-/// `payer` funds the new account's rent and signs. It is meant to be the
+/// `payer` funds the new accounts' rent and signs. It is meant to be the
 /// transaction's fee payer: the state is created once at deployment and never
 /// deallocated, so there's no need for a dedicated funding account separate
 /// from whoever pays for the deployment transaction.
 ///
-/// `state_pda` must be [`crate::pda::state::STATE_PDA`]; the program rejects
-/// any other address.
+/// `state_pda` must be [`crate::pda::state::STATE_PDA`] and
+/// `native_sol_buffer` must be [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`];
+/// the program rejects any other address.
 ///
-/// All input accounts are recorded verbatim in the state PDA's data: the
+/// All data input accounts are recorded verbatim in the state PDA's data: the
 /// account authorized to transfer any role, the account authorized to add and
 /// remove solvers, the account authorized to reclaim rent for buffers, and the
 /// account authorized to place settlement-owned orders. See
 /// [`crate::data::state::StateAccount`].
 ///
-/// The state account is owned by the settlement program. This instruction
-/// succeeds only once: a second call fails because the account already
-/// exists.
+/// Both accounts are owned by the settlement program; the native SOL buffer
+/// holds no data. This instruction succeeds only once: a second call fails
+/// because the accounts already exist.
 ///
 /// Wire format: `[discriminator=3, manager (32 bytes), solver_authority (32
 /// bytes), reclaim_authority (32 bytes), settlement_owned_order_authority (32
 /// bytes)]`, 129 bytes. Required accounts: `[payer (W,S), state_pda (W),
-/// system_program (R)]`. The system program must be available for the
+/// native_sol_buffer (W), system_program (R)]`. The system program must be available for the
 /// `CreateAccount` CPI but doesn't need to sit at that specific position.
 pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,
     pub state_pda: Pubkey,
+    pub native_sol_buffer: Pubkey,
     pub manager: Pubkey,
     pub solver_authority: Pubkey,
     pub reclaim_authority: Pubkey,
@@ -61,6 +64,7 @@ impl From<Initialize> for Instruction {
             accounts: vec![
                 AccountMeta::new(builder.payer, true),
                 AccountMeta::new(builder.state_pda, false),
+                AccountMeta::new(builder.native_sol_buffer, false),
                 AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
             ],
             data,
@@ -72,6 +76,7 @@ impl From<Initialize> for Instruction {
 pub struct InitializeInput<'a, A> {
     pub payer: &'a A,
     pub state_pda: &'a A,
+    pub native_sol_buffer: &'a A,
     pub manager: Pubkey,
     pub solver_authority: Pubkey,
     pub reclaim_authority: Pubkey,
@@ -98,16 +103,18 @@ impl<'a, A> InstructionInputParsing<'a, A> for InitializeInput<'a, A> {
         let settlement_owned_order_authority =
             Pubkey::new_from_array(*settlement_owned_order_authority);
 
-        // Accounts: [payer (W,S), state_pda (W), system_program (R)]. The system
-        // program needs to be present for the `CreateAccount` CPI but doesn't
-        // need to be referenced directly and can be at any later position.
-        let [payer, state_pda, _system, ..] = accounts else {
+        // Accounts: [payer (W,S), state_pda (W), native_sol_buffer (W),
+        // system_program (R)]. The system program needs to be present for the
+        // `CreateAccount` CPI but doesn't need to be referenced directly and can
+        // be at any later position.
+        let [payer, state_pda, native_sol_buffer, _system, ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
         Ok(Self {
             payer,
             state_pda,
+            native_sol_buffer,
             manager,
             solver_authority,
             reclaim_authority,
@@ -124,8 +131,9 @@ pub mod fixtures {
 
     use super::{Initialize, Instruction};
 
-    /// Number of accounts `Initialize` expects: payer, state PDA, system program.
-    pub const NUM_ACCOUNTS: usize = 3;
+    /// Number of accounts `Initialize` expects: payer, state PDA, native SOL
+    /// buffer, system program.
+    pub const NUM_ACCOUNTS: usize = 4;
 
     /// `Initialize` instruction data with placeholder addresses, for failure
     /// cases where the actual addresses don't matter.
@@ -135,6 +143,7 @@ pub mod fixtures {
             program_id: zero,
             payer: zero,
             state_pda: zero,
+            native_sol_buffer: zero,
             manager: zero,
             solver_authority: zero,
             reclaim_authority: zero,
@@ -161,6 +170,7 @@ mod tests {
         let program_id = Address::new_unique();
         let payer = fake_account(pubkey_from_seed("payer"));
         let state_pda = fake_account(pubkey_from_seed("state pda"));
+        let native_sol_buffer = fake_account(pubkey_from_seed("native sol buffer"));
         let manager = pubkey_from_seed("manager");
         let solver_authority = pubkey_from_seed("solver authority");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
@@ -169,6 +179,7 @@ mod tests {
             program_id,
             payer: *payer.address(),
             state_pda: *state_pda.address(),
+            native_sol_buffer: *native_sol_buffer.address(),
             manager,
             solver_authority,
             reclaim_authority,
@@ -177,11 +188,12 @@ mod tests {
         .data;
 
         let system_program = fake_account(pubkey_from_seed("system program"));
-        let accounts = [payer, state_pda, system_program];
+        let accounts = [payer, state_pda, native_sol_buffer, system_program];
 
         let InitializeInput {
             payer: parsed_payer,
             state_pda: parsed_state_pda,
+            native_sol_buffer: parsed_native_sol_buffer,
             manager: parsed_manager,
             solver_authority: parsed_solver_authority,
             reclaim_authority: parsed_reclaim_authority,
@@ -190,6 +202,10 @@ mod tests {
 
         assert_eq!(parsed_payer.address(), payer.address());
         assert_eq!(parsed_state_pda.address(), state_pda.address());
+        assert_eq!(
+            parsed_native_sol_buffer.address(),
+            native_sol_buffer.address()
+        );
         assert_eq!(parsed_manager, manager);
         assert_eq!(parsed_solver_authority, solver_authority);
         assert_eq!(parsed_reclaim_authority, reclaim_authority);
@@ -237,6 +253,7 @@ mod tests {
         let program_id = pubkey_from_seed("program id");
         let payer = pubkey_from_seed("payer");
         let state_pda = pubkey_from_seed("state pda");
+        let native_sol_buffer = pubkey_from_seed("native sol buffer");
         let manager = pubkey_from_seed("manager");
         let solver_authority = pubkey_from_seed("solver authority");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
@@ -246,6 +263,7 @@ mod tests {
             program_id,
             payer,
             state_pda,
+            native_sol_buffer,
             manager,
             solver_authority,
             reclaim_authority,
@@ -271,6 +289,7 @@ mod tests {
             program_id: pubkey_from_seed("program id"),
             payer: pubkey_from_seed("payer"),
             state_pda: pubkey_from_seed("state pda"),
+            native_sol_buffer: pubkey_from_seed("native sol buffer"),
             manager,
             solver_authority,
             reclaim_authority,
@@ -311,6 +330,7 @@ mod tests {
         let program_id = pubkey_from_seed("program id");
         let payer = pubkey_from_seed("payer");
         let state_pda = pubkey_from_seed("state pda");
+        let native_sol_buffer = pubkey_from_seed("native sol buffer");
         let manager = pubkey_from_seed("manager");
         let solver_authority = pubkey_from_seed("solver authority");
         let reclaim_authority = pubkey_from_seed("reclaim authority");
@@ -320,6 +340,7 @@ mod tests {
             program_id,
             payer,
             state_pda,
+            native_sol_buffer,
             manager,
             solver_authority,
             reclaim_authority,
@@ -327,11 +348,13 @@ mod tests {
         }
         .into();
 
-        assert_eq!(accounts.len(), 3);
-        // payer funds the new account's rent; state_pda is signed for by the
-        // program via PDA seeds; the system program is only referenced.
+        assert_eq!(accounts.len(), 4);
+        // payer funds the new accounts' rent; state_pda and native_sol_buffer
+        // are signed for by the program via PDA seeds; the system program is
+        // only referenced.
         assert_writable_signer(&accounts[0], payer);
         assert_writable_nonsigner(&accounts[1], state_pda);
-        assert_readonly_nonsigner(&accounts[2], SYSTEM_PROGRAM_ID);
+        assert_writable_nonsigner(&accounts[2], native_sol_buffer);
+        assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
     }
 }
