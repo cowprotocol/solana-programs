@@ -1,7 +1,7 @@
 //! Builder for the `Initialize` instruction.
 
 use cow_settlement_interface::{
-    pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::STATE_PDA},
+    pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::find_state_pda},
     Instruction, Pubkey,
 };
 
@@ -19,7 +19,7 @@ impl From<Initialize> for Instruction {
         cow_settlement_interface::instruction::initialize::Initialize {
             program_id: builder.program_id,
             payer: builder.payer,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             native_sol_buffer: NATIVE_SOL_BUFFER_PDA,
             manager: builder.manager,
             solver_authority: builder.solver_authority,

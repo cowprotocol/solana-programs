@@ -1,6 +1,6 @@
 //! Builder for the `RemoveSolver` instruction.
 
-use cow_settlement_interface::{pda::state::STATE_PDA, Instruction, Pubkey};
+use cow_settlement_interface::{pda::state::find_state_pda, Instruction, Pubkey};
 
 /// Removes `solver` from the state PDA's solver list. Authorized by
 /// `authority`; the freed rent is paid to `rent_recipient`.
@@ -17,7 +17,7 @@ impl From<RemoveSolver> for Instruction {
             program_id: builder.program_id,
             authority: builder.authority,
             rent_recipient: builder.rent_recipient,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             solver: builder.solver,
         }
         .into()

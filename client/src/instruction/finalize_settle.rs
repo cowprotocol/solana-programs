@@ -5,7 +5,7 @@ use cow_settlement_interface::{
     pda::{
         buffer::{find_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP},
         order::find_order_pda,
-        state::STATE_PDA,
+        state::find_state_pda,
     },
     Instruction, Pubkey,
 };
@@ -122,7 +122,7 @@ fn instruction_from_pushes(
     let amounts: Vec<u64> = pushes.iter().map(|push| push.amount).collect();
     cow_settlement_interface::instruction::settle::FinalizeSettle {
         program_id,
-        state_pda: STATE_PDA,
+        state_pda: find_state_pda(&program_id).0,
         begin_ix_index,
         only_token_program,
         source_buffers: &source_buffers,
