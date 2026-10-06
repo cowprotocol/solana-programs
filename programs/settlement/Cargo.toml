@@ -25,8 +25,6 @@ pinocchio-token-2022.workspace = true
 cow-settlement-interface.workspace = true
 solana-instruction = { workspace = true, features = ["syscalls"] }
 solana-hash.workspace = true
-solana-program-pack.workspace = true
-spl-token-2022-interface.workspace = true
 
 [dev-dependencies]
 arrayref.workspace = true
@@ -42,10 +40,12 @@ cow-settlement-interface = { workspace = true, features = ["test-fixtures"] }
 solana-address-lookup-table-interface = { workspace = true, features = ["bincode"] }
 solana-compute-budget.workspace = true
 solana-instructions-sysvar.workspace = true
+solana-program-pack.workspace = true
 solana-sdk.workspace = true
 solana-sha256-hasher.workspace = true
 solana-system-interface.workspace = true
 spl-associated-token-account-interface.workspace = true
+spl-token-2022-interface.workspace = true
 syn.workspace = true
 
 [lints]

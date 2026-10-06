@@ -339,7 +339,7 @@ fn process_order(
     // into `amount_in` as we go. The state PDA is the SPL delegate, so it signs
     // each transfer via `signer`. The token program checks `sell_mint` against
     // the sell token account's mint on a `TransferChecked`.
-    let decimals = mint_decimals(sell_mint)?;
+    let decimals = mint_decimals(token_program, sell_mint)?;
     let mut amount_in: u64 = 0;
     for (destination, amount) in destinations.iter().zip(amounts) {
         let amount = u64::from_le_bytes(*amount);

@@ -12,9 +12,6 @@ use pinocchio::{
 };
 use pinocchio_token::instructions::{GetAccountDataSize, Transfer, TransferChecked};
 
-use solana_program_pack::Pack;
-use spl_token_2022_interface::state::Mint;
-
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
 const BASE_TOKEN_ACCOUNT_LEN: u64 = pinocchio_token::state::Account::LEN as u64;
@@ -56,25 +53,26 @@ pub fn token_account_len(
     }
 }
 
-/// Retrieves the decimals from the data of `mint`, or `None` if `mint` is
-/// [`MINT_PLACEHOLDER`].
+/// Retrieves the decimals from `mint`, or `None` if `mint` is
+/// [`MINT_PLACEHOLDER`]. `token_program` must be the program that owns `mint`.
 /// The Option in the Result of this function should be supplied directly to [`transfer`].
-#[inline(always)]
-pub fn mint_decimals(mint: &AccountView) -> Result<Option<u8>, ProgramError> {
-    match *mint.address() {
-        MINT_PLACEHOLDER => Ok(None),
-        _ => {
-            let mint_data = mint.try_borrow()?;
-
-            let mint_contents = mint_data
-                .get(..Mint::LEN)
-                .ok_or(SettlementError::InvalidMint)?;
-
-            Mint::unpack(mint_contents)
-                .map(|m| Some(m.decimals))
-                .map_err(|_| SettlementError::InvalidMint.into())
-        }
+#[inline]
+pub fn mint_decimals(
+    token_program: TokenProgram,
+    mint: &AccountView,
+) -> Result<Option<u8>, ProgramError> {
+    if *mint.address() == MINT_PLACEHOLDER {
+        return Ok(None);
     }
+    let decimals = match token_program {
+        TokenProgram::SplToken => pinocchio_token::state::Mint::from_account_view(mint)
+            .map_err(|_| SettlementError::InvalidMint)?
+            .decimals(),
+        TokenProgram::Token2022 => pinocchio_token_2022::state::Mint::from_account_view(mint)
+            .map_err(|_| SettlementError::InvalidMint)?
+            .decimals(),
+    };
+    Ok(Some(decimals))
 }
 
 /// Move `amount` from `from` to `to` under `token_program`, signed by
