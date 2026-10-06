@@ -87,8 +87,8 @@ struct KnownBuffer {
     address: [u8; 32],
 }
 
-/// The native SOL buffer, keyed by [`ENCODED_NATIVE_SOL_TRANSFER`], followed by
-/// the buffers of [`KNOWN_MINTS`] in the same order.
+/// The buffers corresponding [`KNOWN_MINTS`], followed by the native
+/// SOL buffer keyed by [`ENCODED_NATIVE_SOL_TRANSFER`].
 #[allow(long_running_const_eval)]
 const KNOWN_BUFFERS: [KnownBuffer; KNOWN_MINTS.len() + 1] = {
     let mut buffers = [const {
@@ -97,10 +97,6 @@ const KNOWN_BUFFERS: [KnownBuffer; KNOWN_MINTS.len() + 1] = {
             address: [0; 32],
         }
     }; KNOWN_MINTS.len() + 1];
-    buffers[0] = KnownBuffer {
-        mint: ENCODED_NATIVE_SOL_TRANSFER.to_bytes(),
-        address: *NATIVE_SOL_BUFFER_PDA.as_array(),
-    };
     let mut i = 0;
     while i < KNOWN_MINTS.len() {
         let mint = const_crypto::bs58::decode_pubkey(KNOWN_MINTS[i]);
@@ -108,11 +104,24 @@ const KNOWN_BUFFERS: [KnownBuffer; KNOWN_MINTS.len() + 1] = {
             &buffer_pda_seeds(&mint),
             crate::ID.as_array(),
         );
-        buffers[i + 1] = KnownBuffer { mint, address };
+        buffers[i] = KnownBuffer { mint, address };
         i += 1;
     }
+    buffers[i] = KnownBuffer {
+        mint: ENCODED_NATIVE_SOL_TRANSFER.to_bytes(),
+        address: *NATIVE_SOL_BUFFER_PDA.as_array(),
+    };
+    assert!(i + 1 == KNOWN_MINTS.len() + 1);
     buffers
 };
+
+/// [`KNOWN_BUFFERS`] without the native SOL buffer: one per [`KNOWN_MINTS`].
+#[cfg(test)]
+const KNOWN_MINT_BUFFERS: &[KnownBuffer; KNOWN_MINTS.len()] = KNOWN_BUFFERS
+    .first_chunk()
+    .expect("KNOWN_BUFFERS ends with the known mint buffers");
+
+const KNOWN_NATIVE_MINT_BUFFER: &KnownBuffer = KNOWN_BUFFERS.last().expect("has native buffer");
 
 /// Bits of the hash that pick a slot: 512 slots keep collisions among 64 mints
 /// The number of bits representing each input slot of `KNOWN_BUFFER_SLOTS`.
@@ -325,16 +334,18 @@ mod tests {
     #[test]
     fn native_known_buffer_is_canonical() {
         assert_eq!(
-            KNOWN_BUFFERS[0].mint,
+            KNOWN_NATIVE_MINT_BUFFER.mint,
             ENCODED_NATIVE_SOL_TRANSFER.to_bytes()
         );
-        assert_eq!(KNOWN_BUFFERS[0].address, NATIVE_SOL_BUFFER_PDA.to_bytes());
+        assert_eq!(
+            KNOWN_NATIVE_MINT_BUFFER.address,
+            NATIVE_SOL_BUFFER_PDA.to_bytes()
+        );
     }
 
     #[test]
     fn known_mint_buffers_are_canonical() {
-        // the first known buffer is the native buffer, which is seeded differently. so we skip it.
-        for known in &KNOWN_BUFFERS[1..] {
+        for known in KNOWN_MINT_BUFFERS {
             let (pda, _) = find_buffer_pda(&crate::ID, &Pubkey::new_from_array(known.mint));
             assert_eq!(known.address, *pda.as_array());
         }

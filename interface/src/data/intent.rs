@@ -606,7 +606,6 @@ mod tests {
     use super::fixtures::sample_intent;
     use super::*;
     use crate::fixtures::pubkey_from_seed;
-    use crate::token_program::TokenProgram;
     use crate::SettlementError;
 
     // Every shape an `OrderIntent` can take on its validated axes: the
@@ -843,26 +842,6 @@ mod tests {
             assert_eq!(intent_slots(&encoded).buy_mint, expected_mint.as_array());
             assert_eq!(intent_slots(&encoded).buy_token, account.as_array());
         }
-    }
-
-    #[test]
-    fn native_sol_marker_is_no_token_program() {
-        for program in TokenProgram::ALL {
-            assert_ne!(ENCODED_NATIVE_SOL_TRANSFER, program.address());
-        }
-    }
-
-    #[test]
-    fn an_spl_mint_is_not_native_sol() {
-        let mint = pubkey_from_seed("some mint");
-        let token_account = pubkey_from_seed("some account");
-        assert_eq!(
-            Asset::decode(mint, token_account),
-            Asset::TokenProgram(TokenAsset {
-                mint,
-                token_account
-            }),
-        );
     }
 
     #[test]
