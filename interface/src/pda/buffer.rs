@@ -111,7 +111,7 @@ const KNOWN_BUFFERS: [KnownBuffer; KNOWN_MINTS.len() + 1] = {
         mint: ENCODED_NATIVE_SOL_TRANSFER.to_bytes(),
         address: *NATIVE_SOL_BUFFER_PDA.as_array(),
     };
-    assert!(i + 1 == KNOWN_MINTS.len() + 1);
+    assert!(i + 1 == buffers.len());
     buffers
 };
 
