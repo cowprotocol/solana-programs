@@ -17,7 +17,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     lamports::move_lamports,
     settle::validate_counterpart,
-    token::{mint_decimals, owning_token_program, transfer},
+    token::{owning_token_program, transfer},
 };
 
 pub fn process_finalize_settle(
@@ -92,7 +92,6 @@ fn push_funds<'a>(
                 push.destination,
                 state_pda_account,
                 push.amount,
-                mint_decimals(push.mint)?,
                 state_pda_signer,
             )?;
         }

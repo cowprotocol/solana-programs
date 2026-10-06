@@ -3,7 +3,7 @@
 use core::slice;
 
 use cow_settlement_interface::{
-    instruction::settle::MINT_PLACEHOLDER, token_program::TokenProgram, SettlementError,
+    instruction::settle::MaybeMint, token_program::TokenProgram, SettlementError,
 };
 use pinocchio::{
     cpi::{get_return_data, Signer},
@@ -56,51 +56,42 @@ pub fn token_account_len(
     }
 }
 
-/// Retrieves the decimals from the data of `mint`, or `None` if `mint` is
-/// [`MINT_PLACEHOLDER`].
-/// The Option in the Result of this function should be supplied directly to [`transfer`].
+/// Reads the `decimals` from a mint account's data.
 #[inline(always)]
-pub fn mint_decimals(mint: &AccountView) -> Result<Option<u8>, ProgramError> {
-    match *mint.address() {
-        MINT_PLACEHOLDER => Ok(None),
-        _ => {
-            let mint_data = mint.try_borrow()?;
-
-            let mint_contents = mint_data
-                .get(..Mint::LEN)
-                .ok_or(SettlementError::InvalidMint)?;
-
-            Mint::unpack(mint_contents)
-                .map(|m| Some(m.decimals))
-                .map_err(|_| SettlementError::InvalidMint.into())
-        }
-    }
+fn read_mint_decimals(mint: &AccountView) -> Result<u8, ProgramError> {
+    let mint_data = mint.try_borrow()?;
+    let mint_contents = mint_data
+        .get(..Mint::LEN)
+        .ok_or(SettlementError::InvalidMint)?;
+    Mint::unpack(mint_contents)
+        .map(|m| m.decimals)
+        .map_err(|_| SettlementError::InvalidMint.into())
 }
 
 /// Move `amount` from `from` to `to` under `token_program`, signed by
-/// `authority` through `signer`.
-/// It is indended supply the result of [`mint_decimals`] to `decimals`.
-/// Whether or not `decimals` is supplied determines the transfer instruction
-/// which is used.
-#[allow(clippy::too_many_arguments)]
+/// `authority` through `signer`. A real [`MaybeMint`] issues a `TransferChecked`
+/// against the decimals read from the mint; the placeholder issues a plain
+/// `Transfer`.
 #[inline(always)]
 pub fn transfer(
     token_program: TokenProgram,
     from: &AccountView,
-    mint: &AccountView,
+    mint: MaybeMint<'_, AccountView>,
     to: &AccountView,
     authority: &AccountView,
     amount: u64,
-    decimals: Option<u8>,
     signer: &Signer,
 ) -> ProgramResult {
     let signers = slice::from_ref(signer);
     let program = token_program.address();
-    match decimals {
+    match mint.get() {
         None => Transfer::new(from, to, authority, amount)
             .invoke_signed_with_unverified_program(signers, &program),
-        Some(decimals) => TransferChecked::new(from, mint, to, authority, amount, decimals)
-            .invoke_signed_with_unverified_program(signers, &program),
+        Some(mint) => {
+            let decimals = read_mint_decimals(mint)?;
+            TransferChecked::new(from, mint, to, authority, amount, decimals)
+                .invoke_signed_with_unverified_program(signers, &program)
+        }
     }
 }
 

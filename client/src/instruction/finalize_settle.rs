@@ -106,7 +106,7 @@ mod tests {
         fixtures::pubkey_from_seed,
         instruction::{
             fixtures::fake_account_from_array,
-            settle::{FinalizeSettleInput, Push, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER},
+            settle::{FinalizeSettleInput, Push, INSTRUCTIONS_SYSVAR_ID},
             InstructionInputParsing,
         },
     };
@@ -236,7 +236,7 @@ mod tests {
                     bump,
                     amount
                 } = push;
-                prop_assert_eq!(mint.address(), &MINT_PLACEHOLDER);
+                prop_assert!(mint.get().is_none());
                 prop_assert_eq!(source_buffer.address(), &expected.buffer);
                 prop_assert_eq!(destination.address(), &expected.destination);
                 prop_assert_eq!(bump, &expected.bump);
