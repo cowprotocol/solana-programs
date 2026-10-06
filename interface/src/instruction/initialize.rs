@@ -26,7 +26,7 @@ use crate::SettlementInstruction;
 /// `native_sol_buffer` must be [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`];
 /// the program rejects any other address.
 ///
-/// All input accounts are recorded verbatim in the state PDA's data: the
+/// All data input accounts are recorded verbatim in the state PDA's data: the
 /// account authorized to transfer any role, the account authorized to add and
 /// remove solvers, the account authorized to reclaim rent for buffers, and the
 /// account authorized to place settlement-owned orders. See
