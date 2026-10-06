@@ -29,7 +29,7 @@ A bump is not a migration. There are some other consequences that should be cons
 
 ## Program initialization
 
-The state PDA is created once, after deployment, by the `Initialize` instruction.
+The state PDA and native SOL buffer PDA are created once, after deployment, by the `Initialize` instruction.
 
 ## Authorities
 
@@ -52,7 +52,7 @@ These token accounts are accessible to all solvers and effectively work like the
 
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
-The buffer account for native SOL is an empty account owned by the settlement program whose funds on top of the necessary rent are paid out. Its PDA is generated using seed `[SETTLEMENT_SEED, "native sol buffer"]`, and it is created alongside the state PDA by the `Initialize` instruction.
+The buffer account for native SOL is an empty account owned by the settlement program whose funds on top of the necessary rent are paid out. 
 
 A buffer (except for the native SOL buffer) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
 
