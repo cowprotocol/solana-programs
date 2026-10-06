@@ -60,7 +60,7 @@ pub fn find_buffer_pda(program_id: &Pubkey, mint: &Pubkey) -> (Pubkey, u8) {
 }
 
 /// Trailing seed identifying the native SOL buffer PDA.
-pub const NATIVE_SOL_BUFFER_SEED: &[u8] = b"native sol buffer";
+pub const NATIVE_SOL_BUFFER_SEED: &[u8] = b"buffer native sol";
 
 /// Canonical seed components for the native SOL buffer PDA.
 pub const NATIVE_SOL_BUFFER_PDA_SEEDS: [&[u8]; 2] = [SETTLEMENT_SEED, NATIVE_SOL_BUFFER_SEED];
