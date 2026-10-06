@@ -92,6 +92,13 @@
               {
                 "kind": "const",
                 "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114,
+                  32,
                   110,
                   97,
                   116,
@@ -101,20 +108,13 @@
                   32,
                   115,
                   111,
-                  108,
-                  32,
-                  98,
-                  117,
-                  102,
-                  102,
-                  101,
-                  114
+                  108
                 ]
               }
             ]
           },
           "docs": [
-            "Canonical PDA seeded by [SETTLEMENT_SEED, \"native sol buffer\"]. Created as an empty account owned by the settlement program, whose lamports on top of rent pay out orders buying native SOL."
+            "Canonical PDA seeded by [SETTLEMENT_SEED, \"buffer native sol\"]. Created as an empty account owned by the settlement program, whose lamports on top of rent pay out orders buying native SOL."
           ]
         },
         {
