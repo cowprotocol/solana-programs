@@ -332,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn known_buffers_stores_canonical_native_sol_transfer {
+    fn known_buffers_stores_canonical_native_sol_transfer() {
         assert_eq!(
             KNOWN_NATIVE_MINT_BUFFER.mint,
             ENCODED_NATIVE_SOL_TRANSFER.to_bytes()
