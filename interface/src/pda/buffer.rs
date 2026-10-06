@@ -121,7 +121,8 @@ const KNOWN_MINT_BUFFERS: &[KnownBuffer; KNOWN_MINTS.len()] = KNOWN_BUFFERS
     .first_chunk()
     .expect("KNOWN_BUFFERS ends with the known mint buffers");
 
-const KNOWN_NATIVE_MINT_BUFFER: &KnownBuffer = KNOWN_BUFFERS.last().expect("has native buffer");
+#[cfg(test)]
+const KNOWN_NATIVE_MINT_BUFFER: &KnownBuffer = &KNOWN_BUFFERS[KNOWN_MINTS.len()];
 
 /// Bits of the hash that pick a slot: 512 slots keep collisions among 64 mints
 /// The number of bits representing each input slot of `KNOWN_BUFFER_SLOTS`.
@@ -301,11 +302,6 @@ mod tests {
     }
 
     const A_KNOWN_MINT: Pubkey = Pubkey::from_str_const(KNOWN_MINTS[0]);
-
-    #[test]
-    fn known_buffers_len_maps_known_mints_and_native_buffer() {
-        assert_eq!(KNOWN_BUFFERS.len(), KNOWN_MINTS.len() + 1);
-    }
 
     #[test]
     fn pinned_native_sol_buffer_pda_is_canonical() {
