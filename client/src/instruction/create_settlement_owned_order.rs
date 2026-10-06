@@ -2,7 +2,7 @@
 
 use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
-    pda::{order::find_order_pda, state::STATE_PDA},
+    pda::{order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
 
@@ -26,7 +26,7 @@ impl From<CreateSettlementOwnedOrder<'_>> for Instruction {
             program_id: builder.program_id,
             authority: builder.authority,
             created_by: builder.created_by,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             order_pda,
             intent_bytes,
         }

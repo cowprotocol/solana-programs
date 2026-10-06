@@ -2,7 +2,7 @@
 
 use cow_settlement_interface::{
     data::intent::OrderIntent,
-    pda::{order::find_order_pda, state::STATE_PDA},
+    pda::{order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
 
@@ -55,7 +55,7 @@ impl From<BeginSettle<'_>> for Instruction {
         }
         cow_settlement_interface::instruction::settle::BeginSettle {
             program_id: builder.program_id,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             solver: builder.solver,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
