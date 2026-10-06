@@ -102,11 +102,10 @@ fn happy_path_initializes_state_pda_with_expected_data() {
     );
 }
 
-#[test]
-fn initializes_state_pda_when_address_is_prefunded() {
+fn initialize_with_prefund(account: &Pubkey) {
     let (mut svm, program_id, payer) = common::setup();
 
-    common::pda::assert_security_creation_survives_prefund(&mut svm, &STATE_PDA, |svm| {
+    common::pda::assert_security_creation_survives_prefund(&mut svm, account, |svm| {
         let ix = Initialize {
             program_id,
             payer: payer.pubkey(),
@@ -120,24 +119,13 @@ fn initializes_state_pda_when_address_is_prefunded() {
 }
 
 #[test]
-fn initializes_native_sol_buffer_when_address_is_prefunded() {
-    let (mut svm, program_id, payer) = common::setup();
+fn initializes_state_pda_when_address_is_prefunded() {
+    initialize_with_prefund(&STATE_PDA);
+}
 
-    common::pda::assert_security_creation_survives_prefund(
-        &mut svm,
-        &NATIVE_SOL_BUFFER_PDA,
-        |svm| {
-            let ix = Initialize {
-                program_id,
-                payer: payer.pubkey(),
-                manager: unique_pubkey(),
-                solver_authority: unique_pubkey(),
-                reclaim_authority: unique_pubkey(),
-                settlement_owned_order_authority: unique_pubkey(),
-            };
-            common::signed_tx(svm, &payer, &payer, ix)
-        },
-    );
+#[test]
+fn initializes_native_sol_buffer_when_address_is_prefunded() {
+    initialize_with_prefund(&NATIVE_SOL_BUFFER_PDA);
 }
 
 #[test]
