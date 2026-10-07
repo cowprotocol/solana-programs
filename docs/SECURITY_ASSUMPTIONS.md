@@ -1,6 +1,12 @@
 # Security Design
 
-The settlement program aims to deliver the outcomes below.
+Three kinds of party interact with the settlement program:
+
+- **Users** place orders to trade, paying a fee out of their limit price.
+- **Solvers** settle those orders against on-chain liquidity, implicitly collecting the fees. They are bonded off-chain.
+- **Administrative roles** each own a narrow task: redistributing the collected fees, managing solvers and (off-chain) their bonds, and controlling access.
+
+The settlement program connects these parties together. It's designed to reduce how much they have to trust each other.
 
 ## Users
 
