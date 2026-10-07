@@ -1,6 +1,8 @@
 //! `BeginSettle`/`FinalizeSettle` instruction tools, the instructions-sysvar
 //! account ID they all reference, and the off-chain instruction builders.
 
+use solana_account_view::AccountView;
+use solana_address::Address;
 use solana_program_error::ProgramError;
 
 pub use crate::token_program::TokenProgram;
@@ -11,6 +13,58 @@ pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 /// dependency, the instructions sysvar may be provided instead of the mint to
 /// call `Transfer` instead.
 pub const MINT_PLACEHOLDER: solana_pubkey::Pubkey = INSTRUCTIONS_SYSVAR_ID;
+
+/// The most extra accounts a settle instruction's `TransferChecked` calls can
+/// carry. The program builds the CPI accounts on the stack, so this bounds the
+/// frame; a `TransferChecked` given more fails with `InvalidArgument`.
+pub const MAX_EXTRA_TRANSFER_ACCOUNTS: usize = 16;
+
+/// The on-chain address of an account representation, that is, the generic `A`
+/// used in our parser. This can be used by implementations to use custom
+/// address types in the parser, as long as they implement `Keyed`.
+pub trait Keyed {
+    fn key(&self) -> &Address;
+}
+
+impl Keyed for AccountView {
+    fn key(&self) -> &Address {
+        self.address()
+    }
+}
+
+impl Keyed for Address {
+    fn key(&self) -> &Address {
+        self
+    }
+}
+
+/// A settle instruction's mint slot: a value whose address is either a real
+/// mint, naming a `TransferChecked`, or the [`MINT_PLACEHOLDER`] sentinel,
+/// naming a plain `Transfer`. The two are indistinguishable as raw addresses,
+/// so this wrapper forces callers through [`MaybeMint::get`] to resolve which,
+/// rather than handling a bare slot that is secretly one or the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaybeMint<'a, A>(&'a A);
+
+impl<'a, A> MaybeMint<'a, A> {
+    /// Wrap a mint-slot value, deferring the placeholder check to
+    /// [`MaybeMint::get`].
+    pub fn new(slot: &'a A) -> Self {
+        Self(slot)
+    }
+}
+
+impl<'a, A: Keyed> MaybeMint<'a, A> {
+    /// The mint to settle against, or `None` when the slot holds the
+    /// [`MINT_PLACEHOLDER`] sentinel selecting a plain `Transfer`.
+    pub fn get(&self) -> Option<&'a A> {
+        if self.0.key() == &MINT_PLACEHOLDER {
+            None
+        } else {
+            Some(self.0)
+        }
+    }
+}
 
 mod begin;
 mod finalize;
@@ -79,7 +133,10 @@ pub mod fixtures {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::pubkey_from_seed;
+    use crate::instruction::fixtures::fake_account;
     use hex_literal::hex;
+    use solana_address::Address;
 
     /// Builds an instruction-data byte vector from a list of field chunks, so a
     /// test can spell out the wire layout one field per line without repeating
@@ -91,6 +148,13 @@ mod tests {
         };
     }
     pub(crate) use ix_data;
+
+    /// The address behind a mint slot, asserting it names a real mint rather
+    /// than the [`MINT_PLACEHOLDER`] placeholder. For parser tests reading a
+    /// settled order's or push's mint.
+    pub(crate) fn mint_address(mint: MaybeMint<'_, AccountView>) -> &Address {
+        mint.get().expect("a real mint").address()
+    }
 
     #[test]
     fn rejects_empty_payload() {
@@ -120,5 +184,23 @@ mod tests {
             ),
             Ok((0x1337, [42].as_slice())),
         );
+    }
+
+    #[test]
+    fn maybe_mint_get_resolves_an_account_slot() {
+        let mint = pubkey_from_seed("a real mint");
+        let account = fake_account(mint);
+        assert_eq!(mint_address(MaybeMint::new(&account)), &mint);
+
+        let placeholder = fake_account(MINT_PLACEHOLDER);
+        assert!(MaybeMint::new(&placeholder).get().is_none());
+    }
+
+    #[test]
+    fn maybe_mint_get_resolves_an_address_slot() {
+        let mint = pubkey_from_seed("a real mint");
+        assert_eq!(MaybeMint::new(&mint).get(), Some(&mint));
+
+        assert_eq!(MaybeMint::new(&MINT_PLACEHOLDER).get(), None);
     }
 }

@@ -5,7 +5,7 @@ use cow_settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::state::validate_is_state_pda,
+    pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::validate_is_state_pda},
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -17,7 +17,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     lamports::move_lamports,
     settle::validate_counterpart,
-    token::{mint_decimals, owning_token_program, TokenTransfers},
+    token::{owning_token_program, read_mint_decimals, CpiLists, TransferMaybeChecked},
 };
 
 pub fn process_finalize_settle(
@@ -50,12 +50,11 @@ pub fn process_finalize_settle(
     // the canonical buffer for the order's buy mint. Nothing is left to check
     // here, so `push_funds` only executes the transfers.
 
-    let mut transfers = TokenTransfers::new(input.extra_transfer_accounts);
     with_state_pda_signer(|state_pda_signer| {
         push_funds(
             input.state_pda_account,
             state_pda_signer,
-            &mut transfers,
+            input.extra_transfer_accounts,
             input.pushes,
         )
     })
@@ -63,13 +62,13 @@ pub fn process_finalize_settle(
 
 /// Push each order's proceeds out of the settlement's buffers, signing each
 /// transfer as the canonical state PDA (the buffers' SPL authority), or out of
-/// the state PDA's own lamports for an order paid in native SOL.
+/// the native SOL buffer's lamports for an order paid in native SOL.
 ///
 /// Validating the pushes is done in `BeginSettle`. It does so by checking:
 /// 1. the `destination` matches the `buy_token_account` in the OrderIntentAccessor
 /// 2. the sending buffer in the instruction is the one holding the
 ///    settlement's funds for the relevant buy asset. For native SOL, this is
-///    the state PDA, and for tokens, its the buffer account associated
+///    the native SOL buffer, and for tokens, its the buffer account associated
 ///    with the buy_mint.
 ///
 /// So ultimately, for an SPL push we are relying that the SPL token program
@@ -84,34 +83,33 @@ pub fn process_finalize_settle(
 fn push_funds<'a>(
     state_pda_account: &'a AccountView,
     state_pda_signer: &Signer,
-    transfers: &mut TokenTransfers<'a>,
+    extra_transfer_accounts: &'a [AccountView],
     pushes: Pushes<'a, AccountView>,
 ) -> ProgramResult {
+    let mut cpi_lists: Option<CpiLists> = None;
     // Loop for orders not paying out native SOL
     for push in pushes.iter() {
-        if push.source_buffer.address() != state_pda_account.address() {
+        if push.source_buffer.address() != &NATIVE_SOL_BUFFER_PDA {
             let token_program = owning_token_program(push.destination)
                 .map_err(|_| SettlementError::InvalidTokenProgram)?;
-            transfers.transfer(
+            TransferMaybeChecked::new(
                 token_program,
-                push.source_buffer,
-                push.mint,
-                push.destination,
+                &read_mint_decimals(token_program, push.mint)?,
                 state_pda_account,
-                push.amount,
-                mint_decimals(push.mint)?,
                 state_pda_signer,
-            )?;
+                extra_transfer_accounts,
+                &mut cpi_lists,
+            )
+            .invoke(push.source_buffer, push.destination, push.amount)?;
         }
     }
 
-    let mut state_pda_account = *state_pda_account;
-
     // Loop for orders paying out native SOL
     for push in pushes.iter() {
-        if push.source_buffer.address() == state_pda_account.address() {
+        if push.source_buffer.address() == &NATIVE_SOL_BUFFER_PDA {
+            let mut source = *push.source_buffer;
             let mut destination = *push.destination;
-            move_lamports(&mut state_pda_account, &mut destination, push.amount)?;
+            move_lamports(&mut source, &mut destination, push.amount)?;
         }
     }
 

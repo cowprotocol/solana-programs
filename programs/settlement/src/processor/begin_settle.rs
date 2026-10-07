@@ -4,7 +4,7 @@ use std::ops::Deref;
 
 use cow_settlement_interface::{
     data::{
-        intent::{Asset, Flags, OrderKind},
+        intent::{Flags, OrderKind},
         order::{FillAmounts, OrderAccount},
     },
     instruction::{
@@ -34,7 +34,10 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
-    token::{mint_decimals, owning_token_program, read_token_account, TokenTransfers},
+    token::{
+        owning_token_program, read_mint_decimals, read_token_account, CpiLists,
+        TransferMaybeChecked,
+    },
 };
 
 pub fn process_begin_settle(
@@ -77,13 +80,12 @@ pub fn process_begin_settle(
 
     let finalize_ix = instructions.load_instruction_at(usize::from(input.finalize_ix_index))?;
 
-    let mut transfers = TokenTransfers::new(input.extra_accounts);
     with_state_pda_signer(|signer| {
         settle_orders(
             program_id,
             input.state_pda_account,
             signer,
-            &mut transfers,
+            input.extra_accounts,
             &input.orders,
             &finalize_ix,
         )
@@ -213,7 +215,7 @@ fn settle_orders<'a>(
     program_id: &Address,
     state_pda_account: &'a AccountView,
     state_pda_signer: &Signer,
-    transfers: &mut TokenTransfers<'a>,
+    extra_accounts: &'a [AccountView],
     orders: &SettledOrders<'a, AccountView>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
@@ -227,6 +229,8 @@ fn settle_orders<'a>(
     // means fewer pushes than orders. A leftover push (more pushes than orders)
     // is caught after.
     let mut pushes = finalize_pushes(finalize_ix)?;
+
+    let mut cpi_lists: Option<CpiLists> = None;
 
     for order in orders.iter() {
         let order_pda_address = order.order_pda.address();
@@ -246,7 +250,8 @@ fn settle_orders<'a>(
             now,
             state_pda_account,
             state_pda_signer,
-            transfers,
+            extra_accounts,
+            &mut cpi_lists,
         )?;
     }
 
@@ -262,6 +267,7 @@ fn settle_orders<'a>(
 /// intent's buy token account in the intent's buy mint out of the intent's sell
 /// mint. Once the order passes those checks, its pulls are executed and its
 /// settlement limit price is validated against the intent.
+#[allow(clippy::too_many_arguments)]
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn process_order<'a>(
     program_id: &Address,
@@ -270,7 +276,8 @@ fn process_order<'a>(
     now: i64,
     state_account: &'a AccountView,
     state_pda_signer: &Signer,
-    transfers: &mut TokenTransfers<'a>,
+    extra_accounts: &'a [AccountView],
+    cpi_lists: &mut Option<CpiLists<'a>>,
 ) -> ProgramResult {
     let SettledOrder {
         order_pda,
@@ -306,13 +313,9 @@ fn process_order<'a>(
     // This effectively transitively verifies `intent.buy_token_account`
     // matches `intent.buy_mint` by relying on the SPL token restriction that transfer
     // mints must match.
-    // If its a native SOL buy order, the "source buffer" should be the state pda.
-    let buy_mint = intent.buy_mint();
-    if Asset::is_native_sol(buy_mint) {
-        validate_is_state_pda(push.source_buffer.as_array())?;
-    } else {
-        validate_buffer_pda(push.source_buffer, buy_mint, push.bump)?;
-    }
+    // If its a native SOL buy order, the "source buffer" should be the native SOL buffer,
+    // which is also resolvable via this validation function.
+    validate_buffer_pda(push.source_buffer, intent.buy_mint(), push.bump)?;
 
     // The sell token account must be the one named in the intent, owned by
     // the intent owner: an order can only sell funds its own owner controls.
@@ -342,25 +345,24 @@ fn process_order<'a>(
 
     // Pull the configured amounts out of the sell token account, summing them
     // into `amount_in` as we go. The state PDA is the SPL delegate, so it signs
-    // each transfer via `signer`. The token program checks `sell_mint` against
-    // the sell token account's mint on a `TransferChecked`.
-    let decimals = mint_decimals(sell_mint)?;
+    // each transfer via `signer`. On a `TransferChecked`, the token program
+    // checks `sell_mint` against the sell token account's mint.
+    let sell_mint = read_mint_decimals(token_program, sell_mint)?;
+    let mut pull = TransferMaybeChecked::new(
+        token_program,
+        &sell_mint,
+        state_account,
+        state_pda_signer,
+        extra_accounts,
+        cpi_lists,
+    );
     let mut amount_in: u64 = 0;
     for (destination, amount) in destinations.iter().zip(amounts) {
         let amount = u64::from_le_bytes(*amount);
         amount_in = amount_in
             .checked_add(amount)
             .ok_or(SettlementError::PullAmountOverflow)?;
-        transfers.transfer(
-            token_program,
-            sell_token_account,
-            sell_mint,
-            destination,
-            state_account,
-            amount,
-            decimals,
-            state_pda_signer,
-        )?;
+        pull.invoke(sell_token_account, destination, amount)?;
     }
 
     let settled = FillAmounts {
@@ -1037,9 +1039,9 @@ mod tests {
             state_pda in any::<[u8; 32]>(),
             begin_ix_index in any::<u16>(),
             pushes in arb_pushes(0..=16usize),
-            extra_accounts in prop::collection::vec(any::<[u8; 32]>(), 0..=4usize),
+            extra_transfer_accounts in prop::collection::vec(any::<[u8; 32]>(), 0..=4usize),
         ) {
-            let extra_accounts: Vec<AccountMeta> = extra_accounts
+            let extra_transfer_accounts: Vec<AccountMeta> = extra_transfer_accounts
                 .into_iter()
                 .map(|address| AccountMeta::new_readonly(Pubkey::new_from_array(address), false))
                 .collect();
@@ -1052,7 +1054,7 @@ mod tests {
                 mints: &pushes.mints,
                 bumps: &pushes.bumps,
                 amounts: &pushes.amounts,
-                extra_accounts: &extra_accounts,
+                extra_transfer_accounts: &extra_transfer_accounts,
                 ..Default::default()
             });
 

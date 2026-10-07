@@ -1223,7 +1223,7 @@ fn rejects_missing_account() {
     );
 
     // Drop the order's last account (its mint slot) from `BeginSettle`, leaving
-    // fewer accounts than the `3n + T` the instruction data implies.
+    // fewer accounts than the transaction supports.
     instructions[usize::from(BEGIN_INDEX)].accounts.pop();
 
     assert_begin_error(

@@ -9,7 +9,9 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER};
+use super::{
+    recover_counterpart, MaybeMint, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER,
+};
 
 /// A single transfer made when settling an order: `amount` tokens sent from the
 /// order's sell token account to `destination`.
@@ -52,7 +54,7 @@ pub struct Pull {
 /// This builder establishes that ordering for the caller: it sorts the orders by
 /// PDA address, carrying each order's sell token account, transfer count,
 /// amounts, and destination metas before emitting them.
-#[derive(Default)]
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
@@ -161,9 +163,9 @@ impl From<BeginSettle<'_>> for Instruction {
 pub struct SettledOrder<'a, A> {
     pub order_pda: &'a A,
     pub sell_token_account: &'a A,
-    /// The sell mint for `TransferChecked` pulls, or the system program for
-    /// plain `Transfer` pulls.
-    pub sell_mint: &'a A,
+    /// The sell mint for this order's pulls: a real mint for `TransferChecked`,
+    /// or the [`MINT_PLACEHOLDER`] for plain `Transfer`.
+    pub sell_mint: MaybeMint<'a, A>,
     /// Destination accounts for this order's transfers.
     pub destinations: &'a [A],
     /// Transfer amounts (little-endian `u64`), one per destination.
@@ -230,7 +232,7 @@ impl<'a, A> SettledOrders<'a, A> {
             Some(SettledOrder {
                 order_pda,
                 sell_token_account,
-                sell_mint,
+                sell_mint: MaybeMint::new(sell_mint),
                 destinations,
                 amounts: order_amounts,
             })
@@ -341,7 +343,7 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
-    use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::settle::tests::{ix_data, mint_address};
     use crate::instruction::tests::{assert_readonly_nonsigner, assert_readonly_signer};
     use crate::token_program::TokenProgram;
     use hex_literal::hex;
@@ -455,6 +457,7 @@ mod tests {
             auction_id: AUCTION_ID,
             order_pdas: &[high_order_pda, low_order_pda],
             sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
+            // Not set to `None` for one of the mints to be able to confirm the ordering of accounts
             sell_mints: &[Some(high_sell_mint), None],
             pulls: &[&[], &[]],
             ..Default::default()
@@ -745,7 +748,7 @@ mod tests {
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
-        assert_eq!(order.sell_mint.address(), &sell_mint);
+        assert_eq!(mint_address(order.sell_mint), &sell_mint);
         assert_eq!(order.destinations.len(), 0);
         assert!(orders.next().is_none());
     }
@@ -791,7 +794,7 @@ mod tests {
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
-        assert_eq!(order.sell_mint.address(), &sell_mint);
+        assert_eq!(mint_address(order.sell_mint), &sell_mint);
         let transfers: Vec<(&Address, u64)> = order
             .destinations
             .iter()
@@ -848,7 +851,7 @@ mod tests {
                 (
                     *order.order_pda.address(),
                     *order.sell_token_account.address(),
-                    *order.sell_mint.address(),
+                    *mint_address(order.sell_mint),
                 )
             })
             .collect();
@@ -902,7 +905,10 @@ mod tests {
             order.sell_token_account.address(),
             order_accounts[1].address()
         );
-        assert_eq!(order.sell_mint.address(), order_accounts[2].address());
+        assert_eq!(
+            order.sell_mint.get().map(AccountView::address),
+            Some(order_accounts[2].address())
+        );
         assert_eq!(order.destinations[0].address(), order_accounts[3].address());
         assert!(orders.next().is_none());
         let extra: Vec<&Address> = extra_accounts.iter().map(AccountView::address).collect();

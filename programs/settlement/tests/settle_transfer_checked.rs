@@ -13,7 +13,9 @@ use crate::common::{
     transfer_hook::{TransferHook, REJECTED},
     unique_pubkey,
 };
-use cow_settlement_client::cow_settlement_interface::{AccountMeta, Instruction, SettlementError};
+use cow_settlement_client::cow_settlement_interface::{
+    instruction::settle::MAX_EXTRA_TRANSFER_ACCOUNTS, AccountMeta, Instruction, SettlementError,
+};
 use cow_settlement_client::instruction::{
     BeginSettle, FinalizeSettle, FinalizedIntent, InitializedIntent, TokenProgram,
 };
@@ -102,35 +104,12 @@ fn assert_settled(svm: &LiteSVM, order: &StagedOrder, received: u64) {
     assert_eq!(token::balance(svm, &buy_account(&order.intent)), received);
 }
 
+common::also_under_token_2022!(settles_both_token_programs_with_transfer_checked);
 #[test]
 fn settles_both_token_programs_with_transfer_checked() {
-    for program in TokenProgram::ALL {
-        let (mut svm, program_id, payer, solver) = setup_settle_ready();
-        let sell = token::create_mint_under(&mut svm, &payer, &program.address(), Extensions::None);
-        let buy = token::create_mint_under(&mut svm, &payer, &program.address(), Extensions::None);
-        let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
-
-        let instructions = build_staged_settlement(
-            &program_id,
-            &solver.pubkey(),
-            slice::from_ref(&order),
-            vec![],
-            &[sell, buy],
-        );
-        send(&mut svm, &solver, &instructions)
-            .unwrap_or_else(|error| panic!("{program:?} should settle checked: {error:?}"));
-
-        assert_settled(&svm, &order, AMOUNT);
-    }
-}
-
-/// The checked counterpart of `settles_a_single_order`, for comparing the cost
-/// of `TransferChecked` against `Transfer`.
-#[test]
-fn settles_a_single_order_with_transfer_checked() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
-    let sell = token::create_mint(&mut svm, &payer);
-    let buy = token::create_mint(&mut svm, &payer);
+    let sell = token::create_mint_with_extensions(&mut svm, &payer, Extensions::None);
+    let buy = token::create_mint_with_extensions(&mut svm, &payer, Extensions::None);
     let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
 
     let instructions = build_staged_settlement(
@@ -216,6 +195,54 @@ fn extra_accounts_dont_affect_plain_transfers() {
     assert_settled(&svm, &order, AMOUNT);
 }
 
+/// Settle an order whose transfers are all `TransferChecked`, with `count`
+/// extra accounts on `side`'s instruction.
+fn settle_with_extra_accounts(
+    side: Side,
+    count: usize,
+) -> (
+    LiteSVM,
+    StagedOrder,
+    Result<TransactionMetadata, TransactionError>,
+) {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let sell = token::create_mint(&mut svm, &payer);
+    let buy = token::create_mint(&mut svm, &payer);
+    let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
+
+    let extra_accounts: Vec<AccountMeta> = (0..count)
+        .map(|_| AccountMeta::new_readonly(unique_pubkey(), false))
+        .collect();
+    let instructions = settlement(
+        &program_id,
+        &solver.pubkey(),
+        &order,
+        &Checked {
+            mints: &[sell, buy],
+            ..side.carrying(&extra_accounts)
+        },
+    );
+    let result = send(&mut svm, &solver, &instructions);
+    (svm, order, result)
+}
+
+#[test]
+fn transfer_checked_carries_the_maximum_extra_accounts() {
+    for side in [Side::Sell, Side::Buy] {
+        let (svm, order, result) = settle_with_extra_accounts(side, MAX_EXTRA_TRANSFER_ACCOUNTS);
+        result.expect("the maximum extra accounts should ride along");
+        assert_settled(&svm, &order, AMOUNT);
+    }
+}
+
+#[test]
+fn transfer_checked_rejects_more_than_the_maximum_extra_accounts() {
+    for (side, index) in [(Side::Sell, BEGIN_INDEX), (Side::Buy, FINALIZE_INDEX)] {
+        let (_, _, result) = settle_with_extra_accounts(side, MAX_EXTRA_TRANSFER_ACCOUNTS + 1);
+        assert_instruction_error_at(index, result, InstructionError::InvalidArgument);
+    }
+}
+
 /// A settlement of an order whose sell or buy mint executes a transfer hook,
 /// set up to the point of choosing what the settlement carries.
 struct HookedOrder {
@@ -253,22 +280,22 @@ impl HookedOrder {
         }
     }
 
-    fn settle(&mut self, extra_accounts: Side) -> Result<TransactionMetadata, TransactionError> {
+    /// The settlement carrying the hook's accounts on the `extra_accounts` side.
+    fn instructions(&self, extra_accounts: Side) -> Vec<Instruction> {
         let hook_accounts = self.hook.extra_accounts(&self.hooked_mint);
-        let (begin_extra_accounts, finalize_extra_accounts): (&[_], &[_]) = match extra_accounts {
-            Side::Sell => (&hook_accounts, &[]),
-            Side::Buy => (&[], &hook_accounts),
-        };
-        let instructions = settlement(
+        settlement(
             &self.program_id,
             &self.solver.pubkey(),
             &self.order,
             &Checked {
                 mints: &[self.hooked_mint],
-                begin_extra_accounts,
-                finalize_extra_accounts,
+                ..extra_accounts.carrying(&hook_accounts)
             },
-        );
+        )
+    }
+
+    fn settle(&mut self, extra_accounts: Side) -> Result<TransactionMetadata, TransactionError> {
+        let instructions = self.instructions(extra_accounts);
         send(&mut self.svm, &self.solver, &instructions)
     }
 }
@@ -281,6 +308,22 @@ enum Side {
     Buy,
 }
 
+impl Side {
+    /// `extra_accounts` on this side's instruction, none on the other's.
+    fn carrying(self, extra_accounts: &[AccountMeta]) -> Checked<'_> {
+        match self {
+            Side::Sell => Checked {
+                begin_extra_accounts: extra_accounts,
+                ..Default::default()
+            },
+            Side::Buy => Checked {
+                finalize_extra_accounts: extra_accounts,
+                ..Default::default()
+            },
+        }
+    }
+}
+
 #[test]
 fn transfer_hook_runs_on_the_extra_accounts() {
     for side in [Side::Sell, Side::Buy] {
@@ -290,6 +333,20 @@ fn transfer_hook_runs_on_the_extra_accounts() {
             .expect("the hook's accounts should let the transfer through");
         assert_settled(&hooked.svm, &hooked.order, AMOUNT);
     }
+}
+
+#[test]
+fn settles_through_a_transfer_hook() {
+    let mut hooked = HookedOrder::new(Side::Sell);
+    let instructions = hooked.instructions(Side::Sell);
+    send_metered(
+        &mut hooked.svm,
+        &hooked.solver,
+        &instructions,
+        BenchLabel::Settle,
+    )
+    .expect("the hook's accounts should let the transfer through");
+    assert_settled(&hooked.svm, &hooked.order, AMOUNT);
 }
 
 #[test]

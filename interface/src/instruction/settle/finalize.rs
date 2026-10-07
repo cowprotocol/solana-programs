@@ -9,7 +9,9 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{recover_discriminator, SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER};
+use super::{
+    recover_counterpart, MaybeMint, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER,
+};
 
 /// The number of fixed accounts every `FinalizeSettle` carries before its push
 /// accounts: the instructions sysvar, the settlement state PDA, and one slot per
@@ -57,8 +59,8 @@ pub fn finalize_push_data(instruction_data: &[u8]) -> Result<(&[u8], &[[u8; 8]])
 /// Builder for a `FinalizeSettle` instruction pushing the funds described by the
 /// parallel lists:
 /// - `source_buffers[i]` is the account the funds come from: the buffer token
-///   account of the order's buy mint, or the settlement state PDA itself for an
-///   order buying native SOL,
+///   account of the order's buy mint, or the native SOL buffer for an order
+///   buying native SOL,
 /// - `destinations[i]` is the account the funds go to (an order's buy token
 ///   account),
 /// - `mints[i]` is the buy mint if the push uses `TransferChecked`, or `None`
@@ -93,7 +95,7 @@ pub fn finalize_push_data(instruction_data: &[u8]) -> Result<(&[u8], &[[u8; 8]])
 ///
 /// `FinalizeSettle` only executes the transfers. Every push is validated by
 /// `BeginSettle`, which reads this instruction through introspection.
-#[derive(Default)]
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
@@ -107,7 +109,7 @@ pub struct FinalizeSettle<'a> {
     pub bumps: &'a [u8],
     pub amounts: &'a [u64],
     /// Appended to every `TransferChecked` this settlement issues.
-    pub extra_accounts: &'a [AccountMeta],
+    pub extra_transfer_accounts: &'a [AccountMeta],
 }
 
 impl From<FinalizeSettle<'_>> for Instruction {
@@ -122,7 +124,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             mints,
             bumps,
             amounts,
-            extra_accounts,
+            extra_transfer_accounts,
         } = builder;
 
         let data: Vec<u8> = core::iter::once(SettlementInstruction::FinalizeSettle.discriminator())
@@ -146,15 +148,15 @@ impl From<FinalizeSettle<'_>> for Instruction {
             };
             AccountMeta::new_readonly(address, false)
         }));
-        for (i, (source, destination)) in source_buffers.iter().zip(destinations).enumerate() {
+        for ((source, destination), mint) in source_buffers.iter().zip(destinations).zip(mints) {
             accounts.push(AccountMeta::new(*source, false));
             accounts.push(AccountMeta::new(*destination, false));
             accounts.push(AccountMeta::new_readonly(
-                mints[i].unwrap_or(MINT_PLACEHOLDER),
+                mint.unwrap_or(MINT_PLACEHOLDER),
                 false,
             ));
         }
-        accounts.extend_from_slice(extra_accounts);
+        accounts.extend_from_slice(extra_transfer_accounts);
 
         Instruction {
             program_id,
@@ -166,13 +168,13 @@ impl From<FinalizeSettle<'_>> for Instruction {
 
 /// A single fund push parsed from `FinalizeSettle`: move `amount` from
 /// `source_buffer` to `destination`. `bump` is `source_buffer`'s claimed
-/// canonical bump — of the buy mint's buffer PDA, or of the state PDA for a
-/// native SOL push — which the program re-derives against.
+/// canonical bump — of the buy mint's buffer PDA, or of the native SOL buffer
+/// for a native SOL push — which the program re-derives against.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Push<'a, A> {
     pub source_buffer: &'a A,
     pub destination: &'a A,
-    pub mint: &'a A,
+    pub mint: MaybeMint<'a, A>,
     pub bump: u8,
     pub amount: u64,
 }
@@ -199,7 +201,7 @@ impl<'a, A> Pushes<'a, A> {
                 |(([source_buffer, destination, mint], &bump), amount)| Push {
                     source_buffer,
                     destination,
-                    mint,
+                    mint: MaybeMint::new(mint),
                     bump,
                     amount: u64::from_le_bytes(*amount),
                 },
@@ -275,7 +277,7 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
-    use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::settle::tests::{ix_data, mint_address};
     use crate::instruction::tests::assert_readonly_nonsigner;
     use crate::token_program::TokenProgram;
     use hex_literal::hex;
@@ -387,7 +389,7 @@ mod tests {
             mints: &[Some(mint_a), None],
             bumps: &[0xa1, 0xb1],
             amounts: &[0x01020304, 0x05060708],
-            extra_accounts: &[
+            extra_transfer_accounts: &[
                 AccountMeta::new_readonly(extra_readonly, false),
                 AccountMeta::new(extra_writable, false),
             ],
@@ -517,7 +519,7 @@ mod tests {
                 (
                     push.source_buffer.address(),
                     push.destination.address(),
-                    push.mint.address(),
+                    mint_address(push.mint),
                     push.bump,
                     push.amount,
                 )
@@ -596,7 +598,7 @@ mod tests {
         for (push, expected) in pushes.iter().zip(&expected) {
             assert_eq!(push.source_buffer.address(), &expected.source);
             assert_eq!(push.destination.address(), &expected.dest);
-            assert_eq!(push.mint.address(), &expected.mint);
+            assert_eq!(mint_address(push.mint), &expected.mint);
             assert_eq!(push.bump, expected.bump);
             assert_eq!(push.amount, expected.amount);
         }
