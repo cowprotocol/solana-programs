@@ -18,9 +18,10 @@ use super::begin_settle::TokenProgram;
 pub struct FinalizedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub amount: u64,
-    /// Certain token2022 mints require transfers to use TransferChecked
-    /// instead of Transfer instruction, which requires supplying an additional account.
-    /// Alters whether the buy mint is supplied as an input RO account to toggle this behavior.
+    /// Use TransferChecked instead of Transfer to move the tokens. This is
+    /// generally costs more CU and resources but some Token2022 token
+    /// extensions require it (TransferFeeAmount, TransferHookAccount,
+    /// PausableAccount).
     pub use_transfer_checked: bool,
 }
 
