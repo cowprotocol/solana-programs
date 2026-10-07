@@ -450,6 +450,7 @@ mod tests {
             auction_id: AUCTION_ID,
             order_pdas: &[high_order_pda, low_order_pda],
             sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
+            // Not set to `None` for one of the mints to be able to confirm the ordering of accounts
             sell_mints: &[Some(high_sell_mint), None],
             pulls: &[&[], &[]],
             ..Default::default()
