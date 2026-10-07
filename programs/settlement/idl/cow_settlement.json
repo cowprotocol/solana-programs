@@ -1003,7 +1003,7 @@
             "name": "flags",
             "type": "u8",
             "docs": [
-              "IDL LIMITATION: this byte packs two settings the IDL's type grammar can't name as one field, so it's declared as the raw byte the wire carries. Bit 0 is the OrderKind (0 = Sell, 1 = Buy). Bit 1 is partially_fillable.",
+              "IDL LIMITATION: this byte packs two settings the IDL's type grammar can't name as one field, so it's declared as the raw byte the wire carries. Bit 0 is reserved for future use and must be clear. Bit 1 is the OrderKind (0 = Sell, 1 = Buy). Bit 2 is partially_fillable.",
               "Every other bit is reserved and must be clear: the program rejects a flags byte carrying one, so the same settings never have two encodings, and an order never has two UIDs."
             ]
           },

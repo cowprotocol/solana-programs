@@ -23,7 +23,7 @@ const SAMPLE_INTENT: OrderIntentArgs = {
 };
 
 // `uid_digest_regression` in interface/src/data/intent.rs.
-const SAMPLE_UID = "eddfac5ab968e8c8843c913f58f0ecb5061948a8558d8073dafe53f6f28d398a";
+const SAMPLE_UID = "fa1b214e3167f3fdae13ba61f6d2f97975d5b8185912a46a7182a59aba07a3c2";
 
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");

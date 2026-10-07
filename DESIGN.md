@@ -157,11 +157,9 @@ struct Flags {
 }
 ```
 
-The sell and buy tokens are effectively flattened down in wire format, and in the case that `buy` uses `NativeAsset`,
-the `buy_mint` is set to the Solana system program.
+The sell and buy tokens are effectively flattened down in wire format, and in the case that `buy` uses `NativeAsset`, the `buy_mint` is set to the Solana system program.
 
-The fields grouped in `Flags` share a single byte in the encoded form, one bit
-each, with the remaining bits reserved and required when decoding to be zero.
+The fields grouped in `Flags` share a single byte in the encoded form. The first bit is reserved for future use (off-chain orders), then each flag is a bit, and the remaining bits are reserved.
 
 Differences with Ethereum:
 

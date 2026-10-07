@@ -5,10 +5,10 @@ import { OrderKind } from "../src/generated";
 // Every combination of the two settings, with the byte the program's
 // `Flags` encoding gives it.
 const CASES: [Flags, number][] = [
-  [{ kind: OrderKind.Sell, partiallyFillable: false }, 0b00],
-  [{ kind: OrderKind.Buy, partiallyFillable: false }, 0b01],
-  [{ kind: OrderKind.Sell, partiallyFillable: true }, 0b10],
-  [{ kind: OrderKind.Buy, partiallyFillable: true }, 0b11],
+  [{ kind: OrderKind.Sell, partiallyFillable: false }, 0b000],
+  [{ kind: OrderKind.Buy, partiallyFillable: false }, 0b010],
+  [{ kind: OrderKind.Sell, partiallyFillable: true }, 0b100],
+  [{ kind: OrderKind.Buy, partiallyFillable: true }, 0b110],
 ];
 
 describe("flags", () => {
@@ -20,9 +20,9 @@ describe("flags", () => {
     expect(decodeFlags(byte)).toEqual(flags);
   });
 
-  // Bytes outside the two defined bits carry no meaning to this version of
-  // the program, so decoding has to reject them rather than ignore them.
-  it.each([0b100, 0b111, 0xff, 2 ** 32, -1])("rejects %d as reserved", (byte) => {
+  // Bytes outside the defined bits carry no meaning to the program, so decoding
+  // has to reject them.
+  it.each([0b001, 0b1000, 0b111, 0xff, 2 ** 32, -1])("rejects %d as reserved", (byte) => {
     expect(() => decodeFlags(byte)).toThrow(/reserved/);
   });
 });

@@ -54,9 +54,9 @@ pub struct Flags {
 }
 
 impl Flags {
-    // The bit each field occupies
-    const KIND: u8 = 1 << 0;
-    const PARTIALLY_FILLABLE: u8 = 1 << 1;
+    // The bit each field occupies. Bit 0 is reserved for off-chain orders.
+    const KIND: u8 = 1 << 1;
+    const PARTIALLY_FILLABLE: u8 = 1 << 2;
 
     /// Every bit the encoding defines; the others are reserved.
     const DEFINED: u8 = Self::KIND | Self::PARTIALLY_FILLABLE;
@@ -735,7 +735,7 @@ mod tests {
         });
         assert_eq!(
             hex(intent.uid().as_ref()),
-            "eddfac5ab968e8c8843c913f58f0ecb5061948a8558d8073dafe53f6f28d398a",
+            "fa1b214e3167f3fdae13ba61f6d2f97975d5b8185912a46a7182a59aba07a3c2",
         );
     }
 
@@ -779,8 +779,8 @@ mod tests {
             0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
             // valid_to (0xdead_beef, LE u32)
             0xef, 0xbe, 0xad, 0xde,
-            // flags (kind (Buy = 1) | partially_fillable)
-            0b00000011,
+            // flags (bit 0 reserved | kind (Buy = 1) | partially_fillable)
+            0b00000110,
             // app_data ([0x66; 32])
             0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
             0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,

@@ -5,9 +5,9 @@ import { OrderKind } from "./generated";
 // re-export
 export { OrderKind } from "./generated";
 
-// The bit each field occupies
-const KIND = 1 << 0;
-const PARTIALLY_FILLABLE = 1 << 1;
+// The bit each field occupies. Bit 0 is reserved for off-chain orders.
+const KIND = 1 << 1;
+const PARTIALLY_FILLABLE = 1 << 2;
 
 // Every bit the encoding defines; the others are reserved.
 const DEFINED = KIND | PARTIALLY_FILLABLE;
@@ -37,7 +37,7 @@ export function encodeFlags({ kind, partiallyFillable }: Flags): number {
  * Unpacks a flags byte. Throws if a reserved bit is set.
  */
 export function decodeFlags(byte: number): Flags {
-  if (byte < 0 || byte > DEFINED) {
+  if (byte < 0 || byte > 0xff || (byte & ~DEFINED) !== 0) {
     throw new Error(`flags byte ${byte} sets a reserved bit`);
   }
   return {
