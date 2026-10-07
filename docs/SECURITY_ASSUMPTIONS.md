@@ -40,10 +40,6 @@ The settlement program connects these parties together. It's designed to reduce 
 - Fair execution. While the overall protocol is built to incentivize fair prices, the program makes no such guarantees. From the program's perspective, the user is ultimately responsible for the fairness of the price in the intent.
 - Solver accountability for misbehavior. Limited abuse is expected (e.g., a solver withdrawing some of the fees beyond what they're entitled to). This is intended to be covered off-chain by the solver bond.
 
-# Assumptions
-
-In order for G1-G13 to operate as designed, the below assumptions are made.
-
 ## Scope
 
 - The program is upgradeable until this authority has been revoked. We expect to make it immutable at a date in the future ([DESIGN.md:15](./DESIGN.md#L15)). Until then the upgrade authority can do anything, and all security outcomes are contingent on the operations of the upgrade authority.
