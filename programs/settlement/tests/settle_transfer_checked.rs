@@ -3,9 +3,8 @@
 
 use crate::common::{
     assert_instruction_error, assert_instruction_error_at,
-    benchmark::BenchLabel,
     order::{buy_account, buy_mint, OrderBuilder},
-    replace_first_matching_account, send, send_metered,
+    replace_first_matching_account, send,
     settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token,
     token_2022::{Extensions, FEE_BASIS_POINTS},
@@ -54,35 +53,12 @@ fn assert_settled(svm: &LiteSVM, order: &StagedOrder, received: u64) {
     assert_eq!(token::balance(svm, &buy_account(&order.intent)), received);
 }
 
+common::also_under_token_2022!(settles_both_token_programs_with_transfer_checked);
 #[test]
 fn settles_both_token_programs_with_transfer_checked() {
-    for program in TokenProgram::ALL {
-        let (mut svm, program_id, payer, solver) = setup_settle_ready();
-        let sell = token::create_mint_under(&mut svm, &payer, &program.address(), Extensions::None);
-        let buy = token::create_mint_under(&mut svm, &payer, &program.address(), Extensions::None);
-        let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
-
-        let instructions = build_staged_settlement(
-            &program_id,
-            &solver.pubkey(),
-            slice::from_ref(&order),
-            vec![],
-            &[sell, buy],
-        );
-        send(&mut svm, &solver, &instructions)
-            .unwrap_or_else(|error| panic!("{program:?} should settle checked: {error:?}"));
-
-        assert_settled(&svm, &order, AMOUNT);
-    }
-}
-
-/// The checked counterpart of `settles_a_single_order`, for comparing the cost
-/// of `TransferChecked` against `Transfer`.
-#[test]
-fn settles_a_single_order_with_transfer_checked() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
-    let sell = token::create_mint(&mut svm, &payer);
-    let buy = token::create_mint(&mut svm, &payer);
+    let sell = token::create_mint_with_extensions(&mut svm, &payer, Extensions::None);
+    let buy = token::create_mint_with_extensions(&mut svm, &payer, Extensions::None);
     let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
 
     let instructions = build_staged_settlement(
@@ -92,8 +68,7 @@ fn settles_a_single_order_with_transfer_checked() {
         vec![],
         &[sell, buy],
     );
-    send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
-        .expect("a checked settlement should settle");
+    send(&mut svm, &solver, &instructions).expect("a checked settlement should settle");
 
     assert_settled(&svm, &order, AMOUNT);
 }
