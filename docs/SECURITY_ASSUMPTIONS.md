@@ -32,10 +32,13 @@ The settlement program connects these parties together. It's designed to reduce 
 
 ## Explicitly not guaranteed
 
-Liveness. Any of the following can make an order unsettleable without breaking G1–G13:
-- The user changing their token account such that funds can no longer be drawn from the `sell_token_account` (ex. transfer tokens, approval reset)
-- behavior enforced by a Token-2022 extension
-- a mint authority acting on its own token
+- Liveness. There are circumstances when the order won't be settleable, for example:
+  - The user changing their token account such that funds can no longer be drawn from the `sell_token_account` (ex. transfer tokens, approval reset, ownership transfer).
+  - Specific token extensions (token freeze, non-transferable).
+  - On-chain state changes make a route unfillable.
+- Accounting for token fees. A settlement only guarantees that a transfer happens for the intended amount; the final transfer fees are borne by the receiver.
+- Fair execution. While the overall protocol is built to incentivize fair prices, the program makes no such guarantees. From the program's perspective, the user is ultimately responsible for the fairness of the price in the intent.
+- Solver accountability for misbehavior. Limited abuse is expected (e.g., a solver withdrawing some of the fees beyond what they're entitled to). This is intended to be covered off-chain by the solver bond.
 
 # Assumptions
 
