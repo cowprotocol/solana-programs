@@ -20,7 +20,7 @@ The settlement program connects these parties together. It's designed to reduce 
 ## Protocol funds
 
 - G7. Only approved solvers can settle, and a removed solver has no access left.
-- G8. Excluding behavior resulting from Token2022 (ie. PersistentDelegate, or a future Token2022 extension), buffer funds cannot be withdrawn outside of any state pda defined authorized accounts.
+- G8. Access to buffer funds is limited to solvers and dedicated administrative roles (barring access intrinsic to the token itself, such as a permanent delegate).
 - G9. Excluding token freezes, nobody can block the creation or reclamation of an order or a buffer.
 
 ## Roles
