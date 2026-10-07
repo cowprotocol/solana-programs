@@ -42,7 +42,7 @@ The settlement program connects these parties together. It's designed to reduce 
 
 ## Scope
 
-- The program is upgradeable until this authority has been revoked. We expect to make it immutable at a date in the future ([DESIGN.md:15](./DESIGN.md#L15)). Until then the upgrade authority can do anything, and all security outcomes are contingent on the operations of the upgrade authority.
+The program is upgradeable until this authority has been revoked. We expect to make it immutable at a date in the future ([DESIGN.md:15](./DESIGN.md#L15)). Until then the upgrade authority can do anything, and all security outcomes are contingent on the operations of the upgrade authority.
 
 ## Privileged Roles
 
