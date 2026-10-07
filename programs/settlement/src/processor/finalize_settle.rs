@@ -17,7 +17,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     lamports::move_lamports,
     settle::validate_counterpart,
-    token::{owning_token_program, read_mint_decimals, TransferMaybeChecked},
+    token::{owning_token_program, read_mint_decimals, read_token_account, TransferMaybeChecked},
 };
 
 pub fn process_finalize_settle(
@@ -47,8 +47,8 @@ pub fn process_finalize_settle(
 
     // `BeginSettle` (which the counterpart check above guarantees ran) already
     // validated every push: its count, its destination, and that its source is
-    // the canonical buffer for the order's buy mint. Nothing is left to check
-    // here, so `push_funds` only executes the transfers.
+    // the canonical buffer for the order's buy mint. Finalize additionally
+    // verifies that each transfer credits the full amount Begin counted.
 
     with_state_pda_signer(|state_pda_signer| {
         push_funds(input.state_pda_account, state_pda_signer, input.pushes)
@@ -85,6 +85,7 @@ fn push_funds<'a>(
         if push.source_buffer.address() != &NATIVE_SOL_BUFFER_PDA {
             let token_program = owning_token_program(push.destination)
                 .map_err(|_| SettlementError::InvalidTokenProgram)?;
+            let before = read_token_account(token_program, push.destination)?.amount;
             TransferMaybeChecked {
                 token_program,
                 from: push.source_buffer,
@@ -95,6 +96,10 @@ fn push_funds<'a>(
                 signer: state_pda_signer,
             }
             .invoke()?;
+            let after = read_token_account(token_program, push.destination)?.amount;
+            if after.checked_sub(before) != Some(push.amount) {
+                return Err(SettlementError::PayoutAmountMismatch.into());
+            }
         }
     }
 

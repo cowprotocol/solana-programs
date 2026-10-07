@@ -143,6 +143,9 @@ pub enum SettlementError {
     /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
     /// was not able to be parsed as such.
     InvalidMint = 43,
+    /// `FinalizeSettle`: a token payout did not credit its destination with
+    /// exactly the amount counted toward the order's limit and fill progress.
+    PayoutAmountMismatch = 44,
 }
 
 impl From<SettlementError> for u32 {

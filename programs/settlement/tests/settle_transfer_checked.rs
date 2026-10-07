@@ -4,13 +4,15 @@
 use crate::common::{
     assert_instruction_error, assert_instruction_error_at,
     benchmark::BenchLabel,
-    order::{buy_account, buy_mint, OrderBuilder},
+    order::{buy_account, buy_mint, read_order, OrderBuilder},
     replace_first_matching_account, send, send_metered,
     settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token,
     token_2022::{Extensions, FEE_BASIS_POINTS},
     unique_pubkey,
 };
+use cow_settlement_client::cow_settlement_interface::data::intent::OrderKind;
+use cow_settlement_client::cow_settlement_interface::pda::order::find_order_pda;
 use cow_settlement_client::cow_settlement_interface::SettlementError;
 use cow_settlement_client::instruction::TokenProgram;
 use litesvm::LiteSVM;
@@ -76,12 +78,12 @@ fn settles_both_token_programs_with_transfer_checked() {
 }
 
 #[test]
-fn transfer_fee_mints_settle_only_with_transfer_checked() {
+fn sell_transfer_fee_mints_settle_only_with_transfer_checked() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let token_2022 = TokenProgram::Token2022.address();
     let fee = Extensions::CloseAuthorityAndTransferFee;
     let sell = token::create_mint_under(&mut svm, &payer, &token_2022, fee);
-    let buy = token::create_mint_under(&mut svm, &payer, &token_2022, fee);
+    let buy = token::create_mint_under(&mut svm, &payer, &token_2022, Extensions::None);
     let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
 
     // Token-2022 refuses a plain `Transfer` of a mint charging a fee.
@@ -104,19 +106,105 @@ fn transfer_fee_mints_settle_only_with_transfer_checked() {
         vec![],
         &[sell, buy],
     );
-    send(&mut svm, &solver, &checked).expect("a checked settlement should pay the fee");
+    send(&mut svm, &solver, &checked).expect("a checked settlement should pay the sell-side fee");
 
-    // The fee is withheld from what each transfer delivers, the pull's included.
+    // The sell-side fee is withheld from the pull's destination.
     let fee = AMOUNT * FEE_BASIS_POINTS / 10_000;
     assert_eq!(token::balance(&svm, &order.intent.sell.token_account), 0);
     assert_eq!(
         token::balance(&svm, &order.pulls[0].destination),
         AMOUNT - fee
     );
-    assert_eq!(
-        token::balance(&svm, &buy_account(&order.intent)),
-        AMOUNT - fee
+    assert_eq!(token::balance(&svm, &buy_account(&order.intent)), AMOUNT);
+}
+
+#[test]
+fn buy_transfer_fee_cannot_underpay_an_order() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let sell = token::create_mint(&mut svm, &payer);
+    let buy = token::create_mint_under(
+        &mut svm,
+        &payer,
+        &TokenProgram::Token2022.address(),
+        Extensions::CloseAuthorityAndTransferFee,
     );
+    let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
+
+    let unchecked = build_staged_settlement(
+        &program_id,
+        &solver.pubkey(),
+        slice::from_ref(&order),
+        vec![],
+        &[],
+    );
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &unchecked),
+        InstructionError::Custom(Token2022Error::MintRequiredForTransfer as u32),
+    );
+
+    let checked = build_staged_settlement(
+        &program_id,
+        &solver.pubkey(),
+        slice::from_ref(&order),
+        vec![],
+        &[buy],
+    );
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &checked),
+        SettlementError::PayoutAmountMismatch,
+    );
+
+    let order_pda = find_order_pda(&program_id, &order.intent.uid()).0;
+    let stored = read_order(&svm, &order_pda);
+    assert_eq!((stored.amount_withdrawn, stored.amount_received), (0, 0));
+    assert_eq!(
+        token::balance(&svm, &order.intent.sell.token_account),
+        AMOUNT
+    );
+    assert_eq!(token::balance(&svm, &order.pulls[0].destination), 0);
+    assert_eq!(token::balance(&svm, &buy_account(&order.intent)), 0);
+}
+
+#[test]
+fn one_unit_buy_fee_cannot_drain_a_partially_fillable_order() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let sell = token::create_mint(&mut svm, &payer);
+    let buy = token::create_mint_under(
+        &mut svm,
+        &payer,
+        &TokenProgram::Token2022.address(),
+        Extensions::CloseAuthorityAndTransferFee,
+    );
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .sell_mint(&sell)
+        .buy_mint(&buy)
+        .sell_amount(AMOUNT)
+        .buy_amount(AMOUNT)
+        .kind(OrderKind::Buy)
+        .build();
+    let order = stage_order(&mut svm, &program_id, &payer, &intent, &[1], 1);
+    let checked = build_staged_settlement(
+        &program_id,
+        &solver.pubkey(),
+        slice::from_ref(&order),
+        vec![],
+        &[buy],
+    );
+    let order_pda = find_order_pda(&program_id, &intent.uid()).0;
+    for _ in 0..2 {
+        assert_instruction_error_at(
+            FINALIZE_INDEX,
+            send(&mut svm, &solver, &checked),
+            SettlementError::PayoutAmountMismatch,
+        );
+        let stored = read_order(&svm, &order_pda);
+        assert_eq!((stored.amount_withdrawn, stored.amount_received), (0, 0));
+        assert_eq!(token::balance(&svm, &intent.sell.token_account), 1);
+        assert_eq!(token::balance(&svm, &buy_account(&intent)), 0);
+        svm.expire_blockhash();
+    }
 }
 
 #[test]

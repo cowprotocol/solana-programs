@@ -1282,6 +1282,11 @@
       "code": 43,
       "name": "InvalidMint",
       "msg": "A mint account supplied to BeginSettle or FinalizeSettle was not able to be parsed as such."
+    },
+    {
+      "code": 44,
+      "name": "PayoutAmountMismatch",
+      "msg": "FinalizeSettle: a token payout did not credit its destination with exactly the amount counted toward the order's limit and fill progress."
     }
   ]
 }
