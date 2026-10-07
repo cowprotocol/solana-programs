@@ -20,6 +20,7 @@ use cow_settlement_client::cow_settlement_interface::{
     SettlementError,
 };
 use cow_settlement_client::instruction::FinalizedIntent;
+use cow_settlement_interface::instruction::settle::FINALIZE_PUSH_ACCOUNTS;
 use solana_sdk::{signer::Signer, transaction::TransactionError};
 
 mod common;
@@ -152,7 +153,8 @@ fn happy_path_with_many_payouts() {
     // Sanity: do we have a native push in the first half of the batch?
     let finalize_accounts = &instructions[usize::from(FINALIZE_INDEX)].accounts;
     // each order is two accounts, source and destination. We only want to confirm the address.
-    let push_sources: Vec<_> = finalize_accounts[finalize_accounts.len() - 2 * orders.len()..]
+    let push_sources: Vec<_> = finalize_accounts
+        [finalize_accounts.len() - FINALIZE_PUSH_ACCOUNTS * orders.len()..]
         .iter()
         .map(|push| push.pubkey)
         .collect();
