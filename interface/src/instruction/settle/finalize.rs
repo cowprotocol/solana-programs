@@ -151,7 +151,6 @@ impl From<FinalizeSettle<'_>> for Instruction {
                 false,
             ));
         }
-        }
 
         Instruction {
             program_id,

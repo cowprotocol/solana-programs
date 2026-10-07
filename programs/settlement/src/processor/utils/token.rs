@@ -3,7 +3,9 @@
 use core::slice;
 
 use cow_settlement_interface::{
-    instruction::settle::MaybeMint, token_program::TokenProgram, SettlementError,
+    instruction::settle::{MaybeMint, MINT_PLACEHOLDER},
+    token_program::TokenProgram,
+    SettlementError,
 };
 use pinocchio::{
     cpi::{get_return_data, Signer},
@@ -11,9 +13,6 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use pinocchio_token::instructions::{GetAccountDataSize, Transfer, TransferChecked};
-
-use solana_program_pack::Pack;
-use spl_token_2022_interface::state::Mint;
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
@@ -56,16 +55,26 @@ pub fn token_account_len(
     }
 }
 
-/// Reads the `decimals` from a mint account's data.
-#[inline(always)]
-fn read_mint_decimals(mint: &AccountView) -> Result<u8, ProgramError> {
-    let mint_data = mint.try_borrow()?;
-    let mint_contents = mint_data
-        .get(..Mint::LEN)
-        .ok_or(SettlementError::InvalidMint)?;
-    Mint::unpack(mint_contents)
-        .map(|m| m.decimals)
-        .map_err(|_| SettlementError::InvalidMint.into())
+/// Retrieves the decimals from `mint`, or `None` if `mint` is
+/// [`MINT_PLACEHOLDER`]. `token_program` must be the program that owns `mint`.
+/// The Option in the Result of this function should be supplied directly to [`transfer`].
+#[inline]
+pub fn read_mint_decimals(
+    token_program: TokenProgram,
+    mint: &AccountView,
+) -> Result<Option<u8>, ProgramError> {
+    if *mint.address() == MINT_PLACEHOLDER {
+        return Ok(None);
+    }
+    let decimals = match token_program {
+        TokenProgram::SplToken => pinocchio_token::state::Mint::from_account_view(mint)
+            .map_err(|_| SettlementError::InvalidMint)?
+            .decimals(),
+        TokenProgram::Token2022 => pinocchio_token_2022::state::Mint::from_account_view(mint)
+            .map_err(|_| SettlementError::InvalidMint)?
+            .decimals(),
+    };
+    Ok(Some(decimals))
 }
 
 /// Move `amount` from `from` to `to` under `token_program`, signed by
@@ -88,7 +97,8 @@ pub fn transfer(
         None => Transfer::new(from, to, authority, amount)
             .invoke_signed_with_unverified_program(signers, &program),
         Some(mint) => {
-            let decimals = read_mint_decimals(mint)?;
+            let decimals = read_mint_decimals(token_program, mint)?
+                .expect("non-placeholder mint must resolve");
             TransferChecked::new(from, mint, to, authority, amount, decimals)
                 .invoke_signed_with_unverified_program(signers, &program)
         }
