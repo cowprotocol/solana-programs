@@ -157,6 +157,7 @@ mod tests {
                 orders: &[InitializedIntent {
                     intent: &intent,
                     pulls: &[],
+                    use_transfer_checked: false,
                 }],
             }
             .into(),

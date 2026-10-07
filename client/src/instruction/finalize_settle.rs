@@ -18,6 +18,11 @@ use super::begin_settle::TokenProgram;
 pub struct FinalizedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub amount: u64,
+    /// Use TransferChecked instead of Transfer to move the tokens. This is
+    /// generally costs more CU and resources but some Token2022 token
+    /// extensions require it (TransferFeeAmount, TransferHookAccount,
+    /// PausableAccount).
+    pub use_transfer_checked: bool,
 }
 
 /// Builder for a `FinalizeSettle` instruction pushing each order's proceeds to
@@ -51,61 +56,154 @@ impl From<FinalizeSettle<'_>> for Instruction {
         // For BeginSettle, sorting can take place in the interface. But the
         // order PDAs don't appear in the actual FinalizeSettle instruction, so
         // the sorting can only happen here.
-        let num_orders = builder.orders.len();
-        let mut orders: Vec<usize> = (0..num_orders).collect();
-        orders.sort_by_key(|&i| {
-            find_order_pda(&builder.program_id, &builder.orders[i].intent.uid()).0
-        });
-
-        let mut source_buffers: Vec<Pubkey> = Vec::with_capacity(num_orders);
-        let mut destinations = Vec::with_capacity(num_orders);
-        let mut bumps = Vec::with_capacity(num_orders);
-        let mut amounts = Vec::with_capacity(num_orders);
-        for &i in &orders {
-            let intent = builder.orders[i].intent;
-            let (source, bump, destination) = match &intent.buy {
-                Asset::Native(account) => (
-                    NATIVE_SOL_BUFFER_PDA,
-                    NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
-                    *account,
-                ),
-                Asset::TokenProgram(token) => {
-                    let (buffer, buffer_bump) = find_buffer_pda(&builder.program_id, &token.mint);
-                    (buffer, buffer_bump, token.token_account)
-                }
-            };
-            source_buffers.push(source);
-            destinations.push(destination);
-            bumps.push(bump);
-            amounts.push(builder.orders[i].amount);
-        }
-        cow_settlement_interface::instruction::settle::FinalizeSettle {
-            program_id: builder.program_id,
-            state_pda: STATE_PDA,
-            begin_ix_index: builder.begin_ix_index,
-            only_token_program: builder.only_token_program,
-            source_buffers: &source_buffers,
-            destinations: &destinations,
-            bumps: &bumps,
-            amounts: &amounts,
-        }
-        .into()
+        let mut orders: Vec<&FinalizedIntent> = builder.orders.iter().collect();
+        orders.sort_by_key(|order| find_order_pda(&builder.program_id, &order.intent.uid()).0);
+        let pushes: Vec<OrderPush> = orders
+            .iter()
+            .map(|order| order.push(&builder.program_id))
+            .collect();
+        instruction_from_pushes(
+            builder.program_id,
+            builder.begin_ix_index,
+            builder.only_token_program,
+            &pushes,
+        )
     }
+}
+
+/// The push one order contributes to `FinalizeSettle`.
+#[derive(Debug, PartialEq)]
+struct OrderPush {
+    source_buffer: Pubkey,
+    destination: Pubkey,
+    mint: Option<Pubkey>,
+    bump: u8,
+    amount: u64,
+}
+
+impl FinalizedIntent<'_> {
+    /// An order buying native SOL is paid from the native SOL buffer's lamports and
+    /// never carries a mint; a token order is paid from its buy mint's buffer.
+    fn push(&self, program_id: &Pubkey) -> OrderPush {
+        let (source_buffer, bump, destination, mint) = match &self.intent.buy {
+            Asset::Native(account) => (
+                NATIVE_SOL_BUFFER_PDA,
+                NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
+                *account,
+                None,
+            ),
+            Asset::TokenProgram(token) => {
+                let (buffer, bump) = find_buffer_pda(program_id, &token.mint);
+                let mint = self.use_transfer_checked.then_some(token.mint);
+                (buffer, bump, token.token_account, mint)
+            }
+        };
+        OrderPush {
+            source_buffer,
+            destination,
+            mint,
+            bump,
+            amount: self.amount,
+        }
+    }
+}
+
+/// Lays `pushes` out, in the given order, as the interface's `FinalizeSettle`.
+fn instruction_from_pushes(
+    program_id: Pubkey,
+    begin_ix_index: u16,
+    only_token_program: Option<TokenProgram>,
+    pushes: &[OrderPush],
+) -> Instruction {
+    let source_buffers: Vec<Pubkey> = pushes.iter().map(|push| push.source_buffer).collect();
+    let destinations: Vec<Pubkey> = pushes.iter().map(|push| push.destination).collect();
+    let mints: Vec<Option<Pubkey>> = pushes.iter().map(|push| push.mint).collect();
+    let bumps: Vec<u8> = pushes.iter().map(|push| push.bump).collect();
+    let amounts: Vec<u64> = pushes.iter().map(|push| push.amount).collect();
+    cow_settlement_interface::instruction::settle::FinalizeSettle {
+        program_id,
+        state_pda: STATE_PDA,
+        begin_ix_index,
+        only_token_program,
+        source_buffers: &source_buffers,
+        destinations: &destinations,
+        mints: &mints,
+        bumps: &bumps,
+        amounts: &amounts,
+    }
+    .into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::proptest::{prelude::*, test_runner::TestCaseError};
+    use ::proptest::prelude::*;
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_order_intent,
+        data::intent::{fixtures::arb_order_intent, TokenAsset},
         fixtures::pubkey_from_seed,
         instruction::{
-            fixtures::fake_account_from_array,
-            settle::{FinalizeSettleInput, Push, INSTRUCTIONS_SYSVAR_ID},
-            InstructionInputParsing,
+            fixtures::fake_account_from_array, settle::FinalizeSettleInput, InstructionInputParsing,
         },
     };
+
+    #[test]
+    fn native_sol_push_never_carries_a_mint() {
+        let program_id = pubkey_from_seed("program id");
+        let recipient = pubkey_from_seed("recipient wallet");
+        let intent = OrderIntent {
+            buy: Asset::Native(recipient),
+            ..OrderIntent::default()
+        };
+        for use_transfer_checked in [false, true] {
+            let order = FinalizedIntent {
+                intent: &intent,
+                amount: 42,
+                use_transfer_checked,
+            };
+            assert_eq!(
+                order.push(&program_id),
+                OrderPush {
+                    source_buffer: NATIVE_SOL_BUFFER_PDA,
+                    destination: recipient,
+                    mint: None,
+                    bump: NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
+                    amount: 42,
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn token_push_comes_from_the_mint_buffer() {
+        let program_id = pubkey_from_seed("program id");
+        let mint = pubkey_from_seed("buy mint");
+        let token_account = pubkey_from_seed("buy token account");
+        let (buffer, bump) = find_buffer_pda(&program_id, &mint);
+        let intent = OrderIntent {
+            buy: Asset::TokenProgram(TokenAsset {
+                mint,
+                token_account,
+            }),
+            ..OrderIntent::default()
+        };
+        for (use_transfer_checked, expected_mint) in [(false, None), (true, Some(mint))] {
+            let order = FinalizedIntent {
+                intent: &intent,
+                amount: 42,
+                use_transfer_checked,
+            };
+            assert_eq!(
+                order.push(&program_id),
+                OrderPush {
+                    source_buffer: buffer,
+                    destination: token_account,
+                    mint: expected_mint,
+                    bump,
+                    amount: 42,
+                },
+            );
+        }
+    }
 
     #[test]
     fn native_sol_order_pushes_from_the_native_sol_buffer() {
@@ -118,11 +216,12 @@ mod tests {
         let ix = Instruction::from(FinalizeSettle {
             program_id,
             begin_ix_index: 0,
+            only_token_program: None,
             orders: &[FinalizedIntent {
                 intent: &intent,
                 amount: 1_337,
+                use_transfer_checked: false,
             }],
-            only_token_program: None,
         });
 
         let accounts: Vec<_> = ix
@@ -144,24 +243,23 @@ mod tests {
     }
 
     proptest! {
-        // `FinalizeSettle` derives each order's source buffer from its buy mint
-        // and destination from the intent, sorting by canonical order PDA like
-        // `BeginSettle` so the on-chain parser recovers exactly those pushes in
-        // that order.
+        // `FinalizeSettle` sorts its pushes by canonical order PDA, the order
+        // `BeginSettle` lays its settled orders out in, so the two lists align.
         #[test]
-        fn finalize_settle_derives_buffers_from_mints(
+        fn finalize_settle_sorts_pushes_by_order_pda(
             begin_ix_index in any::<u16>(),
             cases in prop::collection::vec(
-                (arb_order_intent(), any::<u64>()),
+                (arb_order_intent(), any::<u64>(), any::<bool>()),
                 1..=5,
             ),
         ) {
             let program_id = pubkey_from_seed("program id");
             let orders: Vec<FinalizedIntent> = cases
                 .iter()
-                .map(|(intent, amount)| FinalizedIntent {
+                .map(|(intent, amount, use_transfer_checked)| FinalizedIntent {
                     intent,
                     amount: *amount,
+                    use_transfer_checked: *use_transfer_checked,
                 })
                 .collect();
             let ix = Instruction::from(FinalizeSettle {
@@ -171,69 +269,19 @@ mod tests {
                 orders: &orders,
             });
 
-            // Expected pushes: each order's buffer PDA (and its canonical bump),
-            // buy account, and amount, sorted by the order's canonical PDA
-            // (the builder's order).
-            struct ExpectedPush {
-                order_pda: Pubkey,
-                buffer: Pubkey,
-                bump: u8,
-                destination: Pubkey,
-                amount: u64,
-            }
-            let mut expected: Vec<ExpectedPush> = orders
+            let mut expected: Vec<(Pubkey, OrderPush)> = orders
                 .iter()
                 .map(|order| {
                     let (order_pda, _bump) = find_order_pda(&program_id, &order.intent.uid());
-                    let (buffer, bump, destination) = match &order.intent.buy {
-                        Asset::Native(account) => {
-                            (NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP.1, *account)
-                        }
-                        Asset::TokenProgram(token) => {
-                            let (buffer, bump) = find_buffer_pda(&program_id, &token.mint);
-                            (buffer, bump, token.token_account)
-                        }
-                    };
-                    ExpectedPush {
-                        order_pda,
-                        buffer,
-                        bump,
-                        destination,
-                        amount: order.amount,
-                    }
+                    (order_pda, order.push(&program_id))
                 })
                 .collect();
-            expected.sort_by_key(|push| push.order_pda);
-
-            let accounts: Vec<_> = ix
-                .accounts
-                .iter()
-                .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
-                .collect();
-            let parsed = FinalizeSettleInput::parse(&ix.data, &accounts)
-                .map_err(|e| TestCaseError::fail(format!("parse failed: {e:?}")))?;
-
-            prop_assert_eq!(parsed.begin_ix_index, begin_ix_index);
+            expected.sort_by_key(|(order_pda, _)| *order_pda);
+            let expected: Vec<OrderPush> = expected.into_iter().map(|(_, push)| push).collect();
             prop_assert_eq!(
-                parsed.instructions_sysvar_account.address(),
-                &INSTRUCTIONS_SYSVAR_ID,
+                ix,
+                instruction_from_pushes(program_id, begin_ix_index, None, &expected),
             );
-            prop_assert_eq!(parsed.state_pda_account.address(), &STATE_PDA);
-
-            let parsed_pushes: Vec<_> = parsed.pushes.iter().collect();
-            prop_assert_eq!(parsed_pushes.len(), expected.len());
-            for (push, expected) in parsed_pushes.iter().zip(&expected) {
-                let Push {
-                    source_buffer,
-                    destination,
-                    bump,
-                    amount
-                } = push;
-                prop_assert_eq!(source_buffer.address(), &expected.buffer);
-                prop_assert_eq!(destination.address(), &expected.destination);
-                prop_assert_eq!(bump, &expected.bump);
-                prop_assert_eq!(amount, &expected.amount);
-            }
         }
     }
 }

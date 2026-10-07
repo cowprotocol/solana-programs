@@ -45,8 +45,9 @@ pub enum SettlementError {
     /// owner.
     SellTokenOwnerMismatch = 12,
     /// `BeginSettle`'s order-account count doesn't match the structure its
-    /// instruction data expects: `n` orders each contribute an order PDA and a
-    /// sell token account, plus one destination account per transfer.
+    /// instruction data expects: `n` orders each contribute an order PDA, a
+    /// sell token account, a sell mint, plus one destination account per
+    /// transfer.
     AccountCountNotMatchingOrderCount = 13,
     /// `BeginSettle` or `FinalizeSettle` was invoked via CPI rather than as a
     /// top-level transaction instruction.
@@ -64,8 +65,8 @@ pub enum SettlementError {
     /// which must sign the pulls as the user's token delegate.
     StateAccountMismatch = 18,
     /// `FinalizeSettle`'s push-account count doesn't match its instruction
-    /// data: each push contributes a source buffer and a destination account,
-    /// so the count must be twice the number of push amounts.
+    /// data: each push contributes a source buffer, a destination, and a mint,
+    /// so the count must be three times the number of push amounts.
     AccountCountNotMatchingPushCount = 19,
     /// `BeginSettle`: the number of pushes carried by the paired `FinalizeSettle`
     /// doesn't equal the number of settled orders. Each order must be paid by
@@ -139,6 +140,9 @@ pub enum SettlementError {
     UnauthorizedSettlementOwnedOrder = 41,
     /// An intent has a zero sell or buy amount, which is not supported.
     ZeroOrderAmount = 42,
+    /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
+    /// was not able to be parsed as such.
+    InvalidMint = 43,
 }
 
 impl From<SettlementError> for u32 {
