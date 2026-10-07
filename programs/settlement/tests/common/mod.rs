@@ -14,6 +14,7 @@ pub mod settlement;
 pub mod state;
 pub mod token;
 pub mod token_2022;
+pub mod transfer_hook;
 
 #[allow(
     unused_imports,
@@ -307,6 +308,14 @@ fn assemble_tx(
         &signers,
         svm.latest_blockhash(),
     )
+}
+
+/// The account keys of the transaction [`send`] submits for `instructions`, the
+/// table an inner instruction's account indices point into.
+pub fn account_keys(svm: &LiteSVM, payer: &Keypair, instructions: &[Instruction]) -> Vec<Pubkey> {
+    assemble_tx(svm, payer, &[], instructions)
+        .message
+        .account_keys
 }
 
 /// Assemble `instructions` into a transaction signed by `payer` and submit it,

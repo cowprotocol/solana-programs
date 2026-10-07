@@ -17,7 +17,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     lamports::move_lamports,
     settle::validate_counterpart,
-    token::{owning_token_program, read_mint_decimals, TransferMaybeChecked},
+    token::{owning_token_program, read_mint_decimals, CpiLists, TransferMaybeChecked},
 };
 
 pub fn process_finalize_settle(
@@ -51,7 +51,12 @@ pub fn process_finalize_settle(
     // here, so `push_funds` only executes the transfers.
 
     with_state_pda_signer(|state_pda_signer| {
-        push_funds(input.state_pda_account, state_pda_signer, input.pushes)
+        push_funds(
+            input.state_pda_account,
+            state_pda_signer,
+            input.extra_transfer_accounts,
+            input.pushes,
+        )
     })
 }
 
@@ -76,25 +81,26 @@ pub fn process_finalize_settle(
 /// in the CPI changed before it (it reverts with `UnbalancedInstruction`).
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
 fn push_funds<'a>(
-    state_pda_account: &AccountView,
+    state_pda_account: &'a AccountView,
     state_pda_signer: &Signer,
+    extra_transfer_accounts: &'a [AccountView],
     pushes: Pushes<'a, AccountView>,
 ) -> ProgramResult {
+    let mut cpi_lists: Option<CpiLists> = None;
     // Loop for orders not paying out native SOL
     for push in pushes.iter() {
         if push.source_buffer.address() != &NATIVE_SOL_BUFFER_PDA {
             let token_program = owning_token_program(push.destination)
                 .map_err(|_| SettlementError::InvalidTokenProgram)?;
-            TransferMaybeChecked {
+            TransferMaybeChecked::new(
                 token_program,
-                from: push.source_buffer,
-                mint: &read_mint_decimals(token_program, push.mint)?,
-                to: push.destination,
-                authority: state_pda_account,
-                amount: push.amount,
-                signer: state_pda_signer,
-            }
-            .invoke()?;
+                &read_mint_decimals(token_program, push.mint)?,
+                state_pda_account,
+                state_pda_signer,
+                extra_transfer_accounts,
+                &mut cpi_lists,
+            )
+            .invoke(push.source_buffer, push.destination, push.amount)?;
         }
     }
 

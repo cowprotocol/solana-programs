@@ -121,6 +121,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         only_token_program: None,
         orders: &initialized_intents,
         auction_id: 0,
+        extra_transfer_accounts: &[],
     };
 
     // Send exactly each order's buy amount; any surplus tokens stay in the buffers.
@@ -138,6 +139,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         begin_ix_index,
         only_token_program: None,
         orders: &settled,
+        extra_transfer_accounts: &[],
     };
 
     all_ixs.push(begin_ix.into());

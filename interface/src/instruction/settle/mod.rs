@@ -14,6 +14,11 @@ pub use solana_sdk_ids::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 /// call `Transfer` instead.
 pub const MINT_PLACEHOLDER: solana_pubkey::Pubkey = INSTRUCTIONS_SYSVAR_ID;
 
+/// The most extra accounts a settle instruction's `TransferChecked` calls can
+/// carry: the runtime's 128-account CPI limit, less `TransferChecked`'s own
+/// four. A `TransferChecked` given more fails with `InvalidArgument`.
+pub const MAX_EXTRA_TRANSFER_ACCOUNTS: usize = 124;
+
 /// The on-chain address of an account representation, that is, the generic `A`
 /// used in our parser. This can be used by implementations to use custom
 /// address types in the parser, as long as they implement `Keyed`.

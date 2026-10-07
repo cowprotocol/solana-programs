@@ -45,8 +45,11 @@ solana-sdk.workspace = true
 solana-sha256-hasher.workspace = true
 solana-system-interface.workspace = true
 spl-associated-token-account-interface.workspace = true
+spl-tlv-account-resolution.workspace = true
+spl-transfer-hook-interface.workspace = true
 spl-token-2022-interface.workspace = true
 syn.workspace = true
+test-transfer-hook = { path = "../test/transfer-hook" }
 
 [lints]
 workspace = true

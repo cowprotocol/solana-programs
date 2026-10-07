@@ -40,6 +40,7 @@ fn run_sequence(
                 auction_id: 0,
                 only_token_program: None,
                 orders: &[],
+                extra_transfer_accounts: &[],
             }
             .into(),
             AbstractInstruction::Fin(idx) => FinalizeSettle {
@@ -47,6 +48,7 @@ fn run_sequence(
                 begin_ix_index: *idx,
                 only_token_program: None,
                 orders: &[],
+                extra_transfer_accounts: &[],
             }
             .into(),
             // 0-lamport self-transfer: a side-effect-free instruction that
@@ -195,6 +197,7 @@ fn rejects_non_instructions_sysvar_account_at_position_one() {
         auction_id: 0,
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     }
     .into();
     begin.accounts[1] = AccountMeta::new_readonly(payer.pubkey(), false);
@@ -203,6 +206,7 @@ fn rejects_non_instructions_sysvar_account_at_position_one() {
         begin_ix_index: 0,
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     };
 
     let tx = Transaction::new_signed_with_payer(
@@ -235,6 +239,7 @@ fn rejects_counterpart_instruction_in_different_program() {
         auction_id: 0,
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     };
     // We build a transaction that looks like a valid finalize_settle but
     // calling a different program. It doesn't really matter what program
@@ -244,6 +249,7 @@ fn rejects_counterpart_instruction_in_different_program() {
         begin_ix_index: 0,
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     };
 
     let instructions = [begin.into(), stranger.into()];
@@ -299,6 +305,7 @@ fn rejects_cpi_call_to_begin_settle() {
             auction_id: 0,
             only_token_program: None,
             orders: &[],
+            extra_transfer_accounts: &[],
         },
     );
 
@@ -332,6 +339,7 @@ fn rejects_cpi_call_to_finalize_settle() {
             begin_ix_index: 0,
             only_token_program: None,
             orders: &[],
+            extra_transfer_accounts: &[],
         },
     );
 
@@ -366,6 +374,7 @@ fn rejects_counterpart_with_unrecoverable_discriminator() {
         auction_id: 0,
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     };
     // Uses the settlement program, but no data: `recover_discriminator` fails
     // on the empty payload before any kind check can run.
@@ -409,6 +418,7 @@ fn rejects_counterpart_with_unrecoverable_counterpart_index() {
         auction_id: 0,
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     };
     // Same program as `begin`, with a valid discriminator but no trailing
     // counterpart-index bytes: `recover_discriminator` succeeds, then

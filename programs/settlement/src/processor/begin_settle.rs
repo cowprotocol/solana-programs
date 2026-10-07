@@ -34,7 +34,10 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
-    token::{owning_token_program, read_mint_decimals, read_token_account, TransferMaybeChecked},
+    token::{
+        owning_token_program, read_mint_decimals, read_token_account, CpiLists,
+        TransferMaybeChecked,
+    },
 };
 
 pub fn process_begin_settle(
@@ -82,6 +85,7 @@ pub fn process_begin_settle(
             program_id,
             input.state_pda_account,
             signer,
+            input.extra_accounts,
             &input.orders,
             &finalize_ix,
         )
@@ -207,11 +211,12 @@ fn validate_no_nested_settlement<T: Deref<Target = [u8]>>(
 /// Further validation and the actual pulls are processed through
 /// [`process_order`].
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn settle_orders(
+fn settle_orders<'a>(
     program_id: &Address,
-    state_pda_account: &AccountView,
+    state_pda_account: &'a AccountView,
     state_pda_signer: &Signer,
-    orders: &SettledOrders<'_, AccountView>,
+    extra_accounts: &'a [AccountView],
+    orders: &SettledOrders<'a, AccountView>,
     finalize_ix: &IntrospectedInstruction,
 ) -> ProgramResult {
     // Orders must be passed strictly increasing by address; this rejects
@@ -224,6 +229,8 @@ fn settle_orders(
     // means fewer pushes than orders. A leftover push (more pushes than orders)
     // is caught after.
     let mut pushes = finalize_pushes(finalize_ix)?;
+
+    let mut cpi_lists: Option<CpiLists> = None;
 
     for order in orders.iter() {
         let order_pda_address = order.order_pda.address();
@@ -243,6 +250,8 @@ fn settle_orders(
             now,
             state_pda_account,
             state_pda_signer,
+            extra_accounts,
+            &mut cpi_lists,
         )?;
     }
 
@@ -258,14 +267,17 @@ fn settle_orders(
 /// intent's buy token account in the intent's buy mint out of the intent's sell
 /// mint. Once the order passes those checks, its pulls are executed and its
 /// settlement limit price is validated against the intent.
+#[allow(clippy::too_many_arguments)]
 #[must_use = "ignoring the output may lead to an unintended on-chain state"]
-fn process_order(
+fn process_order<'a>(
     program_id: &Address,
-    order: SettledOrder<'_, AccountView>,
+    order: SettledOrder<'a, AccountView>,
     push: &PairedPush,
     now: i64,
-    state_account: &AccountView,
+    state_account: &'a AccountView,
     state_pda_signer: &Signer,
+    extra_accounts: &'a [AccountView],
+    cpi_lists: &mut Option<CpiLists<'a>>,
 ) -> ProgramResult {
     let SettledOrder {
         order_pda,
@@ -336,22 +348,21 @@ fn process_order(
     // each transfer via `signer`. On a `TransferChecked`, the token program
     // checks `sell_mint` against the sell token account's mint.
     let sell_mint = read_mint_decimals(token_program, sell_mint)?;
+    let mut pull = TransferMaybeChecked::new(
+        token_program,
+        &sell_mint,
+        state_account,
+        state_pda_signer,
+        extra_accounts,
+        cpi_lists,
+    );
     let mut amount_in: u64 = 0;
     for (destination, amount) in destinations.iter().zip(amounts) {
         let amount = u64::from_le_bytes(*amount);
         amount_in = amount_in
             .checked_add(amount)
             .ok_or(SettlementError::PullAmountOverflow)?;
-        TransferMaybeChecked {
-            token_program,
-            from: sell_token_account,
-            mint: &sell_mint,
-            to: destination,
-            authority: state_account,
-            amount,
-            signer: state_pda_signer,
-        }
-        .invoke()?;
+        pull.invoke(sell_token_account, destination, amount)?;
     }
 
     let settled = FillAmounts {
@@ -448,7 +459,7 @@ mod tests {
     use cow_settlement_interface::instruction::InstructionInputParsing;
     use cow_settlement_interface::Pubkey;
     use proptest::prelude::*;
-    use solana_instruction::{BorrowedAccountMeta, BorrowedInstruction, Instruction};
+    use solana_instruction::{AccountMeta, BorrowedAccountMeta, BorrowedInstruction, Instruction};
 
     /// The largest value any amount can take on-chain (an SPL amount is a `u64`).
     const MAX: u64 = u64::MAX;
@@ -1027,7 +1038,12 @@ mod tests {
             state_pda in any::<[u8; 32]>(),
             begin_ix_index in any::<u16>(),
             pushes in arb_pushes(0..=16usize),
+            extra_transfer_accounts in prop::collection::vec(any::<[u8; 32]>(), 0..=4usize),
         ) {
+            let extra_transfer_accounts: Vec<AccountMeta> = extra_transfer_accounts
+                .into_iter()
+                .map(|address| AccountMeta::new_readonly(Pubkey::new_from_array(address), false))
+                .collect();
             let ix = Instruction::from(FinalizeSettle {
                 program_id: Pubkey::new_from_array(program_id),
                 state_pda: Pubkey::new_from_array(state_pda),
@@ -1037,6 +1053,7 @@ mod tests {
                 mints: &pushes.mints,
                 bumps: &pushes.bumps,
                 amounts: &pushes.amounts,
+                extra_transfer_accounts: &extra_transfer_accounts,
                 ..Default::default()
             });
 

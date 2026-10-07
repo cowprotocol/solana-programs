@@ -81,12 +81,14 @@ fn settle_with(
         auction_id: 0,
         only_token_program: begin_program,
         orders: &initialized,
+        extra_transfer_accounts: &[],
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: finalize_program,
         orders: &finalized,
+        extra_transfer_accounts: &[],
     };
     let tx = Transaction::new_signed_with_payer(
         &[begin.into(), finalize.into()],
@@ -308,6 +310,7 @@ fn settles_with_the_token_program_slots_swapped() {
             pulls: &pulls,
             use_transfer_checked: false,
         }],
+        extra_transfer_accounts: &[],
     });
     // `BeginSettle`'s accounts are `[solver, sysvar, state, spl_token,
     // token_2022, ...]`, so exchanging the two slots leaves both programs
@@ -322,6 +325,7 @@ fn settles_with_the_token_program_slots_swapped() {
             amount: 100,
             use_transfer_checked: false,
         }],
+        extra_transfer_accounts: &[],
     };
 
     let tx = Transaction::new_signed_with_payer(
@@ -378,12 +382,14 @@ fn narrowing_begin_settle_drops_one_account_from_the_transaction() {
             auction_id: 0,
             only_token_program,
             orders: &initialized,
+            extra_transfer_accounts: &[],
         };
         let finalize = FinalizeSettle {
             program_id,
             begin_ix_index: BEGIN_INDEX.into(),
             only_token_program,
             orders: &finalized,
+            extra_transfer_accounts: &[],
         };
         Transaction::new_signed_with_payer(
             &[begin.into(), finalize.into()],

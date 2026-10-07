@@ -89,6 +89,7 @@ fn non_signing_solver_may_not_settle() {
         auction_id: 0,
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     }
     .into();
 

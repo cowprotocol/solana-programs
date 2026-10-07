@@ -141,12 +141,14 @@ fn settle_and_pay_amounts(
         auction_id: 0,
         only_token_program: None,
         orders,
+        extra_transfer_accounts: &[],
     };
     let finalize = FinalizeSettle {
         program_id: *program_id,
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         orders: &settled,
+        extra_transfer_accounts: &[],
     };
     vec![begin.into(), finalize.into()]
 }
@@ -1204,7 +1206,7 @@ fn rejects_pull_exceeding_delegation() {
 }
 
 #[test]
-fn rejects_extra_account() {
+fn rejects_missing_account() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
 
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer).build();
@@ -1220,11 +1222,9 @@ fn rejects_extra_account() {
         }],
     );
 
-    // Append one extra account to `BeginSettle`, so the account count no longer
-    // matches.
-    instructions[usize::from(BEGIN_INDEX)]
-        .accounts
-        .push(AccountMeta::new_readonly(unique_pubkey(), false));
+    // Drop the order's last account (its mint slot) from `BeginSettle`, leaving
+    // fewer accounts than the transaction supports.
+    instructions[usize::from(BEGIN_INDEX)].accounts.pop();
 
     assert_begin_error(
         send(&mut svm, &solver, &instructions),
@@ -1247,6 +1247,7 @@ fn rejects_push_to_wrong_destination() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         orders: &orders,
+        extra_transfer_accounts: &[],
     });
     // Redirect the push to an account that isn't the order's buy token account.
     // Finalize accounts: `[FINALIZE_FIXED_ACCOUNTS..., source, destination]`.
@@ -1311,6 +1312,7 @@ fn rejects_fewer_pushes_than_orders() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -1336,6 +1338,7 @@ fn rejects_more_pushes_than_orders() {
             amount: 0,
             use_transfer_checked: false,
         }],
+        extra_transfer_accounts: &[],
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &[], finalize);
@@ -1360,6 +1363,7 @@ fn rejects_partial_push_amount_in_finalize_settle() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         orders: &orders,
+        extra_transfer_accounts: &[],
     });
     // Drop one byte from the finalize instruction so the trailing amount is no
     // longer a whole `u64`. `BeginSettle` reads the finalize's push amounts, so

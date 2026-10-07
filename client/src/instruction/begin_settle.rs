@@ -3,7 +3,7 @@
 use cow_settlement_interface::{
     data::intent::OrderIntent,
     pda::{order::find_order_pda, state::STATE_PDA},
-    Instruction, Pubkey,
+    AccountMeta, Instruction, Pubkey,
 };
 
 // Reexport the interface's `Pull` and `TokenProgram` so the client provides
@@ -46,6 +46,9 @@ pub struct BeginSettle<'a> {
     /// only token program you need here.
     pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [InitializedIntent<'a>],
+    /// Appended to every `TransferChecked` (for example, transfer hook
+    /// accounts).
+    pub extra_transfer_accounts: &'a [AccountMeta],
 }
 
 impl From<BeginSettle<'_>> for Instruction {
@@ -72,6 +75,7 @@ impl From<BeginSettle<'_>> for Instruction {
             sell_token_accounts: &sell_token_accounts,
             sell_mints: &sell_mints,
             pulls: &pull_lists,
+            extra_transfer_accounts: builder.extra_transfer_accounts,
         }
         .into()
     }
@@ -128,6 +132,7 @@ mod tests {
                 auction_id: 0,
                 only_token_program: None,
                 orders: &orders,
+                extra_transfer_accounts: &[]
             });
 
             let order_pdas: Vec<Pubkey> = cases
@@ -152,6 +157,7 @@ mod tests {
                 sell_token_accounts: &sell_token_accounts,
                 sell_mints: &sell_mints,
                 pulls: &pulls,
+                extra_transfer_accounts: &[],
             });
             prop_assert_eq!(ix, expected);
         }

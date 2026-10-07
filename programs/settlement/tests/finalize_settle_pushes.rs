@@ -287,6 +287,7 @@ fn rejects_push_account_count_mismatch() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         orders: &orders,
+        extra_transfer_accounts: &[],
     });
     // ...with another push's worth of data bytes appended but no matching
     // accounts. `BeginSettle` derives the push count from the (unchanged) account
@@ -313,6 +314,7 @@ fn rejects_too_few_accounts() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         orders: &[],
+        extra_transfer_accounts: &[],
     });
     // ...with one of its fixed accounts popped. `BeginSettle` runs first
     // but only reads push accounts after the fixed ones (finding none, matching
@@ -419,6 +421,7 @@ fn rejects_two_too_few_accounts() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         orders: &orders,
+        extra_transfer_accounts: &[],
     });
     // ...with that push's whole (source, destination, mint) triple popped, so
     // the data still declares one push while no push accounts remain.
@@ -449,6 +452,7 @@ fn rejects_partial_push_amount() {
         begin_ix_index: BEGIN_INDEX.into(),
         only_token_program: None,
         orders: &orders,
+        extra_transfer_accounts: &[],
     });
     // Drop one byte so the trailing amount is no longer a whole `u64`.
     finalize.data.pop();

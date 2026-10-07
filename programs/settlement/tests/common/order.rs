@@ -14,7 +14,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
 };
 
-use super::{buffer, signed_tx, token, unique_pubkey};
+use super::{buffer, signed_tx, token, transfer_hook::TransferHook, unique_pubkey};
 
 /// Decode the [`DecodedOrderAccount`] stored at an order PDA.
 pub fn read_order(svm: &LiteSVM, pda: &Pubkey) -> DecodedOrderAccount {
@@ -143,18 +143,20 @@ fn create_settlement_owned_order_pda(
 }
 
 /// How an [`OrderBuilder`] sources one side of an order.
-enum TokenSource {
+enum TokenSource<'a> {
     /// A fresh account of a freshly generated mint (the default).
     FreshMint,
     /// Indicates native token (only for buy side)
     Native,
     /// A fresh account of the given mint.
     Mint(Pubkey),
+    /// A fresh account of a fresh Token-2022 mint executing the given hook.
+    TransferHook(&'a TransferHook),
     /// The given existing account.
     Account(Pubkey),
 }
 
-impl TokenSource {
+impl TokenSource<'_> {
     /// Resolve this source into the [`TokenAsset`] it names, creating the token
     /// account it needs.
     fn resolve(
@@ -183,6 +185,14 @@ impl TokenSource {
                 token_account: create_account(svm, &mint),
             }
             .try_into(),
+            TokenSource::TransferHook(hook) => {
+                let mint = hook.create_mint(svm, payer);
+                TokenAsset {
+                    mint,
+                    token_account: create_account(svm, &mint),
+                }
+                .try_into()
+            }
             TokenSource::FreshMint => {
                 let mint = token::create_mint(svm, payer);
                 TokenAsset {
@@ -211,8 +221,8 @@ pub struct OrderBuilder<'a> {
     program_id: &'a Pubkey,
     payer: &'a Keypair,
     intent: OrderIntent,
-    sell: TokenSource,
-    buy: TokenSource,
+    sell: TokenSource<'a>,
+    buy: TokenSource<'a>,
     settlement_owned_order_authority: Option<&'a Keypair>,
 }
 
@@ -280,6 +290,18 @@ impl<'a> OrderBuilder<'a> {
     pub fn buy_mint(mut self, mint: &Pubkey) -> Self {
         assert_ne!(mint, &ENCODED_NATIVE_SOL_TRANSFER, "use buy_sol() instead");
         self.buy = TokenSource::Mint(*mint);
+        self
+    }
+
+    /// Sell a fresh Token-2022 mint executing `hook`.
+    pub fn sell_transfer_hook(mut self, hook: &'a TransferHook) -> Self {
+        self.sell = TokenSource::TransferHook(hook);
+        self
+    }
+
+    /// Buy a fresh Token-2022 mint executing `hook`.
+    pub fn buy_transfer_hook(mut self, hook: &'a TransferHook) -> Self {
+        self.buy = TokenSource::TransferHook(hook);
         self
     }
 

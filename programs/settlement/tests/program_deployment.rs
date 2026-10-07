@@ -36,6 +36,7 @@ fn program_can_be_invoked() {
                 auction_id: 0,
                 only_token_program: None,
                 orders: &[],
+                extra_transfer_accounts: &[],
             }
             .into(),
             FinalizeSettle {
@@ -43,6 +44,7 @@ fn program_can_be_invoked() {
                 begin_ix_index: 0,
                 only_token_program: None,
                 orders: &[],
+                extra_transfer_accounts: &[],
             }
             .into(),
         ],

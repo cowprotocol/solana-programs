@@ -7,7 +7,7 @@ use cow_settlement_interface::{
         order::find_order_pda,
         state::STATE_PDA,
     },
-    Instruction, Pubkey,
+    AccountMeta, Instruction, Pubkey,
 };
 
 use super::begin_settle::TokenProgram;
@@ -47,6 +47,9 @@ pub struct FinalizeSettle<'a> {
     /// only token program you need here.
     pub only_token_program: Option<TokenProgram>,
     pub orders: &'a [FinalizedIntent<'a>],
+    /// Appended to every `TransferChecked` (for example, transfer hook
+    /// accounts).
+    pub extra_transfer_accounts: &'a [AccountMeta],
 }
 
 impl From<FinalizeSettle<'_>> for Instruction {
@@ -66,6 +69,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
             builder.program_id,
             builder.begin_ix_index,
             builder.only_token_program,
+            builder.extra_transfer_accounts,
             &pushes,
         )
     }
@@ -113,6 +117,7 @@ fn instruction_from_pushes(
     program_id: Pubkey,
     begin_ix_index: u16,
     only_token_program: Option<TokenProgram>,
+    extra_transfer_accounts: &[AccountMeta],
     pushes: &[OrderPush],
 ) -> Instruction {
     let source_buffers: Vec<Pubkey> = pushes.iter().map(|push| push.source_buffer).collect();
@@ -130,6 +135,7 @@ fn instruction_from_pushes(
         mints: &mints,
         bumps: &bumps,
         amounts: &amounts,
+        extra_transfer_accounts,
     }
     .into()
 }
@@ -217,6 +223,7 @@ mod tests {
             program_id,
             begin_ix_index: 0,
             only_token_program: None,
+            extra_transfer_accounts: &[],
             orders: &[FinalizedIntent {
                 intent: &intent,
                 amount: 1_337,
@@ -267,6 +274,7 @@ mod tests {
                 begin_ix_index,
                 only_token_program: None,
                 orders: &orders,
+                extra_transfer_accounts: &[],
             });
 
             let mut expected: Vec<(Pubkey, OrderPush)> = orders
@@ -280,7 +288,7 @@ mod tests {
             let expected: Vec<OrderPush> = expected.into_iter().map(|(_, push)| push).collect();
             prop_assert_eq!(
                 ix,
-                instruction_from_pushes(program_id, begin_ix_index, None, &expected),
+                instruction_from_pushes(program_id, begin_ix_index, None, &[], &expected),
             );
         }
     }

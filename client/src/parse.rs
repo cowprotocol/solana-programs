@@ -159,6 +159,7 @@ mod tests {
                     pulls: &[],
                     use_transfer_checked: false,
                 }],
+                extra_transfer_accounts: &[],
             }
             .into(),
             SettlementInstruction::FinalizeSettle => FinalizeSettle {
@@ -166,6 +167,7 @@ mod tests {
                 begin_ix_index: 0,
                 only_token_program: None,
                 orders: &[],
+                extra_transfer_accounts: &[],
             }
             .into(),
             SettlementInstruction::ReclaimOrder => ReclaimOrder {

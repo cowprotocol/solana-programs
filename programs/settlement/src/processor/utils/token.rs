@@ -3,11 +3,14 @@
 use core::slice;
 
 use cow_settlement_interface::{
-    instruction::settle::MaybeMint, token_program::TokenProgram, SettlementError,
+    instruction::settle::{MaybeMint, MAX_EXTRA_TRANSFER_ACCOUNTS},
+    token_program::TokenProgram,
+    SettlementError,
 };
 use pinocchio::{
-    cpi::{get_return_data, Signer},
+    cpi::{get_return_data, invoke_signed_with_slice, Signer, MAX_CPI_ACCOUNTS},
     error::ProgramError,
+    instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
 use pinocchio_token::instructions::{GetAccountDataSize, Transfer, TransferChecked};
@@ -53,6 +56,14 @@ pub fn token_account_len(
     }
 }
 
+/// `TransferChecked`'s own accounts: `[source, mint, destination, authority]`.
+const TRANSFER_CHECKED_ACCOUNTS: usize = 4;
+
+const _: () = assert!(
+    TRANSFER_CHECKED_ACCOUNTS + MAX_EXTRA_TRANSFER_ACCOUNTS == MAX_CPI_ACCOUNTS,
+    "MAX_EXTRA_TRANSFER_ACCOUNTS must track the runtime's CPI account limit",
+);
+
 /// A resolved [`MaybeMint`]: the real mint with its decimals, or `None` for the
 /// placeholder. Only [`read_mint_decimals`] builds one, so a
 /// [`TransferMaybeChecked`] can't be issued without the mint having been read.
@@ -80,42 +91,152 @@ pub fn read_mint_decimals(
     Ok(MintDecimals(Some((account, decimals))))
 }
 
-/// Move `amount` from `from` to `to` under `token_program`, signed by
-/// `authority` through `signer`. A real mint issues a `TransferChecked`
-/// against the decimals [`read_mint_decimals`] read from it; the placeholder
-/// issues a plain `Transfer`.
-pub struct TransferMaybeChecked<'a> {
-    pub token_program: TokenProgram,
-    pub from: &'a AccountView,
-    pub mint: &'a MintDecimals<'a>,
-    pub to: &'a AccountView,
-    pub authority: &'a AccountView,
-    pub amount: u64,
-    pub signer: &'a Signer<'a, 'a>,
+/// `TransferChecked`'s account lists, in instruction and CPI form. Built by the
+/// first [`TransferMaybeChecked`] that needs them and reused by every one after
+/// that is handed the same `Option`.
+pub struct CpiLists<'a> {
+    instruction_accounts: Vec<InstructionAccount<'a>>,
+    account_views: Vec<&'a AccountView>,
 }
 
-impl TransferMaybeChecked<'_> {
-    #[inline(always)]
-    pub fn invoke(self) -> ProgramResult {
-        let Self {
+impl<'a> CpiLists<'a> {
+    fn new(
+        fixed: &[(&'a AccountView, InstructionAccount<'a>); TRANSFER_CHECKED_ACCOUNTS],
+        extra_accounts: &'a [AccountView],
+    ) -> Self {
+        let len = TRANSFER_CHECKED_ACCOUNTS
+            .checked_add(extra_accounts.len())
+            .expect("the account count is bounded by the transaction size");
+        let mut instruction_accounts = Vec::with_capacity(len);
+        let mut account_views = Vec::with_capacity(len);
+        for (account, meta) in fixed {
+            instruction_accounts.push(meta.clone());
+            account_views.push(*account);
+        }
+        for extra in extra_accounts {
+            instruction_accounts.push(InstructionAccount::new(
+                extra.address(),
+                extra.is_writable(),
+                extra.is_signer(),
+            ));
+            account_views.push(extra);
+        }
+        Self {
+            instruction_accounts,
+            account_views,
+        }
+    }
+}
+
+/// Token transfers of one mint under `token_program`, signed by `authority`
+/// through `signer`. A real mint issues a `TransferChecked` against the
+/// decimals [`read_mint_decimals`] read from it, with `extra_accounts` appended
+/// (for example, the accounts a transfer hook needs); the placeholder issues a
+/// plain `Transfer`.
+pub struct TransferMaybeChecked<'a, 'b> {
+    token_program: TokenProgram,
+    mint: &'b MintDecimals<'a>,
+    authority: &'a AccountView,
+    signer: &'b Signer<'b, 'b>,
+    extra_accounts: &'a [AccountView],
+    cpi_lists: &'b mut Option<CpiLists<'a>>,
+}
+
+impl<'a, 'b> TransferMaybeChecked<'a, 'b> {
+    pub fn new(
+        token_program: TokenProgram,
+        mint: &'b MintDecimals<'a>,
+        authority: &'a AccountView,
+        signer: &'b Signer<'b, 'b>,
+        extra_accounts: &'a [AccountView],
+        cpi_lists: &'b mut Option<CpiLists<'a>>,
+    ) -> Self {
+        Self {
             token_program,
-            from,
             mint,
-            to,
             authority,
-            amount,
             signer,
-        } = self;
-        let signers = slice::from_ref(signer);
-        let program = token_program.address();
-        match mint.0 {
-            None => Transfer::new(from, to, authority, amount)
+            extra_accounts,
+            cpi_lists,
+        }
+    }
+
+    /// Move `amount` from `from` to `to`.
+    #[inline(always)]
+    pub fn invoke(
+        &mut self,
+        from: &'a AccountView,
+        to: &'a AccountView,
+        amount: u64,
+    ) -> ProgramResult {
+        let signers = slice::from_ref(self.signer);
+        let program = self.token_program.address();
+        match self.mint.0 {
+            None => Transfer::new(from, to, self.authority, amount)
                 .invoke_signed_with_unverified_program(signers, &program),
-            Some((mint, decimals)) => {
-                TransferChecked::new(from, mint, to, authority, amount, decimals)
+            Some((mint, decimals)) if self.extra_accounts.is_empty() => {
+                TransferChecked::new(from, mint, to, self.authority, amount, decimals)
                     .invoke_signed_with_unverified_program(signers, &program)
             }
+            Some((mint, decimals)) => {
+                self.invoke_checked_with_extra_accounts(from, mint, to, amount, decimals)
+            }
         }
+    }
+
+    /// A `TransferChecked` with `extra_accounts` appended, which
+    /// `pinocchio_token`'s builder can't carry.
+    #[inline(always)]
+    fn invoke_checked_with_extra_accounts(
+        &mut self,
+        from: &'a AccountView,
+        mint: &'a AccountView,
+        to: &'a AccountView,
+        amount: u64,
+        decimals: u8,
+    ) -> ProgramResult {
+        let authority = self.authority;
+        let fixed = [
+            (from, InstructionAccount::writable(from.address())),
+            (mint, InstructionAccount::readonly(mint.address())),
+            (to, InstructionAccount::writable(to.address())),
+            (
+                authority,
+                InstructionAccount::readonly_signer(authority.address()),
+            ),
+        ];
+        let extra_accounts = self.extra_accounts;
+        let CpiLists {
+            instruction_accounts,
+            account_views,
+        } = self
+            .cpi_lists
+            .get_or_insert_with(|| CpiLists::new(&fixed, extra_accounts));
+        for ((account, meta), (instruction_account, account_view)) in fixed.into_iter().zip(
+            instruction_accounts
+                .iter_mut()
+                .zip(account_views.iter_mut()),
+        ) {
+            *instruction_account = meta;
+            *account_view = account;
+        }
+
+        let mut data = [0u8; 10];
+        data[0] = TransferChecked::DISCRIMINATOR;
+        data[1..9].copy_from_slice(&amount.to_le_bytes());
+        data[9] = decimals;
+
+        // Borrow-checks every writable account, the extra accounts included,
+        // and fails with `InvalidArgument` past `MAX_EXTRA_TRANSFER_ACCOUNTS`.
+        invoke_signed_with_slice(
+            &InstructionView {
+                program_id: &self.token_program.address(),
+                accounts: instruction_accounts,
+                data: &data,
+            },
+            account_views,
+            slice::from_ref(self.signer),
+        )
     }
 }
 
