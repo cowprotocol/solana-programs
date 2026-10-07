@@ -3,7 +3,10 @@
 use cow_settlement_interface::{
     data::state::{StateAccount, StateInitArgs, WIDTH_HEADER},
     instruction::{initialize::InitializeInput, InstructionInputParsing},
-    pda::state::{validate_is_state_pda, STATE_PDA_SEEDS},
+    pda::{
+        buffer::NATIVE_SOL_BUFFER_PDA_SEEDS,
+        state::{validate_is_state_pda, STATE_PDA_SEEDS},
+    },
 };
 use pinocchio::{AccountView, Address, ProgramResult};
 
@@ -17,6 +20,7 @@ pub fn process_initialize(
     let InitializeInput {
         payer,
         state_pda,
+        native_sol_buffer,
         manager,
         solver_authority,
         reclaim_authority,
@@ -33,6 +37,19 @@ pub fn process_initialize(
         size: WIDTH_HEADER as u64,
         owner: program_id,
         seeds: STATE_PDA_SEEDS,
+    }
+    .create_new()?;
+
+    // The native SOL buffer holds plain lamports, which `FinalizeSettle` pays
+    // out by editing balances directly, so it's an empty account owned by the
+    // settlement program.
+    CanonicalPda {
+        program_id,
+        payer,
+        pda: native_sol_buffer,
+        size: 0,
+        owner: program_id,
+        seeds: NATIVE_SOL_BUFFER_PDA_SEEDS,
     }
     .create_new()?;
 

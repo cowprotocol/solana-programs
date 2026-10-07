@@ -3,9 +3,9 @@
 use cow_settlement_interface::{
     data::intent::{Asset, OrderIntent},
     pda::{
-        buffer::find_buffer_pda,
+        buffer::{find_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP},
         order::find_order_pda,
-        state::{STATE_PDA, STATE_PDA_AND_BUMP},
+        state::STATE_PDA,
     },
     Instruction, Pubkey,
 };
@@ -31,8 +31,8 @@ pub struct FinalizedIntent<'a> {
 /// The destination is the order intent's buy account and the source is the
 /// canonical buffer PDA for its buy mint (see [`find_buffer_pda`]), the only
 /// buffer `BeginSettle` accepts as the source of that order's push. An order
-/// buying [`Asset::Native`] SOL has no buffer, so its source is the settlement
-/// state PDA, whose lamports pay it. The
+/// buying [`Asset::Native`] SOL is paid out of the lamports of
+/// [`NATIVE_SOL_BUFFER_PDA`] instead. The
 /// orders are sorted by their canonical order PDA (the same key
 /// [`BeginSettle`](super::begin_settle::BeginSettle) orders its settled-order
 /// list by) so the two instructions present the orders
@@ -82,11 +82,16 @@ struct OrderPush {
 }
 
 impl FinalizedIntent<'_> {
-    /// An order buying native SOL is paid from the state PDA's lamports and
+    /// An order buying native SOL is paid from the native SOL buffer's lamports and
     /// never carries a mint; a token order is paid from its buy mint's buffer.
     fn push(&self, program_id: &Pubkey) -> OrderPush {
         let (source_buffer, bump, destination, mint) = match &self.intent.buy {
-            Asset::Native(account) => (STATE_PDA, STATE_PDA_AND_BUMP.1, *account, None),
+            Asset::Native(account) => (
+                NATIVE_SOL_BUFFER_PDA,
+                NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
+                *account,
+                None,
+            ),
             Asset::TokenProgram(token) => {
                 let (buffer, bump) = find_buffer_pda(program_id, &token.mint);
                 let mint = self.use_transfer_checked.then_some(token.mint);
@@ -158,10 +163,10 @@ mod tests {
             assert_eq!(
                 order.push(&program_id),
                 OrderPush {
-                    source_buffer: STATE_PDA,
+                    source_buffer: NATIVE_SOL_BUFFER_PDA,
                     destination: recipient,
                     mint: None,
-                    bump: STATE_PDA_AND_BUMP.1,
+                    bump: NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
                     amount: 42,
                 },
             );
@@ -201,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn native_sol_order_pushes_from_the_state_pda() {
+    fn native_sol_order_pushes_from_the_native_sol_buffer() {
         let program_id = pubkey_from_seed("program id");
         let recipient = pubkey_from_seed("recipient wallet");
         let intent = OrderIntent {
@@ -231,8 +236,8 @@ mod tests {
             panic!("one order pushes once, got {} pushes", pushes.len());
         };
 
-        assert_eq!(push.source_buffer.address(), &STATE_PDA);
-        assert_eq!(push.bump, STATE_PDA_AND_BUMP.1);
+        assert_eq!(push.source_buffer.address(), &NATIVE_SOL_BUFFER_PDA);
+        assert_eq!(push.bump, NATIVE_SOL_BUFFER_PDA_AND_BUMP.1);
         assert_eq!(push.destination.address(), &recipient);
         assert_eq!(push.amount, 1_337);
     }

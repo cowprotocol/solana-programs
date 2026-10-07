@@ -5,7 +5,7 @@ use cow_settlement_interface::{
         settle::{FinalizeSettleInput, Pushes},
         InstructionInputParsing,
     },
-    pda::state::validate_is_state_pda,
+    pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::validate_is_state_pda},
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
@@ -57,13 +57,13 @@ pub fn process_finalize_settle(
 
 /// Push each order's proceeds out of the settlement's buffers, signing each
 /// transfer as the canonical state PDA (the buffers' SPL authority), or out of
-/// the state PDA's own lamports for an order paid in native SOL.
+/// the native SOL buffer's lamports for an order paid in native SOL.
 ///
 /// Validating the pushes is done in `BeginSettle`. It does so by checking:
 /// 1. the `destination` matches the `buy_token_account` in the OrderIntentAccessor
 /// 2. the sending buffer in the instruction is the one holding the
 ///    settlement's funds for the relevant buy asset. For native SOL, this is
-///    the state PDA, and for tokens, its the buffer account associated
+///    the native SOL buffer, and for tokens, its the buffer account associated
 ///    with the buy_mint.
 ///
 /// So ultimately, for an SPL push we are relying that the SPL token program
@@ -82,7 +82,7 @@ fn push_funds<'a>(
 ) -> ProgramResult {
     // Loop for orders not paying out native SOL
     for push in pushes.iter() {
-        if push.source_buffer.address() != state_pda_account.address() {
+        if push.source_buffer.address() != &NATIVE_SOL_BUFFER_PDA {
             let token_program = owning_token_program(push.destination)
                 .map_err(|_| SettlementError::InvalidTokenProgram)?;
             TransferMaybeChecked {
@@ -98,13 +98,12 @@ fn push_funds<'a>(
         }
     }
 
-    let mut state_pda_account = *state_pda_account;
-
     // Loop for orders paying out native SOL
     for push in pushes.iter() {
-        if push.source_buffer.address() == state_pda_account.address() {
+        if push.source_buffer.address() == &NATIVE_SOL_BUFFER_PDA {
+            let mut source = *push.source_buffer;
             let mut destination = *push.destination;
-            move_lamports(&mut state_pda_account, &mut destination, push.amount)?;
+            move_lamports(&mut source, &mut destination, push.amount)?;
         }
     }
 

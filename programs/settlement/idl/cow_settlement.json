@@ -11,7 +11,7 @@
     {
       "name": "initialize",
       "docs": [
-        "Creates the singleton settlement state PDA. Succeeds only once."
+        "Creates the singleton settlement state PDA and the native SOL buffer. Succeeds only once."
       ],
       "discriminator": [
         3
@@ -22,7 +22,7 @@
           "writable": true,
           "signer": true,
           "docs": [
-            "Funds the state PDA's rent and pays the transaction fee."
+            "Funds the state PDA's and native SOL buffer's rent and pays the transaction fee."
           ]
         },
         {
@@ -58,6 +58,63 @@
           },
           "docs": [
             "Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+          ]
+        },
+        {
+          "name": "native_sol_buffer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  52,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114,
+                  32,
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101,
+                  32,
+                  115,
+                  111,
+                  108
+                ]
+              }
+            ]
+          },
+          "docs": [
+            "Canonical PDA seeded by [SETTLEMENT_SEED, \"buffer native sol\"]. Created as an empty account owned by the settlement program, whose lamports on top of rent pay out orders buying native SOL."
           ]
         },
         {
@@ -416,7 +473,7 @@
       "name": "finalize_settle",
       "docs": [
         "Validates that a BeginSettle at `begin_ix_index` exists and points back at this instruction. Must not be called via CPI.",
-        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source: the buy mint's buffer PDA, or the state PDA for an order buying native SOL. Each push adds `[source_buffer, destination, mint]` accounts. A mint set to the instructions sysvar selects Transfer instead of TransferChecked. Please check the rust documentation for more information."
+        "IDL LIMITATION: only the fixed-size prefix (begin_ix_index) is represented as a typed argument. After it, the real wire format is `[bump: u8; push_count][amount: u64 LE; push_count]`, where each bump is the canonical bump of the push's source: the buy mint's buffer PDA, or the native SOL buffer PDA for an order buying native SOL. Each push adds `[source_buffer, destination, mint]` accounts. A mint set to the instructions sysvar selects Transfer instead of TransferChecked. Please check the rust documentation for more information."
       ],
       "discriminator": [
         1
@@ -429,7 +486,7 @@
         {
           "name": "state_pda",
           "docs": [
-            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority, and pays the pushes of orders buying native SOL out of its own lamports."
+            "Must be the canonical state PDA; signs each push as the buffers' SPL token authority."
           ]
         },
         {

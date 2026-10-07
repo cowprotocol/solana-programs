@@ -29,7 +29,7 @@ A bump is not a migration. There are some other consequences that should be cons
 
 ## Program initialization
 
-The state PDA is created once, after deployment, by the `Initialize` instruction.
+The state PDA and native SOL buffer PDA are created once, after deployment, by the `Initialize` instruction.
 
 ## Authorities
 
@@ -50,11 +50,11 @@ Buffer accounts are token accounts that hold funds on behalf of the settlement p
 
 These token accounts are accessible to all solvers and effectively work like the current buffers. They are used to send out funds to the user and collect fees, which stay on the buffers after the settlement. This means that the current fee accounting and withdrawal mechanism would be based on balance changes (like on Ethereum).
 
-The buffer account for native SOL is the state PDA itself, using the funds on top of the necessary rent.
-
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
-A buffer (except for the state PDA) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
+The buffer account for native SOL is an empty account owned by the settlement program whose funds on top of the necessary rent are paid out. 
+
+A buffer (except for the native SOL buffer) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
 
 Differences with Ethereum:
 

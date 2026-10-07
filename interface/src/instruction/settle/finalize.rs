@@ -59,8 +59,8 @@ pub fn finalize_push_data(instruction_data: &[u8]) -> Result<(&[u8], &[[u8; 8]])
 /// Builder for a `FinalizeSettle` instruction pushing the funds described by the
 /// parallel lists:
 /// - `source_buffers[i]` is the account the funds come from: the buffer token
-///   account of the order's buy mint, or the settlement state PDA itself for an
-///   order buying native SOL,
+///   account of the order's buy mint, or the native SOL buffer for an order
+///   buying native SOL,
 /// - `destinations[i]` is the account the funds go to (an order's buy token
 ///   account),
 /// - `mints[i]` is the buy mint if the push uses `TransferChecked`, or `None`
@@ -162,8 +162,8 @@ impl From<FinalizeSettle<'_>> for Instruction {
 
 /// A single fund push parsed from `FinalizeSettle`: move `amount` from
 /// `source_buffer` to `destination`. `bump` is `source_buffer`'s claimed
-/// canonical bump — of the buy mint's buffer PDA, or of the state PDA for a
-/// native SOL push — which the program re-derives against.
+/// canonical bump — of the buy mint's buffer PDA, or of the native SOL buffer
+/// for a native SOL push — which the program re-derives against.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Push<'a, A> {
     pub source_buffer: &'a A,
