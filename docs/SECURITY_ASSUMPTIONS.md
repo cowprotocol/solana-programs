@@ -27,7 +27,7 @@ The settlement program connects these parties together. It's designed to reduce 
 ## Roles
 
 - G11. A role can only be reassigned by the manager or by that role's current holder.
-- G12. No role (apart from the program upgrade authority) can move user funds.
+- No role can move user funds without a program upgrade, which revoking the authority prevents.
 
 ## Explicitly not guaranteed
 
