@@ -34,7 +34,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
-    token::{owning_token_program, read_token_account, TransferMaybeChecked},
+    token::{owning_token_program, read_mint_decimals, read_token_account, TransferMaybeChecked},
 };
 
 pub fn process_begin_settle(
@@ -335,6 +335,7 @@ fn process_order(
     // into `amount_in` as we go. The state PDA is the SPL delegate, so it signs
     // each transfer via `signer`. On a `TransferChecked`, the token program
     // checks `sell_mint` against the sell token account's mint.
+    let sell_mint = read_mint_decimals(token_program, sell_mint)?;
     let mut amount_in: u64 = 0;
     for (destination, amount) in destinations.iter().zip(amounts) {
         let amount = u64::from_le_bytes(*amount);
@@ -344,7 +345,7 @@ fn process_order(
         TransferMaybeChecked {
             token_program,
             from: sell_token_account,
-            mint: sell_mint,
+            mint: &sell_mint,
             to: destination,
             authority: state_account,
             amount,
