@@ -55,4 +55,4 @@ All roles, other than Solvers, are defined and manipulated using the same patter
 | Solver authority | Adding and removing solvers, so it decides who can settle |
 | Reclaim authority | Closing buffers and choosing where their rent goes. Can also burn tokens from the buffer to allow closing to happen |
 | Settlement-owned-order authority | Ability to place orders that are owned by the settlement program, used to withdraw fees |
-| Solvers | Ability to call `BeginSettle` and `FinalizeSettle` |
+| Solvers | Ability to settle user orders |
