@@ -46,7 +46,7 @@ fn happy_path_sell_tokens_for_native_sol() {
     let before = lamports(&svm, &NATIVE_SOL_BUFFER_PDA);
 
     let instructions =
-        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new());
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new(), &[]);
     send_metered(
         &mut svm,
         &solver,
@@ -78,6 +78,7 @@ fn happy_path_pays_out_of_the_initialized_native_sol_buffer() {
         &[FinalizedIntent {
             intent: &intent,
             amount: 1_000_000,
+            use_transfer_checked: false,
         }],
     );
     send(&mut svm, &solver, &instructions).expect("the native push should be paid");
@@ -137,10 +138,12 @@ fn happy_path_with_many_payouts() {
         .map(|i| FinalizedIntent {
             intent: &spl_intents[usize::from(i)],
             amount: spl_amount(i),
+            use_transfer_checked: false,
         })
         .chain((0..MIXED_ORDER_COUNT).map(|i| FinalizedIntent {
             intent: &sol_intents[usize::from(i)],
             amount: sol_amount(i),
+            use_transfer_checked: false,
         }))
         .collect();
 
@@ -207,10 +210,12 @@ fn happy_path_multiple_native_orders_can_settle() {
             FinalizedIntent {
                 intent: &intent0,
                 amount: amount0,
+                use_transfer_checked: false,
             },
             FinalizedIntent {
                 intent: &intent1,
                 amount: amount1,
+                use_transfer_checked: false,
             },
         ],
     );
@@ -251,10 +256,12 @@ fn happy_path_native_orders_sharing_a_destination() {
             FinalizedIntent {
                 intent: &intent0,
                 amount: amount0,
+                use_transfer_checked: false,
             },
             FinalizedIntent {
                 intent: &intent1,
                 amount: amount1,
+                use_transfer_checked: false,
             },
         ],
     );
@@ -281,6 +288,7 @@ fn happy_path_zero_amount() {
         &[FinalizedIntent {
             intent: &intent,
             amount: 0,
+            use_transfer_checked: false,
         }],
     );
     send(&mut svm, &solver, &instructions).expect("a zero-amount native push should succeed");
@@ -305,6 +313,7 @@ fn happy_path_native_sol_buffer_receiver_still_works() {
         &[FinalizedIntent {
             intent: &intent,
             amount: 100,
+            use_transfer_checked: false,
         }],
     );
     send(&mut svm, &solver, &instructions)
@@ -336,6 +345,7 @@ fn rejects_a_push_spending_the_native_sol_buffers_rent() {
         &[FinalizedIntent {
             intent: &intent,
             amount: funding + 1,
+            use_transfer_checked: false,
         }],
     );
     let err = send(&mut svm, &solver, &instructions)
@@ -363,6 +373,7 @@ fn rejects_a_push_larger_than_the_whole_balance() {
         &[FinalizedIntent {
             intent: &intent,
             amount: balance + 1,
+            use_transfer_checked: false,
         }],
     );
     assert_instruction_error_at(
@@ -387,6 +398,7 @@ fn rejects_a_native_push_from_a_buffer() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
     let finalize = FinalizeSettleRaw {
         program_id,
@@ -394,9 +406,10 @@ fn rejects_a_native_push_from_a_buffer() {
         begin_ix_index: BEGIN_INDEX.into(),
         source_buffers: &[buffer_pda],
         destinations: &[buy_sol_account(&intent)],
+        mints: &[None],
         bumps: &[buffer_bump],
         amounts: &[100],
-        only_token_program: None,
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
@@ -416,6 +429,7 @@ fn rejects_a_native_push_to_wrong_destination() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
     let finalize = FinalizeSettleRaw {
         program_id,
@@ -423,9 +437,10 @@ fn rejects_a_native_push_to_wrong_destination() {
         begin_ix_index: BEGIN_INDEX.into(),
         source_buffers: &[NATIVE_SOL_BUFFER_PDA],
         destinations: &[unique_pubkey()],
+        mints: &[None],
         bumps: &[NATIVE_SOL_BUFFER_PDA_AND_BUMP.1],
         amounts: &[100],
-        only_token_program: None,
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
