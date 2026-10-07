@@ -10,11 +10,11 @@ The settlement program connects these parties together. It's designed to reduce 
 
 ## Scope
 
-The program is upgradeable until this authority has been revoked. We expect to make it immutable at a date in the future ([DESIGN.md:15](./DESIGN.md#L15)). Until then the upgrade authority can do anything, and all security outcomes are contingent on the operations of the upgrade authority.
+The program is upgradeable until the upgrade authority has been revoked. We expect to make it immutable at a date in the future ([DESIGN.md:15](./DESIGN.md#L15)). Until then the upgrade authority can do anything, and all security outcomes are contingent on the operations of the upgrade authority.
 
 ## Privileged Roles
 
-All roles, other than Solvers, are defined and manipulated using the same pattern in the state pda.
+All roles, other than Solvers, are defined and manipulated using the same pattern in the state PDA.
 
 | Role | Trusted with |
 |---|---|
@@ -50,7 +50,7 @@ All roles, other than Solvers, are defined and manipulated using the same patter
 ## Explicitly not guaranteed
 
 - Liveness. There are circumstances when the order won't be settleable, for example:
-  - The user changing their token account such that funds can no longer be drawn from the `sell_token_account` (ex. transfer tokens, approval reset, ownership transfer).
+  - The user changing their token account such that funds can no longer be drawn from the `sell_token_account` (e.g., transfer tokens, approval reset, ownership transfer).
   - Specific token extensions (token freeze, non-transferable).
   - On-chain state changes make a route unfillable.
 - Accounting for token fees. A settlement only guarantees that a transfer happens for the intended amount; the final transfer fees are borne by the receiver.
