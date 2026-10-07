@@ -8,6 +8,23 @@ Three kinds of party interact with the settlement program:
 
 The settlement program connects these parties together. It's designed to reduce how much they have to trust each other.
 
+## Scope
+
+The program is upgradeable until this authority has been revoked. We expect to make it immutable at a date in the future ([DESIGN.md:15](./DESIGN.md#L15)). Until then the upgrade authority can do anything, and all security outcomes are contingent on the operations of the upgrade authority.
+
+## Privileged Roles
+
+All roles, other than Solvers, are defined and manipulated using the same pattern in the state pda.
+
+| Role | Trusted with |
+|---|---|
+| Upgrade authority | Everything (while the program is mutable) |
+| Manager | Ability to assign every role, its own included. Transfers take one step, with no acceptance or zero-address check |
+| Solver authority | Adding and removing solvers, so it decides who can settle |
+| Reclaim authority | Closing buffers and choosing where their rent goes. Can also burn tokens from the buffer to allow closing to happen |
+| Settlement-owned-order authority | Ability to place orders that are owned by the settlement program, used to withdraw fees |
+| Solvers | Ability to settle user orders |
+
 ## Users
 
 - G1. User funds only move to settle one of the user's own orders.
@@ -39,20 +56,3 @@ The settlement program connects these parties together. It's designed to reduce 
 - Accounting for token fees. A settlement only guarantees that a transfer happens for the intended amount; the final transfer fees are borne by the receiver.
 - Fair execution. While the overall protocol is built to incentivize fair prices, the program makes no such guarantees. From the program's perspective, the user is ultimately responsible for the fairness of the price in the intent.
 - Solver accountability for misbehavior. Limited abuse is expected (e.g., a solver withdrawing some of the fees beyond what they're entitled to). This is intended to be covered off-chain by the solver bond.
-
-## Scope
-
-The program is upgradeable until this authority has been revoked. We expect to make it immutable at a date in the future ([DESIGN.md:15](./DESIGN.md#L15)). Until then the upgrade authority can do anything, and all security outcomes are contingent on the operations of the upgrade authority.
-
-## Privileged Roles
-
-All roles, other than Solvers, are defined and manipulated using the same pattern in the state pda.
-
-| Role | Trusted with |
-|---|---|
-| Upgrade authority | Everything (while the program is mutable) |
-| Manager | Ability to assign every role, its own included. Transfers take one step, with no acceptance or zero-address check |
-| Solver authority | Adding and removing solvers, so it decides who can settle |
-| Reclaim authority | Closing buffers and choosing where their rent goes. Can also burn tokens from the buffer to allow closing to happen |
-| Settlement-owned-order authority | Ability to place orders that are owned by the settlement program, used to withdraw fees |
-| Solvers | Ability to settle user orders |
