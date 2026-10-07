@@ -88,7 +88,7 @@ Fees accumulate in the buffer accounts after a settlement is concluded.
 
 Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [settlement-owned-order authority](#authorities).
 
-The order is placed through the `CreateSettlementOwnedOrder` instruction. The settlement-owned-order authority can specify arbitrary order parameters, as long as the owner is the state PDA and the order is marked as created on-chain.
+The order is placed through the `CreateSettlementOwnedOrder` instruction. The settlement-owned-order authority can specify arbitrary order parameters, as long as the owner is the state PDA.
 
 Differences with Ethereum:
 
@@ -115,7 +115,7 @@ Differences with Ethereum:
 
 ### Intents
 
-Users interact with the protocol by [signing](#authenticating-an-order) an order intent off-chain.
+Users interact with the protocol through order intents that their owner [creates on-chain](#authenticating-an-order).
 
 An order intent is the following list of parameters:
 
@@ -151,8 +151,6 @@ struct OrderIntent {
 }
 
 struct Flags {
-	// Indicates the path by which the order was created. Important for reclaim.
-	created_on_chain: bool
 	// Either Buy or Sell
 	kind: OrderKind
 	partially_fillable: bool
@@ -173,9 +171,9 @@ Differences with Ethereum:
 
 ### Orders are accounts
 
-For processing an order in a settlement, the data of that order needs to be stored in a dedicated account. Storing this data is, in general, the responsibility of the solver who settles the order the first time, but anyone can do it if a user signed an order.
+For processing an order in a settlement, the data of that order needs to be stored in a dedicated account.
 
-Useful information can be recovered from the order PDA. Notably:
+The following data is stored in the order PDA:
 
 ```rust
 // The PDA's canonical bump, stored so instructions don't have to carry it
@@ -212,19 +210,9 @@ Differences with Ethereum:
 
 Cancelling an order is an operation executed by the user to make it impossible to trade that order in the protocol.
 
-Cancelling an order requires an on-chain operation. This operation can be authenticated in two ways:
-
-- Directly, through the `CancelOrder` instruction signed by the order owner account.
-- By anyone through a signed intent, signing the following cancellation struct:
-  ```rust
-  struct CancelIntent {
-    intent: OrderIntent
-  }
-  ```
+Cancelling an order requires an on-chain operation, executed through the `CancelOrder` instruction signed by the order owner account.
 
 Creating the order in advance is _not_ needed: if the order wasn’t created before cancelling, the corresponding order PDA is created and then cancelled.
-
-Note that deleting the order PDA is _not_ enough to cancel an order for off-chain orders. In fact, if an order signature is available, the same order could always be created again until it expires.
 
 ### Order clearing
 
@@ -232,68 +220,23 @@ Allocating an order PDA requires paying rent.
 
 If the order is expired, anyone can close the order account through the `ReclaimOrder` instruction. On account closure, the rent is sent to the order's `created_by` account, i.e., the original creator of the order.
 
-If an order created on-chain (`created_on_chain`), it can safely be closed earlier. In this case, `ReclaimOrder` will additionally allow reclaiming of orders that are cancelled or completely filled.
+An order can also be closed before it expires once it is cancelled or completely filled: in these cases `ReclaimOrder` additionally allows reclaiming it.
 
 This is useful for solvers who need to allocate the order for executing it, but the allocation itself would be orders of magnitude more expensive than the compute cost for executing an instruction. This is particularly relevant to make small orders economically viable.
 
 ## Authenticating an order
 
-We want to support two ways to authenticate that an order comes from a user:
+An order is authenticated by its owner creating it on-chain. The owner executes the `CreateOrder` instruction, and the settlement program checks that the order comes from the owner before [creating the order PDA](#orders-are-accounts).
 
-- [Off-chain] Through an [Ed25519 signature](#ed25519), encoded as Solana’s off-chain message.
-- [On-chain] In an [instruction](#on-chain-order-creation) by the owner that directly creates the order PDA.
+A dedicated signer account pays the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered once the order has expired by [clearing the order](#order-clearing).
 
-### Encoding the signed data
-
-The data to sign is encoded using Solana’s [off-chain message signing standard](https://docs.anza.xyz/proposals/off-chain-message-signing). It’s similar to the ERC-712 standard to encode structured data, in that it guarantees that:
-
-- Users cannot sign Solana transactions instead of messages by accident.
-- The signature cannot be used by other protocols that rely on the same signature encoding: there is strict namespacing of signatures, and each signed message is only valid for the intended purpose.
+The owner may be a standard ("on-curve") account or a program signing for its own PDA; this allows on-chain programs to trade.
 
 Differences with Ethereum:
 
-- Off-chain message signing seems to be much less supported by wallets compared to ERC-712. For example, there doesn’t seem to be a Phantom wallet API to encode off-chain messages (see [documentation](https://docs.phantom.com/sdks/browser-sdk/sign-messages), Solana only has a simple `signMessage`). Further research is needed to determine wallet compatibility, but there’s reason to believe it’s very low and it will compromise user signing experience.
-- Off-chain message signing doesn’t have a native representation of structured data. Only UTF8 and ASCII data can be signed, meaning that even if wallets were supporting this standard, many of them would just present, in the best case, a sequence of bytes.
-
-### Ed25519
-
-Raw Ed25519 signatures are supported by all native Solana accounts.
-
-The data to be signed is encoded as an off-chain message and signed with raw Ed25519 signatures.
-
-Orders that are created by this path must specify the flag `created_on_chain = false`.
-
-Differences with Ethereum:
-
-- Unlike ECDSA signatures in Ethereum, the owner account address cannot be recovered from the Ed25519 signature. This means that the address needs to be included as part of the signed data.
-- Signatures are 64 bytes (unlike EVM’s 65).
-
-### On-chain order creation
-
-Orders can be created by the owner by executing an instruction on-chain.
-
-The order owner executes the `CreateOrder` instruction. The settlement program checks that the order comes from the owner and [creates the order PDA](#orders-are-accounts).
-
-In this authentication flow, the user needs to pay for the rent in SOL necessary to create the PDA. Note that the rent may be significantly higher than the expected trading fee. The rent can be recovered by the user once the order has expired by [clearing the order](#order-clearing).
-
-Orders that are created by this path must specify the flag `created_on_chain = true`.
-
-This flow supports both standard ("on-curve") accounts and PDA signatures.
-
-This flow is the only one allowing on-chain programs to trade through the settlement program.
-
-Advantages:
-
-- Smart wallets can sign an order without needing an Ed25519 private key.
-
-Disadvantages:
-
-- Not intent-based, the user needs to sign and execute an instruction for every order.
-
-Differences with Ethereum:
-
+- Orders are not off-chain signed intents. On Ethereum an order is typically an off-chain signature; here every order is published on-chain by an instruction from its owner, who signs and executes it once per order.
 - The rent refund process isn’t part of Ethereum and adds extra costs for the user.
-- Unlike Ethereum’s pre-signing, this flow isn’t considered a "signature scheme" but it’s a direct way to publish in a trusted way all order information on-chain. This is because, in Solana, it’s more complex and expensive to manage dedicated storage for pre-signatures than just creating the order on-chain.
+- Unlike Ethereum’s pre-signing, this isn’t a "signature scheme" but a direct way to publish all order information on-chain in a trusted way: in Solana, managing dedicated storage for pre-signatures is more complex and expensive than just creating the order on-chain.
 
 ## Settlements
 

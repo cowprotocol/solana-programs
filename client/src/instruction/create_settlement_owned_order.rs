@@ -7,9 +7,8 @@ use cow_settlement_interface::{
 };
 
 /// Places `intent` as an order owned by the settlement state PDA, gated by the
-/// settlement-owned-order `authority`. `intent`'s owner must be the state PDA and it
-/// must be flagged `created_on_chain`, or the program rejects it; `created_by`
-/// funds the order PDA's rent.
+/// settlement-owned-order `authority`. `intent`'s owner must be the state PDA,
+/// or the program rejects it; `created_by` funds the order PDA's rent.
 pub struct CreateSettlementOwnedOrder<'a> {
     pub program_id: Pubkey,
     pub authority: Pubkey,

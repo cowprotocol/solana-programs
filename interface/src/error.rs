@@ -127,21 +127,18 @@ pub enum SettlementError {
     UnauthorizedSolver = 37,
     /// `RemoveSolver`'s solver isn't in the state PDA's solver list.
     SolverNotFound = 38,
-    /// A created order's intent isn't set with the `created_on_chain` flag
-    /// corresponding to the behavior of the invoked order creation instruction.
-    OrderCreatedOnChainMismatch = 39,
     /// `CreateBuffer` asked the token program how long a token account for a
     /// mint has to be and couldn't read the answer, so it can't size the
     /// buffer.
-    BufferSizeUnavailable = 40,
+    BufferSizeUnavailable = 39,
     /// The token program for a given token or mint is not supported.
-    InvalidTokenProgram = 41,
+    InvalidTokenProgram = 40,
     /// `CreateSettlementOwnedOrder`'s settlement-owned-order-authority account
     /// isn't a signer, or doesn't match the `settlement_owned_order_authority`
     /// recorded in the settlement state PDA.
-    UnauthorizedSettlementOwnedOrder = 42,
+    UnauthorizedSettlementOwnedOrder = 41,
     /// An intent has a zero sell or buy amount, which is not supported.
-    ZeroOrderAmount = 43,
+    ZeroOrderAmount = 42,
 }
 
 impl From<SettlementError> for u32 {

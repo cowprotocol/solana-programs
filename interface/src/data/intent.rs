@@ -6,7 +6,7 @@
 //!   the settlement program uses it.
 //! - [`EncodedOrderIntent`] is the canonical byte representation: the only
 //!   thing sent on the wire and also the data encoding used to generate the
-//!   order UID. There, `kind` and the intent's booleans share a single flags
+//!   order UID. There, `kind` and `partially_fillable` share a single flags
 //!   byte.
 //!
 //! Conversion is asymmetric: encoding an [`OrderIntent`] is infallible, but
@@ -41,12 +41,6 @@ pub enum OrderKind {
 /// Collection of [`OrderIntent`] fields that can be represented as a single bit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
 pub struct Flags {
-    /// How the order is authenticated: `true` if the owner creates it
-    /// themselves with a `CreateOrder` instruction they sign; `false` if it's
-    /// authenticated off-chain by an Ed25519 signature, which lets anyone
-    /// holding that signature create the order.
-    pub created_on_chain: bool,
-
     /// Whether `sell_amount` or `buy_amount` is the exact figure; the
     /// other side is treated as the limit (minimum to receive for `Sell`,
     /// maximum to spend for `Buy`).
@@ -61,21 +55,17 @@ pub struct Flags {
 
 impl Flags {
     // The bit each field occupies
-    const CREATED_ON_CHAIN: u8 = 1 << 0;
-    const KIND: u8 = 1 << 1;
-    const PARTIALLY_FILLABLE: u8 = 1 << 2;
+    const KIND: u8 = 1 << 0;
+    const PARTIALLY_FILLABLE: u8 = 1 << 1;
 
     /// Every bit the encoding defines; the others are reserved.
-    const DEFINED: u8 = Self::CREATED_ON_CHAIN | Self::KIND | Self::PARTIALLY_FILLABLE;
+    const DEFINED: u8 = Self::KIND | Self::PARTIALLY_FILLABLE;
 }
 
 impl From<Flags> for [u8; 1] {
     /// The canonical flags byte. Reserved bits are left clear.
     fn from(flags: Flags) -> Self {
         let mut byte = 0;
-        if flags.created_on_chain {
-            byte |= Flags::CREATED_ON_CHAIN;
-        }
         if flags.kind == OrderKind::Buy {
             byte |= Flags::KIND;
         }
@@ -99,7 +89,6 @@ impl TryFrom<[u8; 1]> for Flags {
             return Err(ProgramError::InvalidInstructionData);
         }
         Ok(Flags {
-            created_on_chain: byte & Self::CREATED_ON_CHAIN != 0,
             kind: if byte & Self::KIND == 0 {
                 OrderKind::Sell
             } else {
@@ -184,8 +173,7 @@ impl Asset {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OrderIntent {
     /// Account authorized to create and invalidate this order and whose
-    /// signature authenticates it. For off-chain orders this is the Ed25519
-    /// signer; for on-chain creation it must be the transaction signer.
+    /// signature authenticates it.
     pub owner: Pubkey,
 
     /// What the order sells, and the token account the funds are pulled from.
@@ -501,13 +489,10 @@ pub mod fixtures {
 
     /// Any valid [`Flags`].
     pub fn arb_flags() -> impl Strategy<Value = Flags> {
-        (any::<bool>(), arb_order_kind(), any::<bool>()).prop_map(
-            |(created_on_chain, kind, partially_fillable)| Flags {
-                created_on_chain,
-                kind,
-                partially_fillable,
-            },
-        )
+        (arb_order_kind(), any::<bool>()).prop_map(|(kind, partially_fillable)| Flags {
+            kind,
+            partially_fillable,
+        })
     }
 
     /// Any flags byte the decoder accepts.
@@ -608,18 +593,14 @@ mod tests {
     use crate::fixtures::pubkey_from_seed;
     use crate::SettlementError;
 
-    // Every shape an `OrderIntent` can take on its validated axes: the
-    // `created_on_chain` flag bit, the `kind` enum, and the
-    // `partially_fillable` flag bit.
+    // Every shape an `OrderIntent` can take on its validated axes: the `kind`
+    // enum and the `partially_fillable` flag bit.
     fn all_flag_shapes() -> impl Iterator<Item = OrderIntent> {
-        [false, true].into_iter().flat_map(|created_on_chain| {
-            fixtures::ALL_ORDER_KINDS.into_iter().flat_map(move |kind| {
-                [false, true].into_iter().map(move |partially_fillable| {
-                    sample_intent(Flags {
-                        created_on_chain,
-                        kind,
-                        partially_fillable,
-                    })
+        fixtures::ALL_ORDER_KINDS.into_iter().flat_map(|kind| {
+            [false, true].into_iter().map(move |partially_fillable| {
+                sample_intent(Flags {
+                    kind,
+                    partially_fillable,
                 })
             })
         })
@@ -680,20 +661,12 @@ mod tests {
     fn every_flag_owns_a_distinct_bit() {
         let byte = |flags: Flags| <[u8; 1]>::from(flags)[0];
         let cleared = Flags {
-            created_on_chain: false,
             kind: OrderKind::Sell,
             partially_fillable: false,
         };
         assert_eq!(byte(cleared), 0);
 
         let set_one_by_one = [
-            (
-                Flags::CREATED_ON_CHAIN,
-                Flags {
-                    created_on_chain: true,
-                    ..cleared
-                },
-            ),
             (
                 Flags::KIND,
                 Flags {
@@ -757,20 +730,18 @@ mod tests {
             bytes.iter().map(|b| format!("{b:02x}")).collect()
         }
         let intent = sample_intent(Flags {
-            created_on_chain: true,
             kind: OrderKind::Buy,
             partially_fillable: true,
         });
         assert_eq!(
             hex(intent.uid().as_ref()),
-            "de4096c6c100056f1e4636ea4fafefad40fc1d0b37692fe3ca1e0db3644b86bd",
+            "eddfac5ab968e8c8843c913f58f0ecb5061948a8558d8073dafe53f6f28d398a",
         );
     }
 
     #[test]
     fn encoding_regression() {
         let encoded = EncodedOrderIntent::from(&sample_intent(Flags {
-            created_on_chain: true,
             kind: OrderKind::Buy,
             partially_fillable: true,
         }));
@@ -808,8 +779,8 @@ mod tests {
             0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
             // valid_to (0xdead_beef, LE u32)
             0xef, 0xbe, 0xad, 0xde,
-            // flags (created_on_chain | kind (Buy = 1) | partially_fillable)
-            0b00000111,
+            // flags (kind (Buy = 1) | partially_fillable)
+            0b00000011,
             // app_data ([0x66; 32])
             0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
             0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
