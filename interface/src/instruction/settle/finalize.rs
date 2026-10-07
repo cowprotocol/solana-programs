@@ -9,7 +9,9 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{recover_discriminator, SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER};
+use super::{
+    recover_counterpart, MaybeMint, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER,
+};
 
 /// The number of fixed accounts every `FinalizeSettle` carries before its push
 /// accounts: the instructions sysvar, the settlement state PDA, and one slot per
@@ -167,7 +169,7 @@ impl From<FinalizeSettle<'_>> for Instruction {
 pub struct Push<'a, A> {
     pub source_buffer: &'a A,
     pub destination: &'a A,
-    pub mint: &'a A,
+    pub mint: MaybeMint<'a, A>,
     pub bump: u8,
     pub amount: u64,
 }
@@ -194,7 +196,7 @@ impl<'a, A> Pushes<'a, A> {
                 |(([source_buffer, destination, mint], &bump), amount)| Push {
                     source_buffer,
                     destination,
-                    mint,
+                    mint: MaybeMint::new(mint),
                     bump,
                     amount: u64::from_le_bytes(*amount),
                 },
@@ -265,7 +267,7 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
-    use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::settle::tests::{ix_data, mint_address};
     use crate::instruction::tests::assert_readonly_nonsigner;
     use crate::token_program::TokenProgram;
     use hex_literal::hex;
@@ -488,7 +490,7 @@ mod tests {
                 (
                     push.source_buffer.address(),
                     push.destination.address(),
-                    push.mint.address(),
+                    mint_address(push.mint),
                     push.bump,
                     push.amount,
                 )
@@ -561,7 +563,7 @@ mod tests {
         for (push, expected) in pushes.iter().zip(&expected) {
             assert_eq!(push.source_buffer.address(), &expected.source);
             assert_eq!(push.destination.address(), &expected.dest);
-            assert_eq!(push.mint.address(), &expected.mint);
+            assert_eq!(mint_address(push.mint), &expected.mint);
             assert_eq!(push.bump, expected.bump);
             assert_eq!(push.amount, expected.amount);
         }
