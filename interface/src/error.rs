@@ -138,10 +138,10 @@ pub enum SettlementError {
     /// recorded in the settlement state PDA.
     UnauthorizedSettlementOwnedOrder = 41,
     /// An intent has a zero sell or buy amount, which is not supported.
-    ZeroOrderAmount = 43,
+    ZeroOrderAmount = 42,
     /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
     /// was not able to be parsed as such.
-    InvalidMint = 44,
+    InvalidMint = 43,
 }
 
 impl From<SettlementError> for u32 {

@@ -133,14 +133,6 @@ impl<'a> CpiLists<'a> {
 /// decimals [`read_mint_decimals`] read from it, with `extra_accounts` appended
 /// (for example, the accounts a transfer hook needs); the placeholder issues a
 /// plain `Transfer`.
-///
-/// Without extra accounts, a `TransferChecked` goes through `pinocchio_token`
-/// and leaves `cpi_lists` untouched. With them, the first one allocates
-/// `cpi_lists` and writes the extra accounts into them; each transfer after,
-/// by this or any other
-/// `TransferMaybeChecked` sharing `cpi_lists`, only rewrites the leading
-/// [`TRANSFER_CHECKED_ACCOUNTS`]. So every transfer sharing `cpi_lists` must
-/// be given the same `extra_accounts`.
 pub struct TransferMaybeChecked<'a, 'b> {
     token_program: TokenProgram,
     mint: &'b MintDecimals<'a>,
