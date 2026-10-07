@@ -12,32 +12,33 @@ The settlement program connects these parties together. It's designed to reduce 
 
 - G1. User funds only move to settle one of the user's own orders.
 - G2. Only an order's owner can authorize an order.
-- G3. A user never gives more than `sell_amount`, and never receives less than the limit price implied by the requested `buy_amount`.
-- G4. The parameters of a user intent are upheld.
-- G5. Cancelled or expired orders can't be settled, and a cancellation can't be undone.
-- G6. An order's rent can only be refunded to its `created_by`.
+- G3. The amount of funds the user receives in a successful settlement is determined at transaction creation time and cannot change during execution (for MEV protection).
+- G4. A user never gives more than `sell_amount`, and never receives less than the limit price implied by the requested `buy_amount`.
+- G5. The parameters of a user intent are upheld.
+- G6. Cancelled or expired orders can't be settled, and a cancellation can't be undone.
+- G7. An order's rent can only be refunded to its `created_by`.
 
 ## Protocol funds
 
-- G7. Only approved solvers can settle, and a removed solver has no access left.
-- G8. Access to buffer funds is limited to solvers and dedicated administrative roles (barring access intrinsic to the token itself, such as a permanent delegate).
-- G9. Nobody can block the creation or reclamation of an order or a buffer (barring controls intrinsic to the token itself, such as a freeze authority).
+- G8. Only approved solvers can settle, and a removed solver has no access left.
+- G9. Access to buffer funds is limited to solvers and dedicated administrative roles (barring access intrinsic to the token itself, such as a permanent delegate).
+- G10. Nobody can block the creation or reclamation of an order or a buffer (barring controls intrinsic to the token itself, such as a freeze authority).
 
 ## Roles
 
-- G10. A role can only be reassigned by the manager or by that role's current holder.
-- G11. No role (apart from the program upgrade authority) can move user funds.
+- G11. A role can only be reassigned by the manager or by that role's current holder.
+- G12. No role (apart from the program upgrade authority) can move user funds.
 
 ## Explicitly not guaranteed
 
-Liveness. Any of the following can make an order unsettleable without breaking G1–G11: 
+Liveness. Any of the following can make an order unsettleable without breaking G1–G12: 
 - The user changing their token account such that funds can no longer be drawn from the `sell_token_account` (ex. transfer tokens, approval reset)
 - behavior enforced by a Token-2022 extension
 - a mint authority acting on its own token
 
 # Assumptions
 
-In order for G1-G11 to operate as designed, the below assumptions are made.
+In order for G1-G12 to operate as designed, the below assumptions are made.
 
 ## Scope
 
