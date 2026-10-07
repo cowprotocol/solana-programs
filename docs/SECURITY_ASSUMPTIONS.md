@@ -10,23 +10,23 @@ The settlement program connects these parties together. It's designed to reduce 
 
 ## Users
 
-- **G1. User funds only move to settle one of the user's own orders.**
-- **G2. Only an order's owner can authorize an order.**
-- **G3. A user never gives more than `sell_amount`, and never receives less than the limit price implied by the requested `buy_amount`.**
-- **G4. Proceeds go to the order's `buy_token_account`, in the token represented by `buy_mint`.**
-- **G5. Cancelled or expired orders can't be settled, and a cancellation can't be undone.**
-- **G6. An order's rent can only be refunded to its `created_by`.**
+- G1. User funds only move to settle one of the user's own orders.
+- G2. Only an order's owner can authorize an order.
+- G3. A user never gives more than `sell_amount`, and never receives less than the limit price implied by the requested `buy_amount`.
+- G4. Proceeds go to the order's `buy_token_account`, in the token represented by `buy_mint`.
+- G5. Cancelled or expired orders can't be settled, and a cancellation can't be undone.
+- G6. An order's rent can only be refunded to its `created_by`.
 
 ## Protocol funds
 
-- **G7. Only approved solvers can settle, and a removed solver has no access left.**
-- **G8. Excluding behavior resulting from Token2022 (ie. PersistentDelegate, or a future Token2022 extension), buffer funds cannot be withdrawn outside of any state pda defined authorized accounts.**
-- **G9. Excluding token freezes, nobody can block the creation or reclamation of an order or a buffer.**
+- G7. Only approved solvers can settle, and a removed solver has no access left.
+- G8. Excluding behavior resulting from Token2022 (ie. PersistentDelegate, or a future Token2022 extension), buffer funds cannot be withdrawn outside of any state pda defined authorized accounts.
+- G9. Excluding token freezes, nobody can block the creation or reclamation of an order or a buffer.
 
 ## Roles
 
-- **G10. A role can only be reassigned by the manager or by that role's current holder**
-- **G11. No role (apart from the program upgrade authority) can move user funds.**
+- G10. A role can only be reassigned by the manager or by that role's current holder.
+- G11. No role (apart from the program upgrade authority) can move user funds.
 
 ## Explicitly not guaranteed
 
