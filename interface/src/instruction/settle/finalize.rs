@@ -141,13 +141,14 @@ impl From<FinalizeSettle<'_>> for Instruction {
             };
             AccountMeta::new_readonly(address, false)
         }));
-        for (i, (source, destination)) in source_buffers.iter().zip(destinations).enumerate() {
+        for ((source, destination), mint) in source_buffers.iter().zip(destinations).zip(mints) {
             accounts.push(AccountMeta::new(*source, false));
             accounts.push(AccountMeta::new(*destination, false));
             accounts.push(AccountMeta::new_readonly(
-                mints[i].unwrap_or(MINT_PLACEHOLDER),
+                mint.unwrap_or(MINT_PLACEHOLDER),
                 false,
             ));
+        }
         }
 
         Instruction {
