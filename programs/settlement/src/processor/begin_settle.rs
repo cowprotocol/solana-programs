@@ -481,7 +481,6 @@ mod tests {
                 sell_amount: self.sell.nz(),
                 buy_amount: self.buy.nz(),
                 ..sample_intent(Flags {
-                    created_on_chain: true,
                     kind: self.kind,
                     partially_fillable: self.partially_fillable,
                 })

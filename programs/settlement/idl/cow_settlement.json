@@ -243,8 +243,7 @@
       "name": "create_order",
       "docs": [
         "Allocates a per-order PDA and writes the initial OrderAccount body.",
-        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe.",
-        "The intent's created_on_chain flag must be set: this instruction implements that authentication scheme, and an intent flagged for off-chain Ed25519 authentication is rejected."
+        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe."
       ],
       "discriminator": [
         2
@@ -341,8 +340,7 @@
       "docs": [
         "Create an order on behalf of the state PDA. Used to sell fees accumulated in the buffer accounts through a regular settlement.",
         "The order isn't authenticated by its owner: the owner is the settlement state PDA, which has no key. The settlement-owned-order authority signs instead, and the program forces intent.owner to be the state PDA, so a settlement-owned order can only sell funds the protocol controls (its buffer balances, which the state PDA owns). Once created it settles through the normal BeginSettle/FinalizeSettle flow.",
-        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe.",
-        "The intent's created_on_chain flag must be set: this instruction implements that authentication scheme, and an intent flagged for off-chain Ed25519 authentication is rejected."
+        "order_pda's canonical seeds are [SETTLEMENT_SEED, sha256(intent_bytes), \"order\"]. This is not expressible as a static `pda` entry because the middle seed is a hash of the entire `intent` argument, not a plain field/account reference, which is outside what the PDA-seed grammar can describe."
       ],
       "discriminator": [
         10
@@ -1005,7 +1003,7 @@
             "name": "flags",
             "type": "u8",
             "docs": [
-              "IDL LIMITATION: this byte packs three settings the IDL's type grammar can't name as one field, so it's declared as the raw byte the wire carries. Bit 0 is created_on_chain: set when the order is authenticated by its owner signing a create_order instruction, clear when it's authenticated by an off-chain Ed25519 signature. Bit 1 is the OrderKind (0 = Sell, 1 = Buy). Bit 2 is partially_fillable.",
+              "IDL LIMITATION: this byte packs two settings the IDL's type grammar can't name as one field, so it's declared as the raw byte the wire carries. Bit 0 is reserved for future use and must be clear. Bit 1 is the OrderKind (0 = Sell, 1 = Buy). Bit 2 is partially_fillable.",
               "Every other bit is reserved and must be clear: the program rejects a flags byte carrying one, so the same settings never have two encodings, and an order never has two UIDs."
             ]
           },
@@ -1262,26 +1260,21 @@
     },
     {
       "code": 39,
-      "name": "OrderCreatedOnChainMismatch",
-      "msg": "A created order's intent isn't set with the created_on_chain flag corresponding to the behavior of the invoked order creation instruction."
-    },
-    {
-      "code": 40,
       "name": "BufferSizeUnavailable",
       "msg": "CreateBuffer asked the token program how long a token account for a mint has to be and couldn't read the answer, so it can't size the buffer."
     },
     {
-      "code": 41,
+      "code": 40,
       "name": "InvalidTokenProgram",
       "msg": "The token program for a given token or mint is not supported."
     },
     {
-      "code": 42,
+      "code": 41,
       "name": "UnauthorizedSettlementOwnedOrder",
       "msg": "CreateSettlementOwnedOrder's settlement-owned-order-authority account isn't a signer, or doesn't match the settlement_owned_order_authority recorded in the settlement state PDA."
     },
     {
-      "code": 43,
+      "code": 42,
       "name": "ZeroOrderAmount",
       "msg": "An intent has a zero sell or buy amount, which is not supported."
     },
