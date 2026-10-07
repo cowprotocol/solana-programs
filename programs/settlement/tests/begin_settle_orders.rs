@@ -1221,7 +1221,7 @@ fn rejects_extra_account() {
     );
 
     // Append one extra account to `BeginSettle`, so the account count no longer
-    // matches the `3n + T` the instruction data implies.
+    // matches.
     instructions[usize::from(BEGIN_INDEX)]
         .accounts
         .push(AccountMeta::new_readonly(unique_pubkey(), false));
