@@ -57,7 +57,7 @@ pub fn token_account_len(
 
 /// Retrieves the decimals from `mint`, or `None` if `mint` is
 /// [`MINT_PLACEHOLDER`]. `token_program` must be the program that owns `mint`.
-/// The Option in the Result of this function should be supplied directly to [`transfer`].
+/// The Option in the Result of this function should be supplied directly to [`TransferMaybeChecked`].
 #[inline]
 pub fn read_mint_decimals(
     token_program: TokenProgram,
@@ -81,26 +81,39 @@ pub fn read_mint_decimals(
 /// `authority` through `signer`. A real [`MaybeMint`] issues a `TransferChecked`
 /// against the decimals read from the mint; the placeholder issues a plain
 /// `Transfer`.
-#[inline(always)]
-pub fn transfer(
-    token_program: TokenProgram,
-    from: &AccountView,
-    mint: MaybeMint<'_, AccountView>,
-    to: &AccountView,
-    authority: &AccountView,
-    amount: u64,
-    signer: &Signer,
-) -> ProgramResult {
-    let signers = slice::from_ref(signer);
-    let program = token_program.address();
-    match mint.get() {
-        None => Transfer::new(from, to, authority, amount)
-            .invoke_signed_with_unverified_program(signers, &program),
-        Some(mint) => {
-            let decimals = read_mint_decimals(token_program, mint)?
-                .expect("non-placeholder mint must resolve");
-            TransferChecked::new(from, mint, to, authority, amount, decimals)
-                .invoke_signed_with_unverified_program(signers, &program)
+pub struct TransferMaybeChecked<'a> {
+    pub token_program: TokenProgram,
+    pub from: &'a AccountView,
+    pub mint: MaybeMint<'a, AccountView>,
+    pub to: &'a AccountView,
+    pub authority: &'a AccountView,
+    pub amount: u64,
+    pub signer: &'a Signer<'a, 'a>,
+}
+
+impl TransferMaybeChecked<'_> {
+    #[inline(always)]
+    pub fn invoke(self) -> ProgramResult {
+        let Self {
+            token_program,
+            from,
+            mint,
+            to,
+            authority,
+            amount,
+            signer,
+        } = self;
+        let signers = slice::from_ref(signer);
+        let program = token_program.address();
+        match mint.get() {
+            None => Transfer::new(from, to, authority, amount)
+                .invoke_signed_with_unverified_program(signers, &program),
+            Some(mint) => {
+                let decimals = read_mint_decimals(token_program, mint)?
+                    .expect("non-placeholder mint must resolve");
+                TransferChecked::new(from, mint, to, authority, amount, decimals)
+                    .invoke_signed_with_unverified_program(signers, &program)
+            }
         }
     }
 }

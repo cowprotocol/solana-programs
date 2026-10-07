@@ -34,7 +34,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     intent::OrderIntentAccessor,
     settle::validate_counterpart,
-    token::{owning_token_program, read_token_account, transfer},
+    token::{owning_token_program, read_token_account, TransferMaybeChecked},
 };
 
 pub fn process_begin_settle(
@@ -345,15 +345,16 @@ fn process_order(
         amount_in = amount_in
             .checked_add(amount)
             .ok_or(SettlementError::PullAmountOverflow)?;
-        transfer(
+        TransferMaybeChecked {
             token_program,
-            sell_token_account,
-            sell_mint,
-            destination,
-            state_account,
+            from: sell_token_account,
+            mint: sell_mint,
+            to: destination,
+            authority: state_account,
             amount,
-            state_pda_signer,
-        )?;
+            signer: state_pda_signer,
+        }
+        .invoke()?;
     }
 
     let settled = FillAmounts {

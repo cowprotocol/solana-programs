@@ -17,7 +17,7 @@ use crate::processor::utils::{
     cpi::is_cpi_call,
     lamports::move_lamports,
     settle::validate_counterpart,
-    token::{owning_token_program, transfer},
+    token::{owning_token_program, TransferMaybeChecked},
 };
 
 pub fn process_finalize_settle(
@@ -85,15 +85,16 @@ fn push_funds<'a>(
         if push.source_buffer.address() != state_pda_account.address() {
             let token_program = owning_token_program(push.destination)
                 .map_err(|_| SettlementError::InvalidTokenProgram)?;
-            transfer(
+            TransferMaybeChecked {
                 token_program,
-                push.source_buffer,
-                push.mint,
-                push.destination,
-                state_pda_account,
-                push.amount,
-                state_pda_signer,
-            )?;
+                from: push.source_buffer,
+                mint: push.mint,
+                to: push.destination,
+                authority: state_pda_account,
+                amount: push.amount,
+                signer: state_pda_signer,
+            }
+            .invoke()?;
         }
     }
 
