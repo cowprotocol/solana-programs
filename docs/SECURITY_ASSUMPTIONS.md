@@ -52,14 +52,14 @@ In order for G1-G13 to operate as designed, the below assumptions are made.
 
 All roles, other than Solvers, are defined and manipulated using the same pattern in the state pda.
 
-| Role | Trusted with | Source |
-|---|---|---|
-| Upgrade authority | Everything (while the program is mutable) | [DESIGN.md:15](./DESIGN.md#L15) |
-| Manager | Ability to assign every role, its own included. Transfers take one step, with no acceptance or zero-address check | [role.rs](./interface/src/role.rs), [transfer_authority.rs](./programs/settlement/src/processor/transfer_authority.rs) |
-| Solver authority | Adding and removing solvers, so it decides who can settle | [DESIGN.md:69-83](./DESIGN.md#L69) |
-| Reclaim authority | Closing buffers and choosing where their rent goes. Can also burn surplus dust from the buffer to allow closing to happen | [reclaim_buffer.rs](./programs/settlement/src/processor/reclaim_buffer.rs) |
-| Settlement-owned-order authority | Ability to place orders that are owned by the settlement program. | [role.rs:22-25](./interface/src/role.rs#L22), [DESIGN.md:91](./DESIGN.md#L91) |
-| Solvers | Ability to call `BeginSettle` and `FinalizeSettle` | [DESIGN.md:62](./DESIGN.md#L62), [DESIGN.md:95](./DESIGN.md#L95) |
+| Role | Trusted with |
+|---|---|
+| Upgrade authority | Everything (while the program is mutable) |
+| Manager | Ability to assign every role, its own included. Transfers take one step, with no acceptance or zero-address check |
+| Solver authority | Adding and removing solvers, so it decides who can settle |
+| Reclaim authority | Closing buffers and choosing where their rent goes. Can also burn tokens from the buffer to allow closing to happen |
+| Settlement-owned-order authority | Ability to place orders that are owned by the settlement program, used to withdraw fees |
+| Solvers | Ability to call `BeginSettle` and `FinalizeSettle` |
 
 ## Solana runtime and platform
 
