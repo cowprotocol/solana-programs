@@ -67,11 +67,10 @@ fn is_reclaimable_before_expiry(
     cancelled: bool,
     fill: FillAmounts,
 ) -> bool {
-    intent.flags().created_on_chain
-        && (cancelled || {
-            let (filled, order_amount) = fill_progress(intent, fill);
-            filled >= order_amount.into()
-        })
+    cancelled || {
+        let (filled, order_amount) = fill_progress(intent, fill);
+        filled >= order_amount.into()
+    }
 }
 
 #[cfg(test)]
@@ -134,34 +133,25 @@ mod tests {
     fn early_reclaim_conditions() {
         const SELL_AMOUNT: u64 = 1_000;
 
-        let intent = |created_on_chain| {
-            EncodedOrderIntent::from(&OrderIntent {
-                sell_amount: SELL_AMOUNT.nz(),
-                ..sample_intent(Flags {
-                    created_on_chain,
-                    kind: OrderKind::Sell,
-                    partially_fillable: true,
-                })
+        let encoded = EncodedOrderIntent::from(&OrderIntent {
+            sell_amount: SELL_AMOUNT.nz(),
+            ..sample_intent(Flags {
+                kind: OrderKind::Sell,
+                partially_fillable: true,
             })
-        };
+        });
 
-        // (created_on_chain, cancelled, amount_withdrawn, expected)
+        // (cancelled, amount_withdrawn, expected)
         let cases = [
-            // Created on-chain and either cancelled or fully settled.
-            (true, true, 0, true),
-            (true, false, SELL_AMOUNT, true),
-            (true, true, SELL_AMOUNT, true),
-            // Authenticated by signature: prior cancelled or fully settled cases no longer apply
-            (false, true, 0, false),
-            (false, false, SELL_AMOUNT, false),
-            (false, true, SELL_AMOUNT, false),
-            (false, false, 0, false),
-            // Created on-chain and not fully filled.
-            (true, false, 0, false),
-            (true, false, SELL_AMOUNT - 1, false),
+            // Cancelled or fully settled: reclaimable before expiry.
+            (true, 0, true),
+            (false, SELL_AMOUNT, true),
+            (true, SELL_AMOUNT, true),
+            // Active and not fully filled: only expiry makes it reclaimable.
+            (false, 0, false),
+            (false, SELL_AMOUNT - 1, false),
         ];
-        for (created_on_chain, cancelled, amount_withdrawn, expected) in cases {
-            let encoded = intent(created_on_chain);
+        for (cancelled, amount_withdrawn, expected) in cases {
             assert_eq!(
                 is_reclaimable_before_expiry(
                     &OrderIntentAccessor::attach(&encoded).expect("sample must attach"),
@@ -172,8 +162,7 @@ mod tests {
                     },
                 ),
                 expected,
-                "created_on_chain={created_on_chain} cancelled={cancelled} \
-                 amount_withdrawn={amount_withdrawn}",
+                "cancelled={cancelled} amount_withdrawn={amount_withdrawn}",
             );
         }
     }

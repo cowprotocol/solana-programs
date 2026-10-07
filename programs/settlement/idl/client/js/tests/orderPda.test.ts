@@ -16,7 +16,6 @@ const SAMPLE_INTENT: OrderIntentArgs = {
   buyAmount: 0xfedc_ba98_7654_3210n,
   validTo: 0xdead_beef,
   flags: encodeFlags({
-    createdOnChain: true,
     kind: OrderKind.Buy,
     partiallyFillable: true,
   }),
@@ -24,7 +23,7 @@ const SAMPLE_INTENT: OrderIntentArgs = {
 };
 
 // `uid_digest_regression` in interface/src/data/intent.rs.
-const SAMPLE_UID = "de4096c6c100056f1e4636ea4fafefad40fc1d0b37692fe3ca1e0db3644b86bd";
+const SAMPLE_UID = "fa1b214e3167f3fdae13ba61f6d2f97975d5b8185912a46a7182a59aba07a3c2";
 
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
