@@ -21,7 +21,7 @@ The settlement program connects these parties together. It's designed to reduce 
 
 - G7. Only approved solvers can settle, and a removed solver has no access left.
 - G8. Access to buffer funds is limited to solvers and dedicated administrative roles (barring access intrinsic to the token itself, such as a permanent delegate).
-- G9. Excluding token freezes, nobody can block the creation or reclamation of an order or a buffer.
+- G9. Nobody can block the creation or reclamation of an order or a buffer (barring controls intrinsic to the token itself, such as a freeze authority).
 
 ## Roles
 
