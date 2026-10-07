@@ -3,8 +3,9 @@
 
 use crate::common::{
     assert_instruction_error, assert_instruction_error_at,
+    benchmark::BenchLabel,
     order::{buy_account, buy_mint, OrderBuilder},
-    replace_first_matching_account, send,
+    replace_first_matching_account, send, send_metered,
     settlement::{build_staged_settlement, stage_order, StagedOrder, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token,
     token_2022::{Extensions, FEE_BASIS_POINTS},
@@ -68,7 +69,8 @@ fn settles_both_token_programs_with_transfer_checked() {
         vec![],
         &[sell, buy],
     );
-    send(&mut svm, &solver, &instructions).expect("a checked settlement should settle");
+    send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
+        .expect("a checked settlement should settle");
 
     assert_settled(&svm, &order, AMOUNT);
 }
