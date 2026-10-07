@@ -196,7 +196,9 @@ fn extra_accounts_dont_affect_plain_transfers() {
 }
 
 /// Settle an order whose transfers are all `TransferChecked`, with `count`
-/// extra accounts on `side`'s instruction.
+/// extra accounts on `side`'s instruction. The extra accounts cycle through a
+/// few addresses so a count past the transaction's account-lock limit still
+/// reaches the program.
 fn settle_with_extra_accounts(
     side: Side,
     count: usize,
@@ -210,8 +212,12 @@ fn settle_with_extra_accounts(
     let buy = token::create_mint(&mut svm, &payer);
     let order = staged_order(&mut svm, &program_id, &payer, &sell, &buy);
 
-    let extra_accounts: Vec<AccountMeta> = (0..count)
-        .map(|_| AccountMeta::new_readonly(unique_pubkey(), false))
+    let addresses: [Pubkey; 8] = std::array::from_fn(|_| unique_pubkey());
+    let extra_accounts: Vec<AccountMeta> = addresses
+        .iter()
+        .cycle()
+        .take(count)
+        .map(|address| AccountMeta::new_readonly(*address, false))
         .collect();
     let instructions = settlement(
         &program_id,

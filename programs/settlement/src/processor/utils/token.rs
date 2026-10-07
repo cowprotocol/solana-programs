@@ -8,7 +8,7 @@ use cow_settlement_interface::{
     SettlementError,
 };
 use pinocchio::{
-    cpi::{get_return_data, invoke_signed_with_bounds, Signer},
+    cpi::{get_return_data, invoke_signed_with_slice, Signer, MAX_CPI_ACCOUNTS},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
@@ -58,6 +58,11 @@ pub fn token_account_len(
 
 /// `TransferChecked`'s own accounts: `[source, mint, destination, authority]`.
 const TRANSFER_CHECKED_ACCOUNTS: usize = 4;
+
+const _: () = assert!(
+    TRANSFER_CHECKED_ACCOUNTS + MAX_EXTRA_TRANSFER_ACCOUNTS == MAX_CPI_ACCOUNTS,
+    "MAX_EXTRA_TRANSFER_ACCOUNTS must track the runtime's CPI account limit",
+);
 
 /// A resolved [`MaybeMint`]: the real mint with its decimals, or `None` for the
 /// placeholder. Only [`read_mint_decimals`] builds one, so a
@@ -231,7 +236,7 @@ impl<'a, 'b> TransferMaybeChecked<'a, 'b> {
 
         // Borrow-checks every writable account, the extra accounts included,
         // and fails with `InvalidArgument` past `MAX_EXTRA_TRANSFER_ACCOUNTS`.
-        invoke_signed_with_bounds::<{ TRANSFER_CHECKED_ACCOUNTS + MAX_EXTRA_TRANSFER_ACCOUNTS }, _>(
+        invoke_signed_with_slice(
             &InstructionView {
                 program_id: &self.token_program.address(),
                 accounts: instruction_accounts,
