@@ -53,7 +53,7 @@ pub struct Pull {
 /// This builder establishes that ordering for the caller: it sorts the orders by
 /// PDA address, carrying each order's sell token account, transfer count,
 /// amounts, and destination metas before emitting them.
-#[derive(Default)]
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,

@@ -93,7 +93,7 @@ pub fn finalize_push_data(instruction_data: &[u8]) -> Result<(&[u8], &[[u8; 8]])
 ///
 /// `FinalizeSettle` only executes the transfers. Every push is validated by
 /// `BeginSettle`, which reads this instruction through introspection.
-#[derive(Default)]
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
 pub struct FinalizeSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
