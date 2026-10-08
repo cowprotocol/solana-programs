@@ -369,7 +369,7 @@ fn happy_path_push_leaving_exactly_the_native_sol_buffers_rent() {
         .buy_sol()
         .build();
     let funding = 1_000_000;
-    let funded = buffer::add_native_lamports(&mut svm, funding);
+    let initial_balance = buffer::add_native_lamports(&mut svm, funding);
 
     let instructions = build_matching_settlement(
         &program_id,
@@ -383,7 +383,7 @@ fn happy_path_push_leaving_exactly_the_native_sol_buffers_rent() {
     send(&mut svm, &solver, &instructions).expect("a push sparing the rent should be paid");
 
     assert_eq!(lamports(&svm, &buy_sol_account(&intent)), funding);
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded - funding);
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), initial_balance - funding);
 }
 
 /// Unlike a push into the rent, the runtime accepts a push of the whole balance
