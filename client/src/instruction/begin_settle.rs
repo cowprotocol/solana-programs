@@ -143,7 +143,7 @@ mod tests {
             let pulls: Vec<&[Pull]> = vec![&[]; cases.len()];
             let expected = Instruction::from(settle::BeginSettle {
                 program_id,
-                state_pda: STATE_PDA,
+                state_pda: find_state_pda(&program_id).0,
                 solver,
                 finalize_ix_index,
                 auction_id: 0,
