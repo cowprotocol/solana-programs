@@ -2,13 +2,16 @@
 
 use cow_settlement_interface::{
     data::state::{StateAccount, StateInitArgs, WIDTH_HEADER},
-    instruction::{initialize::InitializeInput, InstructionInputParsing},
+    instruction::{
+        initialize::{InitializeInput, DEPLOYER},
+        InstructionInputParsing,
+    },
     pda::{
         buffer::NATIVE_SOL_BUFFER_PDA_SEEDS,
         state::{validate_is_state_pda, STATE_PDA_SEEDS},
     },
 };
-use pinocchio::{AccountView, Address, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::processor::utils::pda::CanonicalPda;
 
@@ -26,6 +29,11 @@ pub fn process_initialize(
         reclaim_authority,
         settlement_owned_order_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
+
+    // Whoever initializes picks every authority, so only the deployer may.
+    if !payer.is_signer() || payer.address() != &DEPLOYER {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
 
     validate_is_state_pda(state_pda.address().as_array())?;
 
@@ -71,11 +79,22 @@ pub fn process_initialize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
+    use cow_settlement_interface::fixtures::pubkey_from_seed;
+    use cow_settlement_interface::instruction::fixtures::{
+        fake_account, fake_sequential_accounts, fake_signer,
+    };
     use cow_settlement_interface::instruction::initialize::fixtures::{
         initialize_data, NUM_ACCOUNTS,
     };
-    use pinocchio::error::ProgramError;
+
+    const PROGRAM_ID: Address = Address::new_from_array([100; 32]);
+
+    /// Arbitrary accounts behind a `payer` slot holding `payer`.
+    fn accounts_paid_by(payer: AccountView) -> [AccountView; NUM_ACCOUNTS] {
+        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        accounts[0] = payer;
+        accounts
+    }
 
     #[test]
     fn process_initialize_propagates_parse_error() {
@@ -83,8 +102,38 @@ mod tests {
         data.push(0); // make the data too long to trigger a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_initialize(&Address::new_from_array([100; 32]), &mut accounts, &data),
+            process_initialize(&PROGRAM_ID, &mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
+        );
+    }
+
+    #[test]
+    fn process_initialize_rejects_payer_other_than_deployer() {
+        let mut accounts = accounts_paid_by(fake_signer(pubkey_from_seed("not the deployer")));
+        assert_eq!(
+            process_initialize(&PROGRAM_ID, &mut accounts, &initialize_data()),
+            Err(ProgramError::MissingRequiredSignature),
+        );
+    }
+
+    #[test]
+    fn process_initialize_rejects_nonsigner_deployer() {
+        // `fake_account`, unlike `fake_signer`, leaves the signer flag clear.
+        let mut accounts = accounts_paid_by(fake_account(DEPLOYER));
+        assert_eq!(
+            process_initialize(&PROGRAM_ID, &mut accounts, &initialize_data()),
+            Err(ProgramError::MissingRequiredSignature),
+        );
+    }
+
+    #[test]
+    fn process_initialize_lets_signing_deployer_through() {
+        // The sequential state PDA is wrong, so the deployer passing the gate
+        // shows up as the next check failing.
+        let mut accounts = accounts_paid_by(fake_signer(DEPLOYER));
+        assert_eq!(
+            process_initialize(&PROGRAM_ID, &mut accounts, &initialize_data()),
+            Err(cow_settlement_interface::SettlementError::StateAccountMismatch.into()),
         );
     }
 }

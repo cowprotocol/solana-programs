@@ -95,6 +95,8 @@ There are two distinct flows depending on whether this is a first-time deploy or
 
 The program only works at the address in `declare_id!`, which its pinned state PDA is derived from. `initialize` rejects a deployment anywhere else.
 
+`initialize` also only accepts the hardcoded `DEPLOYER` (`cow_settlement_interface::instruction::initialize::DEPLOYER`) as its payer, so the deployer keypair must be that key.
+
 Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
 
 ```sh

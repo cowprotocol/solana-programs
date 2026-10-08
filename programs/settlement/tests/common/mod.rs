@@ -22,6 +22,7 @@ pub mod token_2022;
 pub(crate) use active_token::also_under_token_2022;
 
 use cow_settlement_client::instruction::{AddSolver, Initialize};
+use cow_settlement_interface::instruction::initialize::DEPLOYER;
 use cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_interface::Instruction;
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -29,6 +30,7 @@ use solana_sdk::{
     account::Account,
     clock::Clock,
     instruction::InstructionError,
+    message::Message,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::{Transaction, TransactionError},
@@ -84,8 +86,17 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     let payer = unique_keypair();
     svm.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("airdrop to payer should succeed");
+    svm.airdrop(&DEPLOYER, 1_000_000_000)
+        .expect("airdrop to deployer should succeed");
 
     (svm, program_id, payer)
+}
+
+/// [`setup`] with signature checks off, so that transactions from
+/// [`deployer_tx`] go through.
+pub fn setup_without_sigverify() -> (LiteSVM, Pubkey, Keypair) {
+    let (svm, program_id, payer) = setup();
+    (svm.with_sigverify(false), program_id, payer)
 }
 
 /// A settlement initialized by [`setup_init`], with all authorities held as
@@ -106,23 +117,23 @@ pub struct InitializedParams {
 /// Returns the SVM and an [`InitializedParams`] bundling the program id, the
 /// fee payer, the state PDA, and all authority keypairs.
 pub fn setup_init() -> (LiteSVM, InitializedParams) {
-    let (mut svm, program_id, payer) = setup();
+    let (mut svm, program_id, payer) = setup_without_sigverify();
     let manager = unique_keypair();
     let solver_authority = unique_keypair();
     let reclaim = unique_keypair();
     let settlement_owned_order = unique_keypair();
     state::initialize(
         &mut svm,
-        &payer,
         Initialize {
             program_id,
-            payer: payer.pubkey(),
+            payer: DEPLOYER,
             manager: manager.pubkey(),
             solver_authority: solver_authority.pubkey(),
             reclaim_authority: reclaim.pubkey(),
             settlement_owned_order_authority: settlement_owned_order.pubkey(),
         },
     );
+    let svm = svm.with_sigverify(true);
 
     (
         svm,
@@ -270,6 +281,16 @@ pub fn signed_tx(
         &[fee_payer, owner],
         svm.latest_blockhash(),
     )
+}
+
+/// Put `ix` in a transaction that [`DEPLOYER`] pays for and signs, as `just
+/// deploy` sends `Initialize`. Tests don't hold the deployer's key, so its
+/// signature is left blank and only an SVM from [`setup_without_sigverify`]
+/// accepts the transaction.
+pub fn deployer_tx(svm: &LiteSVM, ix: impl Into<Instruction>) -> Transaction {
+    let message =
+        Message::new_with_blockhash(&[ix.into()], Some(&DEPLOYER), &svm.latest_blockhash());
+    Transaction::new_unsigned(message)
 }
 
 /// In `instruction`, repoint the account currently set to `from` at `to`. Tests

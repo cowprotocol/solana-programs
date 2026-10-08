@@ -30,6 +30,7 @@ A bump is not a migration. There are some other consequences that should be cons
 ## Program initialization
 
 The state PDA and native SOL buffer PDA are created once, after deployment, by the `Initialize` instruction.
+Whoever initializes picks every initial authority, so `Initialize` only succeeds when its payer is the hardcoded deployer `DEPLOYER` and signs. Otherwise anyone watching for the deployment could front-run it and take every role.
 
 ## Authorities
 
