@@ -3,7 +3,7 @@
 use cow_settlement_interface::{
     data::intent::{Asset, OrderIntent},
     pda::{
-        buffer::{find_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP},
+        buffer::{find_buffer_pda, find_native_sol_buffer_pda},
         order::find_order_pda,
         state::find_state_pda,
     },
@@ -32,7 +32,7 @@ pub struct FinalizedIntent<'a> {
 /// canonical buffer PDA for its buy mint (see [`find_buffer_pda`]), the only
 /// buffer `BeginSettle` accepts as the source of that order's push. An order
 /// buying [`Asset::Native`] SOL is paid out of the lamports of
-/// [`NATIVE_SOL_BUFFER_PDA`] instead. The
+/// the native SOL buffer PDA (see [`find_native_sol_buffer_pda`]) instead. The
 /// orders are sorted by their canonical order PDA (the same key
 /// [`BeginSettle`](super::begin_settle::BeginSettle) orders its settled-order
 /// list by) so the two instructions present the orders
@@ -86,12 +86,10 @@ impl FinalizedIntent<'_> {
     /// never carries a mint; a token order is paid from its buy mint's buffer.
     fn push(&self, program_id: &Pubkey) -> OrderPush {
         let (source_buffer, bump, destination, mint) = match &self.intent.buy {
-            Asset::Native(account) => (
-                NATIVE_SOL_BUFFER_PDA,
-                NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
-                *account,
-                None,
-            ),
+            Asset::Native(account) => {
+                let (buffer, bump) = find_native_sol_buffer_pda(program_id);
+                (buffer, bump, *account, None)
+            }
             Asset::TokenProgram(token) => {
                 let (buffer, bump) = find_buffer_pda(program_id, &token.mint);
                 let mint = self.use_transfer_checked.then_some(token.mint);
@@ -149,6 +147,7 @@ mod tests {
     #[test]
     fn native_sol_push_never_carries_a_mint() {
         let program_id = pubkey_from_seed("program id");
+        let (native_sol_buffer, native_sol_bump) = find_native_sol_buffer_pda(&program_id);
         let recipient = pubkey_from_seed("recipient wallet");
         let intent = OrderIntent {
             buy: Asset::Native(recipient),
@@ -163,10 +162,10 @@ mod tests {
             assert_eq!(
                 order.push(&program_id),
                 OrderPush {
-                    source_buffer: NATIVE_SOL_BUFFER_PDA,
+                    source_buffer: native_sol_buffer,
                     destination: recipient,
                     mint: None,
-                    bump: NATIVE_SOL_BUFFER_PDA_AND_BUMP.1,
+                    bump: native_sol_bump,
                     amount: 42,
                 },
             );
@@ -236,8 +235,9 @@ mod tests {
             panic!("one order pushes once, got {} pushes", pushes.len());
         };
 
-        assert_eq!(push.source_buffer.address(), &NATIVE_SOL_BUFFER_PDA);
-        assert_eq!(push.bump, NATIVE_SOL_BUFFER_PDA_AND_BUMP.1);
+        let (native_sol_buffer, native_sol_bump) = find_native_sol_buffer_pda(&program_id);
+        assert_eq!(push.source_buffer.address(), &native_sol_buffer);
+        assert_eq!(push.bump, native_sol_bump);
         assert_eq!(push.destination.address(), &recipient);
         assert_eq!(push.amount, 1_337);
     }
