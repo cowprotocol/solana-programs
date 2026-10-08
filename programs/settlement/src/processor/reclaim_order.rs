@@ -21,26 +21,45 @@ pub fn process_reclaim_order(
     let ReclaimOrderInput {
         order_pda,
         reclaim_recipient,
+        owner,
     } = ReclaimOrderInput::parse(instruction_data, accounts)?;
 
     // Read the fields the reclaim decision needs, then drop the borrow before
     // the lamport transfer and `close` below touch the account.
-    let (created_by, reclaimable, valid_to) = {
+    let (created_by, reclaimable, valid_to, cancelled, intent_owner) = {
         let order = OrderAccount::load_from_pda(order_pda, program_id)?;
         let intent = OrderIntentAccessor::from_order(&order)?;
-        let reclaimable =
-            is_reclaimable_before_expiry(&intent, order.cancelled()?, order.filled_amounts());
-        (order.created_by(), reclaimable, intent.valid_to())
+        let cancelled = order.cancelled()?;
+        let reclaimable = is_reclaimable_before_expiry(&intent, cancelled, order.filled_amounts());
+        (
+            order.created_by(),
+            reclaimable,
+            intent.valid_to(),
+            cancelled,
+            *intent.owner(),
+        )
     };
 
     if reclaim_recipient.address() != &created_by {
         return Err(SettlementError::ReclaimRecipientMismatch.into());
     }
 
-    if !reclaimable {
+    if !reclaimable || cancelled {
         let now = Clock::get()?.unix_timestamp;
         if now <= i64::from(valid_to) {
-            return Err(SettlementError::OrderNotReclaimable.into());
+            if !reclaimable {
+                return Err(SettlementError::OrderNotReclaimable.into());
+            }
+            // Keep the cancellation tombstone until expiry unless its owner
+            // authorizes closure. A sponsor's signature cannot authorize it,
+            // and a full fill must not bypass this protection.
+            let owner = owner.ok_or(ProgramError::MissingRequiredSignature)?;
+            if !owner.is_signer() {
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+            if owner.address().as_array() != &intent_owner {
+                return Err(SettlementError::OwnerMismatch.into());
+            }
         }
     }
 
@@ -61,7 +80,8 @@ pub fn process_reclaim_order(
     Ok(())
 }
 
-/// Determines whether the order may be reclaimed despite being unexpired
+/// Determines whether the order state permits reclaim before expiry.
+/// Cancelled orders additionally require owner authorization.
 fn is_reclaimable_before_expiry(
     intent: &OrderIntentAccessor,
     cancelled: bool,

@@ -3,11 +3,12 @@
 //! Closes an order PDA and returns its rent lamports to the `created_by`
 //! account recorded in the order body. The instruction may only be executed
 //! once the order's `valid_to` timestamp has elapsed, or as soon as the order
-//! is cancelled or completely filled.
+//! is cancelled or completely filled. Reclaiming a cancelled order before
+//! expiry requires the stored intent owner's signature.
 //!
 //! Wire format: `[discriminator=5]`, 1 byte.
 //! Required accounts:
-//! `[order_pda (W), reclaim_recipient (W)]`.
+//! `[order_pda (W), reclaim_recipient (W), owner (S, optional)]`.
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
@@ -21,22 +22,29 @@ use crate::SettlementInstruction;
 /// `order_pda` is the order PDA to close. `reclaim_recipient` must be the
 /// account recorded as `created_by` in the order PDA; it receives the recovered
 /// rent lamports.
-/// The instruction enforces no signature requirement: anyone may reclaim a
-/// reclaimable order on behalf of its reclaim_recipient.
+/// Anyone may reclaim an expired order or an active, completely filled order.
+/// Reclaiming a cancelled order while `now <= valid_to` requires `owner` to
+/// match the stored intent owner and sign, independently of the rent recipient.
 pub struct ReclaimOrder {
     pub program_id: Pubkey,
     pub order_pda: Pubkey,
     pub reclaim_recipient: Pubkey,
+    /// Authorizes reclaim of a cancelled, unexpired order.
+    pub owner: Option<Pubkey>,
 }
 
 impl ReclaimOrder {
     pub fn instruction(self) -> Instruction {
+        let mut accounts = vec![
+            AccountMeta::new(self.order_pda, false),
+            AccountMeta::new(self.reclaim_recipient, false),
+        ];
+        if let Some(owner) = self.owner {
+            accounts.push(AccountMeta::new_readonly(owner, true));
+        }
         Instruction {
             program_id: self.program_id,
-            accounts: vec![
-                AccountMeta::new(self.order_pda, false),
-                AccountMeta::new(self.reclaim_recipient, false),
-            ],
+            accounts,
             data: vec![SettlementInstruction::ReclaimOrder.discriminator()],
         }
     }
@@ -46,6 +54,8 @@ impl ReclaimOrder {
 pub struct ReclaimOrderInput<'a, A> {
     pub order_pda: &'a A,
     pub reclaim_recipient: &'a A,
+    /// Optional signer authorizing reclaim of a cancelled, unexpired order.
+    pub owner: Option<&'a A>,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for ReclaimOrderInput<'a, A> {
@@ -56,12 +66,13 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimOrderInput<'a, A> {
         if !instruction_data.is_empty() {
             return Err(ProgramError::InvalidInstructionData);
         }
-        let [order_pda, reclaim_recipient, ..] = accounts else {
+        let [order_pda, reclaim_recipient, remaining @ ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
         Ok(Self {
             order_pda,
             reclaim_recipient,
+            owner: remaining.first(),
         })
     }
 }
@@ -74,7 +85,7 @@ pub mod fixtures {
 
     use super::ReclaimOrder;
 
-    /// Number of accounts `ReclaimOrder` expects: order PDA and reclaim
+    /// Minimum number of accounts `ReclaimOrder` expects: order PDA and reclaim
     /// recipient.
     pub const NUM_ACCOUNTS: usize = 2;
 
@@ -85,6 +96,7 @@ pub mod fixtures {
             program_id: zero,
             order_pda: zero,
             reclaim_recipient: zero,
+            owner: None,
         }
         .instruction()
         .data
@@ -96,7 +108,7 @@ mod tests {
     use super::fixtures::{default_reclaim_data, NUM_ACCOUNTS};
     use super::*;
     use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
-    use crate::instruction::tests::assert_writable_nonsigner;
+    use crate::instruction::tests::{assert_readonly_signer, assert_writable_nonsigner};
     use solana_account_view::AccountView;
     use solana_address::Address;
 
@@ -110,6 +122,7 @@ mod tests {
             program_id,
             order_pda,
             reclaim_recipient,
+            owner: None,
         }
         .instruction()
         .data;
@@ -118,8 +131,10 @@ mod tests {
         let ReclaimOrderInput {
             order_pda: derived_order_pda,
             reclaim_recipient: derived_reclaim_recipient,
+            owner,
         } = ReclaimOrderInput::parse(&data, &accounts).expect("parse should succeed");
 
+        assert!(owner.is_none());
         assert_eq!(*derived_order_pda.address(), order_pda);
         assert_eq!(*derived_reclaim_recipient.address(), reclaim_recipient);
     }
@@ -156,6 +171,7 @@ mod tests {
             program_id,
             order_pda,
             reclaim_recipient,
+            owner: None,
         }
         .instruction();
 
@@ -175,6 +191,7 @@ mod tests {
             program_id,
             order_pda,
             reclaim_recipient,
+            owner: None,
         }
         .instruction();
 
@@ -183,5 +200,26 @@ mod tests {
         // recovered rent. Neither signs.
         assert_writable_nonsigner(&ix.accounts[0], order_pda);
         assert_writable_nonsigner(&ix.accounts[1], reclaim_recipient);
+    }
+
+    #[test]
+    fn optional_owner_is_parsed_and_requests_a_readonly_signature() {
+        let owner = Pubkey::new_from_array([4; 32]);
+        let ix = ReclaimOrder {
+            program_id: crate::ID,
+            order_pda: Pubkey::new_from_array([2; 32]),
+            reclaim_recipient: Pubkey::new_from_array([3; 32]),
+            owner: Some(owner),
+        }
+        .instruction();
+        assert_eq!(ix.accounts.len(), 3);
+        assert_readonly_signer(&ix.accounts[2], owner);
+        let accounts = ix
+            .accounts
+            .iter()
+            .map(|meta| fake_account(meta.pubkey))
+            .collect::<Vec<_>>();
+        let parsed = ReclaimOrderInput::parse(&ix.data, &accounts).unwrap();
+        assert_eq!(parsed.owner.unwrap().address(), &owner);
     }
 }

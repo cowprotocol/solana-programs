@@ -42,12 +42,14 @@ pub enum SettlementInstruction {
     /// Each buffer_pda_i must be the canonical PDA for seeds
     /// [SETTLEMENT_SEED, mint_i, "buffer"].
     CreateBuffer = 4,
-    /// Closes an expired order PDA and returns its rent lamports to the
-    /// created_by account recorded in the order body. The instruction may only
-    /// be executed after the order's valid_to timestamp has elapsed.
+    /// Closes an order PDA and returns its rent lamports to the created_by
+    /// account recorded in the order body.
     ///
-    /// No signature requirement: anyone may reclaim an expired order on behalf
-    /// of its reclaim_recipient.
+    /// Anyone may reclaim after now > valid_to, or before expiry if the order
+    /// is active and completely filled.
+    ///
+    /// Reclaiming a cancelled order while now <= valid_to requires the stored
+    /// intent owner's signature, even if completely filled.
     ReclaimOrder = 5,
     /// Closes one or more buffer PDAs and sends each closed buffer's rent
     /// lamports to a reclaim_recipient of the caller's choosing.
