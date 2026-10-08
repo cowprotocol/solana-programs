@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
 use cow_settlement_client::{
-    cow_settlement_interface::{
-        instruction::reclaim_buffer::ReclaimBuffer, pda::buffer::find_buffer_pda, Pubkey,
-    },
+    cow_settlement_interface::{instruction::reclaim_buffer::ReclaimBuffer, Pubkey},
     instruction::TokenProgram,
 };
 use solana_instruction::Instruction;
@@ -15,7 +13,7 @@ use super::{dedup, send};
 use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::{print_failures, print_summary};
-use crate::utils::pda::find_state_pda;
+use crate::utils::pda::SettlementSeed;
 use crate::utils::token::{token_program_of, unpack_token_account};
 
 /// Most buffers that always fit into one transaction, reached when the
@@ -37,6 +35,16 @@ pub struct ReclaimArgs {
     /// payer keypair)
     #[arg(long)]
     reclaim_authority: Option<String>,
+
+    /// `<major>.<minor>` release the program runs, which its state and buffer
+    /// PDAs are derived from. Set it to reclaim the buffers of a deployment of
+    /// an older release (e.g. `0.4`)
+    #[arg(
+        long,
+        default_value = SettlementSeed::CURRENT_VERSION,
+        value_parser = SettlementSeed::parse
+    )]
+    settlement_version: SettlementSeed,
 }
 
 /// Closes the empty buffers in a single transaction. Buffers holding tokens
@@ -59,7 +67,9 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     for (buffer, account) in buffers.iter().zip(accounts) {
         let decoded = account
             .context("buffer account not found")
-            .and_then(|account| decode_buffer(&account, buffer, &ctx.program_id));
+            .and_then(|account| {
+                decode_buffer(&account, buffer, &ctx.program_id, &args.settlement_version)
+            });
         match decoded {
             Ok(Buffer {
                 amount: 0,
@@ -91,6 +101,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     } else {
         let ixs = instructions(
             &ctx.program_id,
+            &args.settlement_version.state_pda(&ctx.program_id),
             &reclaim_authority.pubkey(),
             &args.target,
             &by_program,
@@ -134,6 +145,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
 /// One `ReclaimBuffer` instruction per token program, as each serves only one.
 fn instructions(
     program_id: &Pubkey,
+    state_pda: &Pubkey,
     reclaim_authority: &Pubkey,
     target: &Pubkey,
     by_program: &HashMap<TokenProgram, Vec<(Pubkey, Pubkey)>>,
@@ -143,7 +155,7 @@ fn instructions(
         .map(|(token_program, buffers)| {
             ReclaimBuffer {
                 program_id: *program_id,
-                state_pda: find_state_pda(program_id),
+                state_pda: *state_pda,
                 reclaim_authority: *reclaim_authority,
                 reclaim_recipient: *target,
                 token_program: token_program.address(),
@@ -164,18 +176,19 @@ struct Buffer {
 
 /// Decodes `account`, stored at `address`. Fails unless it's a token account
 /// of a supported token program at the buffer PDA of its mint under
-/// `program_id`.
+/// `program_id`, derived from `seed`.
 fn decode_buffer(
     account: &Account,
     address: &Pubkey,
     program_id: &Pubkey,
+    seed: &SettlementSeed,
 ) -> anyhow::Result<Buffer> {
     let token_program = token_program_of(account)?;
     let token_account =
         unpack_token_account(&account.data).context("account is not a token account")?;
     let mint = token_account.mint;
     anyhow::ensure!(
-        find_buffer_pda(program_id, &mint).0 == *address,
+        seed.buffer_pda(program_id, &mint) == *address,
         "not the buffer of mint {mint} under {program_id}"
     );
     Ok(Buffer {
@@ -191,6 +204,7 @@ mod tests {
     use spl_token_2022_interface::state::{Account as TokenAccount, AccountState};
 
     use super::*;
+    use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
     use solana_sdk::transaction::Transaction;
 
     const PROGRAM_ID: Pubkey = Pubkey::new_from_array([1; 32]);
@@ -199,6 +213,10 @@ mod tests {
     /// Largest serialized transaction the network accepts
     /// (`solana_packet::PACKET_DATA_SIZE`).
     const MAX_TRANSACTION_SIZE: u64 = 1232;
+
+    fn current() -> SettlementSeed {
+        SettlementSeed::parse(SettlementSeed::CURRENT_VERSION).unwrap()
+    }
 
     fn fits(ixs: &[Instruction], payer: &Pubkey) -> bool {
         let tx = Transaction::new_with_payer(ixs, Some(payer));
@@ -240,6 +258,7 @@ mod tests {
             &PROGRAM_ID,
             &Pubkey::new_unique(),
             &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
             &by_program,
         )
     }
@@ -267,7 +286,7 @@ mod tests {
         for token_program in TokenProgram::ALL {
             let account = token_account(token_program.address(), MINT, 7);
             assert_eq!(
-                decode_buffer(&account, &buffer, &PROGRAM_ID).unwrap(),
+                decode_buffer(&account, &buffer, &PROGRAM_ID, &current()).unwrap(),
                 Buffer {
                     token_program,
                     mint: MINT,
@@ -281,17 +300,26 @@ mod tests {
     fn decode_buffer_rejects_other_addresses() {
         let account = token_account(TokenProgram::SplToken.address(), MINT, 0);
         let other_program = find_buffer_pda(&Pubkey::new_unique(), &MINT).0;
-        let err = decode_buffer(&account, &other_program, &PROGRAM_ID)
+        let err = decode_buffer(&account, &other_program, &PROGRAM_ID, &current())
             .unwrap_err()
             .to_string();
         assert!(err.starts_with("not the buffer of mint"), "{err}");
     }
 
     #[test]
+    fn decode_buffer_derives_the_buffer_from_the_given_release() {
+        let old = SettlementSeed::parse("0.4").unwrap();
+        let buffer = old.buffer_pda(&PROGRAM_ID, &MINT);
+        let account = token_account(TokenProgram::SplToken.address(), MINT, 0);
+        assert!(decode_buffer(&account, &buffer, &PROGRAM_ID, &old).is_ok());
+        assert!(decode_buffer(&account, &buffer, &PROGRAM_ID, &current()).is_err());
+    }
+
+    #[test]
     fn decode_buffer_rejects_foreign_owner() {
         let buffer = find_buffer_pda(&PROGRAM_ID, &MINT).0;
         let account = token_account(Pubkey::new_unique(), MINT, 0);
-        assert!(decode_buffer(&account, &buffer, &PROGRAM_ID).is_err());
+        assert!(decode_buffer(&account, &buffer, &PROGRAM_ID, &current()).is_err());
     }
 
     #[test]
@@ -299,7 +327,7 @@ mod tests {
         let buffer = find_buffer_pda(&PROGRAM_ID, &MINT).0;
         let mut account = token_account(TokenProgram::SplToken.address(), MINT, 0);
         account.data.truncate(1);
-        let err = decode_buffer(&account, &buffer, &PROGRAM_ID)
+        let err = decode_buffer(&account, &buffer, &PROGRAM_ID, &current())
             .unwrap_err()
             .to_string();
         assert_eq!(err, "account is not a token account");

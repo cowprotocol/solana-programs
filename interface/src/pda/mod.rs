@@ -36,6 +36,13 @@ pub const SETTLEMENT_SEED: &[u8] = &build_padded_settlement_seed(concat!(
     env!("CARGO_PKG_VERSION_MINOR")
 ));
 
+/// The [`SETTLEMENT_SEED`] of the `<major>.<minor>` package `version`, so
+/// off-chain tools can derive the PDAs of a deployment of another release.
+/// `None` if `version` doesn't fit the seed.
+pub fn settlement_seed_for_version(version: &str) -> Option<[u8; SETTLEMENT_SEED_LEN]> {
+    (version.len() <= SETTLEMENT_SEED_VERSION_LEN).then(|| build_padded_settlement_seed(version))
+}
+
 /// Lay out [`SETTLEMENT_SEED_PREFIX`] and `version` in a
 /// [`SETTLEMENT_SEED_LEN`]-byte field, right-aligning the version and filling
 /// the gap between the two with spaces.
@@ -101,8 +108,8 @@ mod tests {
     use solana_pubkey::Pubkey;
 
     use super::{
-        build_padded_settlement_seed, SettlementAccount, SETTLEMENT_SEED, SETTLEMENT_SEED_LEN,
-        SETTLEMENT_SEED_VERSION_LEN,
+        build_padded_settlement_seed, settlement_seed_for_version, SettlementAccount,
+        SETTLEMENT_SEED, SETTLEMENT_SEED_LEN, SETTLEMENT_SEED_VERSION_LEN,
     };
     use solana_program_error::ProgramError;
 
@@ -143,6 +150,34 @@ mod tests {
     #[should_panic(expected = "no longer fits the settlement seed")]
     fn build_padded_settlement_seed_rejects_a_version_wider_than_the_whole_seed() {
         let _ = build_padded_settlement_seed(&"9".repeat(SETTLEMENT_SEED_LEN.saturating_add(1)));
+    }
+
+    #[test]
+    fn settlement_seed_for_version_builds_other_releases_seeds() {
+        assert_eq!(
+            settlement_seed_for_version("0.4")
+                .as_ref()
+                .map(|seed| &seed[..]),
+            Some(&b"settlement v0.4    "[..])
+        );
+        let current = concat!(
+            env!("CARGO_PKG_VERSION_MAJOR"),
+            ".",
+            env!("CARGO_PKG_VERSION_MINOR")
+        );
+        assert_eq!(
+            settlement_seed_for_version(current)
+                .as_ref()
+                .map(|seed| &seed[..]),
+            Some(SETTLEMENT_SEED)
+        );
+    }
+
+    #[test]
+    fn settlement_seed_for_version_rejects_versions_that_do_not_fit() {
+        let version = longest_fitting_version();
+        assert!(settlement_seed_for_version(&version).is_some());
+        assert_eq!(settlement_seed_for_version(&format!("{version}0")), None);
     }
 
     #[test]
