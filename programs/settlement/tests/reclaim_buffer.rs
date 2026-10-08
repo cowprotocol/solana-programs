@@ -167,6 +167,56 @@ fn funded_buffer_within_limit_is_burned_and_closed() {
     );
 }
 
+/// Do we need to suppport `BurnChecked` as well, like `TransferChecked`? No.
+/// This test: transfer hook and transfer fee. Its hook points at a program that
+/// is never deployed, so a burn that CPI'd into the hook would fail with a
+/// missing program. Reclaiming the funded buffer with plain `Burn` proves the
+/// burn touches neither the hook nor the fee: `BurnChecked` is not needed here.
+#[test]
+fn funded_buffer_under_a_transfer_hook_mint_is_burned_and_closed() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let mint = common::token::create_mint_under(
+        &mut svm,
+        &payer,
+        &TokenProgram::Token2022.address(),
+        Extensions::TransferFeeAndHook,
+    );
+    let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
+
+    let amount = 1_000;
+    common::token::mint_to(&mut svm, &payer, &mint, &buffer_pda, amount);
+    assert_eq!(
+        common::token::balance(&svm, &buffer_pda),
+        amount,
+        "sanity: the buffer holds the minted tokens before reclaim"
+    );
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::Token2022,
+        mints: &[(mint, amount)],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    svm.send_transaction(tx)
+        .expect("a transfer-hook mint's funded buffer should be burned and closed with plain Burn");
+
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed once its balance is burned"
+    );
+}
+
 common::also_under_token_2022!(funded_buffer_above_its_limit_reverts);
 #[test]
 fn funded_buffer_above_its_limit_reverts() {
