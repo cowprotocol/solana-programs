@@ -8,10 +8,6 @@ Three kinds of party interact with the settlement program:
 
 The settlement program connects these parties together. It's designed to reduce how much they have to trust each other.
 
-## Scope
-
-The program is upgradeable until the upgrade authority has been revoked. We expect to make it immutable at a date in the future ([DESIGN.md](./DESIGN.md)). Until then the upgrade authority can do anything, and all security outcomes are contingent on the operations of the upgrade authority.
-
 ## Privileged Roles
 
 All roles, other than Solvers, are defined and manipulated using the same pattern in the state PDA.
@@ -55,4 +51,10 @@ All roles, other than Solvers, are defined and manipulated using the same patter
   - On-chain state changes make a route unfillable.
 - Accounting for token fees. A settlement only guarantees that a transfer happens for the intended amount; the final transfer fees are borne by the receiver.
 - Fair execution. While the overall protocol is built to incentivize fair prices, the program makes no such guarantees. From the program's perspective, the user is ultimately responsible for the fairness of the price in the intent.
-- Solver accountability for misbehavior. Limited abuse is expected (e.g., a solver withdrawing some of the fees beyond what they're entitled to). This is intended to be covered off-chain by the solver bond.
+- Solver accountability for misbehavior. Limited abuse is expected (e.g., a solver withdrawing some of the fees beyond what they're entitled to). This is intended to be covered off-chain by the solver bond. The solver bond, however, can only cover a limited amount of damage and would not cover large-scale damage, like a solver accessing user approvals.
+
+## Deployments and upgrades
+
+- The program is intended to be used exclusively under the program id specified in the code and would not work under another address.
+- The program is upgradeable until the upgrade authority has been revoked. We expect to make it immutable at a date in the future. Until then the upgrade authority can do anything, and all security outcomes are contingent on the trusted operations of the upgrade authority.
+- Upgrading and bumping the version by at least a minor release should lead to all PDAs of the previous program being effectively unreachable by the updated program. The data is still available on-chain, but approvals before an upgrade cannot be used, and using old PDAs in the new code would not be a security issue, assuming they all used the current PDA seeds.
