@@ -19,7 +19,7 @@
 //! Wire format (with `n` buffers): `[discriminator=6][burn_limit: u64 LE ×n]`.
 //! Required accounts:
 //! `[state_pda (R), reclaim_authority (R,S), reclaim_recipient (W),
-//! token_program (R), (buffer_pda (W), mint (W if burn_limit > 0, else R))...]`.
+//! token_program (R), (buffer_pda (W), mint (W))...]`.
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
@@ -70,14 +70,9 @@ impl From<ReclaimBuffer<'_>> for Instruction {
         let mut data = vec![SettlementInstruction::ReclaimBuffer.discriminator()];
         for (buffer_pda, mint, burn_limit) in builder.buffers {
             accounts.push(AccountMeta::new(*buffer_pda, false));
-            // The mint is writable only where burning is permitted: a burn
-            // decrements the mint's supply, while a zero-limit close never
-            // touches it, so that mint stays read-only.
-            accounts.push(if *burn_limit > 0 {
-                AccountMeta::new(*mint, false)
-            } else {
-                AccountMeta::new_readonly(*mint, false)
-            });
+            // The mint is writable so the handler can burn the buffer's
+            // balance to clear it, which decrements the mint's supply.
+            accounts.push(AccountMeta::new(*mint, false));
             data.extend_from_slice(&burn_limit.to_le_bytes());
         }
         Instruction {
@@ -129,7 +124,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
 
     fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         // Accounts: [state_pda (R), reclaim_authority (R,S), reclaim_recipient
-        // (W), token_program (R), (buffer_pda (W), mint (R or W))...]. The four
+        // (W), token_program (R), (buffer_pda (W), mint (W))...]. The four
         // shared accounts come first; the per-buffer pairs follow, one pair per
         // buffer. The token program is skipped rather than read: each buffer is
         // closed by the program that owns it, so the account is only there to
@@ -413,8 +408,6 @@ mod tests {
             reclaim_authority,
             reclaim_recipient,
             token_program,
-            // A zero burn limit closes without burning, so the mint stays
-            // read-only.
             buffers: &[(buffer_pda, mint, 0)],
         }
         .into();
@@ -425,29 +418,7 @@ mod tests {
         assert_writable_nonsigner(&accounts[2], reclaim_recipient);
         assert_readonly_nonsigner(&accounts[3], token_program);
         assert_writable_nonsigner(&accounts[4], buffer_pda);
-        assert_readonly_nonsigner(&accounts[5], mint);
-    }
-
-    #[test]
-    fn a_nonzero_burn_limit_makes_the_mint_writable() {
-        let mint = pubkey_from_seed("mint");
-        let Instruction { accounts, .. } = ReclaimBuffer {
-            program_id: pubkey_from_seed("program id"),
-            state_pda: pubkey_from_seed("state pda"),
-            reclaim_authority: pubkey_from_seed("reclaim authority"),
-            reclaim_recipient: pubkey_from_seed("reclaim recipient"),
-            token_program: pubkey_from_seed("token program"),
-            // A non-zero limit permits burning, which decrements the mint's
-            // supply, so the mint must be writable.
-            buffers: &[(pubkey_from_seed("buffer pda"), mint, 1)],
-        }
-        .into();
-
-        let mint_meta = accounts
-            .iter()
-            .find(|meta| meta.pubkey == mint)
-            .expect("the mint must be among the instruction accounts");
-        assert_writable_nonsigner(mint_meta, mint);
+        assert_writable_nonsigner(&accounts[5], mint);
     }
 
     #[test]
@@ -484,9 +455,7 @@ mod tests {
             reclaim_authority,
             reclaim_recipient,
             token_program,
-            // `buffer_a` closes without burning (limit 0, read-only mint);
-            // `buffer_b` permits burning (non-zero limit, writable mint).
-            buffers: &[(buffer_a, mint_a, 0), (buffer_b, mint_b, 1337)],
+            buffers: &[(buffer_a, mint_a, 0), (buffer_b, mint_b, 0)],
         }
         .into();
 
@@ -496,7 +465,7 @@ mod tests {
             NUM_SHARED_ACCOUNTS + 2 * ACCOUNTS_PER_BUFFER
         );
         assert_writable_nonsigner(&accounts[4], buffer_a);
-        assert_readonly_nonsigner(&accounts[5], mint_a);
+        assert_writable_nonsigner(&accounts[5], mint_a);
         assert_writable_nonsigner(&accounts[6], buffer_b);
         assert_writable_nonsigner(&accounts[7], mint_b);
     }
