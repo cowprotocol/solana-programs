@@ -1282,6 +1282,11 @@
       "code": 43,
       "name": "InvalidMint",
       "msg": "A mint account supplied to BeginSettle or FinalizeSettle was not able to be parsed as such."
+    },
+    {
+      "code": 44,
+      "name": "NativeSolBufferBelowRent",
+      "msg": "FinalizeSettle: the native SOL payouts would leave the native SOL buffer below its rent-exempt minimum."
     }
   ]
 }

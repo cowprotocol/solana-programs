@@ -143,6 +143,9 @@ pub enum SettlementError {
     /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
     /// was not able to be parsed as such.
     InvalidMint = 43,
+    /// `FinalizeSettle`: the native SOL payouts would leave the native SOL
+    /// buffer below its rent-exempt minimum.
+    NativeSolBufferBelowRent = 44,
 }
 
 impl From<SettlementError> for u32 {

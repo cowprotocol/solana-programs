@@ -350,11 +350,64 @@ fn rejects_a_push_spending_the_native_sol_buffers_rent() {
             use_transfer_checked: false,
         }],
     );
-    let err = send(&mut svm, &solver, &instructions)
-        .expect_err("a push into the native SOL buffer's rent must be rejected");
-    assert!(
-        matches!(err, TransactionError::InsufficientFundsForRent { .. }),
-        "expected a rent failure, got {err:?}",
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &instructions),
+        SettlementError::NativeSolBufferBelowRent,
+    );
+
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
+}
+
+/// Spending all but the rent is fine: the buffer is left exactly rent-exempt.
+#[test]
+fn happy_path_push_leaving_exactly_the_native_sol_buffers_rent() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let funding = 1_000_000;
+    let funded = buffer::add_native_lamports(&mut svm, funding);
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: funding,
+            use_transfer_checked: false,
+        }],
+    );
+    send(&mut svm, &solver, &instructions).expect("a push sparing the rent should be paid");
+
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), funding);
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded - funding);
+}
+
+/// Without the program's rent floor, the runtime accepts a push of the whole
+/// balance and deletes the buffer, after which no native SOL order can settle.
+#[test]
+fn rejects_a_push_of_the_whole_native_sol_buffer() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let funded = buffer::add_native_lamports(&mut svm, 1_000_000);
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: funded,
+            use_transfer_checked: false,
+        }],
+    );
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &instructions),
+        SettlementError::NativeSolBufferBelowRent,
     );
 
     assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);

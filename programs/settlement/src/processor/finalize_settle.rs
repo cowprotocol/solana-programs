@@ -9,7 +9,9 @@ use cow_settlement_interface::{
     SettlementError, SettlementInstruction,
 };
 use pinocchio::{
-    cpi::Signer, sysvars::instructions::Instructions, AccountView, Address, ProgramResult,
+    cpi::Signer,
+    sysvars::{instructions::Instructions, rent::Rent, Sysvar},
+    AccountView, Address, ProgramResult,
 };
 
 use crate::processor::utils::{
@@ -99,11 +101,21 @@ fn push_funds<'a>(
     }
 
     // Loop for orders paying out native SOL
+    let mut native_sol_buffer = None;
     for push in pushes.iter() {
         if push.source_buffer.address() == &NATIVE_SOL_BUFFER_PDA {
             let mut source = *push.source_buffer;
             let mut destination = *push.destination;
             move_lamports(&mut source, &mut destination, push.amount)?;
+            native_sol_buffer = Some(source);
+        }
+    }
+
+    // The runtime would accept payouts that empty the buffer entirely, and then
+    // delete it, leaving native SOL orders unsettleable. Its rent stays put.
+    if let Some(buffer) = native_sol_buffer {
+        if buffer.lamports() < Rent::get()?.try_minimum_balance(buffer.data_len())? {
+            return Err(SettlementError::NativeSolBufferBelowRent.into());
         }
     }
 
