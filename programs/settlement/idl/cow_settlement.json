@@ -11,7 +11,7 @@
     {
       "name": "initialize",
       "docs": [
-        "Creates the singleton settlement state PDA and the native SOL buffer. Succeeds only once."
+        "Creates the singleton settlement state PDA and the native SOL buffer. Succeeds only once, and only when signed by the program's upgrade authority."
       ],
       "discriminator": [
         3
@@ -22,7 +22,7 @@
           "writable": true,
           "signer": true,
           "docs": [
-            "Funds the state PDA's and native SOL buffer's rent and pays the transaction fee."
+            "The program's upgrade authority, as recorded in program_data. Funds the state PDA's and native SOL buffer's rent and pays the transaction fee."
           ]
         },
         {
@@ -115,6 +115,90 @@
           },
           "docs": [
             "Canonical PDA seeded by [SETTLEMENT_SEED, \"buffer native sol\"]. Created as an empty account owned by the settlement program, whose lamports on top of rent pay out orders buying native SOL."
+          ]
+        },
+        {
+          "name": "program_data",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  5,
+                  84,
+                  138,
+                  128,
+                  134,
+                  3,
+                  65,
+                  189,
+                  80,
+                  66,
+                  142,
+                  50,
+                  244,
+                  98,
+                  61,
+                  68,
+                  117,
+                  240,
+                  124,
+                  240,
+                  106,
+                  174,
+                  57,
+                  25,
+                  138,
+                  61,
+                  251,
+                  145,
+                  102,
+                  248,
+                  163,
+                  207
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                2,
+                168,
+                246,
+                145,
+                78,
+                136,
+                161,
+                176,
+                226,
+                16,
+                21,
+                62,
+                247,
+                99,
+                174,
+                43,
+                0,
+                194,
+                185,
+                61,
+                22,
+                193,
+                36,
+                210,
+                192,
+                83,
+                122,
+                16,
+                4,
+                128,
+                0,
+                0
+              ]
+            }
+          },
+          "docs": [
+            "The settlement program's ProgramData account under the upgradeable loader, whose recorded upgrade authority must be the payer."
           ]
         },
         {
@@ -1282,6 +1366,11 @@
       "code": 43,
       "name": "InvalidMint",
       "msg": "A mint account supplied to BeginSettle or FinalizeSettle was not able to be parsed as such."
+    },
+    {
+      "code": 44,
+      "name": "UnauthorizedInitialize",
+      "msg": "Initialize's payer isn't a signer, or isn't the upgrade authority recorded in the settlement program's ProgramData account."
     }
   ]
 }

@@ -6,7 +6,13 @@ import {
   getCreateSettlementOwnedOrderInstructionAsync,
   getInitializeInstructionAsync,
 } from "../src/generated";
-import { buildOrderIntent, fetchOrderAccount, newSvm, sendInstruction } from "./fixtures";
+import {
+  buildOrderIntent,
+  fetchOrderAccount,
+  newSvm,
+  sendInstruction,
+  setUpgradeAuthority,
+} from "./fixtures";
 
 describe("createSettlementOwnedOrder", () => {
   let svm: LiteSVM;
@@ -28,6 +34,10 @@ describe("createSettlementOwnedOrder", () => {
       reclaimAuthority: reclaimAuthority.address,
       settlementOwnedOrderAuthority: settlementOwnedOrderAuthority.address,
     });
+    // Only the upgrade authority recorded in the resolved programData account
+    // may initialize.
+    const programData = initialize.accounts[3].address;
+    setUpgradeAuthority(svm, programData, payer.address);
     await sendInstruction(svm, payer, initialize, "initialize");
 
     // A settlement-owned order must be owned by the state PDA.

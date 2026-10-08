@@ -54,6 +54,7 @@ solana-hash = "4"
 solana-instruction = "3"
 solana-instruction-error = "2"
 solana-instructions-sysvar = "4"
+solana-loader-v3-interface = { version = "8", features = ["serde"] }
 solana-program-error = "3"
 solana-pubkey = "4"
 solana-sdk = "4"
@@ -65,6 +66,7 @@ spl-token = "9"
 spl-token-2022-interface = "3"
 spl-token-interface = "3"
 syn = { version = "2", features = ["full"] }
+wincode = { version = "0.5", default-features = false }
 
 [workspace.metadata.cli]
 # Used to help solana-verify identify the correct build image.

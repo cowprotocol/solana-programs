@@ -143,6 +143,9 @@ pub enum SettlementError {
     /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
     /// was not able to be parsed as such.
     InvalidMint = 43,
+    /// `Initialize`'s payer isn't a signer, or isn't the upgrade authority
+    /// recorded in the settlement program's `ProgramData` account.
+    UnauthorizedInitialize = 44,
 }
 
 impl From<SettlementError> for u32 {

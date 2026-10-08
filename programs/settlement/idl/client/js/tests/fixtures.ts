@@ -4,6 +4,7 @@ import {
   assertAccountExists,
   createTransactionMessage,
   generateKeyPairSigner,
+  getAddressEncoder,
   pipe,
   setTransactionMessageFeePayerSigner,
   signTransactionMessageWithSigners,
@@ -31,6 +32,19 @@ export function newSvm(): LiteSVM {
   const svm = new LiteSVM();
   svm.addProgramFromFile(COW_SETTLEMENT_PROGRAM_ADDRESS, COW_SETTLEMENT_SO_PATH);
   return svm;
+}
+
+/// Record `authority` as the upgrade authority in the `programData` account,
+/// which LiteSVM deploys without one. The authority sits after the
+/// `ProgramData` header's variant tag (4 bytes), slot (8 bytes) and
+/// `Option` tag (1 byte).
+export function setUpgradeAuthority(svm: LiteSVM, programData: Address, authority: Address) {
+  const account = svm.getAccount(programData);
+  assertAccountExists(account);
+  const data = new Uint8Array(account.data);
+  data[12] = 1;
+  data.set(getAddressEncoder().encode(authority), 13);
+  svm.setAccount({ ...account, data });
 }
 
 /// Sign `instruction` with `feePayer` and submit it, throwing a labelled error

@@ -25,6 +25,7 @@ use cow_settlement_client::instruction::{AddSolver, Initialize};
 use cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_interface::Instruction;
 use litesvm::{types::TransactionMetadata, LiteSVM};
+use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_sdk::{
     account::Account,
     clock::Clock,
@@ -74,7 +75,7 @@ pub fn unique_keypair() -> Keypair {
 
 /// Spin up a `LiteSVM`, deploy the compiled `settlement.so` under the declared
 /// program ID (the only one its pinned state PDA works under), and airdrop a
-/// payer keypair.
+/// payer keypair that is also the program's upgrade authority.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     let mut svm = LiteSVM::new();
     let program_id = cow_settlement_interface::ID;
@@ -84,8 +85,30 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     let payer = unique_keypair();
     svm.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("airdrop to payer should succeed");
+    set_upgrade_authority(&mut svm, &program_id, Some(payer.pubkey()));
 
     (svm, program_id, payer)
+}
+
+/// Overwrite the upgrade authority recorded in `program_id`'s `ProgramData`
+/// account. LiteSVM deploys programs without one.
+pub fn set_upgrade_authority(svm: &mut LiteSVM, program_id: &Pubkey, authority: Option<Pubkey>) {
+    let program_data = get_program_data_address(program_id);
+    let mut account = svm
+        .get_account(&program_data)
+        .expect("the program is deployed under the upgradeable loader");
+    let header = bincode::serialize(&UpgradeableLoaderState::ProgramData {
+        slot: 0,
+        upgrade_authority_address: authority,
+    })
+    .expect("loader state serializes");
+    // `None` encodes shorter than the full header, so wipe the authority slot
+    // first to leave no stale key behind it.
+    let header_len = UpgradeableLoaderState::size_of_programdata_metadata();
+    account.data[..header_len].fill(0);
+    account.data[..header.len()].copy_from_slice(&header);
+    svm.set_account(program_data, account)
+        .expect("setting the program data account should succeed");
 }
 
 /// A settlement initialized by [`setup_init`], with all authorities held as

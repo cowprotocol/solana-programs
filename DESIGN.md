@@ -29,7 +29,8 @@ A bump is not a migration. There are some other consequences that should be cons
 
 ## Program initialization
 
-The state PDA and native SOL buffer PDA are created once, after deployment, by the `Initialize` instruction.
+The state PDA and native SOL buffer PDA are created once, after deployment, by the `Initialize` instruction. It must be called by the program
+upgrade authority.
 
 ## Authorities
 

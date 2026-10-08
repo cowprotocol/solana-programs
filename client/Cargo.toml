@@ -15,6 +15,7 @@ publish = true
 [dependencies]
 cow-settlement-interface.workspace = true
 solana-program-error.workspace = true
+solana-sdk-ids.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

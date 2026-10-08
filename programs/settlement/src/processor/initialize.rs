@@ -7,8 +7,10 @@ use cow_settlement_interface::{
         buffer::NATIVE_SOL_BUFFER_PDA_SEEDS,
         state::{validate_is_state_pda, STATE_PDA_SEEDS},
     },
+    SettlementError,
 };
 use pinocchio::{AccountView, Address, ProgramResult};
+use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 
 use crate::processor::utils::pda::CanonicalPda;
 
@@ -21,11 +23,14 @@ pub fn process_initialize(
         payer,
         state_pda,
         native_sol_buffer,
+        program_data,
         manager,
         solver_authority,
         reclaim_authority,
         settlement_owned_order_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
+
+    require_upgrade_authority(program_id, payer, program_data)?;
 
     validate_is_state_pda(state_pda.address().as_array())?;
 
@@ -66,6 +71,26 @@ pub fn process_initialize(
     )?;
 
     Ok(())
+}
+
+/// Confirm that `payer` signed and is the upgrade authority recorded in
+/// `program_data`, which must be `program_id`'s `ProgramData` account.
+fn require_upgrade_authority(
+    program_id: &Address,
+    payer: &AccountView,
+    program_data: &AccountView,
+) -> ProgramResult {
+    if !payer.is_signer() || program_data.address() != &get_program_data_address(program_id) {
+        return Err(SettlementError::UnauthorizedInitialize.into());
+    }
+    // The program bytes trail the loader state, which `deserialize` ignores.
+    match wincode::deserialize(&program_data.try_borrow()?) {
+        Ok(UpgradeableLoaderState::ProgramData {
+            upgrade_authority_address: Some(authority),
+            ..
+        }) if authority == *payer.address() => Ok(()),
+        _ => Err(SettlementError::UnauthorizedInitialize.into()),
+    }
 }
 
 #[cfg(test)]

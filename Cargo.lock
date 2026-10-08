@@ -913,6 +913,7 @@ dependencies = [
  "cow-settlement-interface",
  "proptest",
  "solana-program-error",
+ "solana-sdk-ids",
 ]
 
 [[package]]
@@ -3359,13 +3360,16 @@ dependencies = [
  "solana-hash 4.5.0",
  "solana-instruction",
  "solana-instructions-sysvar 4.0.0",
+ "solana-loader-v3-interface 8.0.1",
  "solana-program-pack",
  "solana-sdk",
+ "solana-sdk-ids",
  "solana-sha256-hasher",
  "solana-system-interface 3.2.0",
  "spl-associated-token-account-interface",
  "spl-token-2022-interface 3.1.1",
  "syn 2.0.119",
+ "wincode 0.5.5",
 ]
 
 [[package]]
@@ -4282,6 +4286,9 @@ version = "8.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "362b468fbde4c20521b9ff5ef743bc0d9b410455a5a92a8b29fd46954e89345f"
 dependencies = [
+ "serde",
+ "serde_bytes",
+ "serde_derive",
  "solana-instruction",
  "solana-pubkey 4.2.1",
  "solana-sdk-ids",

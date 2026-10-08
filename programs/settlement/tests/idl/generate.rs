@@ -13,6 +13,7 @@ use cow_settlement_interface::{
     SettlementInstruction,
 };
 use serde_json::{json, Map, Value};
+use solana_sdk_ids::bpf_loader_upgradeable;
 
 use crate::parse_rust::{self, Source};
 
@@ -33,18 +34,38 @@ impl Seed {
     }
 }
 
+/// A PDA, as the IDL spells it: its seeds, and the program it's derived under
+/// when that isn't the settlement program itself.
+struct Pda {
+    seeds: &'static [Seed],
+    program: Option<Seed>,
+}
+
 /// The canonical settlement state PDA, seeded by the version-stamped prefix
 /// alone.
-const STATE_PDA: &[Seed] = &[Seed::Const(SETTLEMENT_SEED)];
+const STATE_PDA: Pda = Pda {
+    seeds: &[Seed::Const(SETTLEMENT_SEED)],
+    program: None,
+};
 
 /// A per-token buffer PDA. The IDL can only declare the guaranteed index-0
 /// buffer of the unbounded run an instruction actually accepts, so the mint it
 /// derives from is `mint_0`.
-const BUFFER_PDA_0: &[Seed] = &[
-    Seed::Const(SETTLEMENT_SEED),
-    Seed::Account("mint_0"),
-    Seed::Const(BUFFER_SEED),
-];
+const BUFFER_PDA_0: Pda = Pda {
+    seeds: &[
+        Seed::Const(SETTLEMENT_SEED),
+        Seed::Account("mint_0"),
+        Seed::Const(BUFFER_SEED),
+    ],
+    program: None,
+};
+
+/// The settlement program's `ProgramData` account, seeded by the program ID
+/// under the upgradeable loader.
+const PROGRAM_DATA: Pda = Pda {
+    seeds: &[Seed::Const(cow_settlement_interface::ID.as_array())],
+    program: Some(Seed::Const(bpf_loader_upgradeable::ID.as_array())),
+};
 
 /// What the Rust source doesn't say about one instruction.
 struct Instruction {
@@ -56,19 +77,19 @@ struct Instruction {
     /// The accounts the IDL declares a `pda` for, and the seeds that PDA is
     /// derived from. Accounts without one aren't listed: nothing in the Rust
     /// source pins the name the IDL gives them.
-    pda_accounts: &'static [(&'static str, &'static [Seed])],
+    pda_accounts: &'static [(&'static str, &'static Pda)],
 }
 
 const INSTRUCTIONS: &[Instruction] = &[
     Instruction {
         variant: SettlementInstruction::Initialize,
         input: &parse_rust::INITIALIZE_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state_pda", &STATE_PDA), ("program_data", &PROGRAM_DATA)],
     },
     Instruction {
         variant: SettlementInstruction::CreateBuffer,
         input: &parse_rust::CREATE_BUFFER_RS,
-        pda_accounts: &[("buffer_pda_0", BUFFER_PDA_0)],
+        pda_accounts: &[("buffer_pda_0", &BUFFER_PDA_0)],
     },
     Instruction {
         variant: SettlementInstruction::CreateOrder,
@@ -112,22 +133,22 @@ const INSTRUCTIONS: &[Instruction] = &[
     Instruction {
         variant: SettlementInstruction::ReclaimBuffer,
         input: &parse_rust::RECLAIM_BUFFER_RS,
-        pda_accounts: &[("state_pda", STATE_PDA), ("buffer_pda_0", BUFFER_PDA_0)],
+        pda_accounts: &[("state_pda", &STATE_PDA), ("buffer_pda_0", &BUFFER_PDA_0)],
     },
     Instruction {
         variant: SettlementInstruction::TransferAuthority,
         input: &parse_rust::TRANSFER_AUTHORITY_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state_pda", &STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::AddSolver,
         input: &parse_rust::ADD_SOLVER_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state_pda", &STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::RemoveSolver,
         input: &parse_rust::REMOVE_SOLVER_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state_pda", &STATE_PDA)],
     },
 ];
 
@@ -221,9 +242,13 @@ fn pda_accounts(instruction: &Instruction) -> Value {
     let accounts: Vec<Value> = instruction
         .pda_accounts
         .iter()
-        .map(|(name, seeds)| {
+        .map(|(name, Pda { seeds, program })| {
             let seeds: Vec<Value> = seeds.iter().map(Seed::to_idl).collect();
-            json!({ "name": name, "pda": { "seeds": seeds } })
+            let mut pda = json!({ "seeds": seeds });
+            if let Some(program) = program {
+                pda["program"] = program.to_idl();
+            }
+            json!({ "name": name, "pda": pda })
         })
         .collect();
     Value::Array(accounts)

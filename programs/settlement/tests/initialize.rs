@@ -11,7 +11,9 @@ use cow_settlement_client::instruction::Initialize;
 use cow_settlement_client::pda::state::DecodedStateAccount;
 use cow_settlement_interface::pda::state::STATE_PDA_AND_BUMP;
 use litesvm::LiteSVM;
+use solana_loader_v3_interface::get_program_data_address;
 use solana_sdk::{
+    instruction::Instruction,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::Transaction,
@@ -136,6 +138,7 @@ fn funding_payer_can_differ_from_fee_payer() {
     let funder_airdrop = 1_000_000_000;
     svm.airdrop(&funder.pubkey(), funder_airdrop)
         .expect("airdrop to funder should succeed");
+    common::set_upgrade_authority(&mut svm, &program_id, Some(funder.pubkey()));
 
     let ix = Initialize {
         program_id,
@@ -178,17 +181,103 @@ fn initialize_with(
     state_pda: Pubkey,
     native_sol_buffer: Pubkey,
 ) -> Transaction {
-    let ix = InitializeRaw {
+    common::signed_tx(
+        svm,
+        payer,
+        payer,
+        initialize_raw(program_id, payer.pubkey(), state_pda, native_sol_buffer),
+    )
+}
+
+/// An `Initialize` against `program_id` whose upgrade authority is read from
+/// `program_id`'s `ProgramData` account.
+fn initialize_raw(
+    program_id: Pubkey,
+    payer: Pubkey,
+    state_pda: Pubkey,
+    native_sol_buffer: Pubkey,
+) -> InitializeRaw {
+    InitializeRaw {
         program_id,
-        payer: payer.pubkey(),
+        payer,
         state_pda,
         native_sol_buffer,
+        program_data: get_program_data_address(&program_id),
         manager: unique_pubkey(),
         solver_authority: unique_pubkey(),
         reclaim_authority: unique_pubkey(),
         settlement_owned_order_authority: unique_pubkey(),
-    };
-    common::signed_tx(svm, payer, payer, ix)
+    }
+}
+
+/// Send `tx` and assert it fails as an unauthorized `Initialize`, leaving the
+/// state PDA uncreated.
+#[track_caller]
+fn assert_unauthorized_initialize(svm: &mut LiteSVM, tx: Transaction) {
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|meta| meta.err),
+        SettlementError::UnauthorizedInitialize,
+    );
+    assert!(svm.get_account(&STATE_PDA).is_none());
+}
+
+#[test]
+fn rejects_a_payer_that_isnt_the_upgrade_authority() {
+    let (mut svm, program_id, payer) = common::setup();
+    common::set_upgrade_authority(&mut svm, &program_id, Some(unique_pubkey()));
+
+    let tx = initialize_at(&svm, program_id, &payer, STATE_PDA);
+
+    assert_unauthorized_initialize(&mut svm, tx);
+}
+
+#[test]
+fn rejects_initializing_an_immutable_program() {
+    let (mut svm, program_id, payer) = common::setup();
+    common::set_upgrade_authority(&mut svm, &program_id, None);
+
+    let tx = initialize_at(&svm, program_id, &payer, STATE_PDA);
+
+    assert_unauthorized_initialize(&mut svm, tx);
+}
+
+#[test]
+fn rejects_an_upgrade_authority_that_didnt_sign() {
+    let (mut svm, program_id, fee_payer) = common::setup();
+    let upgrade_authority = unique_pubkey();
+    common::set_upgrade_authority(&mut svm, &program_id, Some(upgrade_authority));
+
+    let mut ix = Instruction::from(initialize_raw(
+        program_id,
+        upgrade_authority,
+        STATE_PDA,
+        NATIVE_SOL_BUFFER_PDA,
+    ));
+    ix.accounts[0].is_signer = false;
+    let tx = common::signed_tx(&svm, &fee_payer, &fee_payer, ix);
+
+    assert_unauthorized_initialize(&mut svm, tx);
+}
+
+#[test]
+fn rejects_a_program_data_account_of_another_program() {
+    let (mut svm, program_id, payer) = common::setup();
+
+    // A byte-for-byte copy of the settlement's own `ProgramData`, naming the
+    // payer as upgrade authority, but at an address the settlement doesn't
+    // derive to: what another program deployed by the payer would offer.
+    let other_program_data = unique_pubkey();
+    let account = svm
+        .get_account(&get_program_data_address(&program_id))
+        .expect("the settlement program data exists");
+    svm.set_account(other_program_data, account)
+        .expect("setting the copied program data should succeed");
+
+    let mut ix = initialize_raw(program_id, payer.pubkey(), STATE_PDA, NATIVE_SOL_BUFFER_PDA);
+    ix.program_data = other_program_data;
+    let tx = common::signed_tx(&svm, &payer, &payer, ix);
+
+    assert_unauthorized_initialize(&mut svm, tx);
 }
 
 #[test]
@@ -257,6 +346,7 @@ fn rejects_the_state_pda_of_an_undeclared_program_id() {
     let undeclared_id = unique_pubkey();
     svm.add_program_from_file(undeclared_id, PROGRAM_SO)
         .expect("compiled program .so not found, run `just build-program` first");
+    common::set_upgrade_authority(&mut svm, &undeclared_id, Some(payer.pubkey()));
     let (derived_pda, _) = Pubkey::find_program_address(&STATE_PDA_SEEDS, &undeclared_id);
 
     let tx = initialize_at(&svm, undeclared_id, &payer, derived_pda);
@@ -274,6 +364,7 @@ fn rejects_the_pinned_state_pda_under_an_undeclared_program_id() {
     let undeclared_id = unique_pubkey();
     svm.add_program_from_file(undeclared_id, PROGRAM_SO)
         .expect("compiled program .so not found, run `just build-program` first");
+    common::set_upgrade_authority(&mut svm, &undeclared_id, Some(payer.pubkey()));
 
     let tx = initialize_at(&svm, undeclared_id, &payer, STATE_PDA);
 
