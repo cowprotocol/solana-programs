@@ -88,8 +88,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
     }
 }
 
-/// A single buffer to reclaim: its PDA, its paired `mint`, and the burn limit
-/// bounding how much of its balance may be cleared before it is closed.
+/// Decoded info for a single buffer to reclaim
 pub struct Buffer<'a, A> {
     pub buffer_pda: &'a A,
     pub mint: &'a A,
