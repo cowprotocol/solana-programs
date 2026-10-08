@@ -13,10 +13,7 @@ use solana_sdk::{
 
 use crate::cmd::settle::parse_order_input;
 use crate::cmd::Context;
-
-/// Largest serialized transaction the network accepts
-/// (`solana_packet::PACKET_DATA_SIZE`).
-const MAX_TRANSACTION_SIZE: u64 = 1232;
+use crate::utils::transaction::fits;
 
 /// Most addresses a single `getMultipleAccounts` call accepts.
 const MAX_ACCOUNTS_PER_FETCH: usize = 100;
@@ -134,12 +131,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
 /// fails visibly.
 fn batch_len(ixs: &[Instruction], payer: &Pubkey) -> usize {
     (2..=ixs.len())
-        .take_while(|&len| {
-            // An unsigned transaction already carries placeholder signatures,
-            // so it serializes to the same length as the signed one.
-            let tx = Transaction::new_with_payer(&ixs[..len], Some(payer));
-            bincode::serialized_size(&tx).is_ok_and(|size| size <= MAX_TRANSACTION_SIZE)
-        })
+        .take_while(|&len| fits(&ixs[..len], payer))
         .last()
         .unwrap_or(1)
 }
@@ -171,6 +163,7 @@ mod tests {
     use cow_settlement_client::cow_settlement_interface::data::order::{DISCRIMINATOR, SIZE};
 
     use super::*;
+    use crate::utils::transaction::MAX_TRANSACTION_SIZE;
 
     const PROGRAM_ID: Pubkey = Pubkey::new_from_array([1; 32]);
     const CREATED_BY: Pubkey = Pubkey::new_from_array([2; 32]);
