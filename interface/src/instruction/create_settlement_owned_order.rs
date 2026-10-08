@@ -22,8 +22,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// be the state PDA. The order this function created is a normal order and
 /// settles through the standard `BeginSettle`/`FinalizeSettle` flow.
 ///
-/// The only enforced parameters are `created_on_chain` (should be true) and
-/// the owner (should be the state PDA).
+/// The only enforced parameter is the owner (must be the state PDA).
 ///
 /// `created_by` funds the new order PDA's rent and will get the rent back when
 /// executing `ReclaimOrder`.

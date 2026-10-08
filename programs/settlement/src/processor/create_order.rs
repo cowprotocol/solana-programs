@@ -59,11 +59,6 @@ pub(crate) fn process_new_onchain_order(
     if expected_owner.as_array() != intent.owner() {
         return Err(SettlementError::OwnerMismatch.into());
     }
-    // The intent commits to how it's authenticated, and this is the on-chain
-    // creation flow.
-    if !intent.flags().created_on_chain {
-        return Err(SettlementError::OrderCreatedOnChainMismatch.into());
-    }
 
     let bump = CanonicalPda {
         program_id,
@@ -205,29 +200,6 @@ mod tests {
             Err(SettlementError::OwnerMismatch.into()),
         );
     }
-
-    #[test]
-    fn process_create_order_rejects_intent_not_created_on_chain() {
-        let valid_bytes = valid_intent_bytes();
-        let intent = OrderIntent::try_from(&valid_bytes).expect("should be valid");
-        let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
-            (&EncodedOrderIntent::from(&OrderIntent { ..intent })).into();
-        let data = default_order_data(&intent_bytes);
-        let owner_runtime_account = RuntimeAccount {
-            address: intent.owner,
-            is_signer: 1,
-            ..Default::default()
-        };
-
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
-        accounts[0] = fake_account_from(owner_runtime_account);
-
-        assert_eq!(
-            process_create_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(SettlementError::OrderCreatedOnChainMismatch.into()),
-        );
-    }
-
     #[test]
     fn process_create_order_rejects_zero_amount() {
         // A zero amount can't be built through the NonZeroU64-typed

@@ -102,6 +102,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .map(|(intent, pulls)| InitializedIntent {
             intent: &intent.data,
             pulls,
+            use_transfer_checked: false,
         })
         .collect();
 
@@ -128,6 +129,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
         .map(|intent| FinalizedIntent {
             intent: &intent.data,
             amount: intent.data.buy_amount.get(),
+            use_transfer_checked: false,
         })
         .collect();
 
