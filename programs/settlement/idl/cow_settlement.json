@@ -1285,8 +1285,8 @@
     },
     {
       "code": 44,
-      "name": "NativeSolBufferBelowRent",
-      "msg": "FinalizeSettle: the native SOL payouts would leave the native SOL buffer below its rent-exempt minimum."
+      "name": "NativeSolBufferEmptied",
+      "msg": "FinalizeSettle: the native SOL payouts would empty the native SOL buffer, which the runtime would then delete."
     }
   ]
 }

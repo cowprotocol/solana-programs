@@ -350,10 +350,11 @@ fn rejects_a_push_spending_the_native_sol_buffers_rent() {
             use_transfer_checked: false,
         }],
     );
-    assert_instruction_error_at(
-        FINALIZE_INDEX,
-        send(&mut svm, &solver, &instructions),
-        SettlementError::NativeSolBufferBelowRent,
+    let err = send(&mut svm, &solver, &instructions)
+        .expect_err("a push into the native SOL buffer's rent must be rejected");
+    assert!(
+        matches!(err, TransactionError::InsufficientFundsForRent { .. }),
+        "expected a rent failure, got {err:?}",
     );
 
     assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
@@ -385,8 +386,8 @@ fn happy_path_push_leaving_exactly_the_native_sol_buffers_rent() {
     assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded - funding);
 }
 
-/// Without the program's rent floor, the runtime accepts a push of the whole
-/// balance and deletes the buffer, after which no native SOL order can settle.
+/// Unlike a push into the rent, the runtime accepts a push of the whole balance
+/// and deletes the buffer, after which no native SOL order can settle.
 #[test]
 fn rejects_a_push_of_the_whole_native_sol_buffer() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -407,7 +408,7 @@ fn rejects_a_push_of_the_whole_native_sol_buffer() {
     assert_instruction_error_at(
         FINALIZE_INDEX,
         send(&mut svm, &solver, &instructions),
-        SettlementError::NativeSolBufferBelowRent,
+        SettlementError::NativeSolBufferEmptied,
     );
 
     assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
