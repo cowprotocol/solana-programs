@@ -1,7 +1,7 @@
 //! Builder for the `ReclaimBuffer` instruction.
 
 use cow_settlement_interface::{
-    pda::{buffer::find_buffer_pda, state::STATE_PDA},
+    pda::{buffer::find_buffer_pda, state::find_state_pda},
     token_program::TokenProgram,
     Instruction, Pubkey,
 };
@@ -33,7 +33,7 @@ impl From<ReclaimBuffer<'_>> for Instruction {
             .collect();
         cow_settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {
             program_id: builder.program_id,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             reclaim_authority: builder.reclaim_authority,
             reclaim_recipient: builder.reclaim_recipient,
             token_program: builder.token_program.address(),

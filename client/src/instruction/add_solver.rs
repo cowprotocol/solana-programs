@@ -1,6 +1,6 @@
 //! Builder for the `AddSolver` instruction.
 
-use cow_settlement_interface::{pda::state::STATE_PDA, Instruction, Pubkey};
+use cow_settlement_interface::{pda::state::find_state_pda, Instruction, Pubkey};
 
 /// Inserts `solver` into the state PDA's solver list. `authority` authorizes
 /// the change and must be the current solver authority; `payer` funds the
@@ -18,7 +18,7 @@ impl From<AddSolver> for Instruction {
             program_id: builder.program_id,
             authority: builder.authority,
             payer: builder.payer,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             solver: builder.solver,
         }
         .into()
