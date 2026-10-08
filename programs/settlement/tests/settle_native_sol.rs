@@ -394,14 +394,14 @@ fn rejects_a_push_of_the_whole_native_sol_buffer() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
-    let funded = buffer::add_native_lamports(&mut svm, 1_000_000);
+    let full_balance = buffer::add_native_lamports(&mut svm, 1_000_000);
 
     let instructions = build_matching_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
             intent: &intent,
-            amount: funded,
+            amount: full_balance,
             use_transfer_checked: false,
         }],
     );
