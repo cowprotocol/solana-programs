@@ -305,6 +305,14 @@ fn process_order(
     // which is also resolvable via this validation function.
     validate_buffer_pda(push.source_buffer, intent.buy_mint(), push.bump)?;
 
+    // The push must credit an account distinct from the buffer it pays out of.
+    // When the two coincide the transfer moves nothing, yet it would still look
+    // like the destination was credited, meaning that a solver doesn't have to
+    // do anything fo fulfill an order like this.
+    if push.source_buffer == push.destination {
+        return Err(SettlementError::PushSourceIsDestination.into());
+    }
+
     // The sell token account must be the one named in the intent, owned by
     // the intent owner: an order can only sell funds its own owner controls.
     if sell_token_account.address().as_array() != intent.sell_token_account() {
