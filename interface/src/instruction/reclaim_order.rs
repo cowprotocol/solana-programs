@@ -3,8 +3,8 @@
 //! Closes an order PDA and returns its rent lamports to the `created_by`
 //! account recorded in the order body. The instruction may only be executed
 //! once the order's `valid_to` timestamp has elapsed, or as soon as the order
-//! is cancelled or completely filled. Reclaiming a cancelled order before
-//! expiry requires the stored intent owner's signature.
+//! is cancelled or completely filled. Reclaiming a cancelled order that is not
+//! completely filled before expiry requires the stored intent owner's signature.
 //!
 //! Wire format: `[discriminator=5]`, 1 byte.
 //! Required accounts:
@@ -22,9 +22,10 @@ use crate::SettlementInstruction;
 /// `order_pda` is the order PDA to close. `reclaim_recipient` must be the
 /// account recorded as `created_by` in the order PDA; it receives the recovered
 /// rent lamports.
-/// Anyone may reclaim an expired order or an active, completely filled order.
-/// Reclaiming a cancelled order while `now <= valid_to` requires `owner` to
-/// match the stored intent owner and sign, independently of the rent recipient.
+/// Anyone may reclaim an expired or completely filled order.
+/// Reclaiming a cancelled order that is not completely filled while
+/// `now <= valid_to` requires `owner` to match the stored intent owner and
+/// sign, independently of the rent recipient.
 pub struct ReclaimOrder {
     pub program_id: Pubkey,
     pub order_pda: Pubkey,

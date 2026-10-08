@@ -46,10 +46,10 @@ pub enum SettlementInstruction {
     /// account recorded in the order body.
     ///
     /// Anyone may reclaim after now > valid_to, or before expiry if the order
-    /// is active and completely filled.
+    /// is completely filled.
     ///
-    /// Reclaiming a cancelled order while now <= valid_to requires the stored
-    /// intent owner's signature, even if completely filled.
+    /// Reclaiming a cancelled order that is not completely filled while
+    /// now <= valid_to requires the stored intent owner's signature.
     ReclaimOrder = 5,
     /// Closes one or more buffer PDAs and sends each closed buffer's rent
     /// lamports to a reclaim_recipient of the caller's choosing.

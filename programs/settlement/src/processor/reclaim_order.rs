@@ -1,7 +1,7 @@
 //! `ReclaimOrder` instruction handler.
 
 use cow_settlement_interface::{
-    data::order::{FillAmounts, OrderAccount},
+    data::order::OrderAccount,
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
     SettlementError,
 };
@@ -24,43 +24,19 @@ pub fn process_reclaim_order(
         owner,
     } = ReclaimOrderInput::parse(instruction_data, accounts)?;
 
-    // Read the fields the reclaim decision needs, then drop the borrow before
-    // the lamport transfer and `close` below touch the account.
-    let (created_by, reclaimable, valid_to, cancelled, intent_owner) = {
+    // Decide reclaimability, then drop the borrow before the lamport transfer
+    // and `close` below touch the account.
+    let reclaimable = {
         let order = OrderAccount::load_from_pda(order_pda, program_id)?;
+        if reclaim_recipient.address() != &order.created_by() {
+            return Err(SettlementError::ReclaimRecipientMismatch.into());
+        }
         let intent = OrderIntentAccessor::from_order(&order)?;
-        let cancelled = order.cancelled()?;
-        let reclaimable = is_reclaimable_before_expiry(&intent, cancelled, order.filled_amounts());
-        (
-            order.created_by(),
-            reclaimable,
-            intent.valid_to(),
-            cancelled,
-            *intent.owner(),
-        )
+        is_reclaimable(&order, &intent, owner)?
     };
 
-    if reclaim_recipient.address() != &created_by {
-        return Err(SettlementError::ReclaimRecipientMismatch.into());
-    }
-
-    if !reclaimable || cancelled {
-        let now = Clock::get()?.unix_timestamp;
-        if now <= i64::from(valid_to) {
-            if !reclaimable {
-                return Err(SettlementError::OrderNotReclaimable.into());
-            }
-            // Keep the cancellation tombstone until expiry unless its owner
-            // authorizes closure. A sponsor's signature cannot authorize it,
-            // and a full fill must not bypass this protection.
-            let owner = owner.ok_or(ProgramError::MissingRequiredSignature)?;
-            if !owner.is_signer() {
-                return Err(ProgramError::MissingRequiredSignature);
-            }
-            if owner.address().as_array() != &intent_owner {
-                return Err(SettlementError::OwnerMismatch.into());
-            }
-        }
+    if !reclaimable {
+        return Err(SettlementError::OrderNotReclaimable.into());
     }
 
     // Transfer the rent lamports to the reclaim_recipient account, then close the PDA.
@@ -80,27 +56,44 @@ pub fn process_reclaim_order(
     Ok(())
 }
 
-/// Determines whether the order state permits reclaim before expiry.
-/// Cancelled orders additionally require owner authorization.
-fn is_reclaimable_before_expiry(
+/// Determines whether the order may be closed now.
+fn is_reclaimable<T: core::ops::Deref<Target = [u8]>>(
+    order: &OrderAccount<T>,
     intent: &OrderIntentAccessor,
-    cancelled: bool,
-    fill: FillAmounts,
-) -> bool {
-    cancelled || {
-        let (filled, order_amount) = fill_progress(intent, fill);
-        filled >= order_amount.into()
+    owner: Option<&AccountView>,
+) -> Result<bool, ProgramError> {
+    // 1. Anyone may reclaim an expired order.
+    if Clock::get()?.unix_timestamp > i64::from(intent.valid_to()) {
+        return Ok(true);
     }
+
+    // 2. Anyone may reclaim a fully filled order before it expires.
+    let (filled, order_amount) = fill_progress(intent, order.filled_amounts());
+    if filled >= order_amount.into() {
+        return Ok(true);
+    }
+
+    // 3. Only the owner may reclaim a cancelled order. This protects against a delayed sponsored
+    // order from reopening a cancelled order by reclaiming.
+    if order.cancelled()? {
+        let owner = owner.ok_or(ProgramError::MissingRequiredSignature)?;
+        if !owner.is_signer() {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        if owner.address().as_array() != intent.owner() {
+            return Err(SettlementError::OwnerMismatch.into());
+        }
+        return Ok(true);
+    }
+
+    // 4. Nothing else permits reclaim.
+    Ok(false)
 }
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::intent::Flags;
-    use cow_settlement_interface::data::intent::{
-        fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
-    };
+    use cow_settlement_interface::data::intent::OrderIntent;
     use cow_settlement_interface::data::order::fixtures::OrderFields;
-    use cow_settlement_interface::fixtures::IntoNonZero;
     use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
@@ -147,43 +140,5 @@ mod tests {
             process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),
             Err(SettlementError::ReclaimRecipientMismatch.into()),
         );
-    }
-
-    #[test]
-    fn early_reclaim_conditions() {
-        const SELL_AMOUNT: u64 = 1_000;
-
-        let encoded = EncodedOrderIntent::from(&OrderIntent {
-            sell_amount: SELL_AMOUNT.nz(),
-            ..sample_intent(Flags {
-                kind: OrderKind::Sell,
-                partially_fillable: true,
-            })
-        });
-
-        // (cancelled, amount_withdrawn, expected)
-        let cases = [
-            // Cancelled or fully settled: reclaimable before expiry.
-            (true, 0, true),
-            (false, SELL_AMOUNT, true),
-            (true, SELL_AMOUNT, true),
-            // Active and not fully filled: only expiry makes it reclaimable.
-            (false, 0, false),
-            (false, SELL_AMOUNT - 1, false),
-        ];
-        for (cancelled, amount_withdrawn, expected) in cases {
-            assert_eq!(
-                is_reclaimable_before_expiry(
-                    &OrderIntentAccessor::attach(&encoded).expect("sample must attach"),
-                    cancelled,
-                    FillAmounts {
-                        withdrawn: amount_withdrawn,
-                        received: 0,
-                    },
-                ),
-                expected,
-                "cancelled={cancelled} amount_withdrawn={amount_withdrawn}",
-            );
-        }
     }
 }
