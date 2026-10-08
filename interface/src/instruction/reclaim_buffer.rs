@@ -121,7 +121,6 @@ pub struct ReclaimBufferInput<'a, A> {
     pub state_pda: &'a A,
     pub reclaim_authority: &'a A,
     pub reclaim_recipient: &'a A,
-    /// The buffers to close, each with its paired mint and decoded burn limit.
     pub buffers: Buffers<'a, A>,
 }
 
