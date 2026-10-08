@@ -42,7 +42,6 @@ pub fn sample_intent(owner: Pubkey, salt: u8) -> OrderIntent {
         buy_amount: 2_000_000.nz(),
         valid_to: 0xdead_beef,
         flags: Flags {
-            created_on_chain: true,
             kind: OrderKind::Sell,
             partially_fillable: true,
         },

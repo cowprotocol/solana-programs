@@ -2,7 +2,7 @@
 
 use cow_settlement_interface::{
     data::intent::OrderIntent,
-    pda::{order::find_order_pda, state::STATE_PDA},
+    pda::{order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
 
@@ -16,6 +16,19 @@ pub use cow_settlement_interface::instruction::settle::{Pull, TokenProgram};
 pub struct InitializedIntent<'a> {
     pub intent: &'a OrderIntent,
     pub pulls: &'a [Pull],
+    /// Use TransferChecked instead of Transfer to move the tokens. This is
+    /// generally costs more CU and resources but some Token2022 token
+    /// extensions require it (TransferFeeAmount, TransferHookAccount,
+    /// PausableAccount).
+    pub use_transfer_checked: bool,
+}
+
+impl InitializedIntent<'_> {
+    /// The sell mint to name for `TransferChecked`, or `None` for a plain
+    /// `Transfer`.
+    fn sell_mint(&self) -> Option<Pubkey> {
+        self.use_transfer_checked.then_some(self.intent.sell.mint)
+    }
 }
 
 /// Builder for a `BeginSettle` instruction settling the given orders.
@@ -39,22 +52,25 @@ impl From<BeginSettle<'_>> for Instruction {
     fn from(builder: BeginSettle<'_>) -> Self {
         let mut order_pdas = Vec::with_capacity(builder.orders.len());
         let mut sell_token_accounts = Vec::with_capacity(builder.orders.len());
+        let mut sell_mints = Vec::with_capacity(builder.orders.len());
         let mut pull_lists: Vec<&[Pull]> = Vec::with_capacity(builder.orders.len());
         for order in builder.orders {
             let (order_pda, _bump) = find_order_pda(&builder.program_id, &order.intent.uid());
             order_pdas.push(order_pda);
             sell_token_accounts.push(order.intent.sell.token_account);
+            sell_mints.push(order.sell_mint());
             pull_lists.push(order.pulls);
         }
         cow_settlement_interface::instruction::settle::BeginSettle {
             program_id: builder.program_id,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             solver: builder.solver,
             finalize_ix_index: builder.finalize_ix_index,
             auction_id: builder.auction_id,
             only_token_program: builder.only_token_program,
             order_pdas: &order_pdas,
             sell_token_accounts: &sell_token_accounts,
+            sell_mints: &sell_mints,
             pulls: &pull_lists,
         }
         .into()
@@ -64,78 +80,80 @@ impl From<BeginSettle<'_>> for Instruction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::proptest::{prelude::*, test_runner::TestCaseError};
+    use ::proptest::prelude::*;
     use cow_settlement_interface::{
-        data::intent::fixtures::arb_order_intent,
-        fixtures::pubkey_from_seed,
-        instruction::{
-            fixtures::fake_account_from_array,
-            settle::{BeginSettleInput, INSTRUCTIONS_SYSVAR_ID},
-            InstructionInputParsing,
-        },
+        data::intent::fixtures::arb_order_intent, fixtures::pubkey_from_seed, instruction::settle,
     };
 
+    #[test]
+    fn sell_mint_is_named_only_for_transfer_checked() {
+        let mint = pubkey_from_seed("sell mint");
+        let mut intent = OrderIntent::default();
+        intent.sell.mint = mint;
+        for (use_transfer_checked, expected) in [(false, None), (true, Some(mint))] {
+            let order = InitializedIntent {
+                intent: &intent,
+                pulls: &[],
+                use_transfer_checked,
+            };
+            assert_eq!(order.sell_mint(), expected);
+        }
+    }
+
     proptest! {
-        // `BeginSettle` derives each order's PDA from its intent and forwards to
-        // the interface builder so that the on-chain parser recovers exactly
-        // those orders.
+        // `BeginSettle` derives each order's PDA from its intent and its sell
+        // mint from `use_transfer_checked`, and forwards the rest unchanged to
+        // the interface builder.
         #[test]
         fn begin_settle_derives_orders_from_intents(
             finalize_ix_index in any::<u16>(),
-            intents in prop::collection::vec(arb_order_intent(), 1..=5),
+            cases in prop::collection::vec((arb_order_intent(), any::<bool>()), 1..=5),
         ) {
             let program_id = pubkey_from_seed("program id");
+            let solver = pubkey_from_seed("solver");
             // No pulls here: this test only checks that orders are derived and
             // laid out correctly.
-            let orders: Vec<InitializedIntent> = intents
+            let orders: Vec<InitializedIntent> = cases
                 .iter()
-                .map(|intent| InitializedIntent { intent, pulls: &[] })
+                .map(|(intent, use_transfer_checked)| InitializedIntent {
+                    intent,
+                    pulls: &[],
+                    use_transfer_checked: *use_transfer_checked,
+                })
                 .collect();
             let ix = Instruction::from(BeginSettle {
                 program_id,
-                solver: pubkey_from_seed("solver"),
+                solver,
                 finalize_ix_index,
                 auction_id: 0,
                 only_token_program: None,
                 orders: &orders,
             });
 
-            // Expected orders: each intent's canonical PDA paired with its sell
-            // account, sorted by PDA address (the builder's order).
-            let mut expected: Vec<(Pubkey, Pubkey)> = intents
+            let order_pdas: Vec<Pubkey> = cases
                 .iter()
-                .map(|intent| {
-                    let (order_pda, _bump) = find_order_pda(&program_id, &intent.uid());
-                    (order_pda, intent.sell.token_account)
-                })
+                .map(|(intent, _)| find_order_pda(&program_id, &intent.uid()).0)
                 .collect();
-            expected.sort_by_key(|(order_pda, _)| *order_pda);
-
-            let accounts: Vec<_> = ix
-                .accounts
+            let sell_token_accounts: Vec<Pubkey> = cases
                 .iter()
-                .map(|meta| fake_account_from_array(meta.pubkey.to_bytes()))
+                .map(|(intent, _)| intent.sell.token_account)
                 .collect();
-            let parsed = BeginSettleInput::parse(&ix.data, &accounts)
-                .map_err(|e| TestCaseError::fail(format!("parse failed: {e:?}")))?;
-
-            prop_assert_eq!(parsed.finalize_ix_index, finalize_ix_index);
-            prop_assert_eq!(
-                parsed.instructions_sysvar_account.address(),
-                &INSTRUCTIONS_SYSVAR_ID,
-            );
-
-            let actual: Vec<(Pubkey, Pubkey)> = parsed
-                .orders
-                .iter()
-                .map(|order| {
-                    (
-                        *order.order_pda.address(),
-                        *order.sell_token_account.address(),
-                    )
-                })
-                .collect();
-            prop_assert_eq!(actual, expected);
+            let sell_mints: Vec<Option<Pubkey>> =
+                orders.iter().map(InitializedIntent::sell_mint).collect();
+            let pulls: Vec<&[Pull]> = vec![&[]; cases.len()];
+            let expected = Instruction::from(settle::BeginSettle {
+                program_id,
+                state_pda: find_state_pda(&program_id).0,
+                solver,
+                finalize_ix_index,
+                auction_id: 0,
+                only_token_program: None,
+                order_pdas: &order_pdas,
+                sell_token_accounts: &sell_token_accounts,
+                sell_mints: &sell_mints,
+                pulls: &pulls,
+            });
+            prop_assert_eq!(ix, expected);
         }
     }
 }

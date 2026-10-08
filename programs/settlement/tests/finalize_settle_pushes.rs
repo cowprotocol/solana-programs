@@ -22,6 +22,7 @@ use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
 use cow_settlement_client::{
     cow_settlement_interface::{
         data::intent::{Asset, OrderIntent, TokenAsset},
+        instruction::settle::FINALIZE_FIXED_ACCOUNTS,
         pda::{buffer::KNOWN_MINTS, state::STATE_PDA},
         Instruction, SettlementError,
     },
@@ -71,6 +72,7 @@ fn pushes_a_single_order() {
         &[FinalizedIntent {
             intent: &intent,
             amount,
+            use_transfer_checked: false,
         }],
     );
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
@@ -98,6 +100,7 @@ fn pushes_a_single_order_of_a_known_mint() {
         &[FinalizedIntent {
             intent: &intent,
             amount,
+            use_transfer_checked: false,
         }],
     );
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
@@ -133,10 +136,12 @@ fn pushes_several_orders_from_one_buffer() {
             FinalizedIntent {
                 intent: &intent0,
                 amount: amount0,
+                use_transfer_checked: false,
             },
             FinalizedIntent {
                 intent: &intent1,
                 amount: amount1,
+                use_transfer_checked: false,
             },
         ],
     );
@@ -175,10 +180,12 @@ fn pushes_several_orders_from_different_buffers() {
             FinalizedIntent {
                 intent: &intent0,
                 amount: amount0,
+                use_transfer_checked: false,
             },
             FinalizedIntent {
                 intent: &intent1,
                 amount: amount1,
+                use_transfer_checked: false,
             },
         ],
     );
@@ -209,6 +216,7 @@ fn rejects_buy_token_account_recreated_for_another_mint() {
         &[FinalizedIntent {
             intent: &intent,
             amount: 100,
+            use_transfer_checked: false,
         }],
     );
     assert_finalize_error(
@@ -224,6 +232,7 @@ fn rejects_a_token_program_the_instruction_doesnt_name() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
+        use_transfer_checked: false,
     }];
 
     let mut instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
@@ -246,6 +255,7 @@ fn rejects_wrong_state_pda() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
+        use_transfer_checked: false,
     }];
 
     let mut instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
@@ -268,9 +278,10 @@ fn rejects_push_account_count_mismatch() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
 
-    // A well-formed single-push finalize (five accounts, a nine-byte push body)...
+    // A well-formed single-push finalize (seven accounts, a nine-byte push body)...
     let mut finalize = Instruction::from(FinalizeSettle {
         program_id,
         begin_ix_index: BEGIN_INDEX.into(),
@@ -281,7 +292,7 @@ fn rejects_push_account_count_mismatch() {
     // accounts. `BeginSettle` derives the push count from the (unchanged) account
     // metas (one push, matching its one order and paying the right destination)
     // so it passes. Only the finalize reads the data, where it now parses two
-    // pushes against two push accounts and rejects the mismatch. This is the
+    // pushes against one push's accounts and rejects the mismatch. This is the
     // account/data disagreement `BeginSettle` structurally can't see.
     finalize.data.extend_from_slice(&[0u8; 9]);
 
@@ -304,7 +315,7 @@ fn rejects_too_few_accounts() {
         orders: &[],
     });
     // ...with one of its fixed accounts popped. `BeginSettle` runs first
-    // but only reads push destinations off the accounts (finding none, matching
+    // but only reads push accounts after the fixed ones (finding none, matching
     // its zero orders) so it passes. The finalize then can't even destructure
     // its fixed accounts and raises `NotEnoughAccountKeys`.
     finalize.accounts.pop();
@@ -344,6 +355,7 @@ fn rejects_invalid_buy_token_account() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
+        use_transfer_checked: false,
     }];
 
     let instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
@@ -379,6 +391,7 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 0,
+        use_transfer_checked: false,
     }];
 
     let instructions = build_matching_settlement(&program_id, &solver.pubkey(), &orders);
@@ -388,10 +401,8 @@ fn rejects_buy_account_under_a_unsupported_token_program() {
     );
 }
 
-// Similar to `rejects_too_few_accounts`, but pops two accounts instead of one.
-// This is because variable-length accounts in the instruction are naturally
-// grouped in pairs, so a single missing account could just be an unsuccessful
-// pairing rather than accounting for missing accounts.
+// Similar to `rejects_too_few_accounts`, but pops a whole push's accounts, so
+// the finalize still holds its fixed accounts.
 #[test]
 fn rejects_two_too_few_accounts() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
@@ -399,6 +410,7 @@ fn rejects_two_too_few_accounts() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 1_000,
+        use_transfer_checked: false,
     }];
 
     // A well-formed single-push finalize...
@@ -408,10 +420,9 @@ fn rejects_two_too_few_accounts() {
         only_token_program: None,
         orders: &orders,
     });
-    // ...with that push's whole (source, destination) pair popped, so the data
-    // still declares one push while no push accounts remain.
-    finalize.accounts.pop();
-    finalize.accounts.pop();
+    // ...with that push's whole (source, destination, mint) triple popped, so
+    // the data still declares one push while no push accounts remain.
+    finalize.accounts.truncate(FINALIZE_FIXED_ACCOUNTS);
 
     // The paired `Begin` settles no orders, so it never checks the push
     // destinations: the inconsistency is left for the finalize's own
@@ -430,6 +441,7 @@ fn rejects_partial_push_amount() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
 
     let mut finalize = Instruction::from(FinalizeSettle {

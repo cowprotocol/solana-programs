@@ -2,9 +2,8 @@
 //!
 //! Closes an order PDA and returns its rent lamports to the `created_by`
 //! account recorded in the order body. The instruction may only be executed
-//! once the order's `valid_to` timestamp has elapsed, or, for an order created
-//! on-chain (see `OrderIntent::created_on_chain`), as soon as it's cancelled or
-//! completely filled.
+//! once the order's `valid_to` timestamp has elapsed, or as soon as the order
+//! is cancelled or completely filled.
 //!
 //! Wire format: `[discriminator=5]`, 1 byte.
 //! Required accounts:

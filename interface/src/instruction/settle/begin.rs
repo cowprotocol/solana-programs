@@ -9,7 +9,9 @@ use solana_pubkey::Pubkey;
 use crate::instruction::InstructionInputParsing;
 use crate::{SettlementError, SettlementInstruction};
 
-use super::{recover_counterpart, TokenProgram, INSTRUCTIONS_SYSVAR_ID};
+use super::{
+    recover_counterpart, MaybeMint, TokenProgram, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER,
+};
 
 /// A single transfer made when settling an order: `amount` tokens sent from the
 /// order's sell token account to `destination`.
@@ -23,6 +25,8 @@ pub struct Pull {
 /// parallel lists:
 /// - `order_pdas[i]` is the canonical order PDA (see [`crate::pda::order`])
 /// - `sell_token_accounts[i]` is the order's sell token account,
+/// - `sell_mints[i]` is the order's sell mint if its pulls use
+///   `TransferChecked`, or `None` for plain `Transfer`,
 /// - `pulls[i]` the list of [`Pull`]s to perform from that order's sell token
 ///   account, each sending an amount from the `i`-th order sell token account
 ///   to a destination.
@@ -35,10 +39,13 @@ pub struct Pull {
 /// [transfer_count×n][amount: u64 LE ×T]`.
 /// Required accounts: `[solver (S,R), instructions_sysvar (R), state_pda (R),
 /// spl_token_program (R), token_2022_program (R)]` followed, per order, by
-/// `[order_pda (W), sell_token_account (W), destination (W)...]`. The token
+/// `[order_pda (W), sell_token_account (W), sell_mint (R), destination (W)...]`.
+/// The token
 /// program accounts are there to allow CPI calls against the corresponding token
 /// program, and are otherwise not parsed or validated, so it is possible to replace
 /// these accounts with the system program (or any other program) if they are unused.
+/// A `sell_mint` holding [`MINT_PLACEHOLDER`] makes the
+/// order's pulls plain `Transfer`s; any other mint makes them `TransferChecked`.
 ///
 /// `solver` must sign, and the solver must be registered in the state pda.
 ///
@@ -46,6 +53,7 @@ pub struct Pull {
 /// This builder establishes that ordering for the caller: it sorts the orders by
 /// PDA address, carrying each order's sell token account, transfer count,
 /// amounts, and destination metas before emitting them.
+#[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
@@ -60,6 +68,7 @@ pub struct BeginSettle<'a> {
     pub only_token_program: Option<TokenProgram>,
     pub order_pdas: &'a [Pubkey],
     pub sell_token_accounts: &'a [Pubkey],
+    pub sell_mints: &'a [Option<Pubkey>],
     pub pulls: &'a [&'a [Pull]],
 }
 
@@ -74,6 +83,7 @@ impl From<BeginSettle<'_>> for Instruction {
             only_token_program,
             order_pdas,
             sell_token_accounts,
+            sell_mints,
             pulls,
         } = builder;
 
@@ -125,6 +135,11 @@ impl From<BeginSettle<'_>> for Instruction {
             // Writable accounts settling the order: its sell token account and the
             // recipient of each transfer.
             accounts.push(AccountMeta::new(sell_token_accounts[i], false));
+            // Read account for the sell token mint in case TransferChecked is needed
+            accounts.push(AccountMeta::new_readonly(
+                sell_mints[i].unwrap_or(MINT_PLACEHOLDER),
+                false,
+            ));
             for pull in pulls[i] {
                 accounts.push(AccountMeta::new(pull.destination, false));
             }
@@ -143,6 +158,9 @@ impl From<BeginSettle<'_>> for Instruction {
 pub struct SettledOrder<'a, A> {
     pub order_pda: &'a A,
     pub sell_token_account: &'a A,
+    /// The sell mint for this order's pulls: a real mint for `TransferChecked`,
+    /// or the [`MINT_PLACEHOLDER`] for plain `Transfer`.
+    pub sell_mint: MaybeMint<'a, A>,
     /// Destination accounts for this order's transfers.
     pub destinations: &'a [A],
     /// Transfer amounts (little-endian `u64`), one per destination.
@@ -156,7 +174,7 @@ pub struct SettledOrders<'a, A> {
     /// Order accounts, laid out per order as
     /// [order_accounts_1,  order_accounts_2, ...] where
     /// - each order_accounts is a series of accounts:
-    ///   `order_pda_N, sell_token_account_N, destination_N_1, destination_N_2, ..., destination_N_M`
+    ///   `order_pda_N, sell_token_account_N, sell_mint_N, destination_N_1, ..., destination_N_M`
     /// - and M is `counts[N]`
     order_accounts: &'a [A],
     /// One transfer count per order.
@@ -167,6 +185,15 @@ pub struct SettledOrders<'a, A> {
 }
 
 impl<'a, A> SettledOrders<'a, A> {
+    /// The number of settled orders.
+    pub fn len(&self) -> usize {
+        self.counts.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.counts.is_empty()
+    }
+
     /// Returns an iterator yielding one [`SettledOrder`] per step.
     #[allow(
         clippy::arithmetic_side_effects,
@@ -175,7 +202,8 @@ impl<'a, A> SettledOrders<'a, A> {
     pub fn iter(&self) -> impl Iterator<Item = SettledOrder<'a, A>> + '_ {
         let (counts, amounts) = (self.counts, self.amounts);
         // Cursor over the remaining order accounts; each step splits one order's
-        // `[order_pda, sell_token_account, destinations..count]` off the front.
+        // `[order_pda, sell_token_account, sell_mint, destinations..count]` off
+        // the front.
         let mut rest: &'a [A] = self.order_accounts;
         let mut i = 0usize;
         let mut amount_offset = 0usize;
@@ -188,6 +216,7 @@ impl<'a, A> SettledOrders<'a, A> {
 
             let (order_pda, tail) = rest.split_first()?;
             let (sell_token_account, tail) = tail.split_first()?;
+            let (sell_mint, tail) = tail.split_first()?;
             let (destinations, remainder) = tail.split_at(count);
             rest = remainder;
 
@@ -198,6 +227,7 @@ impl<'a, A> SettledOrders<'a, A> {
             Some(SettledOrder {
                 order_pda,
                 sell_token_account,
+                sell_mint: MaybeMint::new(sell_mint),
                 destinations,
                 amounts: order_amounts,
             })
@@ -265,11 +295,12 @@ impl<'a, A> InstructionInputParsing<'a, A> for BeginSettleInput<'a, A> {
         };
         let transfer_count = amounts.len();
 
-        // Each order contributes its order PDA, sell token account, and one
-        // destination per transfer, so the order accounts count is `2n + T`.
+        // Each order contributes its order PDA, sell token account, sell mint,
+        // and one destination per transfer, so the order accounts count is
+        // `3n + T`.
         let expected_accounts = order_count
-            .checked_mul(2)
-            .and_then(|two_n| two_n.checked_add(transfer_count))
+            .checked_mul(3)
+            .and_then(|three_n| three_n.checked_add(transfer_count))
             .ok_or(ProgramError::InvalidInstructionData)?;
         if order_accounts.len() != expected_accounts {
             return Err(SettlementError::AccountCountNotMatchingOrderCount.into());
@@ -305,7 +336,7 @@ mod tests {
     use crate::instruction::fixtures::{
         fake_account, fake_account_from_array, fake_sequential_accounts,
     };
-    use crate::instruction::settle::tests::ix_data;
+    use crate::instruction::settle::tests::{ix_data, mint_address};
     use crate::instruction::tests::{assert_readonly_nonsigner, assert_readonly_signer};
     use crate::token_program::TokenProgram;
     use hex_literal::hex;
@@ -336,10 +367,7 @@ mod tests {
             solver,
             finalize_ix_index: 0x1337,
             auction_id: 0x0102_0304_0506_0708,
-            only_token_program: None,
-            order_pdas: &[],
-            sell_token_accounts: &[],
-            pulls: &[],
+            ..Default::default()
         }
         .into();
         assert_eq!(ix_program_id, program_id);
@@ -391,12 +419,8 @@ mod tests {
                 program_id: Pubkey::new_unique(),
                 state_pda: Pubkey::new_unique(),
                 solver: Pubkey::new_unique(),
-                finalize_ix_index: 0,
-                auction_id: 0,
                 only_token_program,
-                order_pdas: &[],
-                sell_token_accounts: &[],
-                pulls: &[],
+                ..Default::default()
             });
             let slots: Vec<Pubkey> = accounts[3..].iter().map(|meta| meta.pubkey).collect();
             assert_eq!(
@@ -417,16 +441,19 @@ mod tests {
         let high_sell_token_account = Pubkey::new_from_array([0xa0; 32]);
         let low_order_pda = Pubkey::new_from_array([0xaa; 32]);
         let low_sell_token_account = Pubkey::new_from_array([0xb0; 32]);
+        let high_sell_mint = Pubkey::new_from_array([0xc0; 32]);
         let Instruction { data, accounts, .. } = BeginSettle {
             program_id,
             state_pda,
             solver,
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
-            only_token_program: None,
             order_pdas: &[high_order_pda, low_order_pda],
             sell_token_accounts: &[high_sell_token_account, low_sell_token_account],
+            // Not set to `None` for one of the mints to be able to confirm the ordering of accounts
+            sell_mints: &[Some(high_sell_mint), None],
             pulls: &[&[], &[]],
+            ..Default::default()
         }
         .into();
 
@@ -449,12 +476,15 @@ mod tests {
             TokenProgram::Token2022.address(),
             low_order_pda,
             low_sell_token_account,
+            MINT_PLACEHOLDER,
             high_order_pda,
             high_sell_token_account,
+            high_sell_mint,
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts are read-only; the rest are writable and should be sorted
+        // The fixed accounts and mints are read-only; the rest are writable and
+        // should be sorted
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -486,6 +516,7 @@ mod tests {
         let dest_a0 = Pubkey::new_from_array([0x05; 32]);
         let dest_a1 = Pubkey::new_from_array([0x06; 32]);
         let dest_b0 = Pubkey::new_from_array([0x07; 32]);
+        let mint_b = Pubkey::new_from_array([0x08; 32]);
 
         // Order A has two transfers, order B has one.
         let Instruction { data, accounts, .. } = BeginSettle {
@@ -494,9 +525,9 @@ mod tests {
             solver,
             finalize_ix_index: 0x1337,
             auction_id: AUCTION_ID,
-            only_token_program: None,
             order_pdas: &[order_a, order_b],
             sell_token_accounts: &[sell_a, sell_b],
+            sell_mints: &[None, Some(mint_b)],
             pulls: &[
                 &[
                     Pull {
@@ -513,6 +544,7 @@ mod tests {
                     amount: 0x0506,
                 }],
             ],
+            ..Default::default()
         }
         .into();
 
@@ -539,15 +571,17 @@ mod tests {
             TokenProgram::Token2022.address(),
             order_a,
             sell_a,
+            MINT_PLACEHOLDER,
             dest_a0,
             dest_a1,
             order_b,
             sell_b,
+            mint_b,
             dest_b0,
         ];
         let actual: Vec<Pubkey> = accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(actual, expected);
-        // The fixed accounts are read-only; the rest are writable
+        // The fixed accounts and mints are read-only; the rest are writable.
         let writable: Vec<Pubkey> = accounts
             .iter()
             .filter(|account| account.is_writable)
@@ -555,7 +589,7 @@ mod tests {
             .collect();
         assert_eq!(
             writable,
-            vec![order_a, sell_a, dest_a0, dest_a1, order_b, sell_b, dest_b0],
+            vec![order_a, sell_a, dest_a0, dest_a1, order_b, sell_b, dest_b0,],
         );
         // The solver is the sole signer; none of the order accounts signs.
         let (_fixed, order_accounts) = accounts.split_at(FIXED_ACCOUNTS);
@@ -649,6 +683,7 @@ mod tests {
         let solver = pubkey_from_seed("solver");
         let order_pda = pubkey_from_seed("order pda");
         let sell_token = pubkey_from_seed("sell token");
+        let sell_mint = pubkey_from_seed("sell mint");
         let accounts = [
             fake_account(solver),
             fake_account(sysvar),
@@ -657,6 +692,7 @@ mod tests {
             fake_account(token_2022_program),
             fake_account(order_pda),
             fake_account(sell_token),
+            fake_account(sell_mint),
         ];
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
@@ -683,6 +719,7 @@ mod tests {
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
+        assert_eq!(mint_address(order.sell_mint), &sell_mint);
         assert_eq!(order.destinations.len(), 0);
         assert!(orders.next().is_none());
     }
@@ -696,6 +733,7 @@ mod tests {
         let solver = pubkey_from_seed("solver");
         let order_pda = pubkey_from_seed("order pda");
         let sell_token = pubkey_from_seed("sell token");
+        let sell_mint = pubkey_from_seed("sell mint");
         let dest0 = pubkey_from_seed("destination 0");
         let dest1 = pubkey_from_seed("destination 1");
         let accounts = [
@@ -706,6 +744,7 @@ mod tests {
             fake_account(token_2022_program),
             fake_account(order_pda),
             fake_account(sell_token),
+            fake_account(sell_mint),
             fake_account(dest0),
             fake_account(dest1),
         ];
@@ -726,6 +765,7 @@ mod tests {
         let order = orders.next().expect("one settled order");
         assert_eq!(order.order_pda.address(), &order_pda);
         assert_eq!(order.sell_token_account.address(), &sell_token);
+        assert_eq!(mint_address(order.sell_mint), &sell_mint);
         let transfers: Vec<(&Address, u64)> = order
             .destinations
             .iter()
@@ -740,11 +780,12 @@ mod tests {
     fn begin_settle_input_pairs_every_order_with_its_sell_token_account() {
         const ORDER_COUNT: usize = 16;
 
-        let mut expected: Vec<(Address, Address)> = Vec::new();
+        let mut expected: Vec<(Address, Address, Address)> = Vec::new();
         for i in 0..ORDER_COUNT {
             let order_pda = pubkey_from_seed(&format!("order pda {i}"));
             let sell_token = pubkey_from_seed(&format!("sell token {i}"));
-            expected.push((order_pda, sell_token));
+            let sell_mint = pubkey_from_seed(&format!("sell mint {i}"));
+            expected.push((order_pda, sell_token, sell_mint));
         }
 
         // The fixed accounts (`[0xff..]` down to `[0xfb..]`) differ from every
@@ -756,9 +797,10 @@ mod tests {
             fake_account_from_array([0xfc; 32]),
             fake_account_from_array([0xfb; 32]),
         ];
-        for &(order_pda, sell_token) in &expected {
+        for &(order_pda, sell_token, sell_mint) in &expected {
             accounts.push(fake_account(order_pda));
             accounts.push(fake_account(sell_token));
+            accounts.push(fake_account(sell_mint));
         }
         // Grouped data: discriminator, finalize index, auction id, order count,
         // then all transfer counts (every order has zero transfers).
@@ -772,7 +814,7 @@ mod tests {
 
         let parsed = BeginSettleInput::parse(&data, &accounts).expect("parse should succeed");
 
-        let actual: Vec<(Address, Address)> = parsed
+        let actual: Vec<(Address, Address, Address)> = parsed
             .orders
             .iter()
             .map(|order| {
@@ -780,6 +822,7 @@ mod tests {
                 (
                     *order.order_pda.address(),
                     *order.sell_token_account.address(),
+                    *mint_address(order.sell_mint),
                 )
             })
             .collect();
@@ -787,12 +830,12 @@ mod tests {
     }
 
     #[test]
-    fn begin_settle_input_rejects_account_count_mismatch() {
-        // The body declares one order with no transfers, which needs exactly two
-        // order accounts (its order PDA and sell token account). Only one order
-        // account is supplied after the fixed accounts, so the number of accounts
-        // doesn't match the `2n + T` the body implies.
-        let accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 1 }>();
+    fn begin_settle_input_rejects_too_few_accounts() {
+        // The body declares one order with no transfers, which needs three order
+        // accounts (its order PDA, sell token account, and sell mint). Only two
+        // are supplied after the fixed accounts, short of the `3n + T` the body
+        // implies.
+        let accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 2 }>();
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
             [0, 0],                   // finalize index
@@ -807,11 +850,30 @@ mod tests {
     }
 
     #[test]
+    fn begin_settle_input_rejects_too_many_accounts() {
+        // One order with one transfer takes four order accounts, but five are
+        // supplied after the fixed accounts.
+        let accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 5 }>();
+        let data = ix_data![
+            [SettlementInstruction::BeginSettle.discriminator()],
+            [0, 0],                   // finalize index
+            AUCTION_ID.to_le_bytes(), // auction id
+            [0x01],                   // order count
+            [0x01],                   // the order's transfer count
+            0x1122u64.to_le_bytes(),
+        ];
+        assert_eq!(
+            BeginSettleInput::parse(&data, &accounts).err(),
+            Some(SettlementError::AccountCountNotMatchingOrderCount.into()),
+        );
+    }
+
+    #[test]
     fn begin_settle_input_rejects_counts_not_summing_to_destinations() {
-        // One order whose two destination accounts (plus its order PDA and sell
-        // token account) make the lengths recover T = 2 transfers, but the
+        // One order with two amounts (T = 2) and its five accounts (order PDA,
+        // sell token account, sell mint, and two destinations), but the
         // transfer-count byte claims only one.
-        let accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 4 }>();
+        let accounts = fake_sequential_accounts::<{ FIXED_ACCOUNTS + 5 }>();
         let data = ix_data![
             [SettlementInstruction::BeginSettle.discriminator()],
             [0, 0],                   // finalize index

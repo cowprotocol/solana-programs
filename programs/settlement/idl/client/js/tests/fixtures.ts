@@ -86,7 +86,6 @@ export async function buildOrderIntent(
     buyAmount: 2_000_000n,
     validTo: Math.floor(Date.now() / 1000) + 3600,
     flags: encodeFlags({
-      createdOnChain: true,
       kind: OrderKind.Sell,
       partiallyFillable: false,
     }),

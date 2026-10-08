@@ -184,7 +184,6 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         buy_amount,
         valid_to: common.valid_to,
         flags: Flags {
-            created_on_chain: true,
             kind,
             partially_fillable: common.partially_fillable,
         },

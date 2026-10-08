@@ -2,14 +2,13 @@
 
 use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
-    pda::{order::find_order_pda, state::STATE_PDA},
+    pda::{order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
 
 /// Places `intent` as an order owned by the settlement state PDA, gated by the
-/// settlement-owned-order `authority`. `intent`'s owner must be the state PDA and it
-/// must be flagged `created_on_chain`, or the program rejects it; `created_by`
-/// funds the order PDA's rent.
+/// settlement-owned-order `authority`. `intent`'s owner must be the state PDA,
+/// or the program rejects it; `created_by` funds the order PDA's rent.
 pub struct CreateSettlementOwnedOrder<'a> {
     pub program_id: Pubkey,
     pub authority: Pubkey,
@@ -26,7 +25,7 @@ impl From<CreateSettlementOwnedOrder<'_>> for Instruction {
             program_id: builder.program_id,
             authority: builder.authority,
             created_by: builder.created_by,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             order_pda,
             intent_bytes,
         }
