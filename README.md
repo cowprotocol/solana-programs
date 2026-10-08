@@ -162,10 +162,11 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
 - Update the state PDA bytes in the IDL (use the test to see the bytes to change).
 - Commit the code changes resulting from the steps above (excluding the key of the generated account).
-- Switch your network to mainnet (`solana config set --url mainnet-beta`). You should try out the next steps before the PR on devnet first, but switch to mainnet for the actual release.
+- Switch your network to devnet (`solana config set --url devnet`). 
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair ../deployer-keypair.json <solver-address>`).
-- Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
+- Switch your network to mainnet (`solana config set --url mainnet-beta`) and repeat the last two deployment steps.
+- Make sure the package installs without errors: run `cargo install --path ./test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
 - [Publish the IDL](#publishing-the-idl).
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
