@@ -12,7 +12,7 @@ use solana_sdk::{
 
 use crate::cmd::settle::parse_order_input;
 use crate::cmd::Context;
-use crate::utils::output::print_summary;
+use crate::utils::output::{print_failures, print_summary};
 
 /// Most orders that always fit into one transaction, reached when every order
 /// has its own creator, none of them the payer.
@@ -108,16 +108,6 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Lists each offending order input with why it failed.
-fn print_failures(failures: &[(&str, String)]) {
-    print_summary(
-        &failures
-            .iter()
-            .map(|(input, reason)| (*input, reason as &dyn ToString))
-            .collect::<Vec<_>>(),
-    );
-}
-
 /// The `created_by` account recorded in an order, which the program requires
 /// as the reclaim recipient. Fails if `account` isn't an order owned by
 /// `program_id`.
@@ -146,7 +136,6 @@ mod tests {
     use solana_instruction::Instruction;
 
     use super::*;
-    use crate::utils::transaction::MAX_TRANSACTION_SIZE;
 
     const PROGRAM_ID: Pubkey = Pubkey::new_from_array([1; 32]);
     const CREATED_BY: Pubkey = Pubkey::new_from_array([2; 32]);
