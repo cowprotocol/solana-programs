@@ -1,6 +1,6 @@
 //! Builder for the `TransferAuthority` instruction.
 
-use cow_settlement_interface::{pda::state::STATE_PDA, Instruction, Pubkey, Role};
+use cow_settlement_interface::{pda::state::find_state_pda, Instruction, Pubkey, Role};
 
 /// Transfers `role` to `new_authority` in a single step. Signed by `signer`,
 /// which must be the manager or the current holder of `role`.
@@ -16,7 +16,7 @@ impl From<TransferAuthority> for Instruction {
         cow_settlement_interface::instruction::transfer_authority::TransferAuthority {
             program_id: builder.program_id,
             signer: builder.signer,
-            state_pda: STATE_PDA,
+            state_pda: find_state_pda(&builder.program_id).0,
             role: builder.role,
             new_authority: builder.new_authority,
         }
