@@ -446,8 +446,18 @@
           ]
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "spl_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "docs": [
+            "The legacy SPL Token program; one of two fixed token-program slots this settlement's pulls are issued against. A settlement whose pulls only touch Token-2022 may put any already-present account here."
+          ]
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "docs": [
+            "The SPL Token-2022 program; the second fixed token-program slot. A settlement whose pulls only touch the legacy SPL Token program may put any already-present account here."
+          ]
         }
       ],
       "args": [
@@ -488,8 +498,18 @@
           ]
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "spl_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "docs": [
+            "The legacy SPL Token program; one of two fixed token-program slots this settlement's pushes are issued against. A settlement whose pushes only touch Token-2022 may put any already-present account here."
+          ]
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "docs": [
+            "The SPL Token-2022 program; the second fixed token-program slot. A settlement whose pushes only touch the legacy SPL Token program may put any already-present account here."
+          ]
         }
       ],
       "args": [
