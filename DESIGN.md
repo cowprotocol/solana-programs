@@ -55,7 +55,7 @@ Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`
 The buffer account for native SOL is an empty account owned by the settlement program whose funds on top of the necessary rent are paid out. 
 
 A buffer (except for the native SOL buffer) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
-If needed, the caller can clear the stored balance to make account closure possible in the first place.
+If needed, the caller can burn the stored balance to make account closure possible in the first place.
 
 Differences with Ethereum:
 
