@@ -10,25 +10,29 @@ use cow_settlement_interface::{
 /// `mints` and sending their rent lamports to `reclaim_recipient`, which
 /// `reclaim_authority` picks freely and may set to itself.
 ///
-/// A buffer that still holds a token balance is silently skipped rather than
-/// closed, so a successful instruction is no guarantee that any buffer went
-/// away. This is done to prevent accidental loss of funds.
+/// A buffer is cleared and closed only when its balance doesn't exceed the
+/// paired `burn_limit`: a balance within the limit is burned to zero (when
+/// non-empty) and the account closed, while a balance above it reverts the
+/// whole instruction. A zero limit forbids burning, so a non-empty buffer is
+/// closed only once the caller allows it with a non-zero limit: a guard
+/// against accidentally burning real funds.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub reclaim_authority: Pubkey,
     pub reclaim_recipient: Pubkey,
     pub token_program: TokenProgram,
-    pub mints: &'a [Pubkey],
+    /// One `(mint, burn_limit)` entry per buffer to close.
+    pub mints: &'a [(Pubkey, u64)],
 }
 
 impl From<ReclaimBuffer<'_>> for Instruction {
     fn from(builder: ReclaimBuffer<'_>) -> Self {
-        let buffers: Vec<(Pubkey, Pubkey)> = builder
+        let buffers: Vec<(Pubkey, Pubkey, u64)> = builder
             .mints
             .iter()
-            .map(|mint| {
+            .map(|(mint, burn_limit)| {
                 let (buffer_pda, _bump) = find_buffer_pda(&builder.program_id, mint);
-                (buffer_pda, *mint)
+                (buffer_pda, *mint, *burn_limit)
             })
             .collect();
         cow_settlement_interface::instruction::reclaim_buffer::ReclaimBuffer {

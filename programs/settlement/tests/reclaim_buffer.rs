@@ -49,7 +49,7 @@ fn happy_path_reclaims_to_a_recipient_chosen_by_the_authority() {
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
         token_program: active_token::program(),
-        mints: &[mint],
+        mints: &[(mint, 0)],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     svm.send_transaction(tx)
@@ -98,7 +98,7 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
         token_program: active_token::program(),
-        mints: &[mint],
+        mints: &[(mint, 0)],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
@@ -115,9 +115,61 @@ fn happy_path_reclaims_empty_buffer_to_the_authority_itself() {
     );
 }
 
-common::also_under_token_2022!(funded_buffer_is_skipped);
+common::also_under_token_2022!(funded_buffer_within_limit_is_burned_and_closed);
 #[test]
-fn funded_buffer_is_skipped() {
+fn funded_buffer_within_limit_is_burned_and_closed() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let mint = common::token::create_mint(&mut svm, &payer);
+    let buffer_pda = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint);
+
+    let amount = 1_000;
+    common::token::mint_to(&mut svm, &payer, &mint, &buffer_pda, amount);
+    assert_eq!(
+        common::token::balance(&svm, &buffer_pda),
+        amount,
+        "sanity: the buffer holds the minted tokens before reclaim"
+    );
+
+    let buffer_lamports_before = svm
+        .get_account(&buffer_pda)
+        .expect("buffer must exist before reclaim")
+        .lamports;
+    let reclaim_authority_lamports_before = common::lamports(&svm, &reclaim_authority.pubkey());
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: active_token::program(),
+        mints: &[(mint, amount)],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
+        .expect("a funded buffer within its limit should be burned and closed");
+
+    assert!(
+        svm.get_account(&buffer_pda).is_none(),
+        "buffer PDA must be closed once its balance is burned"
+    );
+    assert_eq!(
+        common::lamports(&svm, &reclaim_authority.pubkey()) - reclaim_authority_lamports_before,
+        buffer_lamports_before,
+        "reclaim_authority must receive exactly the closed buffer's rent lamports"
+    );
+}
+
+common::also_under_token_2022!(funded_buffer_above_its_limit_reverts);
+#[test]
+fn funded_buffer_above_its_limit_reverts() {
     let (
         mut svm,
         InitializedParams {
@@ -139,15 +191,22 @@ fn funded_buffer_is_skipped() {
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
         token_program: active_token::program(),
-        mints: &[mint],
+        mints: &[(mint, amount - 1)],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
-        .expect("reclaim_buffer should succeed");
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|e| e.err),
+        SettlementError::ReclaimBufferBurnLimitExceeded,
+    );
 
     assert!(
         svm.get_account(&buffer_pda).is_some(),
-        "buffer PDA should have been untouched despite transaction succeeding"
+        "buffer PDA must survive a reverted reclaim"
+    );
+    assert_eq!(
+        common::token::balance(&svm, &buffer_pda),
+        amount,
+        "the buffer's balance must be untouched when the reclaim reverts"
     );
 }
 
@@ -184,7 +243,7 @@ fn reclaims_to_the_settlements_own_state_pda() {
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: STATE_PDA,
         token_program: active_token::program(),
-        mints: &[mint],
+        mints: &[(mint, 0)],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     svm.send_transaction(tx)
@@ -208,9 +267,9 @@ fn reclaims_to_the_settlements_own_state_pda() {
     );
 }
 
-common::also_under_token_2022!(reclaims_multiple_buffers_skipping_funded);
+common::also_under_token_2022!(reclaims_a_mix_of_empty_and_funded_buffers);
 #[test]
-fn reclaims_multiple_buffers_skipping_funded() {
+fn reclaims_a_mix_of_empty_and_funded_buffers() {
     let (
         mut svm,
         InitializedParams {
@@ -226,27 +285,29 @@ fn reclaims_multiple_buffers_skipping_funded() {
     let buffer_a = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint_a);
     let buffer_b = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint_b);
 
-    // Only `buffer_b` is funded; `buffer_a` stays empty and closable.
-    common::token::mint_to(&mut svm, &payer, &mint_b, &buffer_b, 500);
+    // `buffer_a` stays empty (limit 0); `buffer_b` is funded and burned under
+    // its own limit. Both end up closed.
+    let funded = 500;
+    common::token::mint_to(&mut svm, &payer, &mint_b, &buffer_b, funded);
 
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
         token_program: active_token::program(),
-        mints: &[mint_a, mint_b],
+        mints: &[(mint_a, 0), (mint_b, funded)],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
-    send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)
-        .expect("reclaim_buffer should succeed");
+    svm.send_transaction(tx)
+        .expect("a mix of empty and within-limit buffers should all close");
 
     assert!(
         svm.get_account(&buffer_a).is_none(),
-        "buffer_a must be closed"
+        "the empty buffer must be closed"
     );
     assert!(
-        svm.get_account(&buffer_b).is_some(),
-        "buffer_b must not be closed (because it's funded)"
+        svm.get_account(&buffer_b).is_none(),
+        "the funded buffer must be burned and closed"
     );
 }
 
@@ -275,7 +336,7 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
         token_program: active_token::program(),
-        mints: &[mint, mint],
+        mints: &[(mint, 0), (mint, 0)],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     assert_instruction_error(
@@ -306,7 +367,7 @@ fn rejects_when_signer_is_not_the_configured_reclaim_authority() {
         reclaim_authority: impostor.pubkey(),
         reclaim_recipient: impostor.pubkey(),
         token_program: active_token::program(),
-        mints: &[mint],
+        mints: &[(mint, 0)],
     };
     let tx = common::signed_tx(&svm, &payer, &impostor, ix);
     assert_instruction_error(
@@ -339,7 +400,7 @@ fn rejects_when_the_reclaim_authority_does_not_sign() {
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: recipient,
         token_program: active_token::program(),
-        mints: &[mint],
+        mints: &[(mint, 0)],
     });
 
     // Clear the signer flag on the authority's meta. The recipient is a
@@ -426,7 +487,7 @@ fn reclaims_a_buffer_whose_mint_was_reopened_with_another_extension() {
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
         token_program: TokenProgram::Token2022,
-        mints: &[mint],
+        mints: &[(mint, 0)],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     svm.send_transaction(tx)
@@ -488,7 +549,7 @@ fn reclaims_a_buffer_whose_mint_was_reopened_as_a_legacy_mint() {
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
         token_program: TokenProgram::Token2022,
-        mints: &[mint],
+        mints: &[(mint, 0)],
     };
     let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
     svm.send_transaction(tx)
@@ -511,8 +572,9 @@ fn max_buffers_reclaim_via_lookup_table(
     reclaim_authority: &Keypair,
 ) -> usize {
     common::lookup_table::max_items_via_lookup_table(svm, |svm, n| {
-        let buffers: Vec<(Pubkey, Pubkey)> =
-            (0..n).map(|_| (unique_pubkey(), unique_pubkey())).collect();
+        let buffers: Vec<(Pubkey, Pubkey, u64)> = (0..n)
+            .map(|_| (unique_pubkey(), unique_pubkey(), 0))
+            .collect();
         let ix = ReclaimBufferRaw {
             program_id: *program_id,
             state_pda: STATE_PDA,
@@ -597,13 +659,15 @@ fn max_buffers_in_one_instruction() {
         })
         .sum();
 
+    // Every buffer is empty, so a zero limit closes each without burning.
+    let reclaim_mints: Vec<(Pubkey, u64)> = mints.iter().map(|mint| (*mint, 0)).collect();
     let authority_before = common::lamports(&svm, &reclaim_authority.pubkey());
     let ix = ReclaimBuffer {
         program_id,
         reclaim_authority: reclaim_authority.pubkey(),
         reclaim_recipient: reclaim_authority.pubkey(),
         token_program: active_token::program(),
-        mints: &mints,
+        mints: &reclaim_mints,
     };
     let tx = common::lookup_table::lookup_table_tx(&mut svm, &reclaim_authority, ix);
     let txresult = send_transaction_metered(&mut svm, tx, BenchLabel::ReclaimBuffer)

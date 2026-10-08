@@ -143,6 +143,9 @@ pub enum SettlementError {
     /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
     /// was not able to be parsed as such.
     InvalidMint = 43,
+    /// A buffer to be reclaimed holds more tokens than the burn limit supplied
+    /// for it, so its balance can't be cleared for closing.
+    ReclaimBufferBurnLimitExceeded = 44,
 }
 
 impl From<SettlementError> for u32 {

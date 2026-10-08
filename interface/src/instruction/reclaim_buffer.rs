@@ -5,16 +5,21 @@
 //! choosing. Only the settlement's configured `reclaim_authority` (see
 //! [`crate::data::state::StateAccount`]) may authorize this.
 //!
-//! A buffer that still holds tokens is skipped, not closed.
+//! Each relaimed buffer takes a burn limit. Up to this amount of balance is
+//! burned, so that rent reclamation remains possible when the tokens can't be
+//! otherwise be disposed of. A zero limit prevents any burning and is the
+//! expected standard way to reclaim buffers, since most tokens should rather
+//! be sold in advance than burned.
 //!
 //! The token_program supplied to this instruction must be the owner of all mints
 //! supplied. Only one token program can be supplied to this instruction at a time.
 //! If mints from two separate token programs are required, the client needs to
 //! divide it into separate instructions.
 //!
-//! Wire format: `[discriminator=6]`, 1 byte.
+//! Wire format (with `n` buffers): `[discriminator=6][burn_limit: u64 LE ×n]`.
 //! Required accounts:
-//! `[state_pda (R), reclaim_authority (R,S), reclaim_recipient (W), token_program (R), (buffer_pda (W), mint (R))...]`.
+//! `[state_pda (R), reclaim_authority (R,S), reclaim_recipient (W),
+//! token_program (R), (buffer_pda (W), mint (W if burn_limit > 0, else R))...]`.
 
 use solana_instruction::{AccountMeta, Instruction};
 use solana_program_error::ProgramError;
@@ -23,18 +28,25 @@ use solana_pubkey::Pubkey;
 use super::InstructionInputParsing;
 use crate::SettlementInstruction;
 
+/// Number of accounts each buffer contributes to the instruction: its buffer
+/// PDA and its mint.
+pub const ACCOUNTS_PER_BUFFER: usize = 2;
+
 /// Builder for a `ReclaimBuffer` instruction that closes one buffer per
-/// `(buffer_pda, mint)` pair in `buffers`.
+/// `(buffer_pda, mint, burn_limit)` entry in `buffers`.
 ///
 /// `state_pda` must be [`crate::pda::state::STATE_PDA`]. `reclaim_authority`
 /// must sign and must match the `reclaim_authority` recorded in the state PDA's data.
 /// `reclaim_recipient` is the account receiving the closed buffer's lamports.
 /// Each `buffer_pda` must be the canonical PDA returned by
 /// [`crate::pda::buffer::find_buffer_pda`] for its paired `mint`, which is
-/// passed only so that derivation can be checked on-chain.
+/// passed both so that derivation can be checked on-chain and so the balance can
+/// be burned when clearing the buffer.
 ///
-/// Buffers that still hold a token balance are skipped without failing the
-/// instruction.
+/// `burn_limit` caps how much of a buffer's balance may be burned to clear it:
+/// a buffer whose balance doesn't exceed its limit is burned to zero (when
+/// non-empty) and closed, while one that exceeds its limit reverts the whole
+/// instruction. A zero limit prevents any burning.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
@@ -43,7 +55,8 @@ pub struct ReclaimBuffer<'a> {
     /// The token program owning every buffer this instruction closes. Must be
     /// the address of a [`crate::token_program::TokenProgram`].
     pub token_program: Pubkey,
-    pub buffers: &'a [(Pubkey, Pubkey)],
+    /// One `(buffer_pda, mint, burn_limit)` entry per buffer to close.
+    pub buffers: &'a [(Pubkey, Pubkey, u64)],
 }
 
 impl From<ReclaimBuffer<'_>> for Instruction {
@@ -54,15 +67,53 @@ impl From<ReclaimBuffer<'_>> for Instruction {
             AccountMeta::new(builder.reclaim_recipient, false),
             AccountMeta::new_readonly(builder.token_program, false),
         ];
-        for (buffer_pda, mint) in builder.buffers {
+        let mut data = vec![SettlementInstruction::ReclaimBuffer.discriminator()];
+        for (buffer_pda, mint, burn_limit) in builder.buffers {
             accounts.push(AccountMeta::new(*buffer_pda, false));
-            accounts.push(AccountMeta::new_readonly(*mint, false));
+            // The mint is writable only where burning is permitted: a burn
+            // decrements the mint's supply, while a zero-limit close never
+            // touches it, so that mint stays read-only.
+            accounts.push(if *burn_limit > 0 {
+                AccountMeta::new(*mint, false)
+            } else {
+                AccountMeta::new_readonly(*mint, false)
+            });
+            data.extend_from_slice(&burn_limit.to_le_bytes());
         }
         Instruction {
             program_id: builder.program_id,
             accounts,
-            data: vec![SettlementInstruction::ReclaimBuffer.discriminator()],
+            data,
         }
+    }
+}
+
+/// A single buffer to reclaim: its PDA, its paired `mint`, and the burn limit
+/// bounding how much of its balance may be cleared before it is closed.
+pub struct Buffer<'a, A> {
+    pub buffer_pda: &'a A,
+    pub mint: &'a A,
+    pub burn_limit: u64,
+}
+
+/// The `(buffer_pda, mint)` account pairs of a `ReclaimBuffer` and their
+/// parallel per-buffer burn limits. Parsing guarantees the two have the same
+/// length.
+pub struct Buffers<'a, A> {
+    accounts: &'a [[A; ACCOUNTS_PER_BUFFER]],
+    burn_limits: &'a [[u8; core::mem::size_of::<u64>()]],
+}
+
+impl<'a, A> Buffers<'a, A> {
+    pub fn iter(&self) -> impl Iterator<Item = Buffer<'a, A>> + '_ {
+        self.accounts
+            .iter()
+            .zip(self.burn_limits)
+            .map(|([buffer_pda, mint], burn_limit)| Buffer {
+                buffer_pda,
+                mint,
+                burn_limit: u64::from_le_bytes(*burn_limit),
+            })
     }
 }
 
@@ -71,19 +122,16 @@ pub struct ReclaimBufferInput<'a, A> {
     pub state_pda: &'a A,
     pub reclaim_authority: &'a A,
     pub reclaim_recipient: &'a A,
-    /// One `[buffer_pda, mint]` pair per buffer to close.
-    pub buffers: &'a [[A; 2]],
+    /// The buffers to close, each with its paired mint and decoded burn limit.
+    pub buffers: Buffers<'a, A>,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
     const DISCRIMINATOR: SettlementInstruction = SettlementInstruction::ReclaimBuffer;
 
-    fn parse_body(instruction_data: &[u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
-        if !instruction_data.is_empty() {
-            return Err(ProgramError::InvalidInstructionData);
-        }
+    fn parse_body(instruction_data: &'a [u8], accounts: &'a [A]) -> Result<Self, ProgramError> {
         // Accounts: [state_pda (R), reclaim_authority (R,S), reclaim_recipient
-        // (W), token_program (R), (buffer_pda (W), mint (R))...]. The four
+        // (W), token_program (R), (buffer_pda (W), mint (R or W))...]. The four
         // shared accounts come first; the per-buffer pairs follow, one pair per
         // buffer. The token program is skipped rather than read: each buffer is
         // closed by the program that owns it, so the account is only there to
@@ -96,16 +144,28 @@ impl<'a, A> InstructionInputParsing<'a, A> for ReclaimBufferInput<'a, A> {
         // buffer needs both, so a stray leftover account is a malformed
         // instruction. There must be at least one pair: an instruction that
         // reclaims no buffers is rejected as a likely encoding issue.
-        let (buffers, remainder) = rest.as_chunks::<2>();
-        if !remainder.is_empty() || buffers.is_empty() {
+        let (buffer_pairs, remainder) = rest.as_chunks::<ACCOUNTS_PER_BUFFER>();
+        if !remainder.is_empty() || buffer_pairs.is_empty() {
             return Err(ProgramError::NotEnoughAccountKeys);
+        }
+
+        // The data carries one little-endian `u64` burn limit per buffer, in
+        // buffer order. A trailing partial limit, or a limit count that doesn't
+        // match the buffers, is a malformed instruction.
+        let (burn_limits, remainder) =
+            instruction_data.as_chunks::<{ core::mem::size_of::<u64>() }>();
+        if !remainder.is_empty() || burn_limits.len() != buffer_pairs.len() {
+            return Err(ProgramError::InvalidInstructionData);
         }
 
         Ok(Self {
             state_pda,
             reclaim_authority,
             reclaim_recipient,
-            buffers,
+            buffers: Buffers {
+                accounts: buffer_pairs,
+                burn_limits,
+            },
         })
     }
 }
@@ -123,8 +183,8 @@ pub mod fixtures {
     /// program.
     pub const NUM_SHARED_ACCOUNTS: usize = 4;
 
-    /// `ReclaimBuffer` instruction data with placeholder addresses, for
-    /// failure cases where the input is irrelevant.
+    /// `ReclaimBuffer` instruction data with placeholder addresses and data,
+    /// for failure cases where the input is irrelevant.
     pub fn reclaim_buffer_data() -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
         Instruction::from(ReclaimBuffer {
@@ -133,7 +193,7 @@ pub mod fixtures {
             reclaim_authority: zero,
             reclaim_recipient: zero,
             token_program: zero,
-            buffers: &[(zero, zero)],
+            buffers: &[(zero, zero, 0)],
         })
         .data
     }
@@ -165,7 +225,7 @@ mod tests {
             reclaim_authority,
             reclaim_recipient,
             token_program,
-            buffers: &[(buffer_pda, mint)],
+            buffers: &[(buffer_pda, mint, 1337)],
         })
         .data;
         let token_program = pubkey_from_seed("token program");
@@ -188,9 +248,18 @@ mod tests {
         assert_eq!(*parsed_state_pda.address(), state_pda);
         assert_eq!(*parsed_reclaim_authority.address(), reclaim_authority);
         assert_eq!(*parsed_reclaim_recipient.address(), reclaim_recipient);
-        assert_eq!(buffers.len(), 1, "one buffer is one pair");
-        assert_eq!(*buffers[0][0].address(), buffer_pda);
-        assert_eq!(*buffers[0][1].address(), mint);
+        let parsed: Vec<_> = buffers.iter().collect();
+        let [Buffer {
+            buffer_pda: parsed_buffer_pda,
+            mint: parsed_mint,
+            burn_limit,
+        }] = parsed.as_slice()
+        else {
+            panic!("expected exactly one parsed buffer");
+        };
+        assert_eq!(*parsed_buffer_pda.address(), buffer_pda);
+        assert_eq!(*parsed_mint.address(), mint);
+        assert_eq!(*burn_limit, 1337);
     }
 
     #[test]
@@ -211,7 +280,7 @@ mod tests {
             token_program,
             reclaim_authority,
             reclaim_recipient,
-            buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
+            buffers: &[(buffer_a, mint_a, 42), (buffer_b, mint_b, 1337)],
         })
         .data;
         let accounts = [
@@ -228,15 +297,25 @@ mod tests {
         let ReclaimBufferInput { buffers, .. } =
             ReclaimBufferInput::parse(&data, &accounts).expect("parse should succeed");
 
-        assert_eq!(buffers.len(), 2, "two buffers are two pairs");
-        assert_eq!(
-            buffers[0].each_ref().map(|a| *a.address()),
-            [buffer_a, mint_a]
-        );
-        assert_eq!(
-            buffers[1].each_ref().map(|a| *a.address()),
-            [buffer_b, mint_b]
-        );
+        let parsed: Vec<_> = buffers.iter().collect();
+        let [Buffer {
+            buffer_pda: parsed_buffer_a,
+            mint: parsed_mint_a,
+            burn_limit: limit_a,
+        }, Buffer {
+            buffer_pda: parsed_buffer_b,
+            mint: parsed_mint_b,
+            burn_limit: limit_b,
+        }] = parsed.as_slice()
+        else {
+            panic!("expected exactly two parsed buffers");
+        };
+        assert_eq!(*parsed_buffer_a.address(), buffer_a);
+        assert_eq!(*parsed_mint_a.address(), mint_a);
+        assert_eq!(*limit_a, 42);
+        assert_eq!(*parsed_buffer_b.address(), buffer_b);
+        assert_eq!(*parsed_mint_b.address(), mint_b);
+        assert_eq!(*limit_b, 1337);
     }
 
     #[test]
@@ -252,11 +331,24 @@ mod tests {
     }
 
     #[test]
-    fn reclaim_buffer_input_rejects_long_data() {
+    fn reclaim_buffer_input_rejects_a_partial_trailing_limit() {
         let mut data = reclaim_buffer_data();
         data.push(0); // trailing byte
+        let accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + ACCOUNTS_PER_BUFFER }>();
         assert_eq!(
-            ReclaimBufferInput::parse(&data, &[0]).err(),
+            ReclaimBufferInput::parse(&data, &accounts).err(),
+            Some(ProgramError::InvalidInstructionData),
+        );
+    }
+
+    #[test]
+    fn reclaim_buffer_input_rejects_a_limit_count_that_does_not_match_the_buffers() {
+        // Data for one buffer, but two buffer pairs in the accounts.
+        let data = reclaim_buffer_data();
+        let accounts =
+            fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + 2 * ACCOUNTS_PER_BUFFER }>();
+        assert_eq!(
+            ReclaimBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::InvalidInstructionData),
         );
     }
@@ -277,7 +369,8 @@ mod tests {
         let data = reclaim_buffer_data();
         // The shared accounts plus one dangling account that can't form a
         // full pair.
-        let accounts = fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + 3 }>();
+        let accounts =
+            fake_sequential_accounts::<{ NUM_SHARED_ACCOUNTS + ACCOUNTS_PER_BUFFER + 1 }>();
         assert_eq!(
             ReclaimBufferInput::parse(&data, &accounts).err(),
             Some(ProgramError::NotEnoughAccountKeys),
@@ -299,13 +392,12 @@ mod tests {
             reclaim_authority,
             reclaim_recipient,
             token_program,
-            buffers: &[(buffer_pda, mint)],
+            buffers: &[(buffer_pda, mint, 0x1337)],
         }
         .into();
-        assert_eq!(
-            data,
-            vec![SettlementInstruction::ReclaimBuffer.discriminator()]
-        );
+        let mut expected = vec![SettlementInstruction::ReclaimBuffer.discriminator()];
+        expected.extend_from_slice(&[0x37, 0x13, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(data, expected);
     }
 
     #[test]
@@ -323,7 +415,9 @@ mod tests {
             reclaim_authority,
             reclaim_recipient,
             token_program,
-            buffers: &[(buffer_pda, mint)],
+            // A zero burn limit closes without burning, so the mint stays
+            // read-only.
+            buffers: &[(buffer_pda, mint, 0)],
         }
         .into();
 
@@ -337,6 +431,28 @@ mod tests {
     }
 
     #[test]
+    fn a_nonzero_burn_limit_makes_the_mint_writable() {
+        let mint = pubkey_from_seed("mint");
+        let Instruction { accounts, .. } = ReclaimBuffer {
+            program_id: pubkey_from_seed("program id"),
+            state_pda: pubkey_from_seed("state pda"),
+            reclaim_authority: pubkey_from_seed("reclaim authority"),
+            reclaim_recipient: pubkey_from_seed("reclaim recipient"),
+            token_program: pubkey_from_seed("token program"),
+            // A non-zero limit permits burning, which decrements the mint's
+            // supply, so the mint must be writable.
+            buffers: &[(pubkey_from_seed("buffer pda"), mint, 1)],
+        }
+        .into();
+
+        let mint_meta = accounts
+            .iter()
+            .find(|meta| meta.pubkey == mint)
+            .expect("the mint must be among the instruction accounts");
+        assert_writable_nonsigner(mint_meta, mint);
+    }
+
+    #[test]
     fn recipient_may_be_the_reclaim_authority_itself() {
         let reclaim_authority = pubkey_from_seed("reclaim authority");
         let Instruction { accounts, .. } = ReclaimBuffer {
@@ -345,7 +461,7 @@ mod tests {
             reclaim_authority,
             reclaim_recipient: reclaim_authority,
             token_program: pubkey_from_seed("token program"),
-            buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"))],
+            buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"), 0)],
         }
         .into();
 
@@ -370,16 +486,21 @@ mod tests {
             reclaim_authority,
             reclaim_recipient,
             token_program,
-            buffers: &[(buffer_a, mint_a), (buffer_b, mint_b)],
+            // `buffer_a` closes without burning (limit 0, read-only mint);
+            // `buffer_b` permits burning (non-zero limit, writable mint).
+            buffers: &[(buffer_a, mint_a, 0), (buffer_b, mint_b, 1337)],
         }
         .into();
 
-        // Four shared accounts followed by two (buffer, mint) pairs.
-        assert_eq!(accounts.len(), 4 + 2 * 2);
+        // The shared accounts followed by two (buffer, mint) pairs.
+        assert_eq!(
+            accounts.len(),
+            NUM_SHARED_ACCOUNTS + 2 * ACCOUNTS_PER_BUFFER
+        );
         assert_writable_nonsigner(&accounts[4], buffer_a);
         assert_readonly_nonsigner(&accounts[5], mint_a);
         assert_writable_nonsigner(&accounts[6], buffer_b);
-        assert_readonly_nonsigner(&accounts[7], mint_b);
+        assert_writable_nonsigner(&accounts[7], mint_b);
     }
 
     #[test]
