@@ -447,7 +447,7 @@ fn rejects_multiple_orders_consuming_the_whole_native_sol_buffer() {
         &[
             FinalizedIntent {
                 intent: &intent1,
-                amount: quarter_balance.checked_mul(3).expect("should portion"),
+                amount: full_balance.strict_sub(quarter_balance),
                 use_transfer_checked: false,
             },
             FinalizedIntent {
