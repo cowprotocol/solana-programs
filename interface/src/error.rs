@@ -143,9 +143,13 @@ pub enum SettlementError {
     /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
     /// was not able to be parsed as such.
     InvalidMint = 43,
+    /// `BeginSettle`: a paired `FinalizeSettle` push's destination is the very
+    /// buffer the push draws from, so settling it would move no funds yet still
+    /// record the declared amount as received.
+    PushSourceIsDestination = 44,
     /// A buffer to be reclaimed holds more tokens than the burn limit supplied
     /// for it, so its balance can't be cleared for closing.
-    ReclaimBufferBurnLimitExceeded = 44,
+    ReclaimBufferBurnLimitExceeded = 45,
 }
 
 impl From<SettlementError> for u32 {
