@@ -217,9 +217,11 @@ Creating the order in advance is _not_ needed: if the order wasn’t created bef
 
 Allocating an order PDA requires paying rent.
 
-If the order is expired, anyone can close the order account through the `ReclaimOrder` instruction. On account closure, the rent is sent to the order's `created_by` account, i.e., the original creator of the order.
+The order account is closed through the `ReclaimOrder` instruction, which sends the rent to the order's `created_by` account. Reclaiming is allowed when the order is:
 
-An order can also be closed before it expires once it is cancelled or completely filled: in these cases `ReclaimOrder` additionally allows reclaiming it.
+- completely filled: anyone can reclaim it;
+- expired: anyone can reclaim it;
+- cancelled: only the order owner can reclaim it.
 
 This is useful for solvers who need to allocate the order for executing it, but the allocation itself would be orders of magnitude more expensive than the compute cost for executing an instruction. This is particularly relevant to make small orders economically viable.
 
