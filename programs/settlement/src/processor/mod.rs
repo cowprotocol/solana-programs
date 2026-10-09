@@ -58,9 +58,7 @@ pub fn process_instruction(
         SettlementInstruction::CreateBuffer => {
             process_create_buffer(program_id, accounts, instruction_data)
         }
-        SettlementInstruction::ReclaimOrder => {
-            process_reclaim_order(program_id, accounts, instruction_data)
-        }
+        SettlementInstruction::ReclaimOrder => process_reclaim_order(accounts, instruction_data),
         SettlementInstruction::ReclaimBuffer => {
             process_reclaim_buffer(program_id, accounts, instruction_data)
         }
