@@ -2,12 +2,14 @@ use cow_settlement_client::cow_settlement_interface::data::state::StateAccount;
 use cow_settlement_client::instruction::Initialize;
 use litesvm::LiteSVM;
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::Keypair;
 
-/// Send `ix` as the settlement's `Initialize`, signed by `payer`.
-pub fn initialize(svm: &mut litesvm::LiteSVM, payer: &Keypair, ix: Initialize) {
-    let tx = super::signed_tx(svm, payer, payer, ix);
+/// Send `ix` as the settlement's `Initialize`, signed as in
+/// [`initializer_tx`](super::initializer_tx).
+pub fn initialize(mut svm: litesvm::LiteSVM, ix: Initialize) -> LiteSVM {
+    let tx = super::initializer_tx(&svm, ix);
+    svm = svm.with_sigverify(false);
     svm.send_transaction(tx).expect("initialize should succeed");
+    svm.with_sigverify(true)
 }
 
 /// Assert the solver list's storage invariant: solvers are stored strictly

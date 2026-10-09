@@ -299,29 +299,39 @@ fn happy_path_zero_amount() {
     assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), before);
 }
 
+/// An order whose signed intent names the native SOL buffer it is paid out of
+/// as its own destination is rejected. Settling it would pull the sell tokens
+/// yet pay nothing while still recording the push amount as received.
 #[test]
-fn happy_path_native_sol_buffer_receiver_still_works() {
+fn rejects_a_native_push_crediting_its_own_source() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderIntent {
         buy: Asset::Native(NATIVE_SOL_BUFFER_PDA),
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    let funded = buffer::add_native_lamports(&mut svm, 1_000_000);
+    // Stage real pulls, so a settlement would drain the sell account.
+    let staged = stage_order(&mut svm, &program_id, &payer, &intent, &[1_000], 2_000_000);
+    let sell_before = token::balance(&svm, &intent.sell.token_account);
+    let buffer_before = lamports(&svm, &NATIVE_SOL_BUFFER_PDA);
 
-    let instructions = build_matching_settlement(
-        &program_id,
-        &solver.pubkey(),
-        &[FinalizedIntent {
-            intent: &intent,
-            amount: 100,
-            use_transfer_checked: false,
-        }],
+    let instructions =
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new(), &[]);
+    assert_begin_error(
+        send(&mut svm, &solver, &instructions),
+        SettlementError::PushSourceIsDestination,
     );
-    send(&mut svm, &solver, &instructions)
-        .expect("a push that credits its own source should settle as a no-op");
 
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
+    assert_eq!(
+        token::balance(&svm, &intent.sell.token_account),
+        sell_before,
+        "the sell tokens must not leave a rejected self-payment",
+    );
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        buffer_before,
+        "the native SOL buffer must be untouched",
+    );
 }
 
 #[test]
@@ -383,7 +393,10 @@ fn happy_path_push_leaving_exactly_the_native_sol_buffers_rent() {
     send(&mut svm, &solver, &instructions).expect("a push sparing the rent should be paid");
 
     assert_eq!(lamports(&svm, &buy_sol_account(&intent)), funding);
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), initial_balance - funding);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        initial_balance - funding
+    );
 }
 
 /// Unlike a push into the rent, the runtime accepts a push of the whole balance
@@ -411,7 +424,7 @@ fn rejects_a_push_of_the_whole_native_sol_buffer() {
         SettlementError::NativeSolBufferEmptied,
     );
 
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), full_balance);
     assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
 }
 

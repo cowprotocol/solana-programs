@@ -6,7 +6,14 @@ import {
   getCreateSettlementOwnedOrderInstructionAsync,
   getInitializeInstructionAsync,
 } from "../src/generated";
-import { buildOrderIntent, fetchOrderAccount, newSvm, sendInstruction } from "./fixtures";
+import {
+  buildOrderIntent,
+  initializerSigner,
+  fetchOrderAccount,
+  newSvm,
+  sendInstruction,
+  sendUnverifiedInstruction,
+} from "./fixtures";
 
 describe("createSettlementOwnedOrder", () => {
   let svm: LiteSVM;
@@ -21,14 +28,16 @@ describe("createSettlementOwnedOrder", () => {
     svm.airdrop(payer.address, lamports(1_000_000_000n));
 
     // Put a settlement-owned-order authority on record so it can place the order.
+    const initializer = initializerSigner();
+    svm.airdrop(initializer.address, lamports(1_000_000_000n));
     const initialize = await getInitializeInstructionAsync({
-      payer,
+      payer: initializer,
       manager: manager.address,
       solverAuthority: solverAuthority.address,
       reclaimAuthority: reclaimAuthority.address,
       settlementOwnedOrderAuthority: settlementOwnedOrderAuthority.address,
     });
-    await sendInstruction(svm, payer, initialize, "initialize");
+    await sendUnverifiedInstruction(svm, payer, initialize, "initialize");
 
     // A settlement-owned order must be owned by the state PDA.
     const [statePda] = await findStatePdaPda();
