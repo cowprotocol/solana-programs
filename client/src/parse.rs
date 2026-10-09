@@ -181,7 +181,7 @@ mod tests {
                 reclaim_authority: payer,
                 reclaim_recipient: payer,
                 token_program: pubkey_from_seed("token program"),
-                buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"))],
+                buffers: &[(pubkey_from_seed("buffer pda"), pubkey_from_seed("mint"), 0)],
             }
             .into(),
             SettlementInstruction::TransferAuthority => TransferAuthority {

@@ -562,9 +562,9 @@
     {
       "name": "reclaim_buffer",
       "docs": [
-        "Closes one or more buffer PDAs and sends each closed buffer's rent lamports to a reclaim_recipient of the caller's choosing. Only the current holder of the ReclaimAuthority role recorded in the state PDA may authorize this. A buffer that still holds tokens is skipped, not closed, and the instruction still succeeds.",
+        "Closes one or more buffer PDAs and sends each closed buffer's rent lamports to a reclaim_recipient of the caller's choosing. Only the current holder of the ReclaimAuthority role recorded in the state PDA may authorize this. Each buffer carries a u64 burn limit in the instruction data: a buffer whose balance does not exceed its limit is burned to zero (when non-empty) and closed, while a balance above its limit is skipped so the rest of the batch still closes; the instruction reverts only when every buffer is over its limit. A zero limit forbids burning, so a non-empty buffer is closed only when the caller allows it with a non-zero limit. Any other failure, such as a non-canonical PDA or a burn or close that fails, reverts the whole instruction.",
         "Every buffer is closed by the token program that owns it, and the instruction names a single token_program for those CPIs to dispatch to, so buffers spread across both supported token programs need one instruction each.",
-        "IDL LIMITATION: the real instruction accepts an unbounded number of (buffer_pda, mint) pairs as remaining accounts, one pair per buffer, with at least one pair required (ReclaimBuffer rejects zero buffers). IDL grammar has no 'repeated group' construct, so this file only declares the guaranteed index-0 template (buffer_pda_0/mint_0).",
+        "IDL LIMITATION: the real instruction accepts an unbounded number of (buffer_pda, mint) pairs as remaining accounts, one pair per buffer, with at least one pair required (ReclaimBuffer rejects zero buffers), and the instruction data carries one little-endian u64 burn limit per buffer in the same order. IDL grammar has no 'repeated group' construct, so this file only declares the guaranteed index-0 template (buffer_pda_0/mint_0) and omits the per-buffer limits.",
         "Each buffer_pda_i must be the canonical PDA for seeds [SETTLEMENT_SEED, mint_i, \"buffer\"]; mint_i is passed only so that derivation can be checked on-chain."
       ],
       "discriminator": [
@@ -678,7 +678,7 @@
         {
           "name": "mint_0",
           "docs": [
-            "Guaranteed present: ReclaimBuffer rejects an instruction with zero buffers."
+            "Guaranteed present: ReclaimBuffer rejects an instruction with zero buffers. Must be writable when this buffer's burn limit is non-zero, since burning decrements the mint's supply; read-only is enough for a zero-limit close."
           ]
         }
       ],
@@ -1321,6 +1321,11 @@
       "code": 45,
       "name": "NativeSolBufferEmptied",
       "msg": "FinalizeSettle: the native SOL payouts would empty the native SOL buffer, which the runtime would then delete."
+    },
+    {
+      "code": 46,
+      "name": "ReclaimBufferBurnLimitExceeded",
+      "msg": "A buffer to be reclaimed holds more tokens than the burn limit supplied for it, so its balance can't be cleared for closing."
     }
   ]
 }

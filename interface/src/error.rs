@@ -150,6 +150,9 @@ pub enum SettlementError {
     /// `FinalizeSettle`: the native SOL payouts would empty the native SOL
     /// buffer, which the runtime would then delete.
     NativeSolBufferEmptied = 45,
+    /// A buffer to be reclaimed holds more tokens than the burn limit supplied
+    /// for it, so its balance can't be cleared for closing.
+    ReclaimBufferBurnLimitExceeded = 46,
 }
 
 impl From<SettlementError> for u32 {
