@@ -2,7 +2,7 @@ import { LiteSVM } from "litesvm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { generateKeyPairSigner, lamports } from "@solana/kit";
 import {
-  findStatePdaPda,
+  findStatePda,
   getCreateSettlementOwnedOrderInstructionAsync,
   getInitializeInstructionAsync,
 } from "../src/generated";
@@ -31,7 +31,7 @@ describe("createSettlementOwnedOrder", () => {
     await sendInstruction(svm, payer, initialize, "initialize");
 
     // A settlement-owned order must be owned by the state PDA.
-    const [statePda] = await findStatePdaPda();
+    const [statePda] = await findStatePda();
     const intent = await buildOrderIntent({ owner: statePda });
 
     // orderPda is omitted on purpose: the codama resolver must derive it from

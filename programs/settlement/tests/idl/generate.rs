@@ -9,7 +9,10 @@
 //! agree with everything that _is_ here.
 
 use cow_settlement_interface::{
-    pda::{buffer::BUFFER_SEED, SETTLEMENT_SEED},
+    pda::{
+        buffer::{BUFFER_SEED, NATIVE_SOL_BUFFER_SEED},
+        SETTLEMENT_SEED,
+    },
     SettlementInstruction,
 };
 use serde_json::{json, Map, Value};
@@ -37,6 +40,12 @@ impl Seed {
 /// alone.
 const STATE_PDA: &[Seed] = &[Seed::Const(SETTLEMENT_SEED)];
 
+/// The native SOL buffer PDA, whose lamports pay out orders buying native SOL.
+const NATIVE_SOL_BUFFER_PDA: &[Seed] = &[
+    Seed::Const(SETTLEMENT_SEED),
+    Seed::Const(NATIVE_SOL_BUFFER_SEED),
+];
+
 /// A per-token buffer PDA. The IDL can only declare the guaranteed index-0
 /// buffer of the unbounded run an instruction actually accepts, so the mint it
 /// derives from is `mint_0`.
@@ -63,7 +72,10 @@ const INSTRUCTIONS: &[Instruction] = &[
     Instruction {
         variant: SettlementInstruction::Initialize,
         input: &parse_rust::INITIALIZE_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[
+            ("state_pda", STATE_PDA),
+            ("native_sol_buffer", NATIVE_SOL_BUFFER_PDA),
+        ],
     },
     Instruction {
         variant: SettlementInstruction::CreateBuffer,
@@ -80,10 +92,9 @@ const INSTRUCTIONS: &[Instruction] = &[
     Instruction {
         variant: SettlementInstruction::CreateSettlementOwnedOrder,
         input: &parse_rust::CREATE_SETTLEMENT_OWNED_ORDER_RS,
-        // `state_pda` is passed as a plain account checked against the canonical
-        // address, and `order_pda`'s seeds include `sha256(intent)`, which the
-        // IDL has no `seeds` kind for.
-        pda_accounts: &[],
+        // `order_pda`'s seeds include `sha256(intent)`, which the IDL has no
+        // `seeds` kind for.
+        pda_accounts: &[("state_pda", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::CancelOrder,
@@ -95,14 +106,12 @@ const INSTRUCTIONS: &[Instruction] = &[
     Instruction {
         variant: SettlementInstruction::BeginSettle,
         input: &parse_rust::BEGIN_SETTLE_RS,
-        // `state_pda` is passed as a plain account here rather than derived:
-        // BeginSettle checks it against the canonical address itself.
-        pda_accounts: &[],
+        pda_accounts: &[("state_pda", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::FinalizeSettle,
         input: &parse_rust::FINALIZE_SETTLE_RS,
-        pda_accounts: &[],
+        pda_accounts: &[("state_pda", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::ReclaimOrder,
