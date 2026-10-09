@@ -11,7 +11,7 @@
     {
       "name": "initialize",
       "docs": [
-        "Creates the singleton settlement state PDA and the native SOL buffer. Succeeds only once."
+        "Creates the singleton settlement state PDA and the native SOL buffer. Succeeds only once, and only when signed by the hardcoded initializer."
       ],
       "discriminator": [
         3
@@ -21,8 +21,9 @@
           "name": "payer",
           "writable": true,
           "signer": true,
+          "address": "B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5",
           "docs": [
-            "Funds the state PDA's and native SOL buffer's rent and pays the transaction fee."
+            "Funds the state PDA's and native SOL buffer's rent. Must be the hardcoded initializer."
           ]
         },
         {
@@ -474,8 +475,18 @@
           ]
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "spl_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "docs": [
+            "The legacy SPL Token program; one of two fixed token-program slots this settlement's pulls are issued against. A settlement whose pulls only touch Token-2022 may put any already-present account here."
+          ]
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "docs": [
+            "The SPL Token-2022 program; the second fixed token-program slot. A settlement whose pulls only touch the legacy SPL Token program may put any already-present account here."
+          ]
         }
       ],
       "args": [
@@ -544,8 +555,18 @@
           ]
         },
         {
-          "name": "token_program",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "spl_token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "docs": [
+            "The legacy SPL Token program; one of two fixed token-program slots this settlement's pushes are issued against. A settlement whose pushes only touch Token-2022 may put any already-present account here."
+          ]
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "docs": [
+            "The SPL Token-2022 program; the second fixed token-program slot. A settlement whose pushes only touch the legacy SPL Token program may put any already-present account here."
+          ]
         }
       ],
       "args": [
@@ -561,9 +582,9 @@
     {
       "name": "reclaim_order",
       "docs": [
-        "Closes an expired order PDA and returns its rent lamports to the created_by account recorded in the order body. The instruction may only be executed after the order's valid_to timestamp has elapsed.",
-        "An order created on-chain is reclaimable earlier than that: as soon as it has been cancelled or completely filled, without waiting for valid_to.",
-        "No signature requirement: anyone may reclaim an expired order on behalf of its reclaim_recipient."
+        "Closes an order PDA and returns its rent lamports to the created_by account recorded in the order body.",
+        "Anyone may reclaim after now > valid_to, or before expiry if the order is completely filled.",
+        "Reclaiming a cancelled order that is not completely filled while now <= valid_to requires the stored intent owner's signature."
       ],
       "discriminator": [
         5
@@ -581,6 +602,14 @@
           "writable": true,
           "docs": [
             "Must match the created_by address recorded in the order; receives the recovered rent lamports."
+          ]
+        },
+        {
+          "name": "owner",
+          "signer": true,
+          "optional": true,
+          "docs": [
+            "Required only for cancelled, unexpired orders. Must match the stored intent owner and sign, independently of reclaim_recipient."
           ]
         }
       ],
@@ -1338,6 +1367,16 @@
       "code": 43,
       "name": "InvalidMint",
       "msg": "A mint account supplied to BeginSettle or FinalizeSettle was not able to be parsed as such."
+    },
+    {
+      "code": 44,
+      "name": "PushSourceIsDestination",
+      "msg": "BeginSettle: a paired FinalizeSettle push's destination is the very buffer the push draws from, so settling it would move no funds yet still record the declared amount as received."
+    },
+    {
+      "code": 45,
+      "name": "NativeSolBufferEmptied",
+      "msg": "FinalizeSettle: the native SOL payouts would empty the native SOL buffer, which the runtime would then delete."
     }
   ]
 }
