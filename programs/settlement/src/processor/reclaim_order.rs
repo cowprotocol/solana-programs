@@ -3,7 +3,7 @@
 use cow_settlement_interface::{
     data::order::OrderAccount,
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
-    SettlementError,
+    SettlementError, ID,
 };
 use pinocchio::{
     error::ProgramError,
@@ -14,7 +14,6 @@ use pinocchio::{
 use crate::processor::utils::intent::{fill_progress, OrderIntentAccessor};
 
 pub fn process_reclaim_order(
-    program_id: &pinocchio::Address,
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
@@ -24,18 +23,8 @@ pub fn process_reclaim_order(
         owner,
     } = ReclaimOrderInput::parse(instruction_data, accounts)?;
 
-    // Decide reclaimability, then drop the borrow before the lamport transfer
-    // and `close` below touch the account.
-    let reclaimable = {
-        let order = OrderAccount::load_from_pda(order_pda, program_id)?;
-        if reclaim_recipient.address() != &order.created_by() {
-            return Err(SettlementError::ReclaimRecipientMismatch.into());
-        }
-        let intent = OrderIntentAccessor::from_order(&order)?;
-        is_reclaimable(&order, &intent, owner)?
-    };
-
-    if !reclaimable {
+    // Determine whether this order is reclaimable or not.
+    if !is_reclaimable(order_pda, reclaim_recipient, owner)? {
         return Err(SettlementError::OrderNotReclaimable.into());
     }
 
@@ -57,13 +46,22 @@ pub fn process_reclaim_order(
 }
 
 /// Determines whether the order may be closed now.
-fn is_reclaimable<T: core::ops::Deref<Target = [u8]>>(
-    order: &OrderAccount<T>,
-    intent: &OrderIntentAccessor,
+fn is_reclaimable(
+    order_pda: &AccountView,
+    reclaim_recipient: &AccountView,
     owner: Option<&AccountView>,
 ) -> Result<bool, ProgramError> {
+    let order = OrderAccount::load_from_pda(order_pda, &ID)?;
+
+    // 0. The reclaim recipient always has to be correct.
+    if reclaim_recipient.address() != &order.created_by() {
+        return Err(SettlementError::ReclaimRecipientMismatch.into());
+    }
+
+    let intent = OrderIntentAccessor::from_order(&order)?;
+
     // 1. Anyone may reclaim a fully filled order even before it expires.
-    let (filled, order_amount) = fill_progress(intent, order.filled_amounts());
+    let (filled, order_amount) = fill_progress(&intent, order.filled_amounts());
     if filled >= order_amount.into() {
         return Ok(true);
     }
@@ -112,7 +110,7 @@ mod tests {
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
 
         assert_eq!(
-            process_reclaim_order(&PROGRAM_ID, &mut accounts, &data),
+            process_reclaim_order(&mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -137,7 +135,7 @@ mod tests {
         let order_pda = fake_account_with_data(order_pda_address, &order_bytes[..]);
 
         assert_eq!(
-            process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),
+            process_reclaim_order(&mut [order_pda, reclaim_recipient], &data),
             Err(SettlementError::ReclaimRecipientMismatch.into()),
         );
     }
