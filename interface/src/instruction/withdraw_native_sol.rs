@@ -157,13 +157,19 @@ mod tests {
         );
         let data = Instruction::from(builder).data;
 
-        let parsed = WithdrawNativeSolInput::parse(&data, &accounts).expect("parse should succeed");
+        let WithdrawNativeSolInput {
+            state_pda: parsed_state_pda,
+            authority: parsed_authority,
+            native_sol_buffer: parsed_native_sol_buffer,
+            recipient: parsed_recipient,
+            amount: parsed_amount,
+        } = WithdrawNativeSolInput::parse(&data, &accounts).expect("parse should succeed");
 
-        assert_eq!(*parsed.state_pda.address(), state_pda);
-        assert_eq!(*parsed.authority.address(), authority);
-        assert_eq!(*parsed.native_sol_buffer.address(), native_sol_buffer);
-        assert_eq!(*parsed.recipient.address(), recipient);
-        assert_eq!(parsed.amount, amount);
+        assert_eq!(*parsed_state_pda.address(), state_pda);
+        assert_eq!(*parsed_authority.address(), authority);
+        assert_eq!(*parsed_native_sol_buffer.address(), native_sol_buffer);
+        assert_eq!(*parsed_recipient.address(), recipient);
+        assert_eq!(parsed_amount, amount);
     }
 
     #[test]
