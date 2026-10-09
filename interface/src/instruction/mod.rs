@@ -34,7 +34,7 @@ pub enum SettlementInstruction {
     /// Allocates a per-order PDA and writes the initial `OrderAccount` body.
     CreateOrder = 2,
     /// Creates the singleton settlement state PDA and the native SOL buffer.
-    /// Succeeds only once, and only when signed by the hardcoded deployer.
+    /// Succeeds only once, and only when signed by the hardcoded initializer.
     Initialize = 3,
     /// Creates one or more per-token buffer PDAs (token accounts) in a
     /// single instruction.

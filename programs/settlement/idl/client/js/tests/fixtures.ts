@@ -57,10 +57,10 @@ export async function sendInstruction(
   }
 }
 
-/// The deployer, the only payer `Initialize` accepts, as the IDL pins it. Tests
+/// The initializer, the only payer `Initialize` accepts, as the IDL pins it. Tests
 /// don't hold its key, so it signs nothing: send its instructions with
 /// `sendUnverifiedInstruction`.
-export function deployerSigner(): TransactionSigner {
+export function initializerSigner(): TransactionSigner {
   const idl: { instructions: { name: string; accounts: { name: string; address?: string }[] }[] } =
     IDL;
   const address = idl.instructions
@@ -73,7 +73,7 @@ export function deployerSigner(): TransactionSigner {
 }
 
 /// `sendInstruction`, but leaving blank the signatures that no-op signers such
-/// as `deployerSigner` don't fill. Only a LiteSVM with signature checks off
+/// as `initializerSigner` don't fill. Only a LiteSVM with signature checks off
 /// accepts the result.
 export async function sendUnverifiedInstruction(
   svm: LiteSVM,

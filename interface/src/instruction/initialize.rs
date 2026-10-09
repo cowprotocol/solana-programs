@@ -17,11 +17,12 @@ use crate::SettlementInstruction;
 
 /// The only account allowed to fill `Initialize`'s `payer` slot, so the
 /// state's initial authorities can only be set by a previously authorized address.
-pub const DEPLOYER: Pubkey = solana_pubkey::pubkey!("B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5");
+pub const INITIALIZER: Pubkey =
+    solana_pubkey::pubkey!("B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5");
 
 /// Builder for an `Initialize` instruction.
 ///
-/// `payer` funds the new accounts' rent and signs. It must be [`DEPLOYER`]. It
+/// `payer` funds the new accounts' rent and signs. It must be [`INITIALIZER`]. It
 /// is meant to be the transaction's fee payer: the state is created once at
 /// deployment and never deallocated, so there's no need for a dedicated
 /// funding account separate from whoever pays for the deployment transaction.

@@ -4,9 +4,9 @@ use litesvm::LiteSVM;
 use solana_sdk::pubkey::Pubkey;
 
 /// Send `ix` as the settlement's `Initialize`, signed as in
-/// [`deployer_tx`](super::deployer_tx).
+/// [`initializer_tx`](super::initializer_tx).
 pub fn initialize(svm: &mut litesvm::LiteSVM, ix: Initialize) {
-    let tx = super::deployer_tx(svm, ix);
+    let tx = super::initializer_tx(svm, ix);
     svm.send_transaction(tx).expect("initialize should succeed");
 }
 

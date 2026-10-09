@@ -3,7 +3,7 @@
 use cow_settlement_interface::{
     data::state::{StateAccount, StateInitArgs, WIDTH_HEADER},
     instruction::{
-        initialize::{InitializeInput, DEPLOYER},
+        initialize::{InitializeInput, INITIALIZER},
         InstructionInputParsing,
     },
     pda::{
@@ -31,7 +31,7 @@ pub fn process_initialize(
     } = InitializeInput::parse(instruction_data, accounts)?;
 
     // Prevent initialize from being called by an unrelated entity.
-    if !payer.is_signer() || payer.address() != &DEPLOYER {
+    if !payer.is_signer() || payer.address() != &INITIALIZER {
         return Err(ProgramError::MissingRequiredSignature);
     }
 
@@ -106,8 +106,8 @@ mod tests {
     }
 
     #[test]
-    fn process_initialize_rejects_payer_other_than_deployer() {
-        let mut accounts = accounts_paid_by(fake_signer(pubkey_from_seed("not the deployer")));
+    fn process_initialize_rejects_payer_other_than_initializer() {
+        let mut accounts = accounts_paid_by(fake_signer(pubkey_from_seed("not the initializer")));
         assert_eq!(
             process_initialize(
                 &pubkey_from_seed("program id"),
@@ -119,9 +119,9 @@ mod tests {
     }
 
     #[test]
-    fn process_initialize_rejects_nonsigner_deployer() {
+    fn process_initialize_rejects_nonsigner_initializer() {
         // `fake_account`, unlike `fake_signer`, leaves the signer flag clear.
-        let mut accounts = accounts_paid_by(fake_account(DEPLOYER));
+        let mut accounts = accounts_paid_by(fake_account(INITIALIZER));
         assert_eq!(
             process_initialize(
                 &pubkey_from_seed("program id"),
@@ -133,10 +133,10 @@ mod tests {
     }
 
     #[test]
-    fn process_initialize_lets_signing_deployer_through() {
-        // The sequential state PDA is wrong, so the deployer passing the gate
+    fn process_initialize_lets_signing_initializer_through() {
+        // The sequential state PDA is wrong, so the initializer passing the gate
         // shows up as the next check failing.
-        let mut accounts = accounts_paid_by(fake_signer(DEPLOYER));
+        let mut accounts = accounts_paid_by(fake_signer(INITIALIZER));
         assert_eq!(
             process_initialize(
                 &pubkey_from_seed("program id"),

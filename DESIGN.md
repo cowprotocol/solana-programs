@@ -30,7 +30,7 @@ A bump is not a migration. There are some other consequences that should be cons
 ## Program initialization
 
 The state PDA and native SOL buffer PDA are created once, after deployment, by the `Initialize` instruction.
-A hardcoded `DEPLOYER` is the only address allowed to call `Initialize`.
+A hardcoded `INITIALIZER` is the only address allowed to call `Initialize`.
 
 ## Authorities
 

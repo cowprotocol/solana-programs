@@ -1,6 +1,6 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::state::WIDTH_HEADER,
-    instruction::initialize::{Initialize as InitializeRaw, DEPLOYER},
+    instruction::initialize::{Initialize as InitializeRaw, INITIALIZER},
     pda::{
         buffer::{find_native_sol_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_SEEDS},
         state::{STATE_PDA, STATE_PDA_SEEDS},
@@ -38,13 +38,13 @@ fn happy_path_initializes_state_pda_with_expected_data() {
 
     let ix = Initialize {
         program_id,
-        payer: DEPLOYER,
+        payer: INITIALIZER,
         manager,
         solver_authority,
         reclaim_authority,
         settlement_owned_order_authority,
     };
-    let tx = common::deployer_tx(&svm, ix);
+    let tx = common::initializer_tx(&svm, ix);
     send_transaction_metered(&mut svm, tx, BenchLabel::Initialize)
         .expect("initialize should succeed");
 
@@ -108,13 +108,13 @@ fn initialize_with_prefund(account: &Pubkey) {
     common::pda::assert_security_creation_survives_prefund(&mut svm, account, |svm| {
         let ix = Initialize {
             program_id,
-            payer: DEPLOYER,
+            payer: INITIALIZER,
             manager: unique_pubkey(),
             solver_authority: unique_pubkey(),
             reclaim_authority: unique_pubkey(),
             settlement_owned_order_authority: unique_pubkey(),
         };
-        common::deployer_tx(svm, ix)
+        common::initializer_tx(svm, ix)
     });
 }
 
@@ -129,38 +129,38 @@ fn initializes_native_sol_buffer_when_address_is_prefunded() {
 }
 
 #[test]
-fn deployer_funds_the_rent_while_another_account_pays_the_fee() {
+fn initializer_funds_the_rent_while_another_account_pays_the_fee() {
     let (mut svm, program_id, fee_payer) = common::setup_without_sigverify();
-    let deployer_before = common::lamports(&svm, &DEPLOYER);
+    let initializer_before = common::lamports(&svm, &INITIALIZER);
 
     let ix = Initialize {
         program_id,
-        payer: DEPLOYER,
+        payer: INITIALIZER,
         manager: unique_pubkey(),
         solver_authority: unique_pubkey(),
         reclaim_authority: unique_pubkey(),
         settlement_owned_order_authority: unique_pubkey(),
     };
-    // `common::deployer_tx`, but with `fee_payer` paying the fee.
+    // `common::initializer_tx`, but with `fee_payer` paying the fee.
     let blockhash = svm.latest_blockhash();
     let message = Message::new_with_blockhash(&[ix.into()], Some(&fee_payer.pubkey()), &blockhash);
     let mut tx = Transaction::new_unsigned(message);
     tx.partial_sign(&[&fee_payer], blockhash);
     svm.send_transaction(tx).expect("initialize should succeed");
 
-    // The rent came out of the deployer, not the fee payer: the deployer paid
+    // The rent came out of the initializer, not the fee payer: the initializer paid
     // no transaction fee, so its balance dropped by exactly the PDAs' rent.
     let rent = svm.minimum_balance_for_rent_exemption(WIDTH_HEADER)
         + svm.minimum_balance_for_rent_exemption(0);
     assert_eq!(
-        common::lamports(&svm, &DEPLOYER),
-        deployer_before - rent,
-        "deployer should have paid exactly the PDAs' rent",
+        common::lamports(&svm, &INITIALIZER),
+        initializer_before - rent,
+        "initializer should have paid exactly the PDAs' rent",
     );
 }
 
 #[test]
-fn rejects_a_payer_other_than_the_deployer() {
+fn rejects_a_payer_other_than_the_initializer() {
     // Signature checks stay on: the impostor signs for real.
     let (mut svm, program_id, payer) = common::setup();
 
@@ -182,12 +182,12 @@ fn rejects_a_payer_other_than_the_deployer() {
 }
 
 #[test]
-fn rejects_the_deployer_as_a_nonsigner() {
+fn rejects_the_initializer_as_a_nonsigner() {
     let (mut svm, program_id, payer) = common::setup();
 
     let mut ix: Instruction = Initialize {
         program_id,
-        payer: DEPLOYER,
+        payer: INITIALIZER,
         manager: unique_pubkey(),
         solver_authority: unique_pubkey(),
         reclaim_authority: unique_pubkey(),
@@ -219,7 +219,7 @@ fn initialize_with(
 ) -> Transaction {
     let ix = InitializeRaw {
         program_id,
-        payer: DEPLOYER,
+        payer: INITIALIZER,
         state_pda,
         native_sol_buffer,
         manager: unique_pubkey(),
@@ -227,7 +227,7 @@ fn initialize_with(
         reclaim_authority: unique_pubkey(),
         settlement_owned_order_authority: unique_pubkey(),
     };
-    common::deployer_tx(svm, ix)
+    common::initializer_tx(svm, ix)
 }
 
 #[test]
@@ -326,12 +326,12 @@ fn rejects_initializing_twice() {
     common::pda::assert_recreate_is_rejected(&mut svm, &STATE_PDA, |svm| {
         let ix = Initialize {
             program_id,
-            payer: DEPLOYER,
+            payer: INITIALIZER,
             manager: unique_pubkey(),
             solver_authority: unique_pubkey(),
             reclaim_authority: unique_pubkey(),
             settlement_owned_order_authority: unique_pubkey(),
         };
-        common::deployer_tx(svm, ix)
+        common::initializer_tx(svm, ix)
     });
 }

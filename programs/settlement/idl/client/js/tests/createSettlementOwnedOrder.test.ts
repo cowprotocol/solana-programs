@@ -8,7 +8,7 @@ import {
 } from "../src/generated";
 import {
   buildOrderIntent,
-  deployerSigner,
+  initializerSigner,
   fetchOrderAccount,
   newSvm,
   sendInstruction,
@@ -28,10 +28,10 @@ describe("createSettlementOwnedOrder", () => {
     svm.airdrop(payer.address, lamports(1_000_000_000n));
 
     // Put a settlement-owned-order authority on record so it can place the order.
-    const deployer = deployerSigner();
-    svm.airdrop(deployer.address, lamports(1_000_000_000n));
+    const initializer = initializerSigner();
+    svm.airdrop(initializer.address, lamports(1_000_000_000n));
     const initialize = await getInitializeInstructionAsync({
-      payer: deployer,
+      payer: initializer,
       manager: manager.address,
       solverAuthority: solverAuthority.address,
       reclaimAuthority: reclaimAuthority.address,
