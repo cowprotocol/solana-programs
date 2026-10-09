@@ -2,8 +2,10 @@ import path from "node:path";
 import {
   appendTransactionMessageInstruction,
   assertAccountExists,
+  createNoopSigner,
   createTransactionMessage,
   generateKeyPairSigner,
+  partiallySignTransactionMessageWithSigners,
   pipe,
   setTransactionMessageFeePayerSigner,
   signTransactionMessageWithSigners,
@@ -20,6 +22,7 @@ import {
   type OrderIntentArgs,
 } from "../src/generated";
 import { resolveOrderPda } from "../src/hooked";
+import IDL from "../src/generated/idl.json" with { type: "json" };
 
 export const COW_SETTLEMENT_SO_PATH = path.join(
   import.meta.dirname,
@@ -49,6 +52,45 @@ export async function sendInstruction(
     signTransactionMessageWithSigners,
   );
   const result = svm.sendTransaction(tx);
+  if ("err" in result) {
+    throw new Error(`${label} failed: ${result.toString()}\n${result.meta().prettyLogs()}`);
+  }
+}
+
+/// The initializer, the only payer `Initialize` accepts, as the IDL pins it. Tests
+/// don't hold its key, so it signs nothing: send its instructions with
+/// `sendUnverifiedInstruction`.
+export function initializerSigner(): TransactionSigner {
+  const idl: { instructions: { name: string; accounts: { name: string; address?: string }[] }[] } =
+    IDL;
+  const address = idl.instructions
+    .find((instruction) => instruction.name === "initialize")
+    ?.accounts.find((account) => account.name === "payer")?.address;
+  if (!address) {
+    throw new Error("IDL: initialize's payer has no address");
+  }
+  return createNoopSigner(address as Address);
+}
+
+/// `sendInstruction`, but leaving blank the signatures that no-op signers such
+/// as `initializerSigner` don't fill. Only a LiteSVM with signature checks off
+/// accepts the result.
+export async function sendUnverifiedInstruction(
+  svm: LiteSVM,
+  feePayer: TransactionSigner,
+  instruction: Instruction,
+  label: string,
+): Promise<void> {
+  const tx = await pipe(
+    createTransactionMessage({ version: 0 }),
+    (t) => setTransactionMessageFeePayerSigner(feePayer, t),
+    (t) => svm.setTransactionMessageLifetimeUsingLatestBlockhash(t),
+    (t) => appendTransactionMessageInstruction(instruction, t),
+    partiallySignTransactionMessageWithSigners,
+  );
+  svm.withSigverify(false);
+  const result = svm.sendTransaction(tx);
+  svm.withSigverify(true);
   if ("err" in result) {
     throw new Error(`${label} failed: ${result.toString()}\n${result.meta().prettyLogs()}`);
   }
