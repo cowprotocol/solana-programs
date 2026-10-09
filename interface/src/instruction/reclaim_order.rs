@@ -108,16 +108,16 @@ pub mod fixtures {
 mod tests {
     use super::fixtures::{default_reclaim_data, NUM_ACCOUNTS};
     use super::*;
+    use crate::fixtures::pubkey_from_seed;
     use crate::instruction::fixtures::{fake_account, fake_sequential_accounts};
     use crate::instruction::tests::{assert_readonly_signer, assert_writable_nonsigner};
     use solana_account_view::AccountView;
-    use solana_address::Address;
 
     #[test]
     fn reclaim_order_input_parses_valid_input() {
-        let program_id = Address::new_from_array([1; 32]);
-        let order_pda = Address::new_from_array([2; 32]);
-        let reclaim_recipient = Address::new_from_array([3; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let order_pda = pubkey_from_seed("order pda");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
 
         let data = ReclaimOrder {
             program_id,
@@ -164,9 +164,9 @@ mod tests {
 
     #[test]
     fn instruction_data_has_expected_layout() {
-        let program_id = Address::new_from_array([1; 32]);
-        let order_pda = Address::new_from_array([2; 32]);
-        let reclaim_recipient = Address::new_from_array([3; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let order_pda = pubkey_from_seed("order pda");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
 
         let ix = ReclaimOrder {
             program_id,
@@ -184,9 +184,9 @@ mod tests {
 
     #[test]
     fn instruction_data_has_expected_accounts() {
-        let program_id = Address::new_from_array([1; 32]);
-        let order_pda = Address::new_from_array([2; 32]);
-        let reclaim_recipient = Address::new_from_array([3; 32]);
+        let program_id = pubkey_from_seed("program id");
+        let order_pda = pubkey_from_seed("order pda");
+        let reclaim_recipient = pubkey_from_seed("reclaim recipient");
 
         let ix = ReclaimOrder {
             program_id,
@@ -205,11 +205,11 @@ mod tests {
 
     #[test]
     fn optional_owner_is_parsed_and_requests_a_readonly_signature() {
-        let owner = Pubkey::new_from_array([4; 32]);
+        let owner = pubkey_from_seed("owner");
         let ix = ReclaimOrder {
-            program_id: crate::ID,
-            order_pda: Pubkey::new_from_array([2; 32]),
-            reclaim_recipient: Pubkey::new_from_array([3; 32]),
+            program_id: pubkey_from_seed("program id"),
+            order_pda: pubkey_from_seed("order pda"),
+            reclaim_recipient: pubkey_from_seed("reclaim recipient"),
             owner: Some(owner),
         }
         .instruction();
