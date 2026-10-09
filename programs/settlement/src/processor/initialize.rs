@@ -30,7 +30,7 @@ pub fn process_initialize(
         settlement_owned_order_authority,
     } = InitializeInput::parse(instruction_data, accounts)?;
 
-    // Whoever initializes picks every authority, so only the deployer may.
+    // Prevent initialize from being called by an unrelated entity.
     if !payer.is_signer() || payer.address() != &DEPLOYER {
         return Err(ProgramError::MissingRequiredSignature);
     }
@@ -87,8 +87,6 @@ mod tests {
         initialize_data, NUM_ACCOUNTS,
     };
 
-    const PROGRAM_ID: Address = Address::new_from_array([100; 32]);
-
     /// Arbitrary accounts behind a `payer` slot holding `payer`.
     fn accounts_paid_by(payer: AccountView) -> [AccountView; NUM_ACCOUNTS] {
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
@@ -102,7 +100,7 @@ mod tests {
         data.push(0); // make the data too long to trigger a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
-            process_initialize(&PROGRAM_ID, &mut accounts, &data),
+            process_initialize(&pubkey_from_seed("program id"), &mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -111,7 +109,11 @@ mod tests {
     fn process_initialize_rejects_payer_other_than_deployer() {
         let mut accounts = accounts_paid_by(fake_signer(pubkey_from_seed("not the deployer")));
         assert_eq!(
-            process_initialize(&PROGRAM_ID, &mut accounts, &initialize_data()),
+            process_initialize(
+                &pubkey_from_seed("program id"),
+                &mut accounts,
+                &initialize_data()
+            ),
             Err(ProgramError::MissingRequiredSignature),
         );
     }
@@ -121,7 +123,11 @@ mod tests {
         // `fake_account`, unlike `fake_signer`, leaves the signer flag clear.
         let mut accounts = accounts_paid_by(fake_account(DEPLOYER));
         assert_eq!(
-            process_initialize(&PROGRAM_ID, &mut accounts, &initialize_data()),
+            process_initialize(
+                &pubkey_from_seed("program id"),
+                &mut accounts,
+                &initialize_data()
+            ),
             Err(ProgramError::MissingRequiredSignature),
         );
     }
@@ -132,7 +138,11 @@ mod tests {
         // shows up as the next check failing.
         let mut accounts = accounts_paid_by(fake_signer(DEPLOYER));
         assert_eq!(
-            process_initialize(&PROGRAM_ID, &mut accounts, &initialize_data()),
+            process_initialize(
+                &pubkey_from_seed("program id"),
+                &mut accounts,
+                &initialize_data()
+            ),
             Err(cow_settlement_interface::SettlementError::StateAccountMismatch.into()),
         );
     }

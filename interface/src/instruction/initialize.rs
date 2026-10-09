@@ -16,7 +16,7 @@ use super::InstructionInputParsing;
 use crate::SettlementInstruction;
 
 /// The only account allowed to fill `Initialize`'s `payer` slot, so the
-/// state's initial authorities can only be set by CoW.
+/// state's initial authorities can only be set by a previously authorized address.
 pub const DEPLOYER: Pubkey = solana_pubkey::pubkey!("B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5");
 
 /// Builder for an `Initialize` instruction.
