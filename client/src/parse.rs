@@ -16,6 +16,7 @@ use cow_settlement_interface::{
         remove_solver::RemoveSolverInput,
         settle::{BeginSettleInput, FinalizeSettleInput},
         transfer_authority::TransferAuthorityInput,
+        withdraw_native_sol::WithdrawNativeSolInput,
         InstructionInputParsing,
     },
     recover_discriminator, SettlementInstruction,
@@ -36,6 +37,7 @@ pub enum ParsedInstruction<'a, A> {
     TransferAuthority(TransferAuthorityInput<'a, A>),
     AddSolver(AddSolverInput<'a, A>),
     RemoveSolver(RemoveSolverInput<'a, A>),
+    WithdrawNativeSol(WithdrawNativeSolInput<'a, A>),
 }
 
 /// Parses any settlement instruction by its discriminator.
@@ -83,6 +85,9 @@ pub fn parse_instruction<'a, A>(
         SettlementInstruction::RemoveSolver => ParsedInstruction::RemoveSolver(
             RemoveSolverInput::parse_body(remaining_data, accounts)?,
         ),
+        SettlementInstruction::WithdrawNativeSol => ParsedInstruction::WithdrawNativeSol(
+            WithdrawNativeSolInput::parse_body(remaining_data, accounts)?,
+        ),
     })
 }
 
@@ -92,6 +97,7 @@ mod tests {
     use crate::instruction::{
         AddSolver, BeginSettle, CancelOrder, CreateBuffers, CreateOrder,
         CreateSettlementOwnedOrder, FinalizeSettle, Initialize, InitializedIntent, RemoveSolver,
+        WithdrawNativeSol,
     };
     use cow_settlement_interface::{
         data::intent::fixtures::sample_intent,
@@ -206,6 +212,13 @@ mod tests {
                 solver: pubkey_from_seed("solver"),
             }
             .into(),
+            SettlementInstruction::WithdrawNativeSol => WithdrawNativeSol {
+                program_id,
+                authority: payer,
+                recipient: payer,
+                amount: 42,
+            }
+            .into(),
         }
     }
 
@@ -227,6 +240,7 @@ mod tests {
             SettlementInstruction::TransferAuthority,
             SettlementInstruction::AddSolver,
             SettlementInstruction::RemoveSolver,
+            SettlementInstruction::WithdrawNativeSol,
         ] {
             let ix = build(expected);
             let accounts: Vec<_> = ix
@@ -251,6 +265,7 @@ mod tests {
                 ParsedInstruction::TransferAuthority(_) => SettlementInstruction::TransferAuthority,
                 ParsedInstruction::AddSolver(_) => SettlementInstruction::AddSolver,
                 ParsedInstruction::RemoveSolver(_) => SettlementInstruction::RemoveSolver,
+                ParsedInstruction::WithdrawNativeSol(_) => SettlementInstruction::WithdrawNativeSol,
             };
             assert_eq!(actual, expected);
         }
