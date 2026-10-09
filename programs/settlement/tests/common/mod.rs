@@ -285,7 +285,7 @@ pub fn signed_tx(
 
 /// Put `ix` in a transaction that [`DEPLOYER`] pays for and signs, as `just
 /// deploy` sends `Initialize`. Tests don't hold the deployer's key, so its
-/// signature is left blank and only an SVM from [`setup_without_sigverify`]
+/// signature is left blank and only an SVM with sigverify set to false
 /// accepts the transaction.
 pub fn deployer_tx(svm: &LiteSVM, ix: impl Into<Instruction>) -> Transaction {
     let message =
