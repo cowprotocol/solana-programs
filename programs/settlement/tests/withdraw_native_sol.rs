@@ -185,6 +185,36 @@ fn rejects_draining_the_buffer() {
     );
 }
 
+#[test]
+fn rejects_more_than_the_balance() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            settlement_owned_order: authority,
+            ..
+        },
+    ) = common::setup_init();
+    let native_buffer_balance = buffer::add_native_lamports(&mut svm, FUNDING);
+
+    let ix = WithdrawNativeSol {
+        program_id,
+        authority: authority.pubkey(),
+        recipient: authority.pubkey(),
+        amount: native_buffer_balance + 1,
+    };
+    assert_instruction_error(
+        send_with_signers(&mut svm, &payer, &[&authority], &[ix.into()]),
+        solana_sdk::instruction::InstructionError::ArithmeticOverflow,
+    );
+
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        native_buffer_balance
+    );
+}
+
 /// Another program-owned account is just as debitable, so the program has to
 /// pin the buffer's address itself.
 #[test]
