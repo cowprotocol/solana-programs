@@ -31,7 +31,7 @@ mod common;
 #[test]
 fn happy_path_initializes_state_pda_with_expected_data() {
     let (mut svm, program_id, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     let manager = unique_pubkey();
     let solver_authority = unique_pubkey();
@@ -106,7 +106,7 @@ fn happy_path_initializes_state_pda_with_expected_data() {
 
 fn initialize_with_prefund(account: &Pubkey) {
     let (mut svm, program_id, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     common::pda::assert_security_creation_survives_prefund(&mut svm, account, |svm| {
         let ix = Initialize {
@@ -134,7 +134,7 @@ fn initializes_native_sol_buffer_when_address_is_prefunded() {
 #[test]
 fn initializer_funds_the_rent_while_another_account_pays_the_fee() {
     let (mut svm, program_id, fee_payer) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     let initializer_before = common::lamports(&svm, &INITIALIZER);
 
@@ -238,7 +238,7 @@ fn initialize_with(
 #[test]
 fn rejects_arbitrary_wrong_state_pda() {
     let (mut svm, program_id, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     // The lower-level interface builder lets us point the instruction at a
     // deliberately wrong address.
@@ -255,7 +255,7 @@ fn rejects_arbitrary_wrong_state_pda() {
 #[test]
 fn rejects_arbitrary_wrong_native_sol_buffer() {
     let (mut svm, program_id, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     let wrong_buffer = unique_pubkey();
     let tx = initialize_with(&svm, program_id, STATE_PDA, wrong_buffer);
@@ -267,7 +267,7 @@ fn rejects_arbitrary_wrong_native_sol_buffer() {
 #[test]
 fn rejects_the_native_sol_buffer_of_a_non_canonical_bump() {
     let (mut svm, program_id, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     let (_bump, noncanonical_buffer) =
         find_noncanonical_pda(&program_id, NATIVE_SOL_BUFFER_PDA_SEEDS);
@@ -280,7 +280,7 @@ fn rejects_the_native_sol_buffer_of_a_non_canonical_bump() {
 #[test]
 fn rejects_the_state_pda_of_a_non_canonical_bump() {
     let (mut svm, program_id, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     // The lower-level interface builder lets us point the instruction at a
     // deliberately wrong address.
@@ -302,7 +302,7 @@ fn rejects_the_state_pda_of_a_non_canonical_bump() {
 #[test]
 fn rejects_the_state_pda_of_an_undeclared_program_id() {
     let (mut svm, _, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     let undeclared_id = unique_pubkey();
     svm.add_program_from_file(undeclared_id, PROGRAM_SO)
@@ -321,7 +321,7 @@ fn rejects_the_state_pda_of_an_undeclared_program_id() {
 #[test]
 fn rejects_the_pinned_state_pda_under_an_undeclared_program_id() {
     let (mut svm, _, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     let undeclared_id = unique_pubkey();
     svm.add_program_from_file(undeclared_id, PROGRAM_SO)
@@ -335,7 +335,7 @@ fn rejects_the_pinned_state_pda_under_an_undeclared_program_id() {
 #[test]
 fn rejects_initializing_twice() {
     let (mut svm, program_id, _) = common::setup();
-    svm.with_sigverify(false);
+    svm = svm.with_sigverify(false);
 
     common::pda::assert_recreate_is_rejected(&mut svm, &STATE_PDA, |svm| {
         let ix = Initialize {

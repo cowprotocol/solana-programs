@@ -5,9 +5,11 @@ use solana_sdk::pubkey::Pubkey;
 
 /// Send `ix` as the settlement's `Initialize`, signed as in
 /// [`initializer_tx`](super::initializer_tx).
-pub fn initialize(svm: &mut litesvm::LiteSVM, ix: Initialize) {
-    let tx = super::initializer_tx(svm, ix);
+pub fn initialize(mut svm: litesvm::LiteSVM, ix: Initialize) -> LiteSVM {
+    let tx = super::initializer_tx(&svm, ix);
+    svm = svm.with_sigverify(false);
     svm.send_transaction(tx).expect("initialize should succeed");
+    svm.with_sigverify(true)
 }
 
 /// Assert the solver list's storage invariant: solvers are stored strictly

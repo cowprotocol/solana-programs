@@ -111,13 +111,12 @@ pub struct InitializedParams {
 /// fee payer, the state PDA, and all authority keypairs.
 pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let (mut svm, program_id, payer) = setup();
-    svm.with_sigverify(false);
     let manager = unique_keypair();
     let solver_authority = unique_keypair();
     let reclaim = unique_keypair();
     let settlement_owned_order = unique_keypair();
-    state::initialize(
-        &mut svm,
+    svm = state::initialize(
+        svm,
         Initialize {
             program_id,
             payer: INITIALIZER,
@@ -127,7 +126,6 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
             settlement_owned_order_authority: settlement_owned_order.pubkey(),
         },
     );
-    let svm = svm.with_sigverify(true);
 
     (
         svm,
