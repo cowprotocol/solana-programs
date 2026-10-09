@@ -1446,7 +1446,7 @@
     {
       "code": 45,
       "name": "NativeSolBufferEmptied",
-      "msg": "FinalizeSettle's native SOL payouts or WithdrawNativeSol would empty the native SOL buffer, which the runtime would then delete."
+      "msg": "Moving lamports out of the native SOL buffer would empty it, which the runtime would then delete."
     },
     {
       "code": 46,

@@ -147,8 +147,8 @@ pub enum SettlementError {
     /// buffer the push draws from, so settling it would move no funds yet still
     /// record the declared amount as received.
     PushSourceIsDestination = 44,
-    /// `FinalizeSettle`'s native SOL payouts or `WithdrawNativeSol` would empty
-    /// the native SOL buffer, which the runtime would then delete.
+    /// Moving lamports out of the native SOL buffer would empty it, which the
+    /// runtime would then delete.
     NativeSolBufferEmptied = 45,
     /// A buffer to be reclaimed holds more tokens than the burn limit supplied
     /// for it, so its balance can't be cleared for closing.
