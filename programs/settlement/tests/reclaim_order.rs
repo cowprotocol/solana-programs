@@ -675,6 +675,12 @@ fn expired_cancelled_order_is_permissionlessly_reclaimable() {
     }
 }
 
+/// A user may want to cancel an order while another party holds a user's signed creation authorization unsubmitted.
+/// If the order was able to be permissionlessly reclaimed while cancelled, the unsubmitted creation authorization
+/// could still be played and be unexpectedly settled despite being cancelled.
+///
+/// Here we confirm that the order cannot be reclaimed while cancelled by this third party, and the withheld creation
+/// authorization unable to be submitted.
 #[test]
 fn cancellation_blocks_withheld_sponsored_creation() {
     let (mut svm, program_id, sponsor) = common::setup();
@@ -716,12 +722,17 @@ fn cancellation_blocks_withheld_sponsored_creation() {
         owner: None,
     }
     .instruction();
+
+    // The 3rd party shouldn't be able to reclaim the cancelled order.
     assert_instruction_error(
         svm.send_transaction(signed_tx(&svm, &sponsor, &sponsor, reclaim))
             .map_err(|e| e.err),
         solana_sdk::instruction::InstructionError::MissingRequiredSignature,
     );
     assert_eq!(svm.get_account(&pda).unwrap(), tombstone);
+
+    // The 3rd party shouldn't be able to submit the previously signed order creation with
+    // still valid authorization while it remains cancelled.
     assert_instruction_error(
         svm.send_transaction(pending_creation).map_err(|e| e.err),
         solana_sdk::instruction::InstructionError::AccountAlreadyInitialized,
