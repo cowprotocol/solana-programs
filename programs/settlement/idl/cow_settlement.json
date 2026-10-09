@@ -11,7 +11,7 @@
     {
       "name": "initialize",
       "docs": [
-        "Creates the singleton settlement state PDA and the native SOL buffer. Succeeds only once."
+        "Creates the singleton settlement state PDA and the native SOL buffer. Succeeds only once, and only when signed by the hardcoded initializer."
       ],
       "discriminator": [
         3
@@ -21,8 +21,9 @@
           "name": "payer",
           "writable": true,
           "signer": true,
+          "address": "B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5",
           "docs": [
-            "Funds the state PDA's and native SOL buffer's rent and pays the transaction fee."
+            "Funds the state PDA's and native SOL buffer's rent. Must be the hardcoded initializer."
           ]
         },
         {
