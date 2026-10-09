@@ -587,7 +587,7 @@ fn expired_cancelled_order_is_permissionlessly_reclaimable() {
 
 /// A user may want to cancel an order while another party holds a user's signed creation authorization unsubmitted.
 /// If the order was able to be permissionlessly reclaimed while cancelled, the unsubmitted creation authorization
-/// could still be played and be unexpectedly settled despite being cancelled.
+/// could still be broadcast and be unexpectedly settled despite being cancelled.
 ///
 /// Here we confirm that the order cannot be reclaimed while cancelled by this third party, and the withheld creation
 /// authorization unable to be submitted.
