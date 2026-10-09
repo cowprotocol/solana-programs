@@ -30,7 +30,7 @@ fn happy_path_withdraws_to_a_recipient_chosen_by_the_authority() {
         },
     ) = common::setup_init();
     let recipient = common::unique_pubkey();
-    let funded = buffer::add_native_lamports(&mut svm, FUNDING);
+    let native_buffer_balance = buffer::add_native_lamports(&mut svm, FUNDING);
     let authority_before = lamports(&svm, &authority.pubkey());
 
     let ix = WithdrawNativeSol {
@@ -43,7 +43,10 @@ fn happy_path_withdraws_to_a_recipient_chosen_by_the_authority() {
     send_transaction_metered(&mut svm, tx, BenchLabel::WithdrawNativeSol)
         .expect("withdrawing everything above rent should succeed");
 
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded - FUNDING);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        native_buffer_balance - FUNDING
+    );
     assert_eq!(lamports(&svm, &recipient), FUNDING);
     assert_eq!(
         lamports(&svm, &authority.pubkey()),
@@ -68,7 +71,7 @@ fn withdraws_to_the_authority_itself() {
             ..
         },
     ) = common::setup_init();
-    let funded = buffer::add_native_lamports(&mut svm, FUNDING);
+    let native_buffer_balance = buffer::add_native_lamports(&mut svm, FUNDING);
     let authority_before = lamports(&svm, &authority.pubkey());
 
     let ix = WithdrawNativeSol {
@@ -80,7 +83,10 @@ fn withdraws_to_the_authority_itself() {
     send_with_signers(&mut svm, &payer, &[&authority], &[ix.into()])
         .expect("a partial withdrawal should succeed");
 
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded - FUNDING / 2);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        native_buffer_balance - FUNDING / 2
+    );
     assert_eq!(
         lamports(&svm, &authority.pubkey()),
         authority_before + FUNDING / 2
@@ -100,7 +106,7 @@ fn rejects_any_other_role() {
             ..
         },
     ) = common::setup_init();
-    let funded = buffer::add_native_lamports(&mut svm, FUNDING);
+    let native_buffer_balance = buffer::add_native_lamports(&mut svm, FUNDING);
 
     for impostor in [&manager, &solver_authority, &reclaim] {
         let ix = WithdrawNativeSol {
@@ -115,7 +121,10 @@ fn rejects_any_other_role() {
         );
     }
 
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        native_buffer_balance
+    );
 }
 
 #[test]
@@ -129,7 +138,7 @@ fn rejects_dipping_into_rent() {
             ..
         },
     ) = common::setup_init();
-    let funded = buffer::add_native_lamports(&mut svm, FUNDING);
+    let native_buffer_balance = buffer::add_native_lamports(&mut svm, FUNDING);
 
     let ix = WithdrawNativeSol {
         program_id,
@@ -144,7 +153,10 @@ fn rejects_dipping_into_rent() {
         "expected a rent failure, got {err:?}",
     );
 
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        native_buffer_balance
+    );
 }
 
 /// The runtime would happily delete an emptied buffer, and only `Initialize`
@@ -160,20 +172,23 @@ fn rejects_draining_the_buffer() {
             ..
         },
     ) = common::setup_init();
-    let funded = buffer::add_native_lamports(&mut svm, FUNDING);
+    let native_buffer_balance = buffer::add_native_lamports(&mut svm, FUNDING);
 
     let ix = WithdrawNativeSol {
         program_id,
         authority: authority.pubkey(),
         recipient: authority.pubkey(),
-        amount: funded,
+        amount: native_buffer_balance,
     };
     assert_instruction_error(
         send_with_signers(&mut svm, &payer, &[&authority], &[ix.into()]),
         SettlementError::NativeSolBufferEmptied,
     );
 
-    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        native_buffer_balance
+    );
 }
 
 /// Another program-owned account is just as debitable, so the program has to
