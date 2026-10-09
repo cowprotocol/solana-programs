@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn process_initialize_lets_signing_initializer_through() {
+    fn process_initialize_rejects_mismatching_state_account() {
         // The sequential state PDA is wrong, so the initializer passing the gate
         // shows up as the next check failing.
         let mut accounts = accounts_paid_by(fake_signer(INITIALIZER));
