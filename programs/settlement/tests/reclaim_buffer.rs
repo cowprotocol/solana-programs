@@ -412,7 +412,7 @@ fn reclaims_within_limit_buffers_and_skips_those_over_limit() {
     );
     assert_eq!(
         common::token::balance(&svm, &over_limit_buffer),
-        stuck,
+        stuck_amount,
         "the skipped buffer's balance must be untouched"
     );
 }
