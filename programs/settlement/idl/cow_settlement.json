@@ -526,9 +526,9 @@
     {
       "name": "reclaim_order",
       "docs": [
-        "Closes an expired order PDA and returns its rent lamports to the created_by account recorded in the order body. The instruction may only be executed after the order's valid_to timestamp has elapsed.",
-        "An order created on-chain is reclaimable earlier than that: as soon as it has been cancelled or completely filled, without waiting for valid_to.",
-        "No signature requirement: anyone may reclaim an expired order on behalf of its reclaim_recipient."
+        "Closes an order PDA and returns its rent lamports to the created_by account recorded in the order body.",
+        "Anyone may reclaim after now > valid_to, or before expiry if the order is completely filled.",
+        "Reclaiming a cancelled order that is not completely filled while now <= valid_to requires the stored intent owner's signature."
       ],
       "discriminator": [
         5
@@ -546,6 +546,14 @@
           "writable": true,
           "docs": [
             "Must match the created_by address recorded in the order; receives the recovered rent lamports."
+          ]
+        },
+        {
+          "name": "owner",
+          "signer": true,
+          "optional": true,
+          "docs": [
+            "Required only for cancelled, unexpired orders. Must match the stored intent owner and sign, independently of reclaim_recipient."
           ]
         }
       ],
@@ -1311,6 +1319,11 @@
     },
     {
       "code": 45,
+      "name": "NativeSolBufferEmptied",
+      "msg": "FinalizeSettle: the native SOL payouts would empty the native SOL buffer, which the runtime would then delete."
+    },
+    {
+      "code": 46,
       "name": "ReclaimBufferBurnLimitExceeded",
       "msg": "A buffer to be reclaimed holds more tokens than the burn limit supplied for it, so its balance can't be cleared for closing."
     }

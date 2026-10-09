@@ -172,6 +172,7 @@ mod tests {
                 program_id,
                 order_pda: pubkey_from_seed("order pda"),
                 reclaim_recipient: payer,
+                owner: None,
             }
             .instruction(),
             SettlementInstruction::ReclaimBuffer => ReclaimBuffer {
