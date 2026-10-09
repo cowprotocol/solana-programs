@@ -382,13 +382,13 @@ fn reclaims_within_limit_buffers_and_skips_those_over_limit() {
 
     // The over-limit buffer holds more than the zero limit it's given; the other
     // is empty and closes.
-    let stuck = 1_000;
+    let stuck_amount = 1_000;
     common::token::mint_to(
         &mut svm,
         &payer,
         &over_limit_mint,
         &over_limit_buffer,
-        stuck,
+        stuck_amount,
     );
 
     let ix = ReclaimBuffer {
