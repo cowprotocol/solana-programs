@@ -442,6 +442,34 @@
         },
         {
           "name": "state_pda",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  53,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              }
+            ]
+          },
           "docs": [
             "Must be the canonical state PDA; holds the solver list `solver` is checked against, and signs each pull as the user's SPL delegate."
           ]
@@ -494,6 +522,34 @@
         },
         {
           "name": "state_pda",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  53,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              }
+            ]
+          },
           "docs": [
             "Must be the canonical state PDA; signs each push as the buffers' SPL token authority."
           ]

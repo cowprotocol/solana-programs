@@ -3,6 +3,7 @@ import {
   createFromRoot,
   resolverValueNode,
   argumentValueNode,
+  bottomUpTransformerVisitor,
   setInstructionAccountDefaultValuesVisitor,
 } from "codama";
 import { rootNodeFromAnchor } from "@codama/nodes-from-anchor";
@@ -22,6 +23,22 @@ codama.update(
       defaultValue: resolverValueNode("resolveOrderPda", {
         dependsOn: [argumentValueNode("intent")],
       }),
+    })),
+  ),
+);
+
+// PDAs are named after the IDL account they derive, and codama names each
+// PDA's finder `find<Name>Pda`, so `state_pda` would become `findStatePdaPda`.
+// Rename the PDAs (and every link to them) to drop the redundant suffix.
+const PDA_RENAMES = { statePda: "state", bufferPda0: "buffer" };
+codama.update(
+  bottomUpTransformerVisitor(
+    ["pdaNode", "pdaLinkNode"].map((kind) => ({
+      select: (path) => {
+        const node = path.at(-1);
+        return node.kind === kind && node.name in PDA_RENAMES;
+      },
+      transform: (node) => ({ ...node, name: PDA_RENAMES[node.name] }),
     })),
   ),
 );
