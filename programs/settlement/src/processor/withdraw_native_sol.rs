@@ -148,14 +148,18 @@ mod tests {
             pubkey_from_seed("unrelated"),
             &state_account_bytes(&base_init_args(), &[]),
         );
-        assert_rejects(accounts, 1, SettlementError::StateAccountMismatch.into());
+        assert_rejects(
+            accounts,
+            31337,
+            SettlementError::StateAccountMismatch.into(),
+        );
     }
 
     #[test]
     fn process_withdraw_native_sol_rejects_uninitialized_state_pda() {
         let mut accounts = base_accounts();
         accounts[STATE_ACCOUNT] = fake_account(STATE_PDA);
-        assert_rejects(accounts, 1, ProgramError::InvalidAccountData);
+        assert_rejects(accounts, 31337, ProgramError::InvalidAccountData);
     }
 
     #[test]
@@ -164,7 +168,7 @@ mod tests {
         accounts[AUTHORITY] = fake_signer(pubkey_from_seed("unrelated"));
         assert_rejects(
             accounts,
-            1,
+            31337,
             SettlementError::UnauthorizedNativeSolWithdrawal.into(),
         );
     }
@@ -176,7 +180,7 @@ mod tests {
         accounts[AUTHORITY] = fake_account(*SETTLEMENT_OWNED_ORDER_AUTHORITY);
         assert_rejects(
             accounts,
-            1,
+            31337,
             SettlementError::UnauthorizedNativeSolWithdrawal.into(),
         );
     }
@@ -186,7 +190,11 @@ mod tests {
         let mut accounts = base_accounts();
         accounts[NATIVE_SOL_BUFFER] = fake_account(pubkey_from_seed("unrelated"));
         accounts[NATIVE_SOL_BUFFER].set_lamports(BUFFER_LAMPORTS);
-        assert_rejects(accounts, 1, SettlementError::NativeSolBufferMismatch.into());
+        assert_rejects(
+            accounts,
+            31337,
+            SettlementError::NativeSolBufferMismatch.into(),
+        );
     }
 
     #[test]
