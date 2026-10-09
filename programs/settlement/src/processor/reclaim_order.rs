@@ -62,14 +62,14 @@ fn is_reclaimable<T: core::ops::Deref<Target = [u8]>>(
     intent: &OrderIntentAccessor,
     owner: Option<&AccountView>,
 ) -> Result<bool, ProgramError> {
-    // 1. Anyone may reclaim an expired order.
-    if Clock::get()?.unix_timestamp > i64::from(intent.valid_to()) {
+    // 1. Anyone may reclaim a fully filled order even before it expires.
+    let (filled, order_amount) = fill_progress(intent, order.filled_amounts());
+    if filled >= order_amount.into() {
         return Ok(true);
     }
 
-    // 2. Anyone may reclaim a fully filled order before it expires.
-    let (filled, order_amount) = fill_progress(intent, order.filled_amounts());
-    if filled >= order_amount.into() {
+    // 2. Anyone may reclaim an expired order.
+    if Clock::get()?.unix_timestamp > i64::from(intent.valid_to()) {
         return Ok(true);
     }
 
