@@ -62,7 +62,7 @@
     "create_buffers/max_buffers_in_one_instruction_token_2022": 224501,
     "create_order/happy_path_creates_order_pda_with_expected_body": 6361,
     "create_settlement_owned_order/places_an_order_owned_by_the_state_pda": 3441,
-    "initialize/happy_path_initializes_state_pda_with_expected_data": 7477,
+    "initialize/happy_path_initializes_state_pda_with_expected_data": 7566,
     "reclaim_buffer/funded_buffer_within_limit_is_burned_and_closed": 7191,
     "reclaim_buffer/funded_buffer_within_limit_is_burned_and_closed_token_2022": 10510,
     "reclaim_buffer/happy_path_reclaims_empty_buffer_to_the_authority_itself": 6021,
