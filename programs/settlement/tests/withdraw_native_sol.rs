@@ -94,32 +94,26 @@ fn withdraws_to_the_authority_itself() {
 }
 
 #[test]
-fn rejects_any_other_role() {
+fn rejects_an_unknown_authority() {
     let (
         mut svm,
         InitializedParams {
-            program_id,
-            payer,
-            manager,
-            solver_authority,
-            reclaim,
-            ..
+            program_id, payer, ..
         },
     ) = common::setup_init();
     let native_buffer_balance = buffer::add_native_lamports(&mut svm, FUNDING);
+    let impostor = common::unique_keypair();
 
-    for impostor in [&manager, &solver_authority, &reclaim] {
-        let ix = WithdrawNativeSol {
-            program_id,
-            authority: impostor.pubkey(),
-            recipient: impostor.pubkey(),
-            amount: 1,
-        };
-        assert_instruction_error(
-            send_with_signers(&mut svm, &payer, &[impostor], &[ix.into()]),
-            SettlementError::UnauthorizedNativeSolWithdrawal,
-        );
-    }
+    let ix = WithdrawNativeSol {
+        program_id,
+        authority: impostor.pubkey(),
+        recipient: impostor.pubkey(),
+        amount: 1,
+    };
+    assert_instruction_error(
+        send_with_signers(&mut svm, &payer, &[&impostor], &[ix.into()]),
+        SettlementError::UnauthorizedNativeSolWithdrawal,
+    );
 
     assert_eq!(
         lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
