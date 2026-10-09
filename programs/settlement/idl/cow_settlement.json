@@ -902,6 +902,132 @@
           ]
         }
       ]
+    },
+    {
+      "name": "withdraw_native_sol",
+      "docs": [
+        "Moves lamports out of the native SOL buffer to a recipient of the caller's choosing. Only the current holder of the SettlementOwnedOrderAuthority role may authorize this, and the buffer's rent can't be withdrawn.",
+        "Lamports move by a direct debit from the program-owned buffer, so no system program is involved. Leaving the buffer below its rent-exempt minimum fails with the runtime's InsufficientFundsForRent, and emptying it fails with NativeSolBufferEmptied."
+      ],
+      "discriminator": [
+        12
+      ],
+      "accounts": [
+        {
+          "name": "state_pda",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  53,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              }
+            ]
+          },
+          "docs": [
+            "Must be the canonical state PDA; holds the settlement_owned_order_authority the signer is checked against. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+          ]
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "docs": [
+            "Must match the settlement_owned_order_authority address recorded in the state PDA."
+          ]
+        },
+        {
+          "name": "native_sol_buffer",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  53,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114,
+                  32,
+                  110,
+                  97,
+                  116,
+                  105,
+                  118,
+                  101,
+                  32,
+                  115,
+                  111,
+                  108
+                ]
+              }
+            ]
+          },
+          "docs": [
+            "The native SOL buffer created by Initialize; debited by amount."
+          ]
+        },
+        {
+          "name": "recipient",
+          "writable": true,
+          "docs": [
+            "Receives the withdrawn lamports."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64",
+          "docs": [
+            "The lamports to withdraw."
+          ]
+        }
+      ]
     }
   ],
   "accounts": [
@@ -1320,12 +1446,22 @@
     {
       "code": 45,
       "name": "NativeSolBufferEmptied",
-      "msg": "FinalizeSettle: the native SOL payouts would empty the native SOL buffer, which the runtime would then delete."
+      "msg": "Moving lamports out of the native SOL buffer would empty it, which the runtime would then delete."
     },
     {
       "code": 46,
       "name": "ReclaimBufferBurnLimitExceeded",
       "msg": "A buffer to be reclaimed holds more tokens than the burn limit supplied for it, so its balance can't be cleared for closing."
+    },
+    {
+      "code": 47,
+      "name": "UnauthorizedNativeSolWithdrawal",
+      "msg": "WithdrawNativeSol's authority account isn't a signer, or doesn't match the settlement_owned_order_authority recorded in the settlement state PDA."
+    },
+    {
+      "code": 48,
+      "name": "NativeSolBufferMismatch",
+      "msg": "WithdrawNativeSol's native SOL buffer account isn't the canonical native SOL buffer PDA."
     }
   ]
 }

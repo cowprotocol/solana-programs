@@ -147,12 +147,19 @@ pub enum SettlementError {
     /// buffer the push draws from, so settling it would move no funds yet still
     /// record the declared amount as received.
     PushSourceIsDestination = 44,
-    /// `FinalizeSettle`: the native SOL payouts would empty the native SOL
-    /// buffer, which the runtime would then delete.
+    /// Moving lamports out of the native SOL buffer would empty it, which the
+    /// runtime would then delete.
     NativeSolBufferEmptied = 45,
     /// A buffer to be reclaimed holds more tokens than the burn limit supplied
     /// for it, so its balance can't be cleared for closing.
     ReclaimBufferBurnLimitExceeded = 46,
+    /// `WithdrawNativeSol`'s authority account isn't a signer, or doesn't
+    /// match the `settlement_owned_order_authority` recorded in the settlement
+    /// state PDA.
+    UnauthorizedNativeSolWithdrawal = 47,
+    /// `WithdrawNativeSol`'s native SOL buffer account isn't the canonical
+    /// native SOL buffer PDA.
+    NativeSolBufferMismatch = 48,
 }
 
 impl From<SettlementError> for u32 {

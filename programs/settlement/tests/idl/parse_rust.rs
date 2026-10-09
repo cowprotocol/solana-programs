@@ -115,6 +115,11 @@ pub const REMOVE_SOLVER_RS: Source = Source {
     text: include_str!("../../../../interface/src/instruction/remove_solver.rs"),
 };
 
+pub const WITHDRAW_NATIVE_SOL_RS: Source = Source {
+    display: "interface/src/instruction/withdraw_native_sol.rs",
+    text: include_str!("../../../../interface/src/instruction/withdraw_native_sol.rs"),
+};
+
 impl Source {
     fn parse(&self) -> syn::File {
         syn::parse_file(self.text)

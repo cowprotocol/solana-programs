@@ -39,7 +39,7 @@ The program grant privileged roles to specific accounts (_authorities_). They ar
 - Manager: the account that can update the address of all other roles.
 - Solver Authority: the account that can add and remove solvers.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
-- Settlement-Owned-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
+- Settlement-Owned-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals), and to withdraw native SOL from the native SOL buffer.
 
 ### Updating authorities
 
@@ -91,6 +91,8 @@ Fees accumulate in the buffer accounts after a settlement is concluded.
 Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [settlement-owned-order authority](#authorities).
 
 The order is placed through the `CreateSettlementOwnedOrder` instruction. The settlement-owned-order authority can specify arbitrary order parameters, as long as the owner is the state PDA.
+
+Native SOL isn't a token, so it can't be sold through an order. The settlement-owned-order authority instead withdraws it directly from the native SOL buffer with the `WithdrawNativeSol` instruction, to a recipient of its choosing. The buffer's rent can't be withdrawn.
 
 Differences with Ethereum:
 
