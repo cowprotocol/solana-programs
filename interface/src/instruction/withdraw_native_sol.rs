@@ -230,20 +230,13 @@ mod tests {
     #[test]
     fn instruction_has_expected_accounts() {
         let builder = sample();
-        let expected = [
-            builder.state_pda,
-            builder.authority,
-            builder.native_sol_buffer,
-            builder.recipient,
-        ];
-        let program_id = builder.program_id;
-        let ix = Instruction::from(builder);
+        let ix = Instruction::from(sample());
 
-        assert_eq!(ix.program_id, program_id);
+        assert_eq!(ix.program_id, builder.program_id);
         assert_eq!(ix.accounts.len(), NUM_ACCOUNTS);
-        assert_readonly_nonsigner(&ix.accounts[0], expected[0]);
-        assert_readonly_signer(&ix.accounts[1], expected[1]);
-        assert_writable_nonsigner(&ix.accounts[2], expected[2]);
-        assert_writable_nonsigner(&ix.accounts[3], expected[3]);
+        assert_readonly_nonsigner(&ix.accounts[0], builder.state_pda);
+        assert_readonly_signer(&ix.accounts[1], builder.authority);
+        assert_writable_nonsigner(&ix.accounts[2], builder.native_sol_buffer);
+        assert_writable_nonsigner(&ix.accounts[3], builder.recipient);
     }
 }
