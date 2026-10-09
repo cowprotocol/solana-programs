@@ -206,7 +206,11 @@ mod tests {
 
     #[test]
     fn instruction_data_has_expected_layout() {
-        let Instruction { data, .. } = sample().into();
+        let Instruction { data, .. } = WithdrawNativeSol {
+            amount: 0x0102_0304_0506_0708,
+            ..sample()
+        }
+        .into();
         assert_eq!(
             data,
             [
