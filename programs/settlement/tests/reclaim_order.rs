@@ -605,7 +605,11 @@ fn rejects_unexpired_cancelled_order_reclaim_without_owner_signature() {
         owner: Some(owner.pubkey()),
     }
     .instruction();
-    reclaim.accounts[2].is_signer = false;
+
+    for account in &mut reclaim.accounts {
+        account.is_signer = false;
+    }
+
     let result = svm.send_transaction(signed_tx(&svm, &attacker, &attacker, reclaim));
 
     assert_instruction_error(
