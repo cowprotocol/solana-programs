@@ -45,8 +45,9 @@ pub const ACCOUNTS_PER_BUFFER: usize = 2;
 ///
 /// `burn_limit` caps how much of a buffer's balance may be burned to clear it:
 /// a buffer whose balance doesn't exceed its limit is burned to zero (when
-/// non-empty) and closed, while one that exceeds its limit reverts the whole
-/// instruction. A zero limit prevents any burning.
+/// non-empty) and closed, while one that exceeds its limit is skipped so the
+/// rest of the batch still closes; the instruction reverts only when every
+/// buffer is over its limit. A zero limit prevents any burning.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,

@@ -12,10 +12,11 @@ use cow_settlement_interface::{
 ///
 /// A buffer is cleared and closed only when its balance doesn't exceed the
 /// paired `burn_limit`: a balance within the limit is burned to zero (when
-/// non-empty) and the account closed, while a balance above it reverts the
-/// whole instruction. A zero limit forbids burning, so a non-empty buffer is
-/// closed only once the caller allows it with a non-zero limit: a guard
-/// against accidentally burning real funds.
+/// non-empty) and the account closed, while a balance above it is skipped so
+/// the rest of the batch still closes; the instruction reverts only when every
+/// buffer is over its limit. A zero limit forbids burning, so a non-empty
+/// buffer is closed only once the caller allows it with a non-zero limit: a
+/// guard against accidentally burning real funds.
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub reclaim_authority: Pubkey,

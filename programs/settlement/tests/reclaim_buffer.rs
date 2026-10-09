@@ -11,6 +11,7 @@ use solana_sdk::{
     pubkey::Pubkey,
     signature::{Keypair, Signer},
 };
+use spl_token_2022_interface::error::TokenError;
 
 use crate::common::active_token;
 use crate::common::benchmark::{send_transaction_metered, BenchLabel};
@@ -361,6 +362,104 @@ fn reclaims_a_mix_of_empty_and_funded_buffers() {
     );
 }
 
+common::also_under_token_2022!(reclaims_within_limit_buffers_and_skips_those_over_limit);
+#[test]
+fn reclaims_within_limit_buffers_and_skips_those_over_limit() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let reclaimable_mint = common::token::create_mint(&mut svm, &payer);
+    let over_limit_mint = common::token::create_mint(&mut svm, &payer);
+    let reclaimable_buffer = ensure_buffer_exists(&mut svm, &program_id, &payer, &reclaimable_mint);
+    let over_limit_buffer = ensure_buffer_exists(&mut svm, &program_id, &payer, &over_limit_mint);
+
+    // The over-limit buffer holds more than the zero limit it's given; the other
+    // is empty and closes.
+    let stuck = 1_000;
+    common::token::mint_to(
+        &mut svm,
+        &payer,
+        &over_limit_mint,
+        &over_limit_buffer,
+        stuck,
+    );
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: active_token::program(),
+        mints: &[(reclaimable_mint, 0), (over_limit_mint, 0)],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    svm.send_transaction(tx)
+        .expect("a batch with one reclaimable buffer should succeed");
+
+    assert!(
+        svm.get_account(&reclaimable_buffer).is_none(),
+        "the within-limit buffer must be closed"
+    );
+    assert!(
+        svm.get_account(&over_limit_buffer).is_some(),
+        "the over-limit buffer must survive the reclaim"
+    );
+    assert_eq!(
+        common::token::balance(&svm, &over_limit_buffer),
+        stuck,
+        "the skipped buffer's balance must be untouched"
+    );
+}
+
+common::also_under_token_2022!(reverts_when_every_buffer_is_over_its_limit);
+#[test]
+fn reverts_when_every_buffer_is_over_its_limit() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let mint_a = common::token::create_mint(&mut svm, &payer);
+    let mint_b = common::token::create_mint(&mut svm, &payer);
+    let buffer_a = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint_a);
+    let buffer_b = ensure_buffer_exists(&mut svm, &program_id, &payer, &mint_b);
+
+    let amount = 1_000;
+    common::token::mint_to(&mut svm, &payer, &mint_a, &buffer_a, amount);
+    common::token::mint_to(&mut svm, &payer, &mint_b, &buffer_b, amount);
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: active_token::program(),
+        mints: &[(mint_a, 0), (mint_b, 0)],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|e| e.err),
+        SettlementError::ReclaimBufferBurnLimitExceeded,
+    );
+
+    for buffer in [buffer_a, buffer_b] {
+        assert!(
+            svm.get_account(&buffer).is_some(),
+            "every buffer must survive a fully-reverted reclaim"
+        );
+    }
+}
+
 common::also_under_token_2022!(rejects_the_same_buffer_twice_in_one_instruction);
 /// The first pass closes the buffer, which hands it back to the system program.
 /// The second pass then finds an account no token program owns and refuses to
@@ -392,6 +491,76 @@ fn rejects_the_same_buffer_twice_in_one_instruction() {
     assert_instruction_error(
         svm.send_transaction(tx).map_err(|e| e.err),
         InstructionError::IncorrectProgramId,
+    );
+}
+
+#[test]
+fn a_buffer_that_burns_but_cannot_close_reverts_the_whole_batch() {
+    let (
+        mut svm,
+        InitializedParams {
+            program_id,
+            payer,
+            reclaim: reclaim_authority,
+            ..
+        },
+    ) = common::setup_init();
+
+    let good_mint = common::token::create_mint_under(
+        &mut svm,
+        &payer,
+        &TokenProgram::Token2022.address(),
+        Extensions::None,
+    );
+    let good_buffer = ensure_buffer_exists(&mut svm, &program_id, &payer, &good_mint);
+
+    let fee_mint = common::token::create_mint_under(
+        &mut svm,
+        &payer,
+        &TokenProgram::Token2022.address(),
+        Extensions::CloseAuthorityAndTransferFee,
+    );
+    let fee_buffer = ensure_buffer_exists(&mut svm, &program_id, &payer, &fee_mint);
+    let source = common::token::create_associated_token_account(
+        &mut svm,
+        &payer,
+        &fee_mint,
+        &payer.pubkey(),
+    );
+    common::token::mint_to(&mut svm, &payer, &fee_mint, &source, 10_000);
+    // This transfer empties the buffer, but it still cannot be closed because
+    // there are some fees on transfer that are waiting to be reclaimed with
+    // something like `HarvestWithheldTokensToMint`.
+    common::token::transfer(&mut svm, &payer, &fee_mint, &fee_buffer, 10_000);
+
+    let stuck_balance = common::token::balance(&svm, &fee_buffer);
+    assert!(
+        stuck_balance > 0,
+        "sanity: the transfer must credit the fee buffer's balance"
+    );
+
+    let ix = ReclaimBuffer {
+        program_id,
+        reclaim_authority: reclaim_authority.pubkey(),
+        reclaim_recipient: reclaim_authority.pubkey(),
+        token_program: TokenProgram::Token2022,
+        mints: &[(good_mint, 0), (fee_mint, stuck_balance)],
+    };
+    let tx = common::signed_tx(&svm, &payer, &reclaim_authority, ix);
+    // The close fails inside the token program, which reverts the whole batch.
+    assert_instruction_error(
+        svm.send_transaction(tx).map_err(|e| e.err),
+        InstructionError::Custom(TokenError::AccountHasWithheldTransferFees as u32),
+    );
+
+    assert!(
+        svm.get_account(&good_buffer).is_some(),
+        "the sibling buffer's close must be rolled back with the failed batch"
+    );
+    assert_eq!(
+        common::token::balance(&svm, &fee_buffer),
+        stuck_balance,
+        "the failed buffer's burn must be rolled back"
     );
 }
 

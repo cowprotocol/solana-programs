@@ -40,6 +40,12 @@ pub fn process_reclaim_buffer(
             return Err(SettlementError::ReclaimAuthorityMismatch.into());
         }
 
+        // A batch reclaims every buffer it can: a buffer whose balance exceeds
+        // its burn limit is skipped rather than failing the rest, and the
+        // instruction reverts only when no buffer could be reclaimed. Every
+        // other problem still reverts immediately.
+        let mut any_reclaimed = false;
+
         for Buffer {
             buffer_pda,
             mint,
@@ -57,30 +63,35 @@ pub fn process_reclaim_buffer(
             let token_program = owning_token_program(buffer_pda)?;
             let amount = read_token_account(token_program, buffer_pda)?.amount;
 
-            // A token account can't be closed while it still holds a balance, so
-            // the balance is burned to clear it.
-            if amount > burn_limit {
-                return Err(SettlementError::ReclaimBufferBurnLimitExceeded.into());
-            }
+            // A balance over its limit is more than the caller authorized to
+            // destroy, so skip this buffer. Will only revert if no buffer was
+            // reclaimed.
+            if amount <= burn_limit {
+                // Burn the whole balance so the account reaches zero and can be
+                // closed; an already-empty buffer needs no burn.
+                if amount > 0 {
+                    Burn::new(buffer_pda, mint, state_pda, amount)
+                        .invoke_signed_with_unverified_program(
+                            core::slice::from_ref(state_signer),
+                            &token_program.address(),
+                        )?;
+                }
 
-            // Burn the whole balance so the account reaches zero and can be
-            // closed; an already-empty buffer needs no burn.
-            if amount > 0 {
-                Burn::new(buffer_pda, mint, state_pda, amount)
+                CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
                     .invoke_signed_with_unverified_program(
                         core::slice::from_ref(state_signer),
                         &token_program.address(),
                     )?;
-            }
 
-            CloseAccount::new(buffer_pda, reclaim_recipient, state_pda)
-                .invoke_signed_with_unverified_program(
-                    core::slice::from_ref(state_signer),
-                    &token_program.address(),
-                )?;
+                any_reclaimed = true;
+            }
         }
 
-        Ok(())
+        if any_reclaimed {
+            Ok(())
+        } else {
+            Err(SettlementError::ReclaimBufferBurnLimitExceeded.into())
+        }
     })
 }
 
@@ -111,10 +122,6 @@ mod tests {
     const AUTHORITY: Address = Address::new_from_array([101; 32]);
     const UNRELATED: Address = Address::new_from_array([254; 32]);
     const SPL_TOKEN_PROGRAM_ID: Address = TokenProgram::SplToken.address();
-
-    /// Number of accounts in a one-buffer reclaim: the shared ones plus a
-    /// single `(buffer_pda, mint)` pair.
-    const NUM_ACCOUNTS: usize = NUM_SHARED_ACCOUNTS + ACCOUNTS_PER_BUFFER;
 
     // Positions within [`base_accounts`], for the tests that swap one entry.
     const STATE_ACCOUNT: usize = 0;
@@ -148,49 +155,57 @@ mod tests {
         data
     }
 
-    /// Accounts for reclaiming a single buffer holding `amount`, each one
-    /// well-formed.
-    fn base_accounts_holding(amount: u64) -> [AccountView; NUM_ACCOUNTS] {
-        let recipient: Address = Address::new_from_array([1; 32]);
-        let mint: Address = Address::new_from_array([2; 32]);
+    /// Accounts for reclaiming one buffer per entry in `amounts`, each holding
+    /// its entry's balance and each well-formed and canonical for its own mint.
+    fn base_accounts_holding(amounts: &[u64]) -> Vec<AccountView> {
+        let recipient = pubkey_from_seed("base_accounts_holding recipient");
 
-        [
+        let mut accounts = vec![
             fake_account_with_data(STATE_PDA, &state_account_bytes(&base_init_args(), &[])), // state PDA
             fake_signer(AUTHORITY),             // reclaim authority
             fake_account(recipient),            // reclaim recipient
             fake_account(SPL_TOKEN_PROGRAM_ID), // token program
-            fake_account_owned_by(
+        ];
+
+        for (index, &amount) in amounts.iter().enumerate() {
+            let mint = pubkey_from_seed(&format!("base_accounts_holding mint {index}"));
+            accounts.push(fake_account_owned_by(
                 find_buffer_pda(&PROGRAM_ID, &mint).0,
                 SPL_TOKEN_PROGRAM_ID,
                 &buffer_data(mint, STATE_PDA, amount),
-            ), // buffer PDA
-            fake_account(mint),                 // mint
-        ]
+            )); // buffer PDA
+            accounts.push(fake_account(mint)); // mint
+        }
+
+        accounts
     }
 
     /// Accounts for reclaiming a single empty buffer, each one well-formed.
-    fn base_accounts() -> [AccountView; NUM_ACCOUNTS] {
-        base_accounts_holding(0)
+    fn base_accounts() -> Vec<AccountView> {
+        base_accounts_holding(&[0])
     }
 
-    /// `ReclaimBuffer` data for a single buffer carrying `burn_limit`. Only the
-    /// limit reaches the handler's balance check; the addresses are placeholders.
-    fn reclaim_data_with_limit(burn_limit: u64) -> Vec<u8> {
+    /// `ReclaimBuffer` data carrying one burn limit per entry in `limits`. Only
+    /// the limits reach the handler's balance check; the addresses are
+    /// placeholders.
+    fn reclaim_data_with_limits(limits: &[u64]) -> Vec<u8> {
         let zero = Address::new_from_array([0; 32]);
+        let buffers: Vec<(Pubkey, Pubkey, u64)> =
+            limits.iter().map(|&limit| (zero, zero, limit)).collect();
         Instruction::from(ReclaimBufferIx {
             program_id: zero,
             state_pda: zero,
             reclaim_authority: zero,
             reclaim_recipient: zero,
             token_program: zero,
-            buffers: &[(zero, zero, burn_limit)],
+            buffers: &buffers,
         })
         .data
     }
 
     #[track_caller]
     fn assert_rejects_with_data(
-        mut accounts: [AccountView; NUM_ACCOUNTS],
+        mut accounts: Vec<AccountView>,
         data: &[u8],
         expected: ProgramError,
     ) {
@@ -201,7 +216,7 @@ mod tests {
     }
 
     #[track_caller]
-    fn assert_rejects(accounts: [AccountView; NUM_ACCOUNTS], expected: ProgramError) {
+    fn assert_rejects(accounts: Vec<AccountView>, expected: ProgramError) {
         assert_rejects_with_data(accounts, &reclaim_buffer_data(), expected);
     }
 
@@ -229,11 +244,11 @@ mod tests {
     /// the whole instruction reverts.
     #[test]
     fn process_reclaim_buffer_rejects_a_balance_above_the_limit() {
-        let accounts = base_accounts_holding(1_001);
+        let accounts = base_accounts_holding(&[1_001]);
 
         assert_rejects_with_data(
             accounts,
-            &reclaim_data_with_limit(1_000),
+            &reclaim_data_with_limits(&[1_000]),
             SettlementError::ReclaimBufferBurnLimitExceeded.into(),
         );
     }
@@ -242,12 +257,46 @@ mod tests {
     /// being cleared.
     #[test]
     fn process_reclaim_buffer_rejects_a_nonempty_buffer_under_a_zero_limit() {
-        let accounts = base_accounts_holding(1);
+        let accounts = base_accounts_holding(&[1]);
 
         assert_rejects_with_data(
             accounts,
-            &reclaim_data_with_limit(0),
+            &reclaim_data_with_limits(&[0]),
             SettlementError::ReclaimBufferBurnLimitExceeded.into(),
+        );
+    }
+
+    /// A buffer over its limit can't be reclaimed, but a reclaimable buffer later
+    /// in the batch still closes, so the instruction succeeds instead of
+    /// reverting on the first bad buffer. (A host CPI is a no-op, so the second
+    /// buffer's close "succeeds" here; what this proves is that the over-limit
+    /// buffer is skipped rather than aborting the batch.)
+    #[test]
+    fn process_reclaim_buffer_skips_an_over_limit_buffer_when_another_succeeds() {
+        // First buffer is over its zero limit (skipped); second is empty and closes.
+        let mut accounts = base_accounts_holding(&[1337, 0]);
+
+        process_reclaim_buffer(
+            &PROGRAM_ID,
+            &mut accounts,
+            &reclaim_data_with_limits(&[0, 0]),
+        )
+        .unwrap_or_else(|err| panic!("a batch with one reclaimable buffer should succeed: {err}"));
+    }
+
+    /// When no buffer in the batch can be reclaimed, the instruction reverts with
+    /// the first skip reason.
+    #[test]
+    fn process_reclaim_buffer_reverts_when_every_buffer_is_over_its_limit() {
+        let mut accounts = base_accounts_holding(&[1337, 42]);
+
+        assert_eq!(
+            process_reclaim_buffer(
+                &PROGRAM_ID,
+                &mut accounts,
+                &reclaim_data_with_limits(&[0, 0])
+            ),
+            Err(SettlementError::ReclaimBufferBurnLimitExceeded.into()),
         );
     }
 
