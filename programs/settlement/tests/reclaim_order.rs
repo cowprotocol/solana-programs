@@ -157,6 +157,7 @@ fn perform_reclaim_while_unexpired(
     program_id: &Pubkey,
     owner: &Keypair,
     pda: &Pubkey,
+    include_owner_signature: bool,
 ) -> Result<(), solana_sdk::transaction::TransactionError> {
     // Taken from the order itself rather than from `VALID_TO`, so the clock the
     // transaction runs at can't drift from the order it's reclaiming.
@@ -167,7 +168,7 @@ fn perform_reclaim_while_unexpired(
         program_id: *program_id,
         order_pda: *pda,
         reclaim_recipient: owner.pubkey(),
-        owner: read_order(svm, pda).cancelled.then(|| owner.pubkey()),
+        owner: include_owner_signature.then(|| owner.pubkey()),
     }
     .instruction();
     let tx = signed_tx(svm, owner, owner, ix);
@@ -202,12 +203,12 @@ fn happy_path_order_fully_filled_is_reclaimable_before_expiry() {
         ..order
     });
 
-    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
+    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda, false)
         .expect("a filled on-chain order should be reclaimable before it expires");
 }
 
 #[test]
-fn happy_path_order_cancelled_is_reclaimable_before_expiry() {
+fn happy_path_order_cancelled_is_reclaimable_by_owner_before_expiry() {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = reclaim_sample_intent(owner.pubkey());
@@ -217,7 +218,7 @@ fn happy_path_order_cancelled_is_reclaimable_before_expiry() {
         ..order
     });
 
-    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
+    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda, true)
         .expect("a cancelled on-chain order should be reclaimable before it expires");
 }
 
@@ -258,7 +259,7 @@ fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
     });
 
     assert_instruction_error(
-        perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
+        perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda, true),
         SettlementError::OrderNotReclaimable,
     );
 }
