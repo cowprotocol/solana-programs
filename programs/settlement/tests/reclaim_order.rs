@@ -13,7 +13,6 @@ use solana_sdk::{
     clock::Clock,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::{Transaction, TransactionError},
 };
 
 use crate::common::{
