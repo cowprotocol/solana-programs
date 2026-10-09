@@ -371,6 +371,103 @@ fn rejects_a_push_spending_the_native_sol_buffers_rent() {
     assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
 }
 
+/// Spending all but the rent is fine: the buffer is left exactly rent-exempt.
+#[test]
+fn happy_path_push_leaving_exactly_the_native_sol_buffers_rent() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let funding = 1_000_000;
+    let initial_balance = buffer::add_native_lamports(&mut svm, funding);
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: funding,
+            use_transfer_checked: false,
+        }],
+    );
+    send(&mut svm, &solver, &instructions).expect("a push sparing the rent should be paid");
+
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), funding);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        initial_balance - funding
+    );
+}
+
+/// Unlike a push into the rent, the runtime accepts a push of the whole balance
+/// and deletes the buffer, after which no native SOL order can settle.
+#[test]
+fn rejects_a_push_of_the_whole_native_sol_buffer() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let full_balance = buffer::add_native_lamports(&mut svm, 1_000_000);
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: full_balance,
+            use_transfer_checked: false,
+        }],
+    );
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &instructions),
+        SettlementError::NativeSolBufferEmptied,
+    );
+
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), full_balance);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
+}
+
+#[test]
+fn rejects_multiple_orders_consuming_the_whole_native_sol_buffer() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let intent2 = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let full_balance = buffer::add_native_lamports(&mut svm, 1_000_000);
+
+    let quarter_balance = full_balance.checked_div(4).expect("should divide");
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[
+            FinalizedIntent {
+                intent: &intent1,
+                amount: full_balance.strict_sub(quarter_balance),
+                use_transfer_checked: false,
+            },
+            FinalizedIntent {
+                intent: &intent2,
+                amount: quarter_balance,
+                use_transfer_checked: false,
+            },
+        ],
+    );
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &instructions),
+        SettlementError::NativeSolBufferEmptied,
+    );
+
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), full_balance);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent1)), 0);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent2)), 0);
+}
+
 #[test]
 fn rejects_a_push_larger_than_the_whole_balance() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();

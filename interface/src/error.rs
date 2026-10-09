@@ -147,6 +147,9 @@ pub enum SettlementError {
     /// buffer the push draws from, so settling it would move no funds yet still
     /// record the declared amount as received.
     PushSourceIsDestination = 44,
+    /// `FinalizeSettle`: the native SOL payouts would empty the native SOL
+    /// buffer, which the runtime would then delete.
+    NativeSolBufferEmptied = 45,
 }
 
 impl From<SettlementError> for u32 {

@@ -99,12 +99,21 @@ fn push_funds<'a>(
     }
 
     // Loop for orders paying out native SOL
+    let mut native_sol_buffer = None;
     for push in pushes.iter() {
         if push.source_buffer.address() == &NATIVE_SOL_BUFFER_PDA {
             let mut source = *push.source_buffer;
             let mut destination = *push.destination;
             move_lamports(&mut source, &mut destination, push.amount)?;
+            native_sol_buffer = Some(source);
         }
+    }
+
+    // The runtime rejects payouts leaving the buffer under-funded for rent, but
+    // accepts ones emptying it entirely, and then deletes it, leaving native SOL
+    // orders unsettleable.
+    if native_sol_buffer.is_some_and(|buffer| buffer.lamports() == 0) {
+        return Err(SettlementError::NativeSolBufferEmptied.into());
     }
 
     Ok(())
