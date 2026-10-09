@@ -429,6 +429,46 @@ fn rejects_a_push_of_the_whole_native_sol_buffer() {
 }
 
 #[test]
+fn rejects_multiple_orders_consuming_the_whole_native_sol_buffer() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let intent2 = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let full_balance = buffer::add_native_lamports(&mut svm, 1_000_000);
+
+    let quarter_balance = full_balance.checked_div(4).expect("should divide");
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[
+            FinalizedIntent {
+                intent: &intent1,
+                amount: quarter_balance.checked_mul(3).expect("should portion"),
+                use_transfer_checked: false,
+            },
+            FinalizedIntent {
+                intent: &intent2,
+                amount: quarter_balance,
+                use_transfer_checked: false,
+            },
+        ],
+    );
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &instructions),
+        SettlementError::NativeSolBufferEmptied,
+    );
+
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), full_balance);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent1)), 0);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent2)), 0);
+}
+
+#[test]
 fn rejects_a_push_larger_than_the_whole_balance() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
