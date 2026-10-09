@@ -92,13 +92,6 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     (svm, program_id, payer)
 }
 
-/// [`setup`] with signature checks off, so that transactions from
-/// [`initializer_tx`] go through.
-pub fn setup_without_sigverify() -> (LiteSVM, Pubkey, Keypair) {
-    let (svm, program_id, payer) = setup();
-    (svm.with_sigverify(false), program_id, payer)
-}
-
 /// A settlement initialized by [`setup_init`], with all authorities held as
 /// keypairs the test can sign transfers with.
 pub struct InitializedParams {
@@ -117,7 +110,8 @@ pub struct InitializedParams {
 /// Returns the SVM and an [`InitializedParams`] bundling the program id, the
 /// fee payer, the state PDA, and all authority keypairs.
 pub fn setup_init() -> (LiteSVM, InitializedParams) {
-    let (mut svm, program_id, payer) = setup_without_sigverify();
+    let (mut svm, program_id, payer) = setup();
+    svm.with_sigverify(false);
     let manager = unique_keypair();
     let solver_authority = unique_keypair();
     let reclaim = unique_keypair();
