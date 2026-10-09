@@ -650,6 +650,7 @@ fn expired_cancelled_order_is_permissionlessly_reclaimable() {
         let (mut svm, program_id, owner) = common::setup();
         let intent = reclaim_sample_intent(owner.pubkey());
         let pda = create_order(&mut svm, &program_id, &owner, &intent);
+        let reclaimer = unique_keypair();
         patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
             cancelled: true,
             amount_withdrawn: if fully_filled {
@@ -659,8 +660,7 @@ fn expired_cancelled_order_is_permissionlessly_reclaimable() {
             },
             ..order
         });
-        let attacker = unique_keypair();
-        svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+        svm.airdrop(&reclaimer.pubkey(), 1_000_000_000).unwrap();
         common::set_unix_timestamp(&mut svm, i64::from(VALID_TO + 1));
         let reclaim = ReclaimOrder {
             program_id,
@@ -669,7 +669,7 @@ fn expired_cancelled_order_is_permissionlessly_reclaimable() {
             owner: None,
         }
         .instruction();
-        svm.send_transaction(signed_tx(&svm, &attacker, &attacker, reclaim))
+        svm.send_transaction(signed_tx(&svm, &reclaimer, &reclaimer, reclaim))
             .expect("anyone may reclaim an expired cancellation tombstone");
         assert!(svm.get_account(&pda).is_none());
     }
