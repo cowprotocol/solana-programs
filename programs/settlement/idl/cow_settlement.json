@@ -907,7 +907,7 @@
       "name": "withdraw_native_sol",
       "docs": [
         "Moves lamports out of the native SOL buffer to a recipient of the caller's choosing. Only the current holder of the SettlementOwnedOrderAuthority role may authorize this, and the buffer's rent can't be withdrawn.",
-        "Lamports move by a direct debit from the program-owned buffer, so no system program is involved. Leaving the buffer below its rent-exempt minimum fails with the runtime's InsufficientFundsForRent, and emptying it fails with NativeSolBufferEmptied."
+        "Lamports move by a direct debit from the program-owned buffer, so no system program is involved."
       ],
       "discriminator": [
         12
@@ -1008,7 +1008,7 @@
             ]
           },
           "docs": [
-            "The native SOL buffer created by Initialize; debited by amount."
+            "The native SOL buffer created by Initialize; debited by the withdrawn amount, never below its rent."
           ]
         },
         {
@@ -1024,7 +1024,7 @@
           "name": "amount",
           "type": "u64",
           "docs": [
-            "The lamports to withdraw."
+            "The maximum lamports to withdraw; capped to the buffer's balance above rent."
           ]
         }
       ]

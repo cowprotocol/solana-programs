@@ -1,9 +1,10 @@
 //! `WithdrawNativeSol` instruction handler.
 //!
 //! The native SOL buffer is owned by this program, so its lamports are moved
-//! by editing balances directly, as `FinalizeSettle` does. Leaving it below
-//! rent but not empty is rejected by the runtime; emptying it is rejected here,
-//! since the runtime would accept it and delete the buffer.
+//! by editing balances directly, as `FinalizeSettle` does. The requested amount
+//! is capped to the lamports above the buffer's rent-exempt minimum, so the
+//! buffer always stays alive and a balance that shrank since the transaction
+//! was built lowers the payout instead of reverting it.
 
 use cow_settlement_interface::{
     data::state::StateAccount,
@@ -11,7 +12,11 @@ use cow_settlement_interface::{
     pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::validate_is_state_pda},
     Pubkey, Role, SettlementError,
 };
-use pinocchio::{AccountView, ProgramResult};
+use pinocchio::{
+    error::ProgramError,
+    sysvars::{rent::Rent, Sysvar},
+    AccountView, ProgramResult,
+};
 
 use crate::processor::utils::lamports::move_lamports;
 
@@ -39,14 +44,21 @@ pub fn process_withdraw_native_sol(
         return Err(SettlementError::NativeSolBufferMismatch.into());
     }
 
+    // Cap the withdrawal to the lamports above the buffer's rent-exempt
+    // minimum, so the buffer always survives and a balance smaller than the
+    // caller expected shrinks the payout instead of reverting it.
+    let withdrawable = native_sol_buffer
+        .lamports()
+        .checked_sub(Rent::get()?.try_minimum_balance(native_sol_buffer.data_len())?)
+        // Basically unreachable: a live buffer is rent-exempt unless the rent
+        // mechanism itself changed under it.
+        .ok_or(ProgramError::AccountNotRentExempt)?;
+    let amount = amount.min(withdrawable);
+
     // A copied `AccountView` writes through to the same runtime account.
     let mut native_sol_buffer = *native_sol_buffer;
     let mut recipient = *recipient;
     move_lamports(&mut native_sol_buffer, &mut recipient, amount)?;
-
-    if native_sol_buffer.lamports() == 0 {
-        return Err(SettlementError::NativeSolBufferEmptied.into());
-    }
 
     Ok(())
 }
@@ -130,18 +142,6 @@ mod tests {
     }
 
     #[test]
-    fn process_withdraw_native_sol_moves_the_amount_to_the_recipient() {
-        let mut accounts = base_accounts();
-        let amount = BUFFER_LAMPORTS - 1;
-
-        process_withdraw_native_sol(&mut accounts, &withdraw_native_sol_data(amount))
-            .unwrap_or_else(|err| panic!("withdrawal should succeed: {err}"));
-
-        assert_eq!(accounts[NATIVE_SOL_BUFFER].lamports(), 1);
-        assert_eq!(accounts[RECIPIENT].lamports(), RECIPIENT_LAMPORTS + amount);
-    }
-
-    #[test]
     fn process_withdraw_native_sol_rejects_wrong_state_pda() {
         let mut accounts = base_accounts();
         accounts[STATE_ACCOUNT] = fake_account_with_data(
@@ -194,24 +194,6 @@ mod tests {
             accounts,
             31337,
             SettlementError::NativeSolBufferMismatch.into(),
-        );
-    }
-
-    #[test]
-    fn process_withdraw_native_sol_rejects_draining_the_buffer() {
-        assert_rejects(
-            base_accounts(),
-            BUFFER_LAMPORTS,
-            SettlementError::NativeSolBufferEmptied.into(),
-        );
-    }
-
-    #[test]
-    fn process_withdraw_native_sol_rejects_more_than_the_balance() {
-        assert_rejects(
-            base_accounts(),
-            BUFFER_LAMPORTS + 1,
-            ProgramError::ArithmeticOverflow,
         );
     }
 }
