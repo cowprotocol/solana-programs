@@ -97,7 +97,7 @@
     "transfer_authority/reclaim_authority_can_transfer_itself": 201,
     "transfer_authority/settlement_owned_order_authority_can_transfer_itself": 199,
     "transfer_authority/solver_authority_can_transfer_itself": 201,
-    "withdraw_native_sol/happy_path_withdraws_to_a_recipient_chosen_by_the_authority": 233
+    "withdraw_native_sol/happy_path_withdraws_to_a_recipient_chosen_by_the_authority": 371
   },
   "transaction_bytes": {
     "add_solver/add_with_many_existing_solvers": 366,

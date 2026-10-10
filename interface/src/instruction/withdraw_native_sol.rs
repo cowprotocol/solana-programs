@@ -6,8 +6,9 @@
 //! `settlement_owned_order_authority` (see
 //! [`crate::data::state::StateAccount`]) may authorize this.
 //!
-//! The buffer's rent is never withdrawable: the buffer must stay alive, since
-//! only `Initialize` can create it.
+//! The `amount` is a maximum: it's capped to the lamports above the buffer's
+//! rent-exempt minimum, so the buffer always stays alive (only `Initialize` can
+//! create it) and a withdrawal never reverts for asking too much.
 //!
 //! Wire format: `[discriminator=12, amount (u64 LE)]`, 9 bytes.
 //! Required accounts:
@@ -27,8 +28,8 @@ use crate::SettlementInstruction;
 /// `state_pda` must be [`crate::pda::state::STATE_PDA`]. `authority` must sign
 /// and must match the `settlement_owned_order_authority` recorded in the state
 /// PDA's data. `native_sol_buffer` must be
-/// [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`]. `recipient` receives
-/// `amount` lamports.
+/// [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`]. `recipient` receives up to
+/// `amount` lamports, capped to the buffer's balance above rent.
 pub struct WithdrawNativeSol {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,
