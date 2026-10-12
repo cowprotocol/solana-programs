@@ -9,7 +9,10 @@
 //! agree with everything that _is_ here.
 
 use cow_settlement_interface::{
-    pda::{buffer::BUFFER_SEED, SETTLEMENT_SEED},
+    pda::{
+        buffer::{BUFFER_SEED, NATIVE_SOL_BUFFER_SEED},
+        SETTLEMENT_SEED,
+    },
     SettlementInstruction,
 };
 use serde_json::{json, Map, Value};
@@ -44,6 +47,12 @@ const BUFFER_PDA_0: &[Seed] = &[
     Seed::Const(SETTLEMENT_SEED),
     Seed::Account("mint_0"),
     Seed::Const(BUFFER_SEED),
+];
+
+/// The native SOL buffer PDA, which isn't keyed by a mint.
+const NATIVE_SOL_BUFFER_PDA: &[Seed] = &[
+    Seed::Const(SETTLEMENT_SEED),
+    Seed::Const(NATIVE_SOL_BUFFER_SEED),
 ];
 
 /// What the Rust source doesn't say about one instruction.
@@ -128,6 +137,14 @@ const INSTRUCTIONS: &[Instruction] = &[
         variant: SettlementInstruction::RemoveSolver,
         input: &parse_rust::REMOVE_SOLVER_RS,
         pda_accounts: &[("state_pda", STATE_PDA)],
+    },
+    Instruction {
+        variant: SettlementInstruction::WithdrawNativeSol,
+        input: &parse_rust::WITHDRAW_NATIVE_SOL_RS,
+        pda_accounts: &[
+            ("state_pda", STATE_PDA),
+            ("native_sol_buffer", NATIVE_SOL_BUFFER_PDA),
+        ],
     },
 ];
 

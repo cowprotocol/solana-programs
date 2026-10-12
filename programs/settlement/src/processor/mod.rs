@@ -13,6 +13,7 @@ mod reclaim_order;
 mod remove_solver;
 mod transfer_authority;
 pub mod utils;
+mod withdraw_native_sol;
 
 use add_solver::process_add_solver;
 use begin_settle::process_begin_settle;
@@ -26,6 +27,7 @@ use reclaim_buffer::process_reclaim_buffer;
 use reclaim_order::process_reclaim_order;
 use remove_solver::process_remove_solver;
 use transfer_authority::process_transfer_authority;
+use withdraw_native_sol::process_withdraw_native_sol;
 
 use cow_settlement_interface::{recover_discriminator, SettlementInstruction};
 use pinocchio::{AccountView, Address, ProgramResult};
@@ -67,5 +69,8 @@ pub fn process_instruction(
         }
         SettlementInstruction::AddSolver => process_add_solver(accounts, instruction_data),
         SettlementInstruction::RemoveSolver => process_remove_solver(accounts, instruction_data),
+        SettlementInstruction::WithdrawNativeSol => {
+            process_withdraw_native_sol(accounts, instruction_data)
+        }
     }
 }
