@@ -9,7 +9,6 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{remove_solver::RemoveSolverInput, InstructionInputParsing},
-    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
 use pinocchio::{
@@ -17,6 +16,8 @@ use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
     AccountView, ProgramResult, Resize,
 };
+
+use crate::pda::state::validate_is_state_pda;
 
 use crate::processor::utils::lamports::move_lamports;
 
@@ -61,11 +62,11 @@ pub fn process_remove_solver(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pda::ID as PROGRAM_ID;
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
     use cow_settlement_interface::instruction::remove_solver::fixtures::{
         remove_solver_data, NUM_ACCOUNTS,
     };
-    use cow_settlement_interface::ID as PROGRAM_ID;
     use pinocchio::error::ProgramError;
 
     #[test]
@@ -95,6 +96,7 @@ mod tests {
         use ::proptest::prelude::*;
 
         use super::*;
+        use crate::pda::state::STATE_PDA;
         use cow_settlement_interface::data::state::fixtures::{
             arb_init_params, state_account_bytes,
         };
@@ -103,7 +105,6 @@ mod tests {
             fake_account, fake_account_owned_by, fake_signer,
         };
         use cow_settlement_interface::instruction::remove_solver::RemoveSolver;
-        use cow_settlement_interface::pda::state::STATE_PDA;
         use cow_settlement_interface::{Instruction, Pubkey};
 
         proptest! {

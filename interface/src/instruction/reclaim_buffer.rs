@@ -35,7 +35,8 @@ pub const ACCOUNTS_PER_BUFFER: usize = 2;
 /// Builder for a `ReclaimBuffer` instruction that closes one buffer per
 /// `(buffer_pda, mint, burn_limit)` entry in `buffers`.
 ///
-/// `state_pda` must be [`crate::pda::state::STATE_PDA`]. `reclaim_authority`
+/// `state_pda` must be the settlement state PDA (see
+/// [`crate::pda::state::find_state_pda`]). `reclaim_authority`
 /// must sign and must match the `reclaim_authority` recorded in the state PDA's data.
 /// `reclaim_recipient` is the account receiving the closed buffer's lamports.
 /// Each `buffer_pda` must be the canonical PDA returned by

@@ -13,9 +13,10 @@ use cow_settlement_interface::{
     instruction::{
         create_settlement_owned_order::CreateSettlementOwnedOrderInput, InstructionInputParsing,
     },
-    pda::state::validate_is_state_pda,
     Pubkey, Role, SettlementError,
 };
+
+use crate::pda::state::validate_is_state_pda;
 use pinocchio::{AccountView, Address, ProgramResult};
 
 use crate::processor::create_order::process_new_onchain_order;
@@ -54,6 +55,8 @@ pub fn process_create_settlement_owned_order(
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::state::STATE_PDA;
+    use crate::pda::ID as PROGRAM_ID;
     use cow_settlement_interface::data::intent::fixtures::sample_intent;
     use cow_settlement_interface::data::intent::OrderIntent;
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
@@ -66,8 +69,6 @@ mod tests {
     use cow_settlement_interface::instruction::fixtures::{
         fake_account, fake_account_with_data, fake_sequential_accounts, fake_signer,
     };
-    use cow_settlement_interface::pda::state::STATE_PDA;
-    use cow_settlement_interface::ID as PROGRAM_ID;
     use pinocchio::error::ProgramError;
     use std::sync::LazyLock;
 

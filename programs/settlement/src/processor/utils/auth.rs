@@ -6,9 +6,9 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 
-use cow_settlement_interface::{
-    data::state::StateAccount, pda::state::STATE_PDA_SIGNER_SEEDS, SettlementError,
-};
+use cow_settlement_interface::{data::state::StateAccount, SettlementError};
+
+use crate::pda::state::STATE_PDA_SIGNER_SEEDS;
 
 /// Run `f` with a signer for the state PDA
 pub fn with_state_pda_signer(f: impl FnOnce(&Signer) -> ProgramResult) -> ProgramResult {

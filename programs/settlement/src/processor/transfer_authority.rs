@@ -6,10 +6,11 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{transfer_authority::TransferAuthorityInput, InstructionInputParsing},
-    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+
+use crate::pda::state::validate_is_state_pda;
 
 pub fn process_transfer_authority(
     accounts: &mut [AccountView],

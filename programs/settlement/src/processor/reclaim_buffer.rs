@@ -6,9 +6,11 @@ use cow_settlement_interface::{
         reclaim_buffer::{Buffer, ReclaimBufferInput},
         InstructionInputParsing,
     },
-    pda::{buffer::find_buffer_pda, state::validate_is_state_pda},
+    pda::buffer::find_buffer_pda,
     Pubkey, Role, SettlementError,
 };
+
+use crate::pda::state::validate_is_state_pda;
 use pinocchio::{AccountView, Address, ProgramResult};
 use pinocchio_token::instructions::{Burn, CloseAccount};
 
@@ -97,6 +99,8 @@ pub fn process_reclaim_buffer(
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::state::STATE_PDA;
+    use crate::pda::ID as PROGRAM_ID;
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::{StateInitArgs, WIDTH_HEADER};
     use cow_settlement_interface::fixtures::pubkey_from_seed;
@@ -110,10 +114,8 @@ mod tests {
     use cow_settlement_interface::instruction::reclaim_buffer::{
         ReclaimBuffer as ReclaimBufferIx, ACCOUNTS_PER_BUFFER,
     };
-    use cow_settlement_interface::pda::state::STATE_PDA;
     use cow_settlement_interface::token_program::TokenProgram;
     use cow_settlement_interface::Instruction;
-    use cow_settlement_interface::ID as PROGRAM_ID;
     use litesvm_token::spl_token::state::{Account as SplTokenAccount, AccountState};
     use pinocchio::error::ProgramError;
     use solana_program_pack::Pack;

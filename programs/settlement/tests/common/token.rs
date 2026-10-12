@@ -3,9 +3,8 @@
 use crate::common::{active_token, token_2022::Extensions};
 
 use super::{send_with_signers, unique_keypair, unique_pubkey};
-use cow_settlement_client::cow_settlement_interface::{
-    pda::state::STATE_PDA, token_program::TokenProgram,
-};
+use cow_settlement::pda::state::STATE_PDA;
+use cow_settlement_client::cow_settlement_interface::token_program::TokenProgram;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use litesvm_token::{
     spl_token::{native_mint, state::Mint},

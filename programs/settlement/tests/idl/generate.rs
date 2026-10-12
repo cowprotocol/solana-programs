@@ -189,7 +189,7 @@ fn pascal_to_snake(s: &str) -> String {
 /// Generate an incomplete IDL document based on the Rust source.
 pub fn partial_idl() -> Value {
     json!({
-        "address": cow_settlement_interface::ID.to_string(),
+        "address": cow_settlement::pda::ID.to_string(),
         "metadata": {
             // Bumping the minor version also moves every PDA, so a stale value
             // here hides that.
