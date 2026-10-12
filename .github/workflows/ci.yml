@@ -155,7 +155,7 @@ jobs:
       - name: Verify build
         run: |
           set -o pipefail
-          just build-verified | tee /tmp/build-verified.log
+          just build-verified prod | tee /tmp/build-verified.log
           echo "Reproducible build hash: $(tail -1 /tmp/build-verified.log)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload program artifact
@@ -163,3 +163,29 @@ jobs:
         with:
           name: cow_settlement.so
           path: target/deploy/cow_settlement.so
+
+  # The other jobs only ever build prod. Exercise the remaining build-time
+  # deployment targets, and that a build with none of them fails to compile.
+  deployment-targets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Barn target compiles and bakes BARN_ID
+        run: |
+          cargo check -p settlement --features barn
+          cargo test -p settlement --lib --features barn pda::tests
+
+      - name: A custom SETTLEMENT_PROGRAM_ID is accepted
+        run: SETTLEMENT_PROGRAM_ID=4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T cargo check -p settlement
+
+      - name: A build with no deployment target fails to compile
+        run: |
+          if cargo check -p settlement 2>/dev/null; then
+            echo "expected a build with no prod/barn feature and no SETTLEMENT_PROGRAM_ID to fail" >&2
+            exit 1
+          fi

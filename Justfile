@@ -16,9 +16,10 @@ default:
 install-solana-verify:
     cargo install solana-verify --version "$(cat .solana-verify-version.txt)" --root {{cargo_root}}
 
-# Build the on-chain settlement program (.so) for Solana.
+# Build the on-chain settlement program (.so) for Solana. Defaults to the
+# production deployment; the `deploy-barn`/`deploy-custom` recipes build theirs.
 build-program:
-    cargo build-sbf --manifest-path programs/settlement/Cargo.toml
+    cargo build-sbf --manifest-path programs/settlement/Cargo.toml --features prod
 
 # Build supplementary test programs (.so)
 build-test-programs:
@@ -26,7 +27,7 @@ build-test-programs:
 
 # Build everything: host-side workspace crates plus the on-chain program.
 build: build-program
-    cargo build
+    cargo build --features settlement/prod
 
 # Runs all the generated code jobs
 generate: generate-js-client
@@ -39,7 +40,7 @@ generate: generate-js-client
 
 # Run the test suite (builds the program first so the .so exists).
 test: build-program build-test-programs
-    cargo test
+    cargo test --features settlement/prod
 
 # Run tests from the generated clients from the IDL
 test-idl-generated: test-js-client
@@ -59,7 +60,7 @@ bench: build-program build-test-programs
     #!/usr/bin/env bash
     set -euo pipefail
     rm -rf target/bench-report
-    TEST_BENCHMARK=true cargo test
+    TEST_BENCHMARK=true cargo test --features settlement/prod
 
 
     shopt -s nullglob
@@ -106,26 +107,51 @@ doc *args:
 doc-dev *args:
     cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]' {{ args }}
 
-# Build the settlement program using solana-verify's reproducible Docker build.
-build-verified: install-solana-verify
-    {{solana_verify}} build --library-name {{settlement_program}}
+# Build the settlement program for `env` (prod or barn) with solana-verify's
+# reproducible Docker build.
+build-verified env: install-solana-verify
+    {{solana_verify}} build --library-name {{settlement_program}} -- --features {{env}}
 
-# Deploy the settlement program, then create its state PDA.
-deploy programid keypair: build-verified
+# Deploy (or upgrade) the settlement program for a committed deployment, then
+# initialize it. `env` is prod or barn; `programid` is the program keypair on a
+# first deploy, or the program address on an upgrade. Refuses to deploy unless
+# `programid` resolves to that deployment's address, so the baked-in id (which
+# the `env` feature fixes) always matches where it lands.
+[private]
+deploy-committed env programid keypair: install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
+    target=$(solana address --keypair "{{programid}}" 2>/dev/null || echo "{{programid}}")
+    name=$(printf '%s' "{{env}}" | tr '[:lower:]' '[:upper:]')
+    expected=$(sed -n "s/.*${name}_ID.*from_str_const(\"\([^\"]*\)\").*/\1/p" interface/src/lib.rs)
+    if [ "$target" != "$expected" ]; then
+        echo "refusing to deploy {{env}}: $target is not the {{env}} address ($expected)" >&2
+        exit 1
+    fi
+    {{solana_verify}} build --library-name {{settlement_program}} -- --features {{env}}
     solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}
+    cargo run -p cow-test-cli -- --program-id "$target" --keypair "{{keypair}}" initialize
 
-    # `programid` is a keypair file on a first deploy and an address on an upgrade,
-    # but the CLI only takes the address.
-    program_id=$(solana address --keypair "{{programid}}" 2>/dev/null || echo "{{programid}}")
-    cargo run -p cow-test-cli -- \
-        --program-id "$program_id" \
-        --keypair "{{keypair}}" \
-        initialize
+# Deploy (or upgrade) the production program.
+deploy-prod programid keypair: (deploy-committed "prod" programid keypair)
 
-# Register the on-chain verification for an already-deployed program.
-verify programid keypair commit_hash="": install-solana-verify
+# Deploy (or upgrade) the staging ("barn") program.
+deploy-barn programid keypair: (deploy-committed "barn" programid keypair)
+
+# Deploy (or upgrade) an ad-hoc program baked for the address of `programid`, an
+# unverified build for devnet/local one-offs. The baked id is the deploy target
+# by construction, so there is nothing to mismatch.
+deploy-custom programid keypair:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target=$(solana address --keypair "{{programid}}" 2>/dev/null || echo "{{programid}}")
+    SETTLEMENT_PROGRAM_ID="$target" cargo build-sbf --manifest-path programs/settlement/Cargo.toml
+    solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}
+    cargo run -p cow-test-cli -- --program-id "$target" --keypair "{{keypair}}" initialize
+
+# Register the on-chain verification for an already-deployed program. `env` is
+# the deployment it was built for (prod or barn), so the remote rebuild matches.
+verify env programid keypair commit_hash="": install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
     commit_args=()
@@ -138,7 +164,8 @@ verify programid keypair commit_hash="": install-solana-verify
         --program-id "{{programid}}" \
         --library-name {{settlement_program}} \
         "${commit_args[@]}" \
-        {{repo_url}}
+        {{repo_url}} \
+        -- --features {{env}}
     # Step 2: queue remote worker to rebuild from the PDA.
     {{solana_verify}} remote submit-job \
         --program-id "{{programid}}" \

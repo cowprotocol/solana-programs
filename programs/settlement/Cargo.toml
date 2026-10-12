@@ -17,6 +17,12 @@ name = "cow_settlement"
 # https://solana.com/docs/programs/rust/program-structure
 crate-type = ["cdylib", "lib"]
 
+# Build-time deployment selection; see `crate::pda::ID`. No default — a build
+# must pick one of these or set SETTLEMENT_PROGRAM_ID, else it fails to compile.
+[features]
+prod = []
+barn = []
+
 [dependencies]
 pinocchio = { workspace = true, features = ["cpi", "account-resize"] }
 pinocchio-system.workspace = true

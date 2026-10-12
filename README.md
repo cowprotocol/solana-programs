@@ -80,9 +80,13 @@ just bench
 
 Requires [Docker](https://docs.docker.com/engine/install/).
 
+The program bakes in the address it will be deployed at, chosen at build time, so pass the target deployment — `prod` (production) or `barn` (staging):
+
 ```sh
-just build-verified
+just build-verified prod   # or: just build-verified barn
 ```
+
+A build that selects no target (and sets no `SETTLEMENT_PROGRAM_ID`) fails to compile, so a `.so` is never produced without a deliberate address.
 
 ## How to deploy
 
@@ -92,18 +96,26 @@ You will need a **deployer keypair** — a Solana wallet funded with enough SOL 
 
 > Do not fund the program address itself. Only the deployer wallet needs SOL.
 
-There are two distinct flows depending on whether this is a first-time deploy or an upgrade to an existing program.
+There are two environments, each pinned to its own fixed address: **barn** (staging, `cow_settlement_interface::BARN_ID`) and **prod** (production, `PROD_ID`). Always roll out **barn first, then prod**: deploy or upgrade barn, smoke-test it, and only then do the same on prod.
+
+- `just deploy-barn <keypair-or-address> <deployer-keypair>` — verified build with `--features barn`, deployed to `BARN_ID`.
+- `just deploy-prod <keypair-or-address> <deployer-keypair>` — verified build with `--features prod`, deployed to `PROD_ID`.
+- `just deploy-custom <keypair-or-address> <deployer-keypair>` — an unverified one-off (devnet/local) baked for an arbitrary address.
+
+Each recipe refuses to run unless the keypair/address you pass resolves to that environment's committed address, so the baked-in id always matches where it lands. The same recipe covers both a first-time deploy and an upgrade, and finishes by running `initialize` (a no-op if the program is already initialized).
 
 ### Initial deployment
 
-The program only works at the address in `declare_id!`, which its pinned state PDA is derived from. `initialize` rejects a deployment anywhere else.
+The program only works at the address it was built for, which its pinned state PDA is derived from. `initialize` rejects a deployment anywhere else.
 
 `initialize` also only accepts the hardcoded `INITIALIZER` (`cow_settlement_interface::instruction::initialize::INITIALIZER`) as its payer, so the deployer keypair must be that key.
 
-Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
+Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority. Barn first, then prod:
 
 ```sh
-just deploy "../deploy-v$VERSION.json" ../deployer-keypair.json
+just deploy-barn "../barn-v$VERSION.json" ../deployer-keypair.json
+# smoke-test barn, then:
+just deploy-prod "../prod-v$VERSION.json" ../deployer-keypair.json
 ```
 
 ### Upgrading an existing program
@@ -111,13 +123,14 @@ just deploy "../deploy-v$VERSION.json" ../deployer-keypair.json
 > [!IMPORTANT]
 > Before upgrading, if the storage format has been changed for any existing PDAs, ensure that the MINOR (aka v0.x.0) version in the Cargo.toml is bumped. This will relocate all program storage, preventing unintended collisions with incompatible data.
 
-Pass the **program's public key (address)** as the first argument. The deployer wallet must already be the upgrade authority:
+Pass the **program's public key (address)** as the first argument. The deployer wallet must already be the upgrade authority. Upgrade barn first, then prod:
 
 ```sh
-just deploy <program-address> ../deployer-keypair.json
+just deploy-barn <barn-address> ../deployer-keypair.json
+just deploy-prod <prod-address> ../deployer-keypair.json
 ```
 
-`just deploy` finishes by running `initialize` to create the program's state PDA.
+Each recipe finishes by running `initialize`, which is a no-op when the program's state PDA already exists.
 
 ### Verifying the deployment on-chain
 
@@ -126,10 +139,11 @@ Since we use verified builds, we can have our program marked as verified on vari
 To do so, run this once the program is deployed and the matching source is pushed to the public repository:
 
 ```sh
-just verify <program-address> ../deployer-keypair.json <optional-commit-hash>
+just verify barn <barn-address> ../deployer-keypair.json <optional-commit-hash>
+just verify prod <prod-address> ../deployer-keypair.json <optional-commit-hash>
 ```
 
-The first argument is the program address, the second is the upgrade authority keypair (it signs the on-chain verification PDA) and the third is an optional `<commit-hash>` for the verification, and it uses the current `HEAD` otherwise.
+The first argument is the environment it was built for (`prod` or `barn`, so the remote rebuild matches), the second is the program address, the third is the upgrade authority keypair (it signs the on-chain verification PDA), and the fourth is an optional `<commit-hash>` for the verification, which uses the current `HEAD` otherwise.
 
 ### Publishing the cargo packages
 
@@ -141,14 +155,14 @@ Then, all packages can published in one go:
 cargo publish
 ```
 
-### Devnet example
+### Devnet / one-off example
 
 ```sh
 solana config set --url devnet
-just deploy <program-address> ~/solana-keys/deployer.json
+just deploy-custom <program-keypair-or-address> ~/solana-keys/deployer.json
 ```
 
-The deployer for the canonical devnet program is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
+`deploy-custom` bakes the program for whatever address you pass, so it works for an ad-hoc devnet or local deployment. The deployer for the canonical devnet program is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
 
 ## Alpha releases
 
@@ -164,7 +178,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Follow the instruction to [bump the versions in the project](#bumping-the-version-in-the-projects) *by at least a minor version*.
 - Generate a new account (`solana-keygen new --no-bip39-passphrase -o ../deploy-v$VERSION.json`). This will be the address of the new deployment.
 - Store the newly generated account in 1password (under "Settlement account by version").
-- Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
+- Update `PROD_ID` (and `BARN_ID`, if rotating staging too) in `interface/src/lib.rs` to the newly generated address(es).
 - Update the state PDA bytes in the IDL (use the test to see the bytes to change).
 - Commit the code changes resulting from the steps above (excluding the key of the generated account).
 - Switch your network to devnet (`solana config set --url devnet`). 
