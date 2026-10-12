@@ -13,7 +13,6 @@ use cow_settlement_interface::{
     Pubkey, Role, SettlementError,
 };
 use pinocchio::{
-    error::ProgramError,
     sysvars::{rent::Rent, Sysvar},
     AccountView, ProgramResult,
 };
@@ -49,10 +48,11 @@ pub fn process_withdraw_native_sol(
     // caller expected shrinks the payout instead of reverting it.
     let withdrawable = native_sol_buffer
         .lamports()
-        .checked_sub(Rent::get()?.try_minimum_balance(native_sol_buffer.data_len())?)
-        // Basically unreachable: a live buffer is rent-exempt unless the rent
-        // mechanism itself changed under it.
-        .ok_or(ProgramError::AccountNotRentExempt)?;
+        // overflow: basically unreachable since an on-chain account will have
+        // enough rent by the SVM's correctness guarantees. This function is
+        // designed to avoid reverts for making withdrawing easier, so we
+        // saturate here instead of erroring out explicitly.
+        .saturating_sub(Rent::get()?.try_minimum_balance(native_sol_buffer.data_len())?);
     let amount = amount.min(withdrawable);
 
     // A copied `AccountView` writes through to the same runtime account.

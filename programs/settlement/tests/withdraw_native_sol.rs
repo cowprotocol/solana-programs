@@ -6,7 +6,7 @@ use cow_settlement_interface::{
     pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::STATE_PDA},
     Instruction, SettlementError,
 };
-use solana_sdk::{instruction::InstructionError, signature::Signer};
+use solana_sdk::signature::Signer;
 
 use crate::common::benchmark::{send_transaction_metered, BenchLabel};
 use crate::common::{
@@ -93,12 +93,12 @@ fn withdraws_to_the_authority_itself() {
     );
 }
 
-/// A buffer holding less than its rent-exempt minimum can't be withdrawn from:
-/// the cap's `checked_sub` underflows and the withdrawal is rejected with
-/// [`InstructionError::AccountNotRentExempt`] rather than silently withdrawing
-/// nothing. Not expected to be reachable unless the rent mechanism changes.
+/// A buffer holding less than its rent-exempt minimum caps the withdrawal to
+/// zero: the cap's `saturating_sub` floors at zero, so the withdrawal succeeds
+/// as a no-op rather than reverting. Not expected to be reachable unless the
+/// rent mechanism changes.
 #[test]
-fn rejects_withdrawing_from_a_below_rent_buffer() {
+fn caps_a_below_rent_buffer_to_a_no_op() {
     let (
         mut svm,
         InitializedParams {
@@ -110,8 +110,9 @@ fn rejects_withdrawing_from_a_below_rent_buffer() {
     ) = common::setup_init();
 
     // Drop the buffer one lamport below its rent-exempt minimum (it holds no
-    // data), so the cap's `checked_sub(rent_floor)` underflows. `set_account`
-    // bypasses the runtime rent check that would otherwise forbid this state.
+    // data), so the cap's `saturating_sub(rent_floor)` floors at zero.
+    // `set_account` bypasses the runtime rent check that would otherwise forbid
+    // this state.
     let below_rent = svm.minimum_balance_for_rent_exemption(0).strict_sub(1);
     let mut buffer = svm
         .get_account(&NATIVE_SOL_BUFFER_PDA)
@@ -119,6 +120,7 @@ fn rejects_withdrawing_from_a_below_rent_buffer() {
     buffer.lamports = below_rent;
     svm.set_account(NATIVE_SOL_BUFFER_PDA, buffer)
         .expect("set_account should succeed");
+    let authority_before = lamports(&svm, &authority.pubkey());
 
     let ix = WithdrawNativeSol {
         program_id,
@@ -126,9 +128,18 @@ fn rejects_withdrawing_from_a_below_rent_buffer() {
         recipient: authority.pubkey(),
         amount: u64::MAX,
     };
-    assert_instruction_error(
-        send_with_signers(&mut svm, &payer, &[&authority], &[ix.into()]),
-        InstructionError::AccountNotRentExempt,
+    send_with_signers(&mut svm, &payer, &[&authority], &[ix.into()])
+        .expect("a below-rent buffer should cap to a no-op, not revert");
+
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        below_rent,
+        "the buffer balance must be untouched",
+    );
+    assert_eq!(
+        lamports(&svm, &authority.pubkey()),
+        authority_before,
+        "nothing should be credited",
     );
 }
 
