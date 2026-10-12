@@ -84,23 +84,25 @@ impl Context {
         }
     }
 
-    /// The keypair at `path` to sign as some role, defaulting to [`Self::payer`].
-    /// A Squads vault can't co-sign with other keypairs, so `path` is rejected
-    /// when proposing.
+    /// Retrieves the signer at the specified path
+    /// 
+    /// Returns an error if the signer configuration is not supported (ex. squads does not support co-signing.)
     pub fn signer_or(&self, path: Option<String>) -> anyhow::Result<TxSigner<'_>> {
         match (&self.squads, path) {
             (Some(squads), None) => Ok(TxSigner::Vault(squads.vault)),
             (Some(_), Some(path)) => anyhow::bail!(
-                "can't sign with {path} when proposing to a Squads multisig: the vault signs instead"
+                "{path} was specified to sign, but it can't be used with --multisig-address as co-signing is not possible with multisigs."
             ),
             (None, path) => read_keypair_or(path, &self.signer).map(TxSigner::Keypair),
         }
     }
 
-    /// Send `ixs`, signed by the local keypair and `signers`, or propose them
-    /// to the Squads vault, or approve the existing Squads transaction holding
-    /// them.
+    /// Sends a transaction using the configured wallet.
+    /// If configured with a multisig and the supplied transaction to propose already matches
+    /// one proposed on the multisig, it will sign the transaction instead without proposing a duplicate.
     pub fn submit(&self, ixs: &[Instruction], signers: &[&TxSigner]) -> anyhow::Result<Submission> {
+        // Are we signing the transaction with a local EOA file or multisig?
+        // If its an EOA (aka, NOT a multisig), then send the transaction and break off early.
         let Some(squads) = &self.squads else {
             let mut keypairs: Vec<&dyn Signer> = vec![&self.signer];
             keypairs.extend(signers.iter().filter_map(|signer| match signer {
