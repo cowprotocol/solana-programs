@@ -33,8 +33,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// nothing.
 ///
 /// The rent of a cancelled order can be recovered afterwards with
-/// [`super::reclaim_order`], which reclaims a `created_on_chain` order early
-/// once it is cancelled.
+/// [`super::reclaim_order`], which reclaims a cancelled order early.
 ///
 /// Wire format: `[discriminator=11]` to cancel an existing order, or
 /// `[discriminator=11, ..intent bytes]` (1 + [`EncodedOrderIntent::SIZE`]

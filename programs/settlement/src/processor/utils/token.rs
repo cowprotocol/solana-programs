@@ -1,8 +1,16 @@
 //! Token-program execution and token-account reads
 
-use cow_settlement_interface::{token_program::TokenProgram, SettlementError};
-use pinocchio::{cpi::get_return_data, error::ProgramError, AccountView, Address};
-use pinocchio_token::instructions::GetAccountDataSize;
+use core::slice;
+
+use cow_settlement_interface::{
+    instruction::settle::MaybeMint, token_program::TokenProgram, SettlementError,
+};
+use pinocchio::{
+    cpi::{get_return_data, Signer},
+    error::ProgramError,
+    AccountView, Address, ProgramResult,
+};
+use pinocchio_token::instructions::{GetAccountDataSize, Transfer, TransferChecked};
 
 /// The length of a SPL token program account. Token2022 extensions may make
 /// the actual token account longer than this.
@@ -41,6 +49,72 @@ pub fn token_account_len(
                         .map(u64::from_le_bytes)
                         .map_err(|_| SettlementError::BufferSizeUnavailable.into())
                 })
+        }
+    }
+}
+
+/// A resolved [`MaybeMint`]: the real mint with its decimals, or `None` for the
+/// placeholder. Only [`read_mint_decimals`] builds one, so a
+/// [`TransferMaybeChecked`] can't be issued without the mint having been read.
+pub struct MintDecimals<'a>(Option<(&'a AccountView, u8)>);
+
+/// Retrieves the decimals from `mint`, or `None` if `mint` is
+/// [`MINT_PLACEHOLDER`](cow_settlement_interface::instruction::settle::MINT_PLACEHOLDER).
+/// `token_program` must be the program that owns `mint`.
+#[inline(always)]
+pub fn read_mint_decimals(
+    token_program: TokenProgram,
+    mint: MaybeMint<'_, AccountView>,
+) -> Result<MintDecimals<'_>, ProgramError> {
+    let Some(account) = mint.get() else {
+        return Ok(MintDecimals(None));
+    };
+    let decimals = match token_program {
+        TokenProgram::SplToken => pinocchio_token::state::Mint::from_account_view(account)
+            .map_err(|_| SettlementError::InvalidMint)?
+            .decimals(),
+        TokenProgram::Token2022 => pinocchio_token_2022::state::Mint::from_account_view(account)
+            .map_err(|_| SettlementError::InvalidMint)?
+            .decimals(),
+    };
+    Ok(MintDecimals(Some((account, decimals))))
+}
+
+/// Move `amount` from `from` to `to` under `token_program`, signed by
+/// `authority` through `signer`. A real mint issues a `TransferChecked`
+/// against the decimals [`read_mint_decimals`] read from it; the placeholder
+/// issues a plain `Transfer`.
+pub struct TransferMaybeChecked<'a> {
+    pub token_program: TokenProgram,
+    pub from: &'a AccountView,
+    pub mint: &'a MintDecimals<'a>,
+    pub to: &'a AccountView,
+    pub authority: &'a AccountView,
+    pub amount: u64,
+    pub signer: &'a Signer<'a, 'a>,
+}
+
+impl TransferMaybeChecked<'_> {
+    #[inline(always)]
+    pub fn invoke(self) -> ProgramResult {
+        let Self {
+            token_program,
+            from,
+            mint,
+            to,
+            authority,
+            amount,
+            signer,
+        } = self;
+        let signers = slice::from_ref(signer);
+        let program = token_program.address();
+        match mint.0 {
+            None => Transfer::new(from, to, authority, amount)
+                .invoke_signed_with_unverified_program(signers, &program),
+            Some((mint, decimals)) => {
+                TransferChecked::new(from, mint, to, authority, amount, decimals)
+                    .invoke_signed_with_unverified_program(signers, &program)
+            }
         }
     }
 }

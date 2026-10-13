@@ -16,6 +16,7 @@ pub mod initialize;
 pub mod reclaim_buffer;
 pub mod remove_solver;
 pub mod transfer_authority;
+pub mod withdraw_native_sol;
 
 pub use add_solver::AddSolver;
 pub use begin_settle::{BeginSettle, InitializedIntent, Pull, TokenProgram};
@@ -28,3 +29,4 @@ pub use initialize::Initialize;
 pub use reclaim_buffer::ReclaimBuffer;
 pub use remove_solver::RemoveSolver;
 pub use transfer_authority::TransferAuthority;
+pub use withdraw_native_sol::WithdrawNativeSol;

@@ -85,7 +85,7 @@ impl Context {
     }
 
     /// Retrieves the signer at the specified path
-    /// 
+    ///
     /// Returns an error if the signer configuration is not supported (ex. squads does not support co-signing.)
     pub fn signer_or(&self, path: Option<String>) -> anyhow::Result<TxSigner<'_>> {
         match (&self.squads, path) {

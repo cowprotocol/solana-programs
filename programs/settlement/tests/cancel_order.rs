@@ -1,6 +1,6 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::{
-        intent::{EncodedOrderIntent, Flags, OrderIntent},
+        intent::{EncodedOrderIntent, OrderIntent},
         order::SIZE,
     },
     instruction::{cancel_order::CancelOrder, create_order::CreateOrder},
@@ -473,46 +473,6 @@ fn rejects_cancellation_when_owner_does_not_sign() {
     assert_eq!(
         before, after,
         "a rejected cancellation must not change the order"
-    );
-}
-
-// This is a bit tricky: right now, there's no way to cancel off-chain (i.e.,
-// signature-based) orders that haven't been created on-chain jet. On the other
-// hand, there's no way to create off-chain orders at this point, so for now
-// this problematic behavior is fine. We want to revisit this once we implement
-// creating off-chain orders.
-#[test]
-fn rejects_nonexistent_off_chain_intent() {
-    let (mut svm, program_id, owner) = common::setup();
-
-    // An off-chain-authenticated intent has no on-chain owner-direct cancel
-    // path; the create branch rejects it just as CreateOrder would.
-    let intent = OrderIntent {
-        flags: Flags {
-            created_on_chain: false,
-            ..Default::default()
-        },
-        ..sample_intent(owner.pubkey(), 0)
-    };
-    let (encoded, pda, _bump) = encode_and_derive(&intent, &program_id);
-
-    let cancel = CancelOrder {
-        program_id,
-        owner: owner.pubkey(),
-        created_by: owner.pubkey(),
-        order_pda: pda,
-        intent_bytes: Some(encoded),
-    };
-    let err = svm
-        .send_transaction(signed_tx(&svm, &owner, &owner, cancel))
-        .expect_err("cancelling a missing off-chain order must be rejected");
-    assert_eq!(
-        err.err,
-        TransactionError::InstructionError(0, SettlementError::OrderCreatedOnChainMismatch.into()),
-    );
-    assert!(
-        svm.get_account(&pda).is_none(),
-        "a rejected cancellation must not leave a PDA behind"
     );
 }
 

@@ -7,19 +7,18 @@ use cow_settlement_client::cow_settlement_interface::{
     SettlementError,
 };
 use cow_settlement_client::pda::order::DecodedOrderAccount;
-use cow_settlement_interface::data::{intent::Flags, order::SIZE};
+use cow_settlement_interface::data::order::SIZE;
 use litesvm::LiteSVM;
 use solana_sdk::{
     clock::Clock,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
-    transaction::{Transaction, TransactionError},
 };
 
 use crate::common::{
     assert_instruction_error,
     benchmark::{send_transaction_metered, BenchLabel},
-    buffer, create_account_at,
+    buffer,
     order::{buy_account, buy_mint, read_order, OrderBuilder},
     send,
     settlement::{build_staged_settlement, stage_order, StagedOrder},
@@ -34,10 +33,7 @@ fn reclaim_sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
         valid_to: VALID_TO,
-        ..sample_intent(Flags {
-            created_on_chain: true,
-            ..Default::default()
-        })
+        ..sample_intent(Default::default())
     }
 }
 
@@ -61,27 +57,6 @@ fn patch_order(
     account.data = patch(read_order(svm, pda)).encode().to_vec();
     svm.set_account(*pda, account)
         .expect("set_account should succeed");
-}
-
-/// Put an order PDA on-chain directly, bypassing `CreateOrder`, which only
-/// accepts intents declaring on-chain authentication. This is how an order
-/// authenticated by an off-chain signature is staged.
-fn hack_write_order(
-    svm: &mut LiteSVM,
-    program_id: &Pubkey,
-    intent: &OrderIntent,
-    created_by: &Pubkey,
-    patch: impl FnOnce(DecodedOrderAccount) -> DecodedOrderAccount,
-) -> Pubkey {
-    let (pda, bump) = find_order_pda(program_id, &intent.uid());
-    let order = patch(DecodedOrderAccount {
-        bump,
-        created_by: *created_by,
-        intent: intent.clone(),
-        ..Default::default()
-    });
-    create_account_at(svm, pda, program_id, &order.encode()[..]);
-    pda
 }
 
 /// Create an order PDA owned by `owner` (who also pays rent), return the PDA.
@@ -152,6 +127,7 @@ fn happy_path_expired_returns_lamports_and_closes_pda() {
         program_id,
         order_pda: pda,
         reclaim_recipient: reclaim_recipient.pubkey(),
+        owner: None,
     }
     .instruction();
     let tx = signed_tx(&svm, &fee_payer, &fee_payer, ix);
@@ -180,6 +156,7 @@ fn perform_reclaim_while_unexpired(
     program_id: &Pubkey,
     owner: &Keypair,
     pda: &Pubkey,
+    include_owner_signature: bool,
 ) -> Result<(), solana_sdk::transaction::TransactionError> {
     // Taken from the order itself rather than from `VALID_TO`, so the clock the
     // transaction runs at can't drift from the order it's reclaiming.
@@ -190,6 +167,7 @@ fn perform_reclaim_while_unexpired(
         program_id: *program_id,
         order_pda: *pda,
         reclaim_recipient: owner.pubkey(),
+        owner: include_owner_signature.then(|| owner.pubkey()),
     }
     .instruction();
     let tx = signed_tx(svm, owner, owner, ix);
@@ -213,23 +191,23 @@ fn perform_reclaim_while_unexpired(
 }
 
 #[test]
-fn happy_path_on_chain_order_fully_filled_is_reclaimable_before_expiry() {
+fn happy_path_order_fully_filled_is_reclaimable_before_expiry() {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = reclaim_sample_intent(owner.pubkey());
     let pda = create_order(&mut svm, &program_id, &owner, &intent);
     // A sell order is full once its whole sell amount has been withdrawn.
     patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
-        amount_withdrawn: order.intent.sell_amount,
+        amount_withdrawn: order.intent.sell_amount.get(),
         ..order
     });
 
-    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
+    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda, false)
         .expect("a filled on-chain order should be reclaimable before it expires");
 }
 
 #[test]
-fn happy_path_on_chain_order_cancelled_is_reclaimable_before_expiry() {
+fn happy_path_order_cancelled_is_reclaimable_by_owner_before_expiry() {
     let (mut svm, program_id, owner) = common::setup();
 
     let intent = reclaim_sample_intent(owner.pubkey());
@@ -239,7 +217,7 @@ fn happy_path_on_chain_order_cancelled_is_reclaimable_before_expiry() {
         ..order
     });
 
-    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda)
+    perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda, true)
         .expect("a cancelled on-chain order should be reclaimable before it expires");
 }
 
@@ -256,6 +234,7 @@ fn rejects_when_order_not_yet_expired() {
         program_id,
         order_pda: pda,
         reclaim_recipient: owner.pubkey(),
+        owner: None,
     }
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
@@ -274,64 +253,13 @@ fn on_chain_order_partially_filled_is_not_reclaimable_before_expiry() {
     // One token short of a full fill: the order can still be settled, so its
     // PDA has to stay.
     patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
-        amount_withdrawn: order.intent.sell_amount - 1,
+        amount_withdrawn: order.intent.sell_amount.get() - 1,
         ..order
     });
 
     assert_instruction_error(
-        perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
+        perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda, true),
         SettlementError::OrderNotReclaimable,
-    );
-}
-
-/// An order authenticated by an off-chain signature can be recreated by anyone
-/// holding that signature, which would reset its fills and its cancellation.
-/// Being unfillable doesn't make it reclaimable, then: only expiry does, and
-/// expiry does so regardless of how the order was authenticated.
-#[test]
-fn off_chain_order_is_reclaimable_only_once_expired() {
-    let (mut svm, program_id, owner) = common::setup();
-
-    let intent = OrderIntent {
-        flags: Flags {
-            created_on_chain: false,
-            ..Default::default()
-        },
-        ..reclaim_sample_intent(owner.pubkey())
-    };
-    // Cancelled *and* completely filled: the strongest case for early reclaim,
-    // and it still has to wait.
-    let pda = hack_write_order(&mut svm, &program_id, &intent, &owner.pubkey(), |order| {
-        DecodedOrderAccount {
-            cancelled: true,
-            amount_withdrawn: order.intent.sell_amount,
-            ..order
-        }
-    });
-
-    assert_instruction_error(
-        perform_reclaim_while_unexpired(&mut svm, &program_id, &owner, &pda),
-        SettlementError::OrderNotReclaimable,
-    );
-    assert!(
-        svm.get_account(&pda).is_some(),
-        "order PDA must survive a rejected reclaim"
-    );
-
-    common::set_unix_timestamp(&mut svm, (VALID_TO + 1).into());
-    svm.expire_blockhash();
-    let ix = ReclaimOrder {
-        program_id,
-        order_pda: pda,
-        reclaim_recipient: owner.pubkey(),
-    }
-    .instruction();
-    let tx = signed_tx(&svm, &owner, &owner, ix);
-    svm.send_transaction(tx)
-        .expect("an expired order should be reclaimable however it was authenticated");
-    assert!(
-        svm.get_account(&pda).is_none(),
-        "order PDA must be closed after reclaim"
     );
 }
 
@@ -357,6 +285,7 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
         program_id,
         order_pda: pda,
         reclaim_recipient: owner.pubkey(),
+        owner: None,
     }
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
@@ -394,102 +323,6 @@ fn recreating_a_reclaimed_order_creates_it_fresh() {
     );
 }
 
-/// The sponsored model: `owner` authenticates an order with its signature while
-/// a `sponsor` pays the fee and the rent. An adversary who records this
-/// creation transaction might be able to recreate the order after the owner
-/// decides to cancel it. It can't: replaying that original transaction is
-/// rejected as already-processed, before it ever reaches the program.
-#[test]
-fn sponsored_order_cannot_be_recreated_by_replaying_the_original_transaction() {
-    let (mut svm, program_id, sponsor) = common::setup();
-    let owner = unique_keypair();
-    let attacker = unique_keypair();
-    svm.airdrop(&attacker.pubkey(), 1_000_000_000)
-        .expect("airdrop to attacker should succeed");
-
-    let intent = reclaim_sample_intent(owner.pubkey());
-    let (encoded, pda) = encode_and_derive(&intent, &program_id);
-
-    // Step 1: creation. `owner` signs, `sponsor` pays the fee and funds the
-    // rent. The adversary records the fully-signed transaction verbatim.
-    let create_ix = CreateOrder {
-        program_id,
-        owner: owner.pubkey(),
-        created_by: sponsor.pubkey(),
-        order_pda: pda,
-        intent_bytes: encoded,
-    };
-    let create_tx = Transaction::new_signed_with_payer(
-        &[create_ix.into()],
-        Some(&sponsor.pubkey()),
-        &[&sponsor, &owner],
-        svm.latest_blockhash(),
-    );
-    let replayed_tx = create_tx.clone();
-    svm.send_transaction(create_tx)
-        .expect("sponsored create_order should succeed");
-    assert!(
-        !read_order(&svm, &pda).cancelled,
-        "the order must start active"
-    );
-
-    // Step 2: cancellation. `owner` regrets the order and cancels it.
-    let cancel_ix = CancelOrder {
-        program_id,
-        owner: owner.pubkey(),
-        created_by: sponsor.pubkey(),
-        order_pda: pda,
-        intent_bytes: Some(encoded),
-    };
-    let cancel_tx = Transaction::new_signed_with_payer(
-        &[cancel_ix.into()],
-        Some(&sponsor.pubkey()),
-        &[&sponsor, &owner],
-        svm.latest_blockhash(),
-    );
-    svm.send_transaction(cancel_tx)
-        .expect("the owner should be able to cancel its order");
-    assert!(
-        read_order(&svm, &pda).cancelled,
-        "the order must be cancelled"
-    );
-
-    // Step 3: reclamation. A cancelled on-chain order is immediately
-    // reclaimable, even before expiry, and reclaim needs no signature.
-    // So the adversary, seeing the cancellation, closes the PDA itself.
-    common::set_unix_timestamp(&mut svm, (VALID_TO - 1).into());
-    let reclaim_ix = ReclaimOrder {
-        program_id,
-        order_pda: pda,
-        reclaim_recipient: sponsor.pubkey(),
-    }
-    .instruction();
-    let reclaim_tx = signed_tx(&svm, &attacker, &attacker, reclaim_ix);
-    svm.send_transaction(reclaim_tx)
-        .expect("a cancelled on-chain order should be reclaimable");
-    assert!(
-        svm.get_account(&pda).is_none(),
-        "the order PDA must be closed after reclaim"
-    );
-
-    // Step 4: attempted recreation. The adversary tries to recreate this order
-    // from the original transaction, whose signature the runtime already
-    // recorded. Replaying it verbatim is rejected before it reaches the
-    // program.
-    let err = svm
-        .send_transaction(replayed_tx)
-        .expect_err("replaying the original create transaction must be rejected");
-    assert_eq!(
-        err.err,
-        TransactionError::AlreadyProcessed,
-        "the replay must be rejected as an already-processed transaction"
-    );
-    assert!(
-        svm.get_account(&pda).is_none(),
-        "the reclaimed order must not reappear from a replayed transaction"
-    );
-}
-
 #[test]
 fn rejects_when_reclaim_recipient_mismatch() {
     let (mut svm, program_id, owner) = common::setup();
@@ -504,6 +337,7 @@ fn rejects_when_reclaim_recipient_mismatch() {
         program_id,
         order_pda: pda,
         reclaim_recipient: wrong_recipient,
+        owner: None,
     }
     .instruction();
     let tx = signed_tx(&svm, &owner, &owner, ix);
@@ -555,7 +389,8 @@ fn rejects_reclaim_of_a_partially_filled_order() {
     const PARTIAL_FILL: u64 = SETTLED_SELL_AMOUNT / 3;
     let (staged, order_pda) = settleable_order(&mut svm, &program_id, &payer, PARTIAL_FILL);
 
-    let instructions = build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![]);
+    let instructions =
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![], &[]);
     send(&mut svm, &solver, &instructions).expect("a partial settlement should succeed");
     assert_eq!(
         read_order(&svm, &order_pda).amount_withdrawn,
@@ -567,6 +402,7 @@ fn rejects_reclaim_of_a_partially_filled_order() {
         program_id,
         order_pda,
         reclaim_recipient: payer.pubkey(),
+        owner: None,
     }
     .instruction();
     let tx = signed_tx(&svm, &payer, &payer, ix);
@@ -599,10 +435,11 @@ fn reclaim_mid_settlement_succeeds() {
         program_id,
         order_pda,
         reclaim_recipient: payer.pubkey(),
+        owner: None,
     }
     .instruction();
     let instructions =
-        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![reclaim]);
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], vec![reclaim], &[]);
 
     // The `payer` that created the order signs nothing here and pays no fee (the
     // solver does), so its balance moves by the returned rent alone.
@@ -626,4 +463,190 @@ fn reclaim_mid_settlement_succeeds() {
     assert_eq!(token::balance(&svm, &pull_destination), SETTLED_SELL_AMOUNT);
     assert_eq!(token::balance(&svm, &buy_token_account), SETTLED_BUY_AMOUNT);
     assert_eq!(token::balance(&svm, &buffer_pda), 0);
+}
+
+#[test]
+fn rejects_unexpired_cancelled_order_reclaim_by_non_owner() {
+    let (mut svm, program_id, owner) = common::setup();
+    let intent = reclaim_sample_intent(owner.pubkey());
+    let pda = create_order(&mut svm, &program_id, &owner, &intent);
+    patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
+        cancelled: true,
+        ..order
+    });
+    let attacker = unique_keypair();
+    svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+    common::set_unix_timestamp(&mut svm, i64::from(VALID_TO));
+
+    let reclaim = ReclaimOrder {
+        program_id,
+        order_pda: pda,
+        reclaim_recipient: owner.pubkey(),
+        owner: Some(attacker.pubkey()),
+    }
+    .instruction();
+    let result = svm.send_transaction(signed_tx(&svm, &attacker, &attacker, reclaim));
+
+    assert_instruction_error(result.map_err(|e| e.err), SettlementError::OwnerMismatch);
+    assert!(svm.get_account(&pda).is_some());
+}
+
+#[test]
+fn rejects_unexpired_cancelled_order_reclaim_without_owner_signature() {
+    let (mut svm, program_id, owner) = common::setup();
+    let intent = reclaim_sample_intent(owner.pubkey());
+    let pda = create_order(&mut svm, &program_id, &owner, &intent);
+    patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
+        cancelled: true,
+        ..order
+    });
+    let attacker = unique_keypair();
+    svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+    common::set_unix_timestamp(&mut svm, i64::from(VALID_TO));
+
+    let mut reclaim = ReclaimOrder {
+        program_id,
+        order_pda: pda,
+        reclaim_recipient: owner.pubkey(),
+        owner: Some(owner.pubkey()),
+    }
+    .instruction();
+
+    for account in &mut reclaim.accounts {
+        account.is_signer = false;
+    }
+
+    let result = svm.send_transaction(signed_tx(&svm, &attacker, &attacker, reclaim));
+
+    assert_instruction_error(
+        result.map_err(|e| e.err),
+        solana_sdk::instruction::InstructionError::MissingRequiredSignature,
+    );
+    assert!(svm.get_account(&pda).is_some());
+}
+
+#[test]
+fn rejects_unexpired_cancelled_order_reclaim_without_owner_account() {
+    let (mut svm, program_id, owner) = common::setup();
+    let intent = reclaim_sample_intent(owner.pubkey());
+    let pda = create_order(&mut svm, &program_id, &owner, &intent);
+    patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
+        cancelled: true,
+        ..order
+    });
+    let attacker = unique_keypair();
+    svm.airdrop(&attacker.pubkey(), 1_000_000_000).unwrap();
+    common::set_unix_timestamp(&mut svm, i64::from(VALID_TO));
+
+    let reclaim = ReclaimOrder {
+        program_id,
+        order_pda: pda,
+        reclaim_recipient: owner.pubkey(),
+        owner: None,
+    }
+    .instruction();
+    let result = svm.send_transaction(signed_tx(&svm, &attacker, &attacker, reclaim));
+
+    assert_instruction_error(
+        result.map_err(|e| e.err),
+        solana_sdk::instruction::InstructionError::MissingRequiredSignature,
+    );
+    assert!(svm.get_account(&pda).is_some());
+}
+
+#[test]
+fn expired_cancelled_order_is_permissionlessly_reclaimable() {
+    for fully_filled in [false, true] {
+        let (mut svm, program_id, owner) = common::setup();
+        let intent = reclaim_sample_intent(owner.pubkey());
+        let pda = create_order(&mut svm, &program_id, &owner, &intent);
+        let reclaimer = unique_keypair();
+        patch_order(&mut svm, &pda, |order| DecodedOrderAccount {
+            cancelled: true,
+            amount_withdrawn: if fully_filled {
+                order.intent.sell_amount.get()
+            } else {
+                0
+            },
+            ..order
+        });
+        svm.airdrop(&reclaimer.pubkey(), 1_000_000_000).unwrap();
+        common::set_unix_timestamp(&mut svm, i64::from(VALID_TO + 1));
+        let reclaim = ReclaimOrder {
+            program_id,
+            order_pda: pda,
+            reclaim_recipient: owner.pubkey(),
+            owner: None,
+        }
+        .instruction();
+        svm.send_transaction(signed_tx(&svm, &reclaimer, &reclaimer, reclaim))
+            .expect("anyone may reclaim an expired cancellation tombstone");
+        assert!(svm.get_account(&pda).is_none());
+    }
+}
+
+/// A user may want to cancel an order while another party holds a user's signed creation authorization unsubmitted.
+/// If the order was able to be permissionlessly reclaimed while cancelled, the unsubmitted creation authorization
+/// could still be broadcast and be unexpectedly settled despite being cancelled.
+///
+/// Here we confirm that the order cannot be reclaimed while cancelled by this third party, and the withheld creation
+/// authorization unable to be submitted.
+#[test]
+fn cancellation_blocks_withheld_sponsored_creation() {
+    let (mut svm, program_id, sponsor) = common::setup();
+    let owner = unique_keypair();
+    let intent = reclaim_sample_intent(owner.pubkey());
+    let (encoded, pda) = encode_and_derive(&intent, &program_id);
+    // Fully signed but never submitted: AlreadyProcessed cannot protect it.
+    let pending_creation = signed_tx(
+        &svm,
+        &sponsor,
+        &owner,
+        CreateOrder {
+            program_id,
+            owner: owner.pubkey(),
+            created_by: sponsor.pubkey(),
+            order_pda: pda,
+            intent_bytes: encoded,
+        },
+    );
+    svm.send_transaction(signed_tx(
+        &svm,
+        &sponsor,
+        &owner,
+        CancelOrder {
+            program_id,
+            owner: owner.pubkey(),
+            created_by: sponsor.pubkey(),
+            order_pda: pda,
+            intent_bytes: Some(encoded),
+        },
+    ))
+    .expect("cancellation must create a tombstone before creation lands");
+    common::set_unix_timestamp(&mut svm, i64::from(VALID_TO - 1));
+    let tombstone = svm.get_account(&pda).unwrap();
+    let reclaim = ReclaimOrder {
+        program_id,
+        order_pda: pda,
+        reclaim_recipient: sponsor.pubkey(),
+        owner: None,
+    }
+    .instruction();
+
+    // The 3rd party shouldn't be able to reclaim the cancelled order.
+    assert_instruction_error(
+        svm.send_transaction(signed_tx(&svm, &sponsor, &sponsor, reclaim))
+            .map_err(|e| e.err),
+        solana_sdk::instruction::InstructionError::MissingRequiredSignature,
+    );
+    assert_eq!(svm.get_account(&pda).unwrap(), tombstone);
+
+    // The 3rd party shouldn't be able to submit the previously signed order creation with
+    // still valid authorization while it remains cancelled.
+    assert_instruction_error(
+        svm.send_transaction(pending_creation).map_err(|e| e.err),
+        solana_sdk::instruction::InstructionError::AccountAlreadyInitialized,
+    );
+    assert_eq!(svm.get_account(&pda).unwrap(), tombstone);
+    assert!(read_order(&svm, &pda).cancelled);
 }

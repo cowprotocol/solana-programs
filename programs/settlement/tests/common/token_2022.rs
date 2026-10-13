@@ -9,7 +9,10 @@
 use cow_settlement_interface::token_program::TokenProgram;
 use solana_sdk::{instruction::Instruction, pubkey::Pubkey};
 use spl_token_2022_interface::{
-    extension::{transfer_fee::instruction::initialize_transfer_fee_config, ExtensionType},
+    extension::{
+        transfer_fee::instruction::initialize_transfer_fee_config,
+        transfer_hook::instruction::initialize as initialize_transfer_hook, ExtensionType,
+    },
     instruction::{initialize_mint_close_authority, initialize_non_transferable_mint},
     state::{Account, Mint},
 };
@@ -30,6 +33,9 @@ pub enum Extensions {
     CloseAuthorityAndNonTransferable,
     #[default]
     CloseAuthorityAndTransferFee,
+    /// A transfer-fee mint (whose fee config lives on the mint) that also
+    /// carries a transfer hook, for exercising a burn against a mint with both.
+    TransferFeeAndHook,
 }
 
 pub struct RequiredInitAccountExtensionType(ExtensionType);
@@ -64,6 +70,10 @@ impl Extensions {
             Self::CloseAuthorityAndTransferFee => &[
                 ExtensionType::MintCloseAuthority,
                 ExtensionType::TransferFeeConfig,
+            ],
+            Self::TransferFeeAndHook => &[
+                ExtensionType::TransferFeeConfig,
+                ExtensionType::TransferHook,
             ],
         }
     }
@@ -131,6 +141,14 @@ impl Extensions {
                         Some(authority),
                         FEE_BASIS_POINTS.try_into().unwrap(),
                         MAXIMUM_FEE,
+                    ),
+                    // Points the hook at a program that is never deployed: if
+                    // invoked, it causes the transaction to revert.
+                    ExtensionType::TransferHook => initialize_transfer_hook(
+                        &TOKEN_2022_PROGRAM_ID,
+                        mint,
+                        Some(*authority),
+                        Some(super::unique_pubkey()),
                     ),
                     other => panic!("no initializer is wired up for {other:?}"),
                 }

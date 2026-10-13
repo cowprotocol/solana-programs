@@ -69,7 +69,7 @@ fn settle_all(
             stage_order(svm, program_id, payer, intent, pulls, amount_out)
         })
         .collect();
-    let instructions = build_staged_settlement(program_id, &solver.pubkey(), &staged, vec![]);
+    let instructions = build_staged_settlement(program_id, &solver.pubkey(), &staged, vec![], &[]);
     // The solver settles and pays: it's the fee payer and the only signer the
     // pair needs (`BeginSettle` names it as its solver-signer). `payer` above
     // only funds the order/buffer setup.
@@ -613,6 +613,7 @@ fn partially_fillable_order_cannot_be_settled_twice_in_one_settlement() {
         &solver.pubkey(),
         &[staged.clone(), staged],
         vec![],
+        &[],
     );
 
     assert_instruction_error_at(

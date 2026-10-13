@@ -10,7 +10,7 @@ use cow_settlement_interface::{
 use litesvm::LiteSVM;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
-use super::{buffer, state, token, unique_pubkey};
+use super::{buffer, token, unique_pubkey};
 
 /// Positions of the two instructions in the `[BeginSettle, FinalizeSettle]` pair
 /// the settlement tests build: begin first, finalize right after it. Each
@@ -36,6 +36,7 @@ pub fn build_settlement(
         .map(|order| InitializedIntent {
             intent: order.intent,
             pulls: &[],
+            use_transfer_checked: false,
         })
         .collect();
     let begin = BeginSettle {
@@ -108,7 +109,7 @@ pub fn stage_order(
         .collect();
     match &intent.buy {
         Asset::Native(_) => {
-            state::add_lamports(svm, amount_out);
+            buffer::add_native_lamports(svm, amount_out);
         }
         Asset::TokenProgram(token) => {
             buffer::ensure_funded(svm, program_id, payer, &token.mint, amount_out);
@@ -124,19 +125,22 @@ pub fn stage_order(
 
 /// Build the instructions settling `orders`: a `BeginSettle` at [`BEGIN_INDEX`]
 /// carrying each order's pulls, `between` right after it, and the matching
-/// `FinalizeSettle` last, pushing each order's `amount_out`. Submit the result
+/// `FinalizeSettle` last, pushing each order's `amount_out`. Transfers of
+/// `transfer_checked_mints` go through `TransferChecked`. Submit the result
 /// with [`send`](super::send).
 pub fn build_staged_settlement(
     program_id: &Pubkey,
     solver: &Pubkey,
     orders: &[StagedOrder],
     between: Vec<Instruction>,
+    transfer_checked_mints: &[Pubkey],
 ) -> Vec<Instruction> {
     let begin_orders: Vec<InitializedIntent> = orders
         .iter()
         .map(|order| InitializedIntent {
             intent: &order.intent,
             pulls: &order.pulls,
+            use_transfer_checked: transfer_checked_mints.contains(&order.intent.sell.mint),
         })
         .collect();
     let finalize_orders: Vec<FinalizedIntent> = orders
@@ -144,6 +148,10 @@ pub fn build_staged_settlement(
         .map(|order| FinalizedIntent {
             intent: &order.intent,
             amount: order.amount_out,
+            use_transfer_checked: match &order.intent.buy {
+                Asset::TokenProgram(token) => transfer_checked_mints.contains(&token.mint),
+                Asset::Native(_) => false,
+            },
         })
         .collect();
 

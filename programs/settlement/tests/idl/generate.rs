@@ -9,7 +9,10 @@
 //! agree with everything that _is_ here.
 
 use cow_settlement_interface::{
-    pda::{buffer::BUFFER_SEED, SETTLEMENT_SEED},
+    pda::{
+        buffer::{BUFFER_SEED, NATIVE_SOL_BUFFER_SEED},
+        SETTLEMENT_SEED,
+    },
     SettlementInstruction,
 };
 use serde_json::{json, Map, Value};
@@ -44,6 +47,12 @@ const BUFFER_PDA_0: &[Seed] = &[
     Seed::Const(SETTLEMENT_SEED),
     Seed::Account("mint_0"),
     Seed::Const(BUFFER_SEED),
+];
+
+/// The native SOL buffer PDA, which isn't keyed by a mint.
+const NATIVE_SOL_BUFFER_PDA: &[Seed] = &[
+    Seed::Const(SETTLEMENT_SEED),
+    Seed::Const(NATIVE_SOL_BUFFER_SEED),
 ];
 
 /// What the Rust source doesn't say about one instruction.
@@ -128,6 +137,14 @@ const INSTRUCTIONS: &[Instruction] = &[
         variant: SettlementInstruction::RemoveSolver,
         input: &parse_rust::REMOVE_SOLVER_RS,
         pda_accounts: &[("state_pda", STATE_PDA)],
+    },
+    Instruction {
+        variant: SettlementInstruction::WithdrawNativeSol,
+        input: &parse_rust::WITHDRAW_NATIVE_SOL_RS,
+        pda_accounts: &[
+            ("state_pda", STATE_PDA),
+            ("native_sol_buffer", NATIVE_SOL_BUFFER_PDA),
+        ],
     },
 ];
 
@@ -271,6 +288,10 @@ fn field_override(owner: &str, field: &str) -> Option<(String, Value)> {
         // `Flags` packs three fields into a single byte, which the IDL's type
         // grammar can't express. The byte is what the wire carries.
         ("OrderIntent", "flags") => Some(("flags".to_string(), json!("u8"))),
+        // The amounts are `NonZeroU64`; the wire carries a plain little-endian
+        // u64, and the IDL's type grammar has no non-zero integer.
+        ("OrderIntent", "sell_amount") => Some(("sell_amount".to_string(), json!("u64"))),
+        ("OrderIntent", "buy_amount") => Some(("buy_amount".to_string(), json!("u64"))),
         // The intent is stored in the wire's own shape; the IDL knows that
         // shape as `OrderIntent`, the name it gives the encoding everywhere
         // else.

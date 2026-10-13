@@ -8,18 +8,19 @@ use crate::common::{
         build_matching_settlement, build_settlement, build_staged_settlement, stage_order,
         BEGIN_INDEX, FINALIZE_INDEX,
     },
-    setup_settle_ready, state, token, unique_pubkey,
+    setup_settle_ready, token, unique_pubkey,
 };
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{Asset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
     pda::{
-        buffer::find_buffer_pda,
-        state::{STATE_PDA, STATE_PDA_AND_BUMP},
+        buffer::{find_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP},
+        state::STATE_PDA,
     },
     SettlementError,
 };
 use cow_settlement_client::instruction::FinalizedIntent;
+use cow_settlement_interface::instruction::settle::FINALIZE_PUSH_ACCOUNTS;
 use solana_sdk::{signer::Signer, transaction::TransactionError};
 
 mod common;
@@ -43,10 +44,10 @@ fn happy_path_sell_tokens_for_native_sol() {
         .kind(OrderKind::Sell)
         .build();
     let staged = stage_order(&mut svm, &program_id, &payer, &intent, &[1_000], 2_000_000);
-    let before = lamports(&svm, &STATE_PDA);
+    let before = lamports(&svm, &NATIVE_SOL_BUFFER_PDA);
 
     let instructions =
-        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new());
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new(), &[]);
     send_metered(
         &mut svm,
         &solver,
@@ -57,11 +58,38 @@ fn happy_path_sell_tokens_for_native_sol() {
 
     assert_eq!(token::balance(&svm, &intent.sell.token_account), 0);
     assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 2_000_000);
-    assert_eq!(lamports(&svm, &STATE_PDA), before - 2_000_000);
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), before - 2_000_000);
+}
+
+/// The native SOL buffer `Initialize` creates is one `FinalizeSettle` can pay
+/// out of.
+#[test]
+fn happy_path_pays_out_of_the_initialized_native_sol_buffer() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    svm.airdrop(&NATIVE_SOL_BUFFER_PDA, 1_000_000)
+        .expect("airdrop to the native SOL buffer should succeed");
+    let funded = lamports(&svm, &NATIVE_SOL_BUFFER_PDA);
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: 1_000_000,
+            use_transfer_checked: false,
+        }],
+    );
+    send(&mut svm, &solver, &instructions).expect("the native push should be paid");
+
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 1_000_000);
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded - 1_000_000);
 }
 
 /// A settlement mixing both kinds of push: several orders paid out of a buffer,
-/// alongside as many paid out of the state PDA's lamports.
+/// alongside as many paid out of the native SOL buffer's lamports.
 ///
 /// Settling breaks with `UnbalancedInstruction` when a native order sorts
 /// before a token order, and order PDAs sort effectively at random, so a single
@@ -103,7 +131,7 @@ fn happy_path_with_many_payouts() {
     let buffer_funding = spl_total * 2;
     let buffer_pda = buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, buffer_funding);
     let sol_funding = sol_total * 2;
-    let funded = state::add_lamports(&mut svm, sol_funding);
+    let funded = buffer::add_native_lamports(&mut svm, sol_funding);
 
     // The builder sorts the orders by PDA, so the order they are listed in here
     // doesn't matter.
@@ -111,10 +139,12 @@ fn happy_path_with_many_payouts() {
         .map(|i| FinalizedIntent {
             intent: &spl_intents[usize::from(i)],
             amount: spl_amount(i),
+            use_transfer_checked: false,
         })
         .chain((0..MIXED_ORDER_COUNT).map(|i| FinalizedIntent {
             intent: &sol_intents[usize::from(i)],
             amount: sol_amount(i),
+            use_transfer_checked: false,
         }))
         .collect();
 
@@ -123,14 +153,15 @@ fn happy_path_with_many_payouts() {
     // Sanity: do we have a native push in the first half of the batch?
     let finalize_accounts = &instructions[usize::from(FINALIZE_INDEX)].accounts;
     // each order is two accounts, source and destination. We only want to confirm the address.
-    let push_sources: Vec<_> = finalize_accounts[finalize_accounts.len() - 2 * orders.len()..]
+    let push_sources: Vec<_> = finalize_accounts
+        [finalize_accounts.len() - FINALIZE_PUSH_ACCOUNTS * orders.len()..]
         .iter()
         .map(|push| push.pubkey)
         .collect();
 
-    // If we see the state account in the first half then we are good.
+    // If we see the native SOL buffer in the first half then we are good.
     assert!(
-        push_sources[..orders.len() / 2].contains(&STATE_PDA),
+        push_sources[..orders.len() / 2].contains(&NATIVE_SOL_BUFFER_PDA),
         "no native order sorted into the first half; pick different salts",
     );
 
@@ -147,14 +178,14 @@ fn happy_path_with_many_payouts() {
         assert_eq!(
             lamports(&svm, &buy_sol_account(intent)),
             sol_amount(i as u8),
-            "native order {i} should be paid out of the state PDA",
+            "native order {i} should be paid out of the native SOL buffer",
         );
     }
     assert_eq!(
         token::balance(&svm, &buffer_pda),
         buffer_funding - spl_total
     );
-    assert_eq!(lamports(&svm, &STATE_PDA), funded - sol_total);
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded - sol_total);
 }
 
 /// Two orders buying SOL both draw on the one balance, the way two orders
@@ -170,7 +201,7 @@ fn happy_path_multiple_native_orders_can_settle() {
         .buy_sol()
         .salt(1)
         .build();
-    let funded = state::add_lamports(&mut svm, 9_000_000);
+    let funded = buffer::add_native_lamports(&mut svm, 9_000_000);
 
     let amount0 = 1_000_000;
     let amount1 = 2_000_000;
@@ -181,10 +212,12 @@ fn happy_path_multiple_native_orders_can_settle() {
             FinalizedIntent {
                 intent: &intent0,
                 amount: amount0,
+                use_transfer_checked: false,
             },
             FinalizedIntent {
                 intent: &intent1,
                 amount: amount1,
+                use_transfer_checked: false,
             },
         ],
     );
@@ -192,7 +225,10 @@ fn happy_path_multiple_native_orders_can_settle() {
 
     assert_eq!(lamports(&svm, &buy_sol_account(&intent0)), amount0);
     assert_eq!(lamports(&svm, &buy_sol_account(&intent1)), amount1);
-    assert_eq!(lamports(&svm, &STATE_PDA), funded - amount0 - amount1);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        funded - amount0 - amount1
+    );
 }
 
 /// Two orders paying out to the same address both land there: the second
@@ -211,7 +247,7 @@ fn happy_path_native_orders_sharing_a_destination() {
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent0);
     create_order_pda(&mut svm, &program_id, &payer, &intent1);
-    let funded = state::add_lamports(&mut svm, 9_000_000);
+    let funded = buffer::add_native_lamports(&mut svm, 9_000_000);
 
     let amount0 = 1_000_000;
     let amount1 = 2_000_000;
@@ -222,17 +258,22 @@ fn happy_path_native_orders_sharing_a_destination() {
             FinalizedIntent {
                 intent: &intent0,
                 amount: amount0,
+                use_transfer_checked: false,
             },
             FinalizedIntent {
                 intent: &intent1,
                 amount: amount1,
+                use_transfer_checked: false,
             },
         ],
     );
     send(&mut svm, &solver, &instructions).expect("both pushes to one destination should be paid");
 
     assert_eq!(lamports(&svm, &destination), amount0 + amount1);
-    assert_eq!(lamports(&svm, &STATE_PDA), funded - amount0 - amount1);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        funded - amount0 - amount1
+    );
 }
 
 #[test]
@@ -241,7 +282,7 @@ fn happy_path_zero_amount() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
-    let before = lamports(&svm, &STATE_PDA);
+    let before = lamports(&svm, &NATIVE_SOL_BUFFER_PDA);
 
     let instructions = build_matching_settlement(
         &program_id,
@@ -249,71 +290,182 @@ fn happy_path_zero_amount() {
         &[FinalizedIntent {
             intent: &intent,
             amount: 0,
+            use_transfer_checked: false,
         }],
     );
     send(&mut svm, &solver, &instructions).expect("a zero-amount native push should succeed");
 
     assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
-    assert_eq!(lamports(&svm, &STATE_PDA), before);
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), before);
 }
 
+/// An order whose signed intent names the native SOL buffer it is paid out of
+/// as its own destination is rejected. Settling it would pull the sell tokens
+/// yet pay nothing while still recording the push amount as received.
 #[test]
-fn happy_path_state_pda_receiver_still_works() {
+fn rejects_a_native_push_crediting_its_own_source() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderIntent {
-        buy: Asset::Native(STATE_PDA),
+        buy: Asset::Native(NATIVE_SOL_BUFFER_PDA),
         ..settlable_intent(&mut svm, &payer, payer.pubkey(), 0)
     };
     create_order_pda(&mut svm, &program_id, &payer, &intent);
-    let funded = state::add_lamports(&mut svm, 1_000_000);
+    // Stage real pulls, so a settlement would drain the sell account.
+    let staged = stage_order(&mut svm, &program_id, &payer, &intent, &[1_000], 2_000_000);
+    let sell_before = token::balance(&svm, &intent.sell.token_account);
+    let buffer_before = lamports(&svm, &NATIVE_SOL_BUFFER_PDA);
 
-    let instructions = build_matching_settlement(
-        &program_id,
-        &solver.pubkey(),
-        &[FinalizedIntent {
-            intent: &intent,
-            amount: 100,
-        }],
+    let instructions =
+        build_staged_settlement(&program_id, &solver.pubkey(), &[staged], Vec::new(), &[]);
+    assert_begin_error(
+        send(&mut svm, &solver, &instructions),
+        SettlementError::PushSourceIsDestination,
     );
-    send(&mut svm, &solver, &instructions)
-        .expect("a push that credits its own source should settle as a no-op");
 
-    assert_eq!(lamports(&svm, &STATE_PDA), funded);
+    assert_eq!(
+        token::balance(&svm, &intent.sell.token_account),
+        sell_before,
+        "the sell tokens must not leave a rejected self-payment",
+    );
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        buffer_before,
+        "the native SOL buffer must be untouched",
+    );
 }
 
 #[test]
-fn rejects_a_push_spending_the_state_pdas_rent() {
+fn rejects_a_push_spending_the_native_sol_buffers_rent() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
     let funding = 1_000_000;
-    let funded = state::add_lamports(&mut svm, funding);
+    let funded = buffer::add_native_lamports(&mut svm, funding);
 
-    // sanity: Ensure that the state pda exists, has length, and is funded with lamports already
-    let state_pda = svm.get_account(&STATE_PDA).expect("state pda must exist");
-    assert!(!state_pda.data.is_empty());
-    assert!(state_pda.lamports > 0);
+    // sanity: Ensure that the buffer exists and holds its rent on top of the funding
+    let native_buffer = svm
+        .get_account(&NATIVE_SOL_BUFFER_PDA)
+        .expect("native SOL buffer must exist");
+    assert!(native_buffer.lamports > funding);
 
     // One lamport past the balance that isn't rent, so the push is affordable
-    // but leaves the account under-funded for its own data.
+    // but leaves the account under-funded.
     let instructions = build_matching_settlement(
         &program_id,
         &solver.pubkey(),
         &[FinalizedIntent {
             intent: &intent,
             amount: funding + 1,
+            use_transfer_checked: false,
         }],
     );
     let err = send(&mut svm, &solver, &instructions)
-        .expect_err("a push into the state PDA's rent must be rejected");
+        .expect_err("a push into the native SOL buffer's rent must be rejected");
     assert!(
         matches!(err, TransactionError::InsufficientFundsForRent { .. }),
         "expected a rent failure, got {err:?}",
     );
 
-    assert_eq!(lamports(&svm, &STATE_PDA), funded);
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), funded);
     assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
+}
+
+/// Spending all but the rent is fine: the buffer is left exactly rent-exempt.
+#[test]
+fn happy_path_push_leaving_exactly_the_native_sol_buffers_rent() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let funding = 1_000_000;
+    let initial_balance = buffer::add_native_lamports(&mut svm, funding);
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: funding,
+            use_transfer_checked: false,
+        }],
+    );
+    send(&mut svm, &solver, &instructions).expect("a push sparing the rent should be paid");
+
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), funding);
+    assert_eq!(
+        lamports(&svm, &NATIVE_SOL_BUFFER_PDA),
+        initial_balance - funding
+    );
+}
+
+/// Unlike a push into the rent, the runtime accepts a push of the whole balance
+/// and deletes the buffer, after which no native SOL order can settle.
+#[test]
+fn rejects_a_push_of_the_whole_native_sol_buffer() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let full_balance = buffer::add_native_lamports(&mut svm, 1_000_000);
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[FinalizedIntent {
+            intent: &intent,
+            amount: full_balance,
+            use_transfer_checked: false,
+        }],
+    );
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &instructions),
+        SettlementError::NativeSolBufferEmptied,
+    );
+
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), full_balance);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent)), 0);
+}
+
+#[test]
+fn rejects_multiple_orders_consuming_the_whole_native_sol_buffer() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let intent1 = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let intent2 = OrderBuilder::new(&mut svm, &program_id, &payer)
+        .buy_sol()
+        .build();
+    let full_balance = buffer::add_native_lamports(&mut svm, 1_000_000);
+
+    let quarter_balance = full_balance.checked_div(4).expect("should divide");
+
+    let instructions = build_matching_settlement(
+        &program_id,
+        &solver.pubkey(),
+        &[
+            FinalizedIntent {
+                intent: &intent1,
+                amount: full_balance.strict_sub(quarter_balance),
+                use_transfer_checked: false,
+            },
+            FinalizedIntent {
+                intent: &intent2,
+                amount: quarter_balance,
+                use_transfer_checked: false,
+            },
+        ],
+    );
+    assert_instruction_error_at(
+        FINALIZE_INDEX,
+        send(&mut svm, &solver, &instructions),
+        SettlementError::NativeSolBufferEmptied,
+    );
+
+    assert_eq!(lamports(&svm, &NATIVE_SOL_BUFFER_PDA), full_balance);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent1)), 0);
+    assert_eq!(lamports(&svm, &buy_sol_account(&intent2)), 0);
 }
 
 #[test]
@@ -322,7 +474,7 @@ fn rejects_a_push_larger_than_the_whole_balance() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
-    let balance = lamports(&svm, &STATE_PDA);
+    let balance = lamports(&svm, &NATIVE_SOL_BUFFER_PDA);
 
     let instructions = build_matching_settlement(
         &program_id,
@@ -330,6 +482,7 @@ fn rejects_a_push_larger_than_the_whole_balance() {
         &[FinalizedIntent {
             intent: &intent,
             amount: balance + 1,
+            use_transfer_checked: false,
         }],
     );
     assert_instruction_error_at(
@@ -345,7 +498,7 @@ fn rejects_a_native_push_from_a_buffer() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
-    state::add_lamports(&mut svm, 1_000_000);
+    buffer::add_native_lamports(&mut svm, 1_000_000);
 
     let mint = token::create_mint(&mut svm, &payer);
     buffer::ensure_funded(&mut svm, &program_id, &payer, &mint, 1_000);
@@ -354,6 +507,7 @@ fn rejects_a_native_push_from_a_buffer() {
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
     let finalize = FinalizeSettleRaw {
         program_id,
@@ -361,15 +515,16 @@ fn rejects_a_native_push_from_a_buffer() {
         begin_ix_index: BEGIN_INDEX.into(),
         source_buffers: &[buffer_pda],
         destinations: &[buy_sol_account(&intent)],
+        mints: &[None],
         bumps: &[buffer_bump],
         amounts: &[100],
-        only_token_program: None,
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);
     assert_begin_error(
         send(&mut svm, &solver, &instructions),
-        SettlementError::StateAccountMismatch,
+        SettlementError::PushSourceNotBuffer,
     );
 }
 
@@ -379,20 +534,22 @@ fn rejects_a_native_push_to_wrong_destination() {
     let intent = OrderBuilder::new(&mut svm, &program_id, &payer)
         .buy_sol()
         .build();
-    state::add_lamports(&mut svm, 1_000_000);
+    buffer::add_native_lamports(&mut svm, 1_000_000);
     let orders = [FinalizedIntent {
         intent: &intent,
         amount: 100,
+        use_transfer_checked: false,
     }];
     let finalize = FinalizeSettleRaw {
         program_id,
         state_pda: STATE_PDA,
         begin_ix_index: BEGIN_INDEX.into(),
-        source_buffers: &[STATE_PDA],
+        source_buffers: &[NATIVE_SOL_BUFFER_PDA],
         destinations: &[unique_pubkey()],
-        bumps: &[STATE_PDA_AND_BUMP.1],
+        mints: &[None],
+        bumps: &[NATIVE_SOL_BUFFER_PDA_AND_BUMP.1],
         amounts: &[100],
-        only_token_program: None,
+        ..Default::default()
     };
 
     let instructions = build_settlement(&program_id, &solver.pubkey(), &orders, finalize);

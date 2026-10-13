@@ -1,32 +1,15 @@
 use cow_settlement_client::cow_settlement_interface::data::state::StateAccount;
-use cow_settlement_client::cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_client::instruction::Initialize;
 use litesvm::LiteSVM;
 use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::Keypair;
 
-/// Send `ix` as the settlement's `Initialize`, signed by `payer`.
-pub fn initialize(svm: &mut litesvm::LiteSVM, payer: &Keypair, ix: Initialize) {
-    let tx = super::signed_tx(svm, payer, payer, ix);
+/// Send `ix` as the settlement's `Initialize`, signed as in
+/// [`initializer_tx`](super::initializer_tx).
+pub fn initialize(mut svm: litesvm::LiteSVM, ix: Initialize) -> LiteSVM {
+    let tx = super::initializer_tx(&svm, ix);
+    svm = svm.with_sigverify(false);
     svm.send_transaction(tx).expect("initialize should succeed");
-}
-
-/// Credit the state PDA with `amount` extra lamports, the balance a push of an
-/// order buying native SOL draws on.
-///
-/// Returns the state PDA's new balance, rent for its own data included.
-pub fn add_lamports(svm: &mut LiteSVM, amount: u64) -> u64 {
-    let mut account = svm
-        .get_account(&STATE_PDA)
-        .expect("the state PDA should exist");
-    account.lamports = account
-        .lamports
-        .checked_add(amount)
-        .expect("the funded balance should fit in a u64");
-    let funded = account.lamports;
-    svm.set_account(STATE_PDA, account)
-        .expect("set_account should succeed");
-    funded
+    svm.with_sigverify(true)
 }
 
 /// Assert the solver list's storage invariant: solvers are stored strictly

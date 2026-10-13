@@ -67,7 +67,7 @@ fn settling_a_settlement_owned_order_withdraws_the_buffered_fees() {
         amount_out: PROCEEDS,
     };
     let instructions =
-        build_staged_settlement(&params.program_id, &solver.pubkey(), &[staged], vec![]);
+        build_staged_settlement(&params.program_id, &solver.pubkey(), &[staged], vec![], &[]);
     send_metered(&mut svm, &solver, &instructions, BenchLabel::Settle)
         .expect("settling the settlement-owned order should succeed");
 
@@ -159,7 +159,7 @@ fn a_settlement_owned_order_cannot_sell_an_account_the_state_pda_doesnt_own() {
         amount_out: PROCEEDS,
     };
     let instructions =
-        build_staged_settlement(&params.program_id, &solver.pubkey(), &[staged], vec![]);
+        build_staged_settlement(&params.program_id, &solver.pubkey(), &[staged], vec![], &[]);
 
     let result = send(&mut svm, &solver, &instructions);
     assert_instruction_error(result, SettlementError::SellTokenOwnerMismatch);

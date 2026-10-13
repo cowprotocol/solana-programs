@@ -59,11 +59,6 @@ pub(crate) fn process_new_onchain_order(
     if expected_owner.as_array() != intent.owner() {
         return Err(SettlementError::OwnerMismatch.into());
     }
-    // The intent commits to how it's authenticated, and this is the on-chain
-    // creation flow.
-    if !intent.flags().created_on_chain {
-        return Err(SettlementError::OrderCreatedOnChainMismatch.into());
-    }
 
     let bump = CanonicalPda {
         program_id,
@@ -92,6 +87,7 @@ pub(crate) fn process_new_onchain_order(
 
 #[cfg(test)]
 mod tests {
+    use cow_settlement_interface::data::intent::fixtures::{BUY_AMOUNT_OFFSET, SELL_AMOUNT_OFFSET};
     use cow_settlement_interface::data::intent::{Flags, OrderIntent, OrderKind};
     use cow_settlement_interface::instruction::create_order::fixtures::{
         default_order_data, valid_intent_bytes, NUM_ACCOUNTS,
@@ -204,26 +200,26 @@ mod tests {
             Err(SettlementError::OwnerMismatch.into()),
         );
     }
-
     #[test]
-    fn process_create_order_rejects_intent_not_created_on_chain() {
-        let valid_bytes = valid_intent_bytes();
-        let intent = OrderIntent::try_from(&valid_bytes).expect("should be valid");
-        let intent_bytes: [u8; EncodedOrderIntent::SIZE] =
-            (&EncodedOrderIntent::from(&OrderIntent { ..intent })).into();
-        let data = default_order_data(&intent_bytes);
-        let owner_runtime_account = RuntimeAccount {
-            address: intent.owner,
-            is_signer: 1,
-            ..Default::default()
-        };
+    fn process_create_order_rejects_zero_amount() {
+        // A zero amount can't be built through the NonZeroU64-typed
+        // OrderIntent, so we build the wire bytes directly: a valid intent with
+        // one amount slot zeroed.
+        for offset in [SELL_AMOUNT_OFFSET, BUY_AMOUNT_OFFSET] {
+            let mut intent_bytes = valid_intent_bytes();
+            intent_bytes[offset..offset + 8].fill(0);
+            let data = default_order_data(&intent_bytes);
 
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
-        accounts[0] = fake_account_from(owner_runtime_account);
+            let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+            accounts[0] = fake_account_from(RuntimeAccount {
+                is_signer: 1,
+                ..Default::default()
+            });
 
-        assert_eq!(
-            process_create_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(SettlementError::OrderCreatedOnChainMismatch.into()),
-        );
+            assert_eq!(
+                process_create_order(&PROGRAM_ID, &mut accounts, &data),
+                Err(SettlementError::ZeroOrderAmount.into()),
+            );
+        }
     }
 }

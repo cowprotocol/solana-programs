@@ -1,6 +1,6 @@
 use cow_settlement_client::cow_settlement_interface::{
     data::{
-        intent::{fixtures, EncodedOrderIntent, OrderIntent},
+        intent::{fixtures, hash_bytes, EncodedOrderIntent, OrderIntent},
         order::SIZE,
     },
     instruction::create_order::CreateOrder,
@@ -27,7 +27,6 @@ fn sample_intent(owner: Pubkey) -> OrderIntent {
     OrderIntent {
         owner,
         ..fixtures::sample_intent(Flags {
-            created_on_chain: true,
             kind: OrderKind::Sell,
             partially_fillable: false,
         })
@@ -332,35 +331,36 @@ fn rejects_when_intent_owner_differs_from_signer() {
 }
 
 #[test]
-fn rejects_intent_authenticated_off_chain() {
+fn rejects_zero_amount() {
     let (mut svm, program_id, owner) = common::setup();
 
-    let intent = OrderIntent {
-        flags: Flags {
-            created_on_chain: false,
-            ..Default::default()
-        },
-        ..sample_intent(owner.pubkey())
-    };
-    let (encoded, pda, _bump) = encode_and_derive(&intent, &program_id);
+    for offset in [fixtures::SELL_AMOUNT_OFFSET, fixtures::BUY_AMOUNT_OFFSET] {
+        let intent = sample_intent(owner.pubkey());
+        // A zero amount can't be built through the NonZeroU64-typed
+        // OrderIntent, so we change the bytes by hand.
+        let mut encoded: [u8; EncodedOrderIntent::SIZE] =
+            (&EncodedOrderIntent::from(&intent)).into();
+        encoded[offset..offset + 8].fill(0);
+        let (pda, _bump) = find_order_pda(&program_id, &hash_bytes(&encoded));
 
-    let ix = CreateOrder {
-        program_id,
-        owner: owner.pubkey(),
-        created_by: owner.pubkey(),
-        order_pda: pda,
-        intent_bytes: encoded,
-    };
-    let tx = signed_tx(&svm, &owner, &owner, ix);
-    assert_eq!(
-        svm.send_transaction(tx).map_err(|e| e.err).err(),
-        Some(TransactionError::InstructionError(
-            0,
-            SettlementError::OrderCreatedOnChainMismatch.into(),
-        )),
-    );
-    assert!(
-        svm.get_account(&pda).is_none(),
-        "no order PDA may be left behind by a rejected creation"
-    );
+        let ix = CreateOrder {
+            program_id,
+            owner: owner.pubkey(),
+            created_by: owner.pubkey(),
+            order_pda: pda,
+            intent_bytes: encoded,
+        };
+        let tx = signed_tx(&svm, &owner, &owner, ix);
+        assert_eq!(
+            svm.send_transaction(tx).map_err(|e| e.err).err(),
+            Some(TransactionError::InstructionError(
+                0,
+                SettlementError::ZeroOrderAmount.into(),
+            )),
+        );
+        assert!(
+            svm.get_account(&pda).is_none(),
+            "no order PDA may be left behind by a rejected creation"
+        );
+    }
 }

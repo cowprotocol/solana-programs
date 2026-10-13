@@ -45,8 +45,9 @@ pub enum SettlementError {
     /// owner.
     SellTokenOwnerMismatch = 12,
     /// `BeginSettle`'s order-account count doesn't match the structure its
-    /// instruction data expects: `n` orders each contribute an order PDA and a
-    /// sell token account, plus one destination account per transfer.
+    /// instruction data expects: `n` orders each contribute an order PDA, a
+    /// sell token account, a sell mint, plus one destination account per
+    /// transfer.
     AccountCountNotMatchingOrderCount = 13,
     /// `BeginSettle` or `FinalizeSettle` was invoked via CPI rather than as a
     /// top-level transaction instruction.
@@ -64,8 +65,8 @@ pub enum SettlementError {
     /// which must sign the pulls as the user's token delegate.
     StateAccountMismatch = 18,
     /// `FinalizeSettle`'s push-account count doesn't match its instruction
-    /// data: each push contributes a source buffer and a destination account,
-    /// so the count must be twice the number of push amounts.
+    /// data: each push contributes a source buffer, a destination, and a mint,
+    /// so the count must be three times the number of push amounts.
     AccountCountNotMatchingPushCount = 19,
     /// `BeginSettle`: the number of pushes carried by the paired `FinalizeSettle`
     /// doesn't equal the number of settled orders. Each order must be paid by
@@ -127,19 +128,38 @@ pub enum SettlementError {
     UnauthorizedSolver = 37,
     /// `RemoveSolver`'s solver isn't in the state PDA's solver list.
     SolverNotFound = 38,
-    /// A created order's intent isn't set with the `created_on_chain` flag
-    /// corresponding to the behavior of the invoked order creation instruction.
-    OrderCreatedOnChainMismatch = 39,
     /// `CreateBuffer` asked the token program how long a token account for a
     /// mint has to be and couldn't read the answer, so it can't size the
     /// buffer.
-    BufferSizeUnavailable = 40,
+    BufferSizeUnavailable = 39,
     /// The token program for a given token or mint is not supported.
-    InvalidTokenProgram = 41,
+    InvalidTokenProgram = 40,
     /// `CreateSettlementOwnedOrder`'s settlement-owned-order-authority account
     /// isn't a signer, or doesn't match the `settlement_owned_order_authority`
     /// recorded in the settlement state PDA.
-    UnauthorizedSettlementOwnedOrder = 42,
+    UnauthorizedSettlementOwnedOrder = 41,
+    /// An intent has a zero sell or buy amount, which is not supported.
+    ZeroOrderAmount = 42,
+    /// A mint account supplied to `BeginSettle` or `FinalizeSettle`
+    /// was not able to be parsed as such.
+    InvalidMint = 43,
+    /// `BeginSettle`: a paired `FinalizeSettle` push's destination is the very
+    /// buffer the push draws from, so settling it would move no funds yet still
+    /// record the declared amount as received.
+    PushSourceIsDestination = 44,
+    /// Moving lamports out of the native SOL buffer would empty it, which the
+    /// runtime would then delete.
+    NativeSolBufferEmptied = 45,
+    /// A buffer to be reclaimed holds more tokens than the burn limit supplied
+    /// for it, so its balance can't be cleared for closing.
+    ReclaimBufferBurnLimitExceeded = 46,
+    /// `WithdrawNativeSol`'s authority account isn't a signer, or doesn't
+    /// match the `settlement_owned_order_authority` recorded in the settlement
+    /// state PDA.
+    UnauthorizedNativeSolWithdrawal = 47,
+    /// `WithdrawNativeSol`'s native SOL buffer account isn't the canonical
+    /// native SOL buffer PDA.
+    NativeSolBufferMismatch = 48,
 }
 
 impl From<SettlementError> for u32 {

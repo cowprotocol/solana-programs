@@ -12,6 +12,9 @@ This repository hosts the Solana implementation, currently in early development.
 The design of the program is documented in [DESIGN.md](./DESIGN.md).
 It contains a high-level technical description of what the program does and points out meaningful differences from the [Ethereum implementation](https://github.com/cowprotocol/contracts).
 
+The security design is documented in [SECURITY_DESIGN.md](./SECURITY_DESIGN.md).
+It lays out the security properties the program aims to guarantee, the trust scope, the privileged roles, and what is explicitly not guaranteed.
+
 ## Development
 
 Install the Solana toolchain (Rust, Solana CLI, and friends) by following the [Solana quick setup](https://solana.com/docs/intro/installation).
@@ -95,6 +98,8 @@ There are two distinct flows depending on whether this is a first-time deploy or
 
 The program only works at the address in `declare_id!`, which its pinned state PDA is derived from. `initialize` rejects a deployment anywhere else.
 
+`initialize` also only accepts the hardcoded `INITIALIZER` (`cow_settlement_interface::instruction::initialize::INITIALIZER`) as its payer, so the deployer keypair must be that key.
+
 Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
 
 ```sh
@@ -162,10 +167,11 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
 - Update the state PDA bytes in the IDL (use the test to see the bytes to change).
 - Commit the code changes resulting from the steps above (excluding the key of the generated account).
-- Switch your network to mainnet (`solana config set --url mainnet-beta`). You should try out the next steps before the PR on devnet first, but switch to mainnet for the actual release.
+- Switch your network to devnet (`solana config set --url devnet`). 
 - [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
 - Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair ../deployer-keypair.json <solver-address>`).
-- Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
+- Switch your network to mainnet (`solana config set --url mainnet-beta`) and repeat the last two deployment steps.
+- Make sure the package installs without errors: run `cargo install --path ./test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
 - [Publish the IDL](#publishing-the-idl).
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).

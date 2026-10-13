@@ -55,7 +55,7 @@ pub fn process_create_settlement_owned_order(
 #[cfg(test)]
 mod tests {
     use cow_settlement_interface::data::intent::fixtures::sample_intent;
-    use cow_settlement_interface::data::intent::{Flags, OrderIntent};
+    use cow_settlement_interface::data::intent::OrderIntent;
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::StateInitArgs;
     use cow_settlement_interface::fixtures::pubkey_from_seed;
@@ -89,15 +89,12 @@ mod tests {
         }
     }
 
-    /// Instruction data for an order owned by `owner` with the given
-    /// `created_on_chain` flag; the other fields come from [`sample_intent`].
-    fn intent_data(owner: Pubkey, created_on_chain: bool) -> Vec<u8> {
+    /// Instruction data for an order owned by `owner`; the other fields come
+    /// from [`sample_intent`].
+    fn intent_data(owner: Pubkey) -> Vec<u8> {
         let intent = OrderIntent {
             owner,
-            ..sample_intent(Flags {
-                created_on_chain,
-                ..Default::default()
-            })
+            ..sample_intent(Default::default())
         };
         settlement_owned_order_data(&intent)
     }
@@ -128,7 +125,7 @@ mod tests {
 
     #[test]
     fn process_create_self_order_propagates_parse_error() {
-        let mut data = intent_data(STATE_PDA, true);
+        let mut data = intent_data(STATE_PDA);
         data.push(0); // trailing byte triggers a parse error
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
         assert_eq!(
@@ -146,7 +143,7 @@ mod tests {
             process_create_settlement_owned_order(
                 &PROGRAM_ID,
                 &mut accounts,
-                &intent_data(STATE_PDA, true)
+                &intent_data(STATE_PDA)
             ),
             Err(SettlementError::StateAccountMismatch.into()),
         );
@@ -160,7 +157,7 @@ mod tests {
             process_create_settlement_owned_order(
                 &PROGRAM_ID,
                 &mut accounts,
-                &intent_data(STATE_PDA, true)
+                &intent_data(STATE_PDA)
             ),
             Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
         );
@@ -175,7 +172,7 @@ mod tests {
             process_create_settlement_owned_order(
                 &PROGRAM_ID,
                 &mut accounts,
-                &intent_data(STATE_PDA, true)
+                &intent_data(STATE_PDA)
             ),
             Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
         );
@@ -184,21 +181,10 @@ mod tests {
     #[test]
     fn process_create_settlement_owned_order_rejects_owner_not_state_pda() {
         let mut accounts = base_accounts();
-        let data = intent_data(pubkey_from_seed("unrelated owner"), true);
+        let data = intent_data(pubkey_from_seed("unrelated owner"));
         assert_eq!(
             process_create_settlement_owned_order(&PROGRAM_ID, &mut accounts, &data),
             Err(SettlementError::OwnerMismatch.into()),
-        );
-    }
-
-    #[test]
-    fn process_create_settlement_owned_order_rejects_intent_not_created_on_chain() {
-        let mut accounts = base_accounts();
-        // Owned by the state PDA, but not flagged as an on-chain creation.
-        let data = intent_data(STATE_PDA, false);
-        assert_eq!(
-            process_create_settlement_owned_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(SettlementError::OrderCreatedOnChainMismatch.into()),
         );
     }
 }
