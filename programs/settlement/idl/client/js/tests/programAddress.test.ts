@@ -43,10 +43,10 @@ describe("builders given another program address", async () => {
   const intent = await buildOrderIntent({ owner: signer.address });
   const config = { programAddress: otherProgram };
 
-  const builders: [string, () => Promise<Instruction>][] = [
-    [
-      "initialize",
-      () =>
+  const builders: { name: string; build: () => Promise<Instruction> }[] = [
+    {
+      name: "initialize",
+      build: () =>
         getInitializeInstructionAsync(
           {
             payer: signer,
@@ -57,67 +57,71 @@ describe("builders given another program address", async () => {
           },
           config,
         ),
-    ],
-    [
-      "createBuffer",
-      () => getCreateBufferInstructionAsync({ payer: signer, mint0: mint0.address }, config),
-    ],
-    [
-      "createOrder",
-      () => getCreateOrderInstructionAsync({ owner: signer, createdBy: signer, intent }, config),
-    ],
-    [
-      "createSettlementOwnedOrder",
-      () =>
+    },
+    {
+      name: "createBuffer",
+      build: () => getCreateBufferInstructionAsync({ payer: signer, mint0: mint0.address }, config),
+    },
+    {
+      name: "createOrder",
+      build: () =>
+        getCreateOrderInstructionAsync({ owner: signer, createdBy: signer, intent }, config),
+    },
+    {
+      name: "createSettlementOwnedOrder",
+      build: () =>
         getCreateSettlementOwnedOrderInstructionAsync(
           { authority: signer, createdBy: signer, intent },
           config,
         ),
-    ],
-    [
-      "beginSettle",
-      () =>
+    },
+    {
+      name: "beginSettle",
+      build: () =>
         getBeginSettleInstructionAsync(
           { solver: signer, finalizeIxIndex: 1, auctionId: 0n },
           config,
         ),
-    ],
-    ["finalizeSettle", () => getFinalizeSettleInstructionAsync({ beginIxIndex: 0 }, config)],
-    [
-      "reclaimBuffer",
-      () =>
+    },
+    {
+      name: "finalizeSettle",
+      build: () => getFinalizeSettleInstructionAsync({ beginIxIndex: 0 }, config),
+    },
+    {
+      name: "reclaimBuffer",
+      build: () =>
         getReclaimBufferInstructionAsync(
           { reclaimAuthority: signer, reclaimRecipient: other.address, mint0: mint0.address },
           config,
         ),
-    ],
-    [
-      "transferAuthority",
-      () =>
+    },
+    {
+      name: "transferAuthority",
+      build: () =>
         getTransferAuthorityInstructionAsync(
           { signer, role: Role.Manager, newAuthority: other.address },
           config,
         ),
-    ],
-    [
-      "addSolver",
-      () =>
+    },
+    {
+      name: "addSolver",
+      build: () =>
         getAddSolverInstructionAsync(
           { authority: signer, payer: signer, solver: other.address },
           config,
         ),
-    ],
-    [
-      "removeSolver",
-      () =>
+    },
+    {
+      name: "removeSolver",
+      build: () =>
         getRemoveSolverInstructionAsync(
           { authority: signer, rentRecipient: other.address, solver: other.address },
           config,
         ),
-    ],
+    },
   ];
 
-  it.each(builders)("%s derives its PDAs under that address", async (_, build) => {
+  it.each(builders)("$name derives its PDAs under that address", async ({ build }) => {
     const canonicalPdas = await derivablePdas(
       COW_SETTLEMENT_PROGRAM_ADDRESS,
       mint0.address,
