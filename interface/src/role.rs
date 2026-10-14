@@ -21,7 +21,8 @@ pub enum Role {
     ReclaimAuthority,
     /// The account authorized to place orders that sell the protocol's own
     /// buffer balances (e.g., fee withdrawals). It chooses the destination, the
-    /// bought token, and the price of those orders.
+    /// bought token, and the price of those orders. It may also withdraw the
+    /// native SOL buffer's lamports above rent.
     SettlementOwnedOrderAuthority,
 }
 

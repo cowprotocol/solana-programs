@@ -18,7 +18,7 @@ All roles, other than Solvers, are defined and manipulated using the same patter
 | Manager | Ability to assign every role, its own included. Transfers take one step, with no acceptance or zero-address check |
 | Solver authority | Adding and removing solvers, so it decides who can settle |
 | Reclaim authority | Closing buffers and choosing where their rent goes. Can also burn tokens from the buffer to allow closing to happen |
-| Settlement-owned-order authority | Ability to place orders that are owned by the settlement program, used to withdraw fees |
+| Settlement-owned-order authority | Ability to place orders that are owned by the settlement program, used to withdraw fees, and to withdraw the native SOL buffer's lamports above rent |
 | Solvers | Ability to settle user orders |
 
 ## Users

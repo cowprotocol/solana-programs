@@ -17,6 +17,7 @@ pub mod reclaim_order;
 pub mod remove_solver;
 pub mod settle;
 pub mod transfer_authority;
+pub mod withdraw_native_sol;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, num_enum::TryFromPrimitive)]
 #[repr(u8)]
@@ -69,6 +70,11 @@ pub enum SettlementInstruction {
     /// If the order PDA doesn't exist yet, it's created already cancelled. For
     /// this, some arbitrary account needs to pay the rent and sign.
     CancelOrder = 11,
+    /// Moves lamports out of the native SOL buffer to a recipient of the
+    /// caller's choosing. Only the current holder of the
+    /// SettlementOwnedOrderAuthority role may authorize this, and the buffer's
+    /// rent can't be withdrawn.
+    WithdrawNativeSol = 12,
 }
 
 impl SettlementInstruction {
