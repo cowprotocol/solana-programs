@@ -79,14 +79,14 @@ const INSTRUCTIONS: &[Instruction] = &[
         variant: SettlementInstruction::Initialize,
         input: &parse_rust::INITIALIZE_RS,
         pda_accounts: &[
-            ("state_pda", STATE_PDA),
+            ("state", STATE_PDA),
             ("native_sol_buffer", NATIVE_SOL_BUFFER_PDA),
         ],
     },
     Instruction {
         variant: SettlementInstruction::CreateBuffer,
         input: &parse_rust::CREATE_BUFFER_RS,
-        pda_accounts: &[("buffer_pda_0", BUFFER_PDA_0)],
+        pda_accounts: &[("buffer", BUFFER_PDA_0)],
     },
     Instruction {
         variant: SettlementInstruction::CreateOrder,
@@ -100,7 +100,7 @@ const INSTRUCTIONS: &[Instruction] = &[
         input: &parse_rust::CREATE_SETTLEMENT_OWNED_ORDER_RS,
         // `order_pda`'s seeds include `sha256(intent)`, which the IDL has no
         // `seeds` kind for.
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::CancelOrder,
@@ -112,12 +112,12 @@ const INSTRUCTIONS: &[Instruction] = &[
     Instruction {
         variant: SettlementInstruction::BeginSettle,
         input: &parse_rust::BEGIN_SETTLE_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::FinalizeSettle,
         input: &parse_rust::FINALIZE_SETTLE_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::ReclaimOrder,
@@ -127,28 +127,28 @@ const INSTRUCTIONS: &[Instruction] = &[
     Instruction {
         variant: SettlementInstruction::ReclaimBuffer,
         input: &parse_rust::RECLAIM_BUFFER_RS,
-        pda_accounts: &[("state_pda", STATE_PDA), ("buffer_pda_0", BUFFER_PDA_0)],
+        pda_accounts: &[("state", STATE_PDA), ("buffer", BUFFER_PDA_0)],
     },
     Instruction {
         variant: SettlementInstruction::TransferAuthority,
         input: &parse_rust::TRANSFER_AUTHORITY_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::AddSolver,
         input: &parse_rust::ADD_SOLVER_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::RemoveSolver,
         input: &parse_rust::REMOVE_SOLVER_RS,
-        pda_accounts: &[("state_pda", STATE_PDA)],
+        pda_accounts: &[("state", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::WithdrawNativeSol,
         input: &parse_rust::WITHDRAW_NATIVE_SOL_RS,
         pda_accounts: &[
-            ("state_pda", STATE_PDA),
+            ("state", STATE_PDA),
             ("native_sol_buffer", NATIVE_SOL_BUFFER_PDA),
         ],
     },

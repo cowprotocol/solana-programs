@@ -23,9 +23,9 @@ const SETTLEMENT_SEED: Uint8Array = (() => {
   const idl: SeedBearingIdl = IDL;
   const seed = idl.instructions
     .find((instruction) => instruction.name === "initialize")
-    ?.accounts.find((account) => account.name === "state_pda")?.pda?.seeds[0]?.value;
+    ?.accounts.find((account) => account.name === "state")?.pda?.seeds[0]?.value;
   if (!seed) {
-    throw new Error("IDL: initialize's state_pda has no const seed");
+    throw new Error("IDL: initialize's state account has no const seed");
   }
   return new Uint8Array(seed);
 })();
