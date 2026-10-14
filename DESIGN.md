@@ -30,6 +30,7 @@ A bump is not a migration. There are some other consequences that should be cons
 ## Program initialization
 
 The state PDA and native SOL buffer PDA are created once, after deployment, by the `Initialize` instruction.
+A hardcoded `INITIALIZER` is the only address allowed to call `Initialize`.
 
 ## Authorities
 
@@ -38,7 +39,7 @@ The program grant privileged roles to specific accounts (_authorities_). They ar
 - Manager: the account that can update the address of all other roles.
 - Solver Authority: the account that can add and remove solvers.
 - Reclaim Authority: the account authorized to close buffer accounts, reclaim their rent, and choose where that rent goes.
-- Settlement-Owned-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals).
+- Settlement-Owned-Order Authority: the account authorized to place arbitrary orders that sell the protocol's own buffer balances (for fee withdrawals), and to withdraw native SOL from the native SOL buffer.
 
 ### Updating authorities
 
@@ -55,6 +56,7 @@ Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`
 The buffer account for native SOL is an empty account owned by the settlement program whose funds on top of the necessary rent are paid out. 
 
 A buffer (except for the native SOL buffer) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
+If needed, the caller can burn the stored balance to make account closure possible in the first place.
 
 Differences with Ethereum:
 
@@ -89,6 +91,8 @@ Fees accumulate in the buffer accounts after a settlement is concluded.
 Fees are withdrawn by placing an order, owned by the settlement state PDA, that sells tokens stored in a buffer. Order creation is gated by the dedicated [settlement-owned-order authority](#authorities).
 
 The order is placed through the `CreateSettlementOwnedOrder` instruction. The settlement-owned-order authority can specify arbitrary order parameters, as long as the owner is the state PDA.
+
+Native SOL isn't a token, so it can't be sold through an order. The settlement-owned-order authority instead withdraws it directly from the native SOL buffer with the `WithdrawNativeSol` instruction, to a recipient of its choosing. The buffer's rent can't be withdrawn.
 
 Differences with Ethereum:
 
@@ -216,9 +220,11 @@ Creating the order in advance is _not_ needed: if the order wasn’t created bef
 
 Allocating an order PDA requires paying rent.
 
-If the order is expired, anyone can close the order account through the `ReclaimOrder` instruction. On account closure, the rent is sent to the order's `created_by` account, i.e., the original creator of the order.
+The order account is closed through the `ReclaimOrder` instruction, which sends the rent to the order's `created_by` account. Reclaiming is allowed when the order is:
 
-An order can also be closed before it expires once it is cancelled or completely filled: in these cases `ReclaimOrder` additionally allows reclaiming it.
+- completely filled: anyone can reclaim it;
+- expired: anyone can reclaim it;
+- cancelled: only the order owner can reclaim it.
 
 This is useful for solvers who need to allocate the order for executing it, but the allocation itself would be orders of magnitude more expensive than the compute cost for executing an instruction. This is particularly relevant to make small orders economically viable.
 

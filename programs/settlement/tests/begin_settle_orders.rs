@@ -1295,6 +1295,45 @@ fn rejects_push_if_buffer_does_not_match_buy_mint() {
     );
 }
 
+/// An order whose signed intent names the buy buffer it is paid out of as its
+/// own destination is rejected. Settling it would pull the sell tokens yet pay
+/// nothing while still recording the push amount as received.
+#[test]
+fn rejects_push_crediting_its_own_source_buffer() {
+    let (mut svm, program_id, payer, solver) = setup_settle_ready();
+    let base = settlable_intent(&mut svm, &payer, payer.pubkey(), 0);
+    let buy_mint_key = buy_mint(&base);
+    let (buy_buffer, _) = find_buffer_pda(&program_id, &buy_mint_key);
+    let intent = OrderIntent {
+        buy: Asset::try_from(TokenAsset {
+            mint: buy_mint_key,
+            token_account: buy_buffer,
+        })
+        .expect("not native SOL"),
+        ..base
+    };
+    create_order_pda(&mut svm, &program_id, &payer, &intent);
+
+    let instructions = settle_and_pay_amounts(
+        &mut svm,
+        &program_id,
+        &payer,
+        &solver,
+        &[InitializedIntent {
+            intent: &intent,
+            pulls: &[],
+            use_transfer_checked: false,
+        }],
+        &[100],
+    );
+    let buffer_before = token::balance(&svm, &buy_buffer);
+    assert_begin_error(
+        send(&mut svm, &solver, &instructions),
+        SettlementError::PushSourceIsDestination,
+    );
+    assert_eq!(token::balance(&svm, &buy_buffer), buffer_before);
+}
+
 #[test]
 fn rejects_fewer_pushes_than_orders() {
     let (mut svm, program_id, payer, solver) = setup_settle_ready();
