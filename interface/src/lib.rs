@@ -3,8 +3,10 @@
 pub use solana_instruction::{AccountMeta, Instruction};
 pub use solana_pubkey::Pubkey;
 
+solana_pubkey::declare_id!("Moook87DzJ25dELx3LXJ3dnu5a4ERVFwKo1PWWF4p7Y");
+
 /// Program address of the production settlement deployment.
-pub const PROD_ID: Pubkey = Pubkey::from_str_const("Moook87DzJ25dELx3LXJ3dnu5a4ERVFwKo1PWWF4p7Y");
+pub const PROD_ID: Pubkey = ID;
 
 pub mod data;
 pub mod error;
