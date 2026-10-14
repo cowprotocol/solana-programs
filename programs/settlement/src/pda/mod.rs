@@ -14,8 +14,4 @@ pub mod state;
 use cow_settlement_interface::Pubkey;
 
 /// The program address this build targets.
-///
-/// Production for now; the staging ("barn") deployment will later be selected
-/// here behind a build feature. Every compile-time PDA in this module derives
-/// from this constant.
 pub const ID: Pubkey = cow_settlement_interface::PROD_ID;
