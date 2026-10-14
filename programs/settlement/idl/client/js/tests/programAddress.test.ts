@@ -37,10 +37,10 @@ async function derivablePdas(
 
 describe("builders given another program address", async () => {
   const otherProgram = (await generateKeyPairSigner()).address;
-  const [signer, other, mint0] = await Promise.all(
-    Array.from({ length: 3 }, () => generateKeyPairSigner()),
+  const [anySigner, mint0] = await Promise.all(
+    Array.from({ length: 2 }, () => generateKeyPairSigner()),
   );
-  const intent = await buildOrderIntent({ owner: signer.address });
+  const intent = await buildOrderIntent({ owner: anySigner.address });
   const config = { programAddress: otherProgram };
 
   const builders: { name: string; build: () => Promise<Instruction> }[] = [
@@ -49,29 +49,29 @@ describe("builders given another program address", async () => {
       build: () =>
         getInitializeInstructionAsync(
           {
-            payer: signer,
-            manager: other.address,
-            solverAuthority: other.address,
-            reclaimAuthority: other.address,
-            settlementOwnedOrderAuthority: other.address,
+            payer: anySigner,
+            manager: anySigner.address,
+            solverAuthority: anySigner.address,
+            reclaimAuthority: anySigner.address,
+            settlementOwnedOrderAuthority: anySigner.address,
           },
           config,
         ),
     },
     {
       name: "createBuffer",
-      build: () => getCreateBufferInstructionAsync({ payer: signer, mint0: mint0.address }, config),
+      build: () => getCreateBufferInstructionAsync({ payer: anySigner, mint0: mint0.address }, config),
     },
     {
       name: "createOrder",
       build: () =>
-        getCreateOrderInstructionAsync({ owner: signer, createdBy: signer, intent }, config),
+        getCreateOrderInstructionAsync({ owner: anySigner, createdBy: anySigner, intent }, config),
     },
     {
       name: "createSettlementOwnedOrder",
       build: () =>
         getCreateSettlementOwnedOrderInstructionAsync(
-          { authority: signer, createdBy: signer, intent },
+          { authority: anySigner, createdBy: anySigner, intent },
           config,
         ),
     },
@@ -79,7 +79,7 @@ describe("builders given another program address", async () => {
       name: "beginSettle",
       build: () =>
         getBeginSettleInstructionAsync(
-          { solver: signer, finalizeIxIndex: 1, auctionId: 0n },
+          { solver: anySigner, finalizeIxIndex: 1, auctionId: 0n },
           config,
         ),
     },
@@ -91,7 +91,7 @@ describe("builders given another program address", async () => {
       name: "reclaimBuffer",
       build: () =>
         getReclaimBufferInstructionAsync(
-          { reclaimAuthority: signer, reclaimRecipient: other.address, mint0: mint0.address },
+          { reclaimAuthority: anySigner, reclaimRecipient: anySigner.address, mint0: mint0.address },
           config,
         ),
     },
@@ -99,7 +99,7 @@ describe("builders given another program address", async () => {
       name: "transferAuthority",
       build: () =>
         getTransferAuthorityInstructionAsync(
-          { signer, role: Role.Manager, newAuthority: other.address },
+          { signer: anySigner, role: Role.Manager, newAuthority: anySigner.address },
           config,
         ),
     },
@@ -107,7 +107,7 @@ describe("builders given another program address", async () => {
       name: "addSolver",
       build: () =>
         getAddSolverInstructionAsync(
-          { authority: signer, payer: signer, solver: other.address },
+          { authority: anySigner, payer: anySigner, solver: anySigner.address },
           config,
         ),
     },
@@ -115,7 +115,7 @@ describe("builders given another program address", async () => {
       name: "removeSolver",
       build: () =>
         getRemoveSolverInstructionAsync(
-          { authority: signer, rentRecipient: other.address, solver: other.address },
+          { authority: anySigner, rentRecipient: anySigner.address, solver: anySigner.address },
           config,
         ),
     },
