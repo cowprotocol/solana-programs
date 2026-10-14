@@ -33,7 +33,7 @@ fn default_rpc_url() -> String {
 }
 
 #[derive(Parser)]
-#[command(name = "cow", about = "CoW Protocol Solana dev/testing CLI")]
+#[command(name = "cow", version, about = "CoW Protocol Solana dev/testing CLI")]
 struct Cli {
     /// Solana RPC endpoint (defaults to the `solana config` endpoint, or mainnet-beta if not available.)
     #[arg(

@@ -22,6 +22,7 @@ pub mod token_2022;
 pub(crate) use active_token::also_under_token_2022;
 
 use cow_settlement_client::instruction::{AddSolver, Initialize};
+use cow_settlement_interface::instruction::initialize::INITIALIZER;
 use cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_interface::Instruction;
 use litesvm::{types::TransactionMetadata, LiteSVM};
@@ -29,6 +30,7 @@ use solana_sdk::{
     account::Account,
     clock::Clock,
     instruction::InstructionError,
+    message::Message,
     pubkey::Pubkey,
     signature::{Keypair, Signer},
     transaction::{Transaction, TransactionError},
@@ -84,6 +86,8 @@ pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     let payer = unique_keypair();
     svm.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("airdrop to payer should succeed");
+    svm.airdrop(&INITIALIZER, 1_000_000_000)
+        .expect("airdrop to initializer should succeed");
 
     (svm, program_id, payer)
 }
@@ -111,12 +115,11 @@ pub fn setup_init() -> (LiteSVM, InitializedParams) {
     let solver_authority = unique_keypair();
     let reclaim = unique_keypair();
     let settlement_owned_order = unique_keypair();
-    state::initialize(
-        &mut svm,
-        &payer,
+    svm = state::initialize(
+        svm,
         Initialize {
             program_id,
-            payer: payer.pubkey(),
+            payer: INITIALIZER,
             manager: manager.pubkey(),
             solver_authority: solver_authority.pubkey(),
             reclaim_authority: reclaim.pubkey(),
@@ -270,6 +273,16 @@ pub fn signed_tx(
         &[fee_payer, owner],
         svm.latest_blockhash(),
     )
+}
+
+/// Put `ix` in a transaction that [`INITIALIZER`] pays for and signs, as `just
+/// deploy` sends `Initialize`. Tests don't hold the initializer's key, so its
+/// signature is left blank and only an SVM with sigverify set to false
+/// accepts the transaction.
+pub fn initializer_tx(svm: &LiteSVM, ix: impl Into<Instruction>) -> Transaction {
+    let message =
+        Message::new_with_blockhash(&[ix.into()], Some(&INITIALIZER), &svm.latest_blockhash());
+    Transaction::new_unsigned(message)
 }
 
 /// In `instruction`, repoint the account currently set to `from` at `to`. Tests

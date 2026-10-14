@@ -1,9 +1,9 @@
 //! `ReclaimOrder` instruction handler.
 
 use cow_settlement_interface::{
-    data::order::{FillAmounts, OrderAccount},
+    data::order::OrderAccount,
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
-    SettlementError,
+    SettlementError, ID,
 };
 use pinocchio::{
     error::ProgramError,
@@ -14,34 +14,18 @@ use pinocchio::{
 use crate::processor::utils::intent::{fill_progress, OrderIntentAccessor};
 
 pub fn process_reclaim_order(
-    program_id: &pinocchio::Address,
     accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
     let ReclaimOrderInput {
         order_pda,
         reclaim_recipient,
+        owner,
     } = ReclaimOrderInput::parse(instruction_data, accounts)?;
 
-    // Read the fields the reclaim decision needs, then drop the borrow before
-    // the lamport transfer and `close` below touch the account.
-    let (created_by, reclaimable, valid_to) = {
-        let order = OrderAccount::load_from_pda(order_pda, program_id)?;
-        let intent = OrderIntentAccessor::from_order(&order)?;
-        let reclaimable =
-            is_reclaimable_before_expiry(&intent, order.cancelled()?, order.filled_amounts());
-        (order.created_by(), reclaimable, intent.valid_to())
-    };
-
-    if reclaim_recipient.address() != &created_by {
-        return Err(SettlementError::ReclaimRecipientMismatch.into());
-    }
-
-    if !reclaimable {
-        let now = Clock::get()?.unix_timestamp;
-        if now <= i64::from(valid_to) {
-            return Err(SettlementError::OrderNotReclaimable.into());
-        }
+    // Determine whether this order is reclaimable or not.
+    if !is_reclaimable(order_pda, reclaim_recipient, owner)? {
+        return Err(SettlementError::OrderNotReclaimable.into());
     }
 
     // Transfer the rent lamports to the reclaim_recipient account, then close the PDA.
@@ -61,26 +45,53 @@ pub fn process_reclaim_order(
     Ok(())
 }
 
-/// Determines whether the order may be reclaimed despite being unexpired
-fn is_reclaimable_before_expiry(
-    intent: &OrderIntentAccessor,
-    cancelled: bool,
-    fill: FillAmounts,
-) -> bool {
-    cancelled || {
-        let (filled, order_amount) = fill_progress(intent, fill);
-        filled >= order_amount.into()
+/// Determines whether the order may be closed now.
+fn is_reclaimable(
+    order_pda: &AccountView,
+    reclaim_recipient: &AccountView,
+    owner: Option<&AccountView>,
+) -> Result<bool, ProgramError> {
+    let order = OrderAccount::load_from_pda(order_pda, &ID)?;
+
+    // 0. The reclaim recipient always has to be correct.
+    if reclaim_recipient.address() != &order.created_by() {
+        return Err(SettlementError::ReclaimRecipientMismatch.into());
     }
+
+    let intent = OrderIntentAccessor::from_order(&order)?;
+
+    // 1. Anyone may reclaim a fully filled order even before it expires.
+    let (filled, order_amount) = fill_progress(&intent, order.filled_amounts());
+    if filled >= order_amount.into() {
+        return Ok(true);
+    }
+
+    // 2. Anyone may reclaim an expired order.
+    if Clock::get()?.unix_timestamp > i64::from(intent.valid_to()) {
+        return Ok(true);
+    }
+
+    // 3. Only the owner may reclaim a cancelled order. This protects against a delayed sponsored
+    // order from reopening a cancelled order by reclaiming.
+    if order.cancelled()? {
+        let owner = owner.ok_or(ProgramError::MissingRequiredSignature)?;
+        if !owner.is_signer() {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        if owner.address().as_array() != intent.owner() {
+            return Err(SettlementError::OwnerMismatch.into());
+        }
+        return Ok(true);
+    }
+
+    // 4. Nothing else permits reclaim.
+    Ok(false)
 }
 
 #[cfg(test)]
 mod tests {
-    use cow_settlement_interface::data::intent::Flags;
-    use cow_settlement_interface::data::intent::{
-        fixtures::sample_intent, EncodedOrderIntent, OrderIntent, OrderKind,
-    };
+    use cow_settlement_interface::data::intent::OrderIntent;
     use cow_settlement_interface::data::order::fixtures::OrderFields;
-    use cow_settlement_interface::fixtures::IntoNonZero;
     use cow_settlement_interface::instruction::{
         fixtures::{fake_account, fake_account_with_data, fake_sequential_accounts},
         reclaim_order::fixtures::{default_reclaim_data, NUM_ACCOUNTS},
@@ -99,7 +110,7 @@ mod tests {
         let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
 
         assert_eq!(
-            process_reclaim_order(&PROGRAM_ID, &mut accounts, &data),
+            process_reclaim_order(&mut accounts, &data),
             Err(ProgramError::InvalidInstructionData),
         );
     }
@@ -124,46 +135,8 @@ mod tests {
         let order_pda = fake_account_with_data(order_pda_address, &order_bytes[..]);
 
         assert_eq!(
-            process_reclaim_order(&PROGRAM_ID, &mut [order_pda, reclaim_recipient], &data),
+            process_reclaim_order(&mut [order_pda, reclaim_recipient], &data),
             Err(SettlementError::ReclaimRecipientMismatch.into()),
         );
-    }
-
-    #[test]
-    fn early_reclaim_conditions() {
-        const SELL_AMOUNT: u64 = 1_000;
-
-        let encoded = EncodedOrderIntent::from(&OrderIntent {
-            sell_amount: SELL_AMOUNT.nz(),
-            ..sample_intent(Flags {
-                kind: OrderKind::Sell,
-                partially_fillable: true,
-            })
-        });
-
-        // (cancelled, amount_withdrawn, expected)
-        let cases = [
-            // Cancelled or fully settled: reclaimable before expiry.
-            (true, 0, true),
-            (false, SELL_AMOUNT, true),
-            (true, SELL_AMOUNT, true),
-            // Active and not fully filled: only expiry makes it reclaimable.
-            (false, 0, false),
-            (false, SELL_AMOUNT - 1, false),
-        ];
-        for (cancelled, amount_withdrawn, expected) in cases {
-            assert_eq!(
-                is_reclaimable_before_expiry(
-                    &OrderIntentAccessor::attach(&encoded).expect("sample must attach"),
-                    cancelled,
-                    FillAmounts {
-                        withdrawn: amount_withdrawn,
-                        received: 0,
-                    },
-                ),
-                expected,
-                "cancelled={cancelled} amount_withdrawn={amount_withdrawn}",
-            );
-        }
     }
 }

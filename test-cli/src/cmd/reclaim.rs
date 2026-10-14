@@ -61,6 +61,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
                     program_id: ctx.program_id,
                     order_pda,
                     reclaim_recipient,
+                    owner: Some(ctx.payer.pubkey()),
                 }
                 .instruction(),
             ),
@@ -203,6 +204,7 @@ mod tests {
             program_id: PROGRAM_ID,
             order_pda: Pubkey::new_unique(),
             reclaim_recipient,
+            owner: None,
         }
         .instruction()
     }

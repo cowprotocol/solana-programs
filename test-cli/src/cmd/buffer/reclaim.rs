@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
@@ -9,7 +9,7 @@ use cow_settlement_client::{
 use solana_instruction::Instruction;
 use solana_sdk::{account::Account, signature::Signer};
 
-use super::{dedup, send};
+use super::send;
 use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::{print_failures, print_summary};
@@ -19,17 +19,19 @@ use crate::utils::token::{token_program_of, unpack_token_account};
 /// Most buffers that always fit into one transaction, reached when the
 /// buffers span both token programs and so need an instruction each, and the
 /// reclaim authority signs separately from the payer.
-const MAX_BUFFERS: usize = 12;
+const MAX_BUFFERS: usize = 11;
 
 #[derive(ClapArgs)]
 pub struct ReclaimArgs {
     /// The account receiving the closed buffers' rent
     target: Pubkey,
 
-    /// The buffer PDAs to close, at most 12 so they fit into one transaction.
-    /// Buffers still holding tokens are left open.
-    #[arg(required = true, num_args = 1..=MAX_BUFFERS)]
-    buffers: Vec<Pubkey>,
+    /// The buffer PDAs to close, at most 11 so they fit into one transaction.
+    /// Buffers holding more tokens than their burn limit are left open.
+    /// Specify just the buffer pubkey to close without burning, or if burning some
+    /// tokens is desired, use the syntax `<pubkey>:<max burn>`.
+    #[arg(required = true, num_args = 1..=MAX_BUFFERS, value_parser = BufferArg::parse)]
+    buffers: Vec<BufferArg>,
 
     /// Path to the reclaim-authority keypair, which must sign (defaults to the
     /// payer keypair)
@@ -47,43 +49,56 @@ pub struct ReclaimArgs {
     settlement_version: SettlementSeed,
 }
 
-/// Closes the empty buffers in a single transaction. Buffers holding tokens
-/// are left open and listed, as the program would skip them anyway. If any
-/// other buffer is bad, nothing is reclaimed and the offending buffers are
-/// summarized.
+/// Closes the buffers within their burn limit in a single transaction,
+/// burning what they hold. Buffers over their limit are left open and listed,
+/// as the program would skip them anyway. If any other buffer is bad, nothing
+/// is reclaimed and the offending buffers are summarized.
 pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     let reclaim_authority = read_keypair_or(args.reclaim_authority, &ctx.payer)?;
     let mut failures: Vec<(String, String)> = Vec::new();
 
-    let buffers = dedup(&args.buffers);
+    let addresses: Vec<Pubkey> = args.buffers.iter().map(|b| b.address).collect();
     let accounts = ctx
         .rpc
-        .get_multiple_accounts(&buffers)
+        .get_multiple_accounts(&addresses)
         .context("failed to fetch buffer accounts")?;
 
-    let mut by_program: HashMap<TokenProgram, Vec<(Pubkey, Pubkey)>> = HashMap::new();
+    let mut by_program: HashMap<TokenProgram, Vec<(Pubkey, Pubkey, u64)>> = HashMap::new();
     let mut to_close = Vec::new();
     let mut non_empty = Vec::new();
-    for (buffer, account) in buffers.iter().zip(accounts) {
+    for (i, (buffer, account)) in args.buffers.iter().zip(accounts).enumerate() {
+        let address = buffer.address;
+        if addresses[..i].contains(&address) {
+            failures.push((
+                address.to_string(),
+                "buffer listed more than once".to_string(),
+            ));
+            continue;
+        }
         let decoded = account
             .context("buffer account not found")
             .and_then(|account| {
-                decode_buffer(&account, buffer, &ctx.program_id, &args.settlement_version)
+                decode_buffer(
+                    &account,
+                    &address,
+                    &ctx.program_id,
+                    &args.settlement_version,
+                )
             });
         match decoded {
             Ok(Buffer {
-                amount: 0,
+                amount,
                 token_program,
                 mint,
-            }) => {
+            }) if amount <= buffer.max_burn => {
                 by_program
                     .entry(token_program)
                     .or_default()
-                    .push((*buffer, mint));
-                to_close.push(*buffer);
+                    .push((address, mint, buffer.max_burn));
+                to_close.push(address);
             }
-            Ok(Buffer { .. }) => non_empty.push(*buffer),
-            Err(e) => failures.push((buffer.to_string(), format!("{e:#}"))),
+            Ok(Buffer { .. }) => non_empty.push(address),
+            Err(e) => failures.push((address.to_string(), format!("{e:#}"))),
         }
     }
     if !failures.is_empty() {
@@ -91,7 +106,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
         anyhow::bail!(
             "{} of {} buffers are bad, nothing was reclaimed",
             failures.len(),
-            buffers.len()
+            args.buffers.len()
         );
     }
 
@@ -148,7 +163,7 @@ fn instructions(
     state_pda: &Pubkey,
     reclaim_authority: &Pubkey,
     target: &Pubkey,
-    by_program: &HashMap<TokenProgram, Vec<(Pubkey, Pubkey)>>,
+    by_program: &HashMap<TokenProgram, Vec<(Pubkey, Pubkey, u64)>>,
 ) -> Vec<Instruction> {
     by_program
         .iter()
@@ -164,6 +179,35 @@ fn instructions(
             .into()
         })
         .collect()
+}
+
+/// A buffer to close, and the most of its balance that may be burned to do so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct BufferArg {
+    address: Pubkey,
+    max_burn: u64,
+}
+
+impl BufferArg {
+    /// Parses `<pubkey>` (no burning) or `<pubkey>:<max burn>`.
+    fn parse(arg: &str) -> anyhow::Result<Self> {
+        let (address, max_burn) = match arg.split_once(':') {
+            Some((address, max_burn)) => (address, Some(max_burn)),
+            None => (arg, None),
+        };
+        // Clap prints only the top-level message, so causes go inline rather
+        // than as anyhow context.
+        let address = Pubkey::from_str(address)
+            .map_err(|e| anyhow::anyhow!("invalid buffer pubkey '{address}': {e}"))?;
+        let max_burn = max_burn
+            .map(|m| {
+                m.parse()
+                    .map_err(|e| anyhow::anyhow!("invalid max burn '{m}': {e}"))
+            })
+            .transpose()?
+            .unwrap_or(0);
+        Ok(Self { address, max_burn })
+    }
 }
 
 /// What closing a buffer depends on.
@@ -210,7 +254,7 @@ mod tests {
     const PROGRAM_ID: Pubkey = Pubkey::new_from_array([1; 32]);
     const PAYER: Pubkey = Pubkey::new_from_array([3; 32]);
 
-    /// Largest serialized transaction the network accepts
+    /// Largest serialized transaction the network accepts for legacy transactions
     /// (`solana_packet::PACKET_DATA_SIZE`).
     const MAX_TRANSACTION_SIZE: u64 = 1232;
 
@@ -246,8 +290,8 @@ mod tests {
     /// `len` buffers split across both token programs and a reclaim
     /// authority other than the payer, the costliest layout.
     fn split_instructions(len: usize) -> Vec<Instruction> {
-        let buffers: Vec<(Pubkey, Pubkey)> = (0..len)
-            .map(|_| (Pubkey::new_unique(), Pubkey::new_unique()))
+        let buffers: Vec<(Pubkey, Pubkey, u64)> = (0..len)
+            .map(|_| (Pubkey::new_unique(), Pubkey::new_unique(), u64::MAX))
             .collect();
         let (spl, token_2022) = buffers.split_at(1);
         let by_program = HashMap::from([
@@ -331,5 +375,48 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert_eq!(err, "account is not a token account");
+    }
+
+    #[test]
+    fn buffer_arg_defaults_to_no_burning() {
+        let arg = BufferArg::parse(&MINT.to_string()).unwrap();
+        assert_eq!(
+            arg,
+            BufferArg {
+                address: MINT,
+                max_burn: 0
+            }
+        );
+    }
+
+    #[test]
+    fn buffer_arg_reads_max_burn() {
+        let arg = BufferArg::parse(&format!("{MINT}:42")).unwrap();
+        assert_eq!(
+            arg,
+            BufferArg {
+                address: MINT,
+                max_burn: 42
+            }
+        );
+    }
+
+    #[test]
+    fn buffer_arg_rejects_bad_pubkey() {
+        let err = BufferArg::parse("nope:1").unwrap_err().to_string();
+        assert!(err.starts_with("invalid buffer pubkey 'nope': "), "{err}");
+    }
+
+    #[test]
+    fn buffer_arg_rejects_bad_max_burn() {
+        for max_burn in ["", "-1", "1.5", "18446744073709551616"] {
+            let err = BufferArg::parse(&format!("{MINT}:{max_burn}"))
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.starts_with(&format!("invalid max burn '{max_burn}': ")),
+                "{err}"
+            );
+        }
     }
 }

@@ -25,7 +25,9 @@ pub struct BufferArgs {
 enum BufferCommand {
     #[command(about = "Create the buffer PDA of each mint")]
     Create(CreateArgs),
-    #[command(about = "Close empty buffer PDAs and send their rent to a target account")]
+    #[command(
+        about = "Close buffer PDAs, burning up to a per-buffer limit, and send their rent to a target account"
+    )]
     Reclaim(ReclaimArgs),
 }
 
@@ -51,24 +53,4 @@ fn send(ctx: &Context, ixs: &[Instruction], signers: &[&Keypair]) -> anyhow::Res
     ctx.rpc
         .send_and_confirm_transaction(&tx)
         .context("transaction failed")
-}
-
-/// `items` with repeats removed, keeping the first occurrence of each.
-fn dedup<T: Copy + Eq + std::hash::Hash>(items: &[T]) -> Vec<T> {
-    let mut seen = std::collections::HashSet::new();
-    items
-        .iter()
-        .copied()
-        .filter(|item| seen.insert(*item))
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dedup_keeps_first_occurrences_in_order() {
-        assert_eq!(dedup(&[3, 1, 3, 2, 1]), [3, 1, 2]);
-    }
 }

@@ -9,7 +9,7 @@ use cow_settlement_client::{
 use solana_instruction::Instruction;
 use solana_sdk::{account::Account, signature::Signer};
 
-use super::{dedup, send};
+use super::send;
 use crate::cmd::Context;
 use crate::utils::output::{print_failures, print_summary};
 use crate::utils::token::{token_program_of, unpack_mint};
@@ -32,22 +32,21 @@ pub struct CreateArgs {
 pub fn run(ctx: Context, args: CreateArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
     let mut failures: Vec<(String, String)> = Vec::new();
-
-    let mints = dedup(&args.mints);
-    let buffers: Vec<Pubkey> = mints
+    let buffers: Vec<Pubkey> = args
+        .mints
         .iter()
         .map(|mint| find_buffer_pda(&ctx.program_id, mint).0)
         .collect();
     let accounts = ctx
         .rpc
-        .get_multiple_accounts(&[&mints[..], &buffers].concat())
+        .get_multiple_accounts(&[&args.mints[..], &buffers].concat())
         .context("failed to fetch mint and buffer accounts")?;
-    let (mint_accounts, buffer_accounts) = accounts.split_at(mints.len());
+    let (mint_accounts, buffer_accounts) = accounts.split_at(args.mints.len());
 
     let mut by_program: HashMap<TokenProgram, Vec<Pubkey>> = HashMap::new();
     let mut created = Vec::new();
     let mut existing = Vec::new();
-    for (i, mint) in mints.iter().enumerate() {
+    for (i, mint) in args.mints.iter().enumerate() {
         if buffer_accounts[i].is_some() {
             existing.push(buffers[i]);
             continue;
@@ -69,7 +68,7 @@ pub fn run(ctx: Context, args: CreateArgs) -> anyhow::Result<()> {
         anyhow::bail!(
             "{} of {} mints are bad, nothing was created",
             failures.len(),
-            mints.len()
+            args.mints.len()
         );
     }
 
