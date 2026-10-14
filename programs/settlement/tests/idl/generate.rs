@@ -55,12 +55,6 @@ const BUFFER_PDA_0: &[Seed] = &[
     Seed::Const(BUFFER_SEED),
 ];
 
-/// The native SOL buffer PDA, which isn't keyed by a mint.
-const NATIVE_SOL_BUFFER_PDA: &[Seed] = &[
-    Seed::Const(SETTLEMENT_SEED),
-    Seed::Const(NATIVE_SOL_BUFFER_SEED),
-];
-
 /// What the Rust source doesn't say about one instruction.
 struct Instruction {
     /// The discriminator variant naming it. The IDL calls the instruction by
