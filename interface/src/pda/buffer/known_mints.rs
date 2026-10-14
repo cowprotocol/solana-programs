@@ -67,3 +67,20 @@ pub const KNOWN_MINTS: [&str; 63] = [
     "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof",  // RENDER
     "zBTCug3er3tLyffELcvDNrKkCymbPWysGcWihESYfLg",  // zBTC
 ];
+
+#[cfg(test)]
+mod tests {
+    use solana_pubkey::Pubkey;
+
+    use super::*;
+
+    #[test]
+    fn every_known_mint_is_an_address() {
+        for mint in KNOWN_MINTS {
+            assert!(
+                mint.parse::<Pubkey>().is_ok(),
+                "{mint} is not a valid address"
+            );
+        }
+    }
+}
