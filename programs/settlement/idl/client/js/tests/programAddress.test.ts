@@ -60,7 +60,8 @@ describe("builders given another program address", async () => {
     },
     {
       name: "createBuffer",
-      build: () => getCreateBufferInstructionAsync({ payer: anySigner, mint0: mint0.address }, config),
+      build: () =>
+        getCreateBufferInstructionAsync({ payer: anySigner, mint0: mint0.address }, config),
     },
     {
       name: "createOrder",
@@ -91,7 +92,11 @@ describe("builders given another program address", async () => {
       name: "reclaimBuffer",
       build: () =>
         getReclaimBufferInstructionAsync(
-          { reclaimAuthority: anySigner, reclaimRecipient: anySigner.address, mint0: mint0.address },
+          {
+            reclaimAuthority: anySigner,
+            reclaimRecipient: anySigner.address,
+            mint0: mint0.address,
+          },
           config,
         ),
     },
