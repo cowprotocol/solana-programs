@@ -1,9 +1,7 @@
+use cow_settlement::pda::state::STATE_PDA;
 use cow_settlement_client::cow_settlement_interface::{
     instruction::create_buffer::CreateBuffers as CreateBuffersRaw,
-    pda::{
-        buffer::{buffer_pda_seeds, find_buffer_pda},
-        state::STATE_PDA,
-    },
+    pda::buffer::{buffer_pda_seeds, find_buffer_pda},
 };
 use cow_settlement_client::instruction::CreateBuffers;
 use cow_settlement_interface::token_program::TokenProgram;

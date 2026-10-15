@@ -1,15 +1,16 @@
+use cow_settlement::pda::buffer::NATIVE_SOL_BUFFER_PDA;
+use cow_settlement::pda::state::{STATE_PDA, STATE_PDA_AND_BUMP};
 use cow_settlement_client::cow_settlement_interface::{
     data::state::WIDTH_HEADER,
     instruction::initialize::{Initialize as InitializeRaw, INITIALIZER},
     pda::{
-        buffer::{find_native_sol_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_SEEDS},
-        state::{STATE_PDA, STATE_PDA_SEEDS},
+        buffer::{find_native_sol_buffer_pda, NATIVE_SOL_BUFFER_PDA_SEEDS},
+        state::STATE_PDA_SEEDS,
     },
     SettlementError,
 };
 use cow_settlement_client::instruction::Initialize;
 use cow_settlement_client::pda::state::DecodedStateAccount;
-use cow_settlement_interface::pda::state::STATE_PDA_AND_BUMP;
 use litesvm::LiteSVM;
 use solana_sdk::{
     instruction::{Instruction, InstructionError},

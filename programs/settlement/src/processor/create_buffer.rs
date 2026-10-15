@@ -5,8 +5,10 @@ use cow_settlement_interface::{
         create_buffer::{BufferAccounts, CreateBufferInput},
         InstructionInputParsing,
     },
-    pda::{buffer::buffer_pda_seeds, state::STATE_PDA},
+    pda::buffer::buffer_pda_seeds,
 };
+
+use crate::pda::state::STATE_PDA;
 use pinocchio::{AccountView, Address, ProgramResult};
 use pinocchio_token::instructions::InitializeAccount3;
 
@@ -65,11 +67,11 @@ pub fn process_create_buffer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pda::ID as PROGRAM_ID;
     use cow_settlement_interface::instruction::create_buffer::fixtures::{
         create_buffer_data, NUM_SHARED_ACCOUNTS,
     };
     use cow_settlement_interface::instruction::fixtures::fake_sequential_accounts;
-    use cow_settlement_interface::ID as PROGRAM_ID;
     use pinocchio::error::ProgramError;
 
     #[test]

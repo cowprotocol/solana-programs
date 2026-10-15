@@ -10,49 +10,22 @@
 //! this address, so every delegation has to be renewed after a
 //! bump.
 
-use solana_address::Address;
-use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::{pda::SETTLEMENT_SEED, SettlementError};
+use crate::pda::SETTLEMENT_SEED;
 
 /// Canonical seed components for the settlement state PDA.
 pub const STATE_PDA_SEEDS: [&[u8]; 1] = [SETTLEMENT_SEED];
 
-pub const STATE_PDA_AND_BUMP: ([u8; 32], u8) =
-    const_crypto::ed25519::derive_program_address(&STATE_PDA_SEEDS, crate::ID.as_array());
-
-/// The settlement state PDA under [`crate::ID`], derived at compile time so
-/// handlers compare against it instead of searching for it on-chain.
-pub const STATE_PDA: Address = Address::new_from_array(STATE_PDA_AND_BUMP.0);
-
-/// Seeds for signing as [`STATE_PDA`].
-pub const STATE_PDA_SIGNER_SEEDS: [&[u8]; 2] = {
-    let [s0] = STATE_PDA_SEEDS;
-    [s0, &[STATE_PDA_AND_BUMP.1]]
-};
-
-/// Derive the settlement state PDA address (and bump) under `program_id`,
-/// what [`STATE_PDA`] holds for [`crate::ID`].
+/// Derive the settlement state PDA address (and bump) under `program_id`.
 pub fn find_state_pda(program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&STATE_PDA_SEEDS, program_id)
-}
-
-/// Confirm `prospective_state_address` matches the settlement state PDA constant
-/// encoded in the program bytecode.
-#[inline]
-#[must_use = "ignoring the output means ignoring the validation result"]
-pub fn validate_is_state_pda(prospective_state_address: &[u8; 32]) -> Result<(), ProgramError> {
-    if prospective_state_address != &STATE_PDA_AND_BUMP.0 {
-        Err(SettlementError::StateAccountMismatch.into())
-    } else {
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::pubkey_from_seed;
     use crate::pda::tests::{assert_canonical_bump, assert_distinct_versions_yield_distinct_pdas};
 
     #[test]
@@ -61,37 +34,9 @@ mod tests {
     }
 
     #[test]
-    fn pinned_state_pda_is_canonical() {
-        let (pda, bump) = find_state_pda(&crate::ID);
-        assert_eq!(
-            STATE_PDA_AND_BUMP,
-            (*pda.as_array(), bump),
-            "const-crypto's compile-time derivation disagrees with the runtime canonical PDA (bump {bump})",
-        );
-    }
-
-    #[test]
-    fn signer_seeds_sign_for_the_pinned_state_pda() {
-        assert_eq!(
-            Pubkey::create_program_address(&STATE_PDA_SIGNER_SEEDS, &crate::ID),
-            Ok(STATE_PDA),
-        );
-    }
-
-    #[test]
-    fn accepts_the_state_pda() {
-        validate_is_state_pda(STATE_PDA.as_array()).expect("the state PDA itself must be accepted");
-    }
-
-    #[test]
-    fn rejects_any_other_address() {
-        let err = validate_is_state_pda(Pubkey::new_unique().as_array())
-            .expect_err("an address other than the state PDA must be rejected");
-        assert_eq!(err, SettlementError::StateAccountMismatch.into());
-    }
-
-    #[test]
     fn distinct_versions_yield_distinct_state_pdas() {
-        assert_distinct_versions_yield_distinct_pdas(&STATE_PDA, &[]);
+        let program_id = pubkey_from_seed("program id");
+        let (pda, _) = find_state_pda(&program_id);
+        assert_distinct_versions_yield_distinct_pdas(&program_id, &pda, &[]);
     }
 }

@@ -56,6 +56,7 @@ pub fn process_cancel_order(
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::ID as PROGRAM_ID;
     use cow_settlement_interface::data::intent::EncodedOrderIntent;
     use cow_settlement_interface::data::order::fixtures::{
         sample_order_fields, OrderFields, CANCELLED_OFFSET,
@@ -69,7 +70,6 @@ mod tests {
         fake_account, fake_account_owned_by, fake_sequential_accounts, fake_signer,
     };
     use cow_settlement_interface::pda::order::find_order_pda;
-    use cow_settlement_interface::ID as PROGRAM_ID;
 
     use super::*;
 

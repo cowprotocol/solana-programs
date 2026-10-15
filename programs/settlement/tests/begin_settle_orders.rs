@@ -28,12 +28,13 @@ use crate::common::{
     settlement::{build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token, unique_pubkey,
 };
+use cow_settlement::pda::state::STATE_PDA;
 use cow_settlement_client::cow_settlement_interface::{
     instruction::settle::{
         BeginSettle as BeginSettleRaw, FinalizeSettle as FinalizeSettleRaw,
         FINALIZE_FIXED_ACCOUNTS, INSTRUCTIONS_SYSVAR_ID, MINT_PLACEHOLDER,
     },
-    pda::{buffer::find_buffer_pda, order::find_order_pda, state::STATE_PDA},
+    pda::{buffer::find_buffer_pda, order::find_order_pda},
     Instruction, SettlementError, SettlementInstruction,
 };
 use cow_settlement_client::instruction::{

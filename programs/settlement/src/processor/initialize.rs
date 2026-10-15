@@ -6,13 +6,11 @@ use cow_settlement_interface::{
         initialize::{InitializeInput, INITIALIZER},
         InstructionInputParsing,
     },
-    pda::{
-        buffer::NATIVE_SOL_BUFFER_PDA_SEEDS,
-        state::{validate_is_state_pda, STATE_PDA_SEEDS},
-    },
+    pda::{buffer::NATIVE_SOL_BUFFER_PDA_SEEDS, state::STATE_PDA_SEEDS},
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
+use crate::pda::state::validate_is_state_pda;
 use crate::processor::utils::pda::CanonicalPda;
 
 pub fn process_initialize(

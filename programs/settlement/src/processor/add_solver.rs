@@ -9,7 +9,6 @@
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{add_solver::AddSolverInput, InstructionInputParsing},
-    pda::state::validate_is_state_pda,
     Role, SettlementError,
 };
 use pinocchio::{
@@ -17,6 +16,8 @@ use pinocchio::{
     AccountView, ProgramResult, Resize,
 };
 use pinocchio_system::instructions::Transfer;
+
+use crate::pda::state::validate_is_state_pda;
 
 pub fn process_add_solver(accounts: &mut [AccountView], instruction_data: &[u8]) -> ProgramResult {
     let AddSolverInput {

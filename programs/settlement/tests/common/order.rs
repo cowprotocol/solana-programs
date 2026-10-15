@@ -1,9 +1,9 @@
 //! On-chain order construction shared by the settlement integration tests.
 
+use cow_settlement::pda::state::STATE_PDA;
 use cow_settlement_client::cow_settlement_interface::data::intent::{
     Asset, Flags, OrderIntent, OrderKind, TokenAsset,
 };
-use cow_settlement_client::cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_client::instruction::{CreateOrder, CreateSettlementOwnedOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
 use cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
