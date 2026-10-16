@@ -215,7 +215,7 @@ fn resolve_from_mint(
 
 /// The token program owning `account`, rejecting anything the settlement
 /// program cannot move tokens with.
-fn token_program_of(account: &Account) -> anyhow::Result<TokenProgram> {
+pub(crate) fn token_program_of(account: &Account) -> anyhow::Result<TokenProgram> {
     let owner = *account.owner();
     TokenProgram::try_from(&owner).context(format!("{owner} is not a supported token program"))
 }
@@ -260,7 +260,7 @@ fn unpack_token_account(data: &[u8]) -> Result<TokenAccount, ProgramError> {
 
 /// Decode the base mint state, ignoring any any Token-2022 extensions. See
 /// [`unpack_token_account`].
-fn unpack_mint(data: &[u8]) -> Result<Mint, ProgramError> {
+pub(crate) fn unpack_mint(data: &[u8]) -> Result<Mint, ProgramError> {
     StateWithExtensions::<Mint>::unpack(data).map(|state| state.base)
 }
 
