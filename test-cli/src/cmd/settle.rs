@@ -401,7 +401,7 @@ fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result
 }
 
 /// Accept either a 64-char hex UID or a base58 pubkey (the PDA directly).
-fn parse_order_input(program_id: &Pubkey, s: &str) -> anyhow::Result<Pubkey> {
+pub(crate) fn parse_order_input(program_id: &Pubkey, s: &str) -> anyhow::Result<Pubkey> {
     if let Ok(pubkey) = s.parse::<Pubkey>() {
         return Ok(pubkey);
     }
