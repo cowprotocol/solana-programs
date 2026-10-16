@@ -9,9 +9,11 @@ use solana_sdk::{
     transaction::{Transaction, TransactionError},
 };
 
-use crate::cmd::settle::parse_order_input;
 use crate::cmd::Context;
-use crate::utils::output::{print_failures, print_summary};
+use crate::utils::{
+    output::{print_failures, print_summary},
+    parsing::parse_order_input,
+};
 
 /// Most orders that always fit into one transaction, reached when every order
 /// has its own creator, none of them the payer.
