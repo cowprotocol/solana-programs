@@ -9,6 +9,7 @@ use crate::Cli;
 pub mod authority;
 pub mod create_order;
 pub mod initialize;
+pub mod reclaim;
 pub mod settle;
 pub mod solver;
 
