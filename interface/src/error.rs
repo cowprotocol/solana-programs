@@ -179,3 +179,41 @@ impl From<SettlementError> for solana_instruction_error::InstructionError {
         Self::Custom(e.into())
     }
 }
+
+/// Recovers the settlement error from a failed instruction, handing back the
+/// original error if it isn't a known settlement error code.
+impl TryFrom<solana_instruction_error::InstructionError> for SettlementError {
+    type Error = solana_instruction_error::InstructionError;
+
+    fn try_from(e: solana_instruction_error::InstructionError) -> Result<Self, Self::Error> {
+        match e {
+            solana_instruction_error::InstructionError::Custom(code) => {
+                Self::try_from(code).map_err(|_| e)
+            }
+            _ => Err(e),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_instruction_error::InstructionError;
+
+    use super::*;
+
+    #[test]
+    fn try_from_instruction_error_decodes_custom_codes() {
+        assert_eq!(
+            SettlementError::try_from(InstructionError::from(SettlementError::OrderNotReclaimable)),
+            Ok(SettlementError::OrderNotReclaimable)
+        );
+        assert_eq!(
+            SettlementError::try_from(InstructionError::Custom(u32::MAX)),
+            Err(InstructionError::Custom(u32::MAX))
+        );
+        assert_eq!(
+            SettlementError::try_from(InstructionError::InvalidAccountData),
+            Err(InstructionError::InvalidAccountData)
+        );
+    }
+}
