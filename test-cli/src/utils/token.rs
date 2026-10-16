@@ -254,7 +254,7 @@ fn fetch_mint(rpc: &RpcClient, mint: &Pubkey) -> anyhow::Result<(TokenProgram, M
 /// Decode the base token-account state, ignoring any Token-2022 extensions.
 /// The legacy layout is the same data without the extension suffix, so this
 /// covers both token programs.
-fn unpack_token_account(data: &[u8]) -> Result<TokenAccount, ProgramError> {
+pub(crate) fn unpack_token_account(data: &[u8]) -> Result<TokenAccount, ProgramError> {
     StateWithExtensions::<TokenAccount>::unpack(data).map(|state| state.base)
 }
 
