@@ -39,6 +39,3 @@ spl-token-2022-interface.workspace = true
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-bincode.workspace = true
