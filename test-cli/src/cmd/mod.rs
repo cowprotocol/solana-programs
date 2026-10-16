@@ -16,7 +16,9 @@ use crate::utils::squads::Multisig;
 use crate::Cli;
 
 pub mod authority;
+pub mod create_multisig;
 pub mod create_order;
+pub mod grind_multisig;
 pub mod initialize;
 pub mod settle;
 pub mod solver;

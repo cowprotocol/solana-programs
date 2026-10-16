@@ -95,10 +95,20 @@ enum Commands {
     Solver(cmd::solver::SolverArgs),
     #[command(about = "Manage authorities (e.g. `cow authority transfer manager <address>`)")]
     Authority(cmd::authority::AuthorityArgs),
+    #[command(
+        about = "Find a Squads multisig create key whose vault or multisig address matches a pattern"
+    )]
+    GrindMultisig(cmd::grind_multisig::GrindMultisigArgs),
+    #[command(about = "Create a Squads multisig whose members can all propose, vote and execute")]
+    CreateMultisig(cmd::create_multisig::CreateMultisigArgs),
 }
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    // Grinding is offline, so it needs neither the keypair nor the RPC.
+    if let Commands::GrindMultisig(args) = cli.command {
+        return cmd::grind_multisig::run(args);
+    }
     let ctx = cmd::Context::from_args(&cli)?;
     match cli.command {
         Commands::Initialize(args) => cmd::initialize::run(ctx, args),
@@ -107,5 +117,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Settle(args) => cmd::settle::run(ctx, args),
         Commands::Solver(args) => cmd::solver::run(ctx, args),
         Commands::Authority(args) => cmd::authority::run(ctx, args),
+        Commands::CreateMultisig(args) => cmd::create_multisig::run(ctx, args),
+        Commands::GrindMultisig(_) => unreachable!("handled before building the context"),
     }
 }

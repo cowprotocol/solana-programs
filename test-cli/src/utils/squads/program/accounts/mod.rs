@@ -6,9 +6,11 @@
 //!
 
 pub(crate) mod r#multisig;
+pub(crate) mod r#program_config;
 pub(crate) mod r#proposal;
 pub(crate) mod r#vault_transaction;
 
 pub use self::r#multisig::*;
+pub use self::r#program_config::*;
 pub use self::r#proposal::*;
 pub use self::r#vault_transaction::*;

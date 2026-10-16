@@ -5,10 +5,12 @@
 //! <https://github.com/codama-idl/codama>
 //!
 
+pub(crate) mod r#multisig_create_v2;
 pub(crate) mod r#proposal_approve;
 pub(crate) mod r#proposal_create;
 pub(crate) mod r#vault_transaction_create;
 
+pub use self::r#multisig_create_v2::*;
 pub use self::r#proposal_approve::*;
 pub use self::r#proposal_create::*;
 pub use self::r#vault_transaction_create::*;

@@ -14,20 +14,26 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::message::Message;
 
 use program::accounts::{
-    Multisig as MultisigAccount, Proposal as ProposalAccount, VaultTransaction,
-    MULTISIG_DISCRIMINATOR, PROPOSAL_DISCRIMINATOR, VAULT_TRANSACTION_DISCRIMINATOR,
+    Multisig as MultisigAccount, ProgramConfig, Proposal as ProposalAccount, VaultTransaction,
+    MULTISIG_DISCRIMINATOR, PROGRAM_CONFIG_DISCRIMINATOR, PROPOSAL_DISCRIMINATOR,
+    VAULT_TRANSACTION_DISCRIMINATOR,
 };
 use program::instructions::{
-    ProposalApprove, ProposalApproveInstructionArgs, ProposalCreate, ProposalCreateInstructionArgs,
+    MultisigCreateV2, MultisigCreateV2InstructionArgs, ProposalApprove,
+    ProposalApproveInstructionArgs, ProposalCreate, ProposalCreateInstructionArgs,
     VaultTransactionCreate, VaultTransactionCreateInstructionArgs,
 };
 pub use program::programs::SQUADS_MULTISIG_PROGRAM_ID;
-use program::types::{MultisigCompiledInstruction, ProposalStatus, VaultTransactionMessage};
+use program::types::{
+    Member, MultisigCompiledInstruction, Permissions, ProposalStatus, VaultTransactionMessage,
+};
 
 #[allow(clippy::all, clippy::arithmetic_side_effects, unexpected_cfgs, unused)]
 pub mod program;
 
 const SEED_PREFIX: &[u8] = b"multisig";
+const SEED_MULTISIG: &[u8] = b"multisig";
+const SEED_PROGRAM_CONFIG: &[u8] = b"program_config";
 const SEED_VAULT: &[u8] = b"vault";
 const SEED_TRANSACTION: &[u8] = b"transaction";
 const SEED_PROPOSAL: &[u8] = b"proposal";
@@ -35,6 +41,7 @@ const SEED_PROPOSAL: &[u8] = b"proposal";
 /// `Permissions` mask bits a member needs to propose and to vote.
 const PERMISSION_INITIATE: u8 = 1 << 0;
 const PERMISSION_VOTE: u8 = 1 << 1;
+const PERMISSION_EXECUTE: u8 = 1 << 2;
 
 /// An on-chain Squads multisig.
 #[derive(Debug)]
@@ -112,12 +119,7 @@ impl Multisig {
     }
 
     pub fn vault(&self, vault_index: u8) -> Pubkey {
-        find_pda(&[
-            SEED_PREFIX,
-            self.address.as_ref(),
-            SEED_VAULT,
-            &[vault_index],
-        ])
+        vault_address(&self.address, vault_index)
     }
 
     fn transaction(&self, transaction_index: u64) -> Pubkey {
@@ -288,6 +290,72 @@ impl Multisig {
     }
 }
 
+/// Fetch the Squads program's global config, which sets the multisig creation
+/// fee and the treasury it's paid to.
+pub fn fetch_program_config(rpc: &RpcClient) -> anyhow::Result<ProgramConfig> {
+    let address = find_pda(&[SEED_PREFIX, SEED_PROGRAM_CONFIG]);
+    let data = rpc
+        .get_account_data(&address)
+        .with_context(|| format!("failed to fetch Squads program config {address}"))?;
+    decode(&data, &PROGRAM_CONFIG_DISCRIMINATOR).context("malformed Squads program config")
+}
+
+/// The instruction creating an autonomous multisig at `create_key`, paid for
+/// by `creator`. Every member may propose, vote and execute, and rent from
+/// closed transactions is reclaimed to vault 0.
+pub fn multisig_create_ix(
+    config: &ProgramConfig,
+    create_key: &Pubkey,
+    creator: &Pubkey,
+    members: &[Pubkey],
+    threshold: u16,
+) -> anyhow::Result<Instruction> {
+    anyhow::ensure!(
+        (1..=members.len()).contains(&usize::from(threshold)),
+        "the threshold must be between 1 and the number of members ({})",
+        members.len()
+    );
+    let mut sorted = members.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    anyhow::ensure!(sorted.len() == members.len(), "members must be distinct");
+
+    let multisig = multisig_address(create_key);
+    Ok(MultisigCreateV2 {
+        program_config: find_pda(&[SEED_PREFIX, SEED_PROGRAM_CONFIG]),
+        treasury: config.treasury,
+        multisig,
+        create_key: *create_key,
+        creator: *creator,
+        system_program: solana_system_interface::program::ID,
+    }
+    .instruction(MultisigCreateV2InstructionArgs {
+        config_authority: None,
+        threshold,
+        members: members
+            .iter()
+            .map(|&key| Member {
+                key,
+                permissions: Permissions {
+                    mask: PERMISSION_INITIATE | PERMISSION_VOTE | PERMISSION_EXECUTE,
+                },
+            })
+            .collect(),
+        time_lock: 0,
+        rent_collector: Some(vault_address(&multisig, 0)),
+        memo: None,
+    }))
+}
+
+/// The multisig that `multisig_create_v2` creates at `create_key`.
+pub fn multisig_address(create_key: &Pubkey) -> Pubkey {
+    find_pda(&[SEED_PREFIX, SEED_MULTISIG, create_key.as_ref()])
+}
+
+pub fn vault_address(multisig: &Pubkey, vault_index: u8) -> Pubkey {
+    find_pda(&[SEED_PREFIX, multisig.as_ref(), SEED_VAULT, &[vault_index]])
+}
+
 fn find_pda(seeds: &[&[u8]]) -> Pubkey {
     Pubkey::find_program_address(seeds, &SQUADS_MULTISIG_PROGRAM_ID).0
 }
@@ -395,7 +463,6 @@ fn transaction_message(message: &VaultTransactionMessage) -> anyhow::Result<Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use program::types::{Member, Permissions};
     use solana_instruction::AccountMeta;
 
     const VOTER: u8 = PERMISSION_INITIATE | PERMISSION_VOTE;
@@ -481,6 +548,98 @@ mod tests {
             Multisig::decode(expected.address, &SQUADS_MULTISIG_PROGRAM_ID, &data).unwrap();
         assert_eq!(decoded.address, expected.address);
         assert_eq!(decoded.account, expected.account);
+    }
+
+    #[test]
+    fn derives_multisig_from_create_key() {
+        // A multisig on mainnet and the `create_key` stored in its account.
+        let create_key: Pubkey = "A3dcnfXV1sEMBK98Mjy9ECGzcLcaBj5Y24zcdA6L5Yf"
+            .parse()
+            .unwrap();
+        let multisig: Pubkey = "2hEa7H3w53crQTC2yrmr9gjCRrzAUioVAMpf7rhvog4E"
+            .parse()
+            .unwrap();
+        assert_eq!(multisig_address(&create_key), multisig);
+    }
+
+    fn program_config() -> ProgramConfig {
+        ProgramConfig {
+            discriminator: PROGRAM_CONFIG_DISCRIMINATOR,
+            authority: Pubkey::new_unique(),
+            multisig_creation_fee: 0,
+            treasury: Pubkey::new_unique(),
+            reserved: [0; 64],
+        }
+    }
+
+    #[test]
+    fn creates_multisig_with_full_permission_members() {
+        let config = program_config();
+        let (create_key, creator) = (Pubkey::new_unique(), Pubkey::new_unique());
+        let members = [Pubkey::new_unique(), Pubkey::new_unique()];
+        let ix = multisig_create_ix(&config, &create_key, &creator, &members, 2).unwrap();
+
+        let accounts: Vec<_> = ix
+            .accounts
+            .iter()
+            .map(|meta| (meta.pubkey, meta.is_signer, meta.is_writable))
+            .collect();
+        assert_eq!(
+            accounts,
+            [
+                (find_pda(&[SEED_PREFIX, SEED_PROGRAM_CONFIG]), false, false),
+                (config.treasury, false, true),
+                (multisig_address(&create_key), false, true),
+                (create_key, true, false),
+                (creator, true, true),
+                (solana_system_interface::program::ID, false, false),
+            ]
+        );
+
+        let args = MultisigCreateV2InstructionArgs::try_from_slice(&ix.data[8..]).unwrap();
+        assert_eq!(
+            args,
+            MultisigCreateV2InstructionArgs {
+                config_authority: None,
+                threshold: 2,
+                members: members.iter().map(|&key| member(key, 0b111)).collect(),
+                time_lock: 0,
+                rent_collector: Some(vault_address(&multisig_address(&create_key), 0)),
+                memo: None,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_unreachable_thresholds() {
+        let members = [Pubkey::new_unique(), Pubkey::new_unique()];
+        for threshold in [0, 3] {
+            let err = multisig_create_ix(
+                &program_config(),
+                &Pubkey::new_unique(),
+                &Pubkey::new_unique(),
+                &members,
+                threshold,
+            )
+            .unwrap_err()
+            .to_string();
+            assert!(err.contains("threshold must be between 1 and"), "{err}");
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_members() {
+        let member = Pubkey::new_unique();
+        let err = multisig_create_ix(
+            &program_config(),
+            &Pubkey::new_unique(),
+            &Pubkey::new_unique(),
+            &[member, Pubkey::new_unique(), member],
+            1,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("members must be distinct"), "{err}");
     }
 
     #[test]
