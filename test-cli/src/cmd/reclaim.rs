@@ -15,16 +15,10 @@ use crate::utils::{
     parsing::parse_order_input,
 };
 
-/// Most orders that always fit into one transaction, reached when every order
-/// has its own creator, none of them the payer.
-/// If the settlement program or the solana protocol changes, this constant may need
-/// to be updated.
-const MAX_ORDERS: usize = 15;
-
 #[derive(ClapArgs)]
 pub struct ReclaimArgs {
     /// The orders to close, each a base58 order PDA or a 64-char hex UID.
-    #[arg(required = true, num_args = 1..=MAX_ORDERS)]
+    #[arg(required = true)]
     orders: Vec<String>,
 }
 
