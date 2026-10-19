@@ -23,7 +23,6 @@ pub struct CreateArgs {
     mints: Vec<Pubkey>,
 }
 
-/// Parses a [`BufferArg`], which a new buffer has nothing to burn from.
 fn parse_mint(arg: &str) -> anyhow::Result<Pubkey> {
     let BufferArg { address, max_burn } = BufferArg::parse(arg)?;
     anyhow::ensure!(
