@@ -12,37 +12,33 @@ use solana_sdk::{
 use crate::cmd::Context;
 use crate::utils::{
     output::{print_failures, print_summary},
-    parsing::parse_order_input,
+    parsing::OrderArg,
 };
 
 #[derive(ClapArgs)]
 pub struct ReclaimArgs {
     /// The orders to close, each a base58 order PDA or a 64-char hex UID.
-    #[arg(required = true)]
-    orders: Vec<String>,
+    #[arg(required = true, value_parser = OrderArg::parse)]
+    orders: Vec<OrderArg>,
 }
 
-/// Reclaims the orders in a single transaction. Errors if any of the
-/// input is not a order pda or uid, the order's reclaim recipients
-/// couldn't be read, or the account is not owned by the settlement program.
+/// Reclaims the orders in a single transaction. Errors if the order's reclaim
+/// recipients couldn't be read, or the account is not owned by the settlement
+/// program.
 pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
-    let mut failures: Vec<(&str, String)> = Vec::new();
+    let mut failures: Vec<(String, String)> = Vec::new();
 
-    let mut orders = Vec::new();
-    for input in &args.orders {
-        match parse_order_input(&ctx.program_id, input) {
-            Ok(pda) => orders.push((input.as_str(), pda)),
-            Err(e) => failures.push((input, format!("{e:#}"))),
-        }
-    }
-
-    let pdas: Vec<Pubkey> = orders.iter().map(|(_, pda)| *pda).collect();
+    let orders = &args.orders;
+    let pdas: Vec<Pubkey> = orders
+        .iter()
+        .map(|order| order.pda(&ctx.program_id))
+        .collect();
     let accounts = ctx
         .rpc
         .get_multiple_accounts(&pdas)
         .context("failed to fetch order accounts")?;
     let mut ixs = Vec::new();
-    for (&(input, order_pda), account) in orders.iter().zip(accounts) {
+    for ((order, &order_pda), account) in orders.iter().zip(&pdas).zip(accounts) {
         let recipient = account
             .context("order account not found")
             .and_then(|account| {
@@ -59,7 +55,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
                 }
                 .instruction(),
             ),
-            Err(e) => failures.push((input, format!("{e:#}"))),
+            Err(e) => failures.push((order.to_string(), format!("{e:#}"))),
         }
     }
     if !failures.is_empty() {
@@ -85,12 +81,12 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
         // Every input made it into `orders`, so instruction `index` reclaims
         // order input `index`.
         if let Some(TransactionError::InstructionError(index, err)) = e.get_transaction_error() {
-            if let Some(&(input, _)) = orders.get(usize::from(index)) {
+            if let Some(order) = orders.get(usize::from(index)) {
                 let reason = match SettlementError::try_from(err) {
                     Ok(err) => format!("{err:?}"),
                     Err(err) => err.to_string(),
                 };
-                print_failures(&[(input, reason)]);
+                print_failures(&[(order.to_string(), reason)]);
             }
         }
         anyhow::Error::new(e).context("transaction failed, nothing was reclaimed")
