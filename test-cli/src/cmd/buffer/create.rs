@@ -11,7 +11,7 @@ use solana_sdk::{account::Account, signature::Signer};
 
 use super::send;
 use crate::cmd::Context;
-use crate::utils::output::{print_failures, print_summary};
+use crate::utils::output::print_summary;
 use crate::utils::parsing::BufferArg;
 use crate::utils::token::{token_program_of, unpack_mint};
 
@@ -34,10 +34,9 @@ fn parse_mint(arg: &str) -> anyhow::Result<Pubkey> {
 }
 
 /// Creates the missing buffers in a single transaction. If any mint is not associated
-/// with a supported token program, no transaction is created and the offending PDAs are shown.
+/// with a supported token program, no transaction is created and the first offending mint is shown.
 pub fn run(ctx: Context, args: CreateArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    let mut failures: Vec<(String, String)> = Vec::new();
     let buffers: Vec<Pubkey> = args
         .mints
         .iter()
@@ -60,22 +59,10 @@ pub fn run(ctx: Context, args: CreateArgs) -> anyhow::Result<()> {
         let token_program = mint_accounts[i]
             .as_ref()
             .context("mint account not found")
-            .and_then(mint_token_program);
-        match token_program {
-            Ok(token_program) => {
-                by_program.entry(token_program).or_default().push(*mint);
-                created.push(buffers[i]);
-            }
-            Err(e) => failures.push((mint.to_string(), format!("{e:#}"))),
-        }
-    }
-    if !failures.is_empty() {
-        print_failures(&failures);
-        anyhow::bail!(
-            "{} of {} mints are bad, nothing was created",
-            failures.len(),
-            args.mints.len()
-        );
+            .and_then(mint_token_program)
+            .with_context(|| format!("bad mint {mint}, nothing was created"))?;
+        by_program.entry(token_program).or_default().push(*mint);
+        created.push(buffers[i]);
     }
 
     let sig = if created.is_empty() {

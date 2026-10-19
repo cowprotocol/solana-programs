@@ -26,8 +26,6 @@ pub struct ReclaimArgs {
 /// recipients couldn't be read, or the account is not owned by the settlement
 /// program.
 pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
-    let mut failures: Vec<(String, String)> = Vec::new();
-
     let orders = &args.orders;
     let pdas: Vec<Pubkey> = orders
         .iter()
@@ -39,31 +37,21 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
         .context("failed to fetch order accounts")?;
     let mut ixs = Vec::new();
     for ((order, &order_pda), account) in orders.iter().zip(&pdas).zip(accounts) {
-        let recipient = account
+        let reclaim_recipient = account
             .context("order account not found")
             .and_then(|account| {
                 reclaim_recipient(&account, &ctx.program_id)
                     .with_context(|| format!("not an order of {}", ctx.program_id))
-            });
-        match recipient {
-            Ok(reclaim_recipient) => ixs.push(
-                ReclaimOrder {
-                    program_id: ctx.program_id,
-                    order_pda,
-                    reclaim_recipient,
-                    owner: Some(ctx.payer.pubkey()),
-                }
-                .instruction(),
-            ),
-            Err(e) => failures.push((order.to_string(), format!("{e:#}"))),
-        }
-    }
-    if !failures.is_empty() {
-        print_failures(&failures);
-        anyhow::bail!(
-            "{} of {} orders are bad, nothing was reclaimed",
-            failures.len(),
-            args.orders.len()
+            })
+            .with_context(|| format!("bad order {order}, nothing was reclaimed"))?;
+        ixs.push(
+            ReclaimOrder {
+                program_id: ctx.program_id,
+                order_pda,
+                reclaim_recipient,
+                owner: Some(ctx.payer.pubkey()),
+            }
+            .instruction(),
         );
     }
 
@@ -78,8 +66,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
         blockhash,
     );
     let sig = ctx.rpc.send_and_confirm_transaction(&tx).map_err(|e| {
-        // Every input made it into `orders`, so instruction `index` reclaims
-        // order input `index`.
+        // If the transaction failed, try to introspect and neatly print out the failing error
         if let Some(TransactionError::InstructionError(index, err)) = e.get_transaction_error() {
             if let Some(order) = orders.get(usize::from(index)) {
                 let reason = match SettlementError::try_from(err) {
