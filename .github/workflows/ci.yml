@@ -110,6 +110,17 @@ jobs:
           COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
         run: just fmt-check-js-client
 
+      - name: Squads client is up to date
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: |
+          just generate-squads-client
+          if [ -n "$(git status --porcelain test-cli/src/utils/squads/program)" ]; then
+            git status --porcelain test-cli/src/utils/squads/program
+            echo "the generated Squads client is stale. run 'just generate-squads-client' and commit the result" >&2
+            exit 1
+          fi
+
   lint:
     runs-on: ubuntu-latest
     steps:
