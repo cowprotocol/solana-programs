@@ -945,7 +945,6 @@ name = "cow-test-cli"
 version = "0.5.2"
 dependencies = [
  "anyhow",
- "bincode",
  "clap",
  "cow-settlement-client",
  "solana-commitment-config",

@@ -2,6 +2,7 @@
 
 pub mod keypair;
 pub mod output;
+pub mod parsing;
 pub mod pda;
 pub mod spl_instructions;
 pub mod token;
