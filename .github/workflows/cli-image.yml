@@ -9,7 +9,7 @@ on:
 permissions: {}
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/cow-cli
+  IMAGE: ghcr.io/${{ github.repository_owner }}/cow-solana-cli
 
 jobs:
   build:
