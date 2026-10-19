@@ -21,7 +21,7 @@ use solana_sdk::{
 use std::collections::{HashMap, HashSet};
 
 use crate::utils::{
-    parsing::parse_order_input,
+    parsing::OrderArg,
     token::{resolve_from_token_account, TokenAccountInfo},
 };
 
@@ -31,8 +31,8 @@ use super::Context;
 pub struct SettleArgs {
     /// Order UIDs (64-char hex) or PDA addresses (base58), one or more
     /// The order accounts are expected to have already been created on-chain (i.e. the CLI will not create the orders for you)
-    #[arg(required = true, num_args = 1..)]
-    orders: Vec<String>,
+    #[arg(required = true, num_args = 1.., value_parser = OrderArg::parse)]
+    orders: Vec<OrderArg>,
 
     /// Build and print the settlement without sending the transaction on-chain
     #[arg(long)]
@@ -227,7 +227,7 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
     let intents = args
         .orders
         .iter()
-        .map(|s| fetch_order_intent(&ctx.rpc, ctx, s))
+        .map(|order| fetch_order_intent(&ctx.rpc, ctx, order))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     intents
@@ -388,8 +388,12 @@ fn print_settlement_summary(outcome: &SettleOutcome, intents: &[ResolvedIntent])
     }
 }
 
-fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result<OrderIntent> {
-    let pda = parse_order_input(&ctx.program_id, s)?;
+fn fetch_order_intent(
+    rpc: &RpcClient,
+    ctx: &Context,
+    order: &OrderArg,
+) -> anyhow::Result<OrderIntent> {
+    let pda = order.pda(&ctx.program_id);
     let data = rpc
         .get_account_data(&pda)
         .with_context(|| format!("failed to get order account data for {pda}"))?;
