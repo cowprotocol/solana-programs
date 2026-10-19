@@ -66,9 +66,11 @@ impl SettleOutcome {
             Self::Proposed(Proposed {
                 transaction_index,
                 proposal,
+                created,
                 ..
             }) => {
-                format!("settle: proposed as Squads transaction {transaction_index} ({proposal})")
+                let action = if *created { "proposed as" } else { "approved" };
+                format!("settle: {action} Squads transaction {transaction_index} ({proposal})")
             }
             Self::Simulated { units_consumed } => {
                 format!("settle: dry run (simulated success, {units_consumed} CU)")
