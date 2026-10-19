@@ -1,7 +1,7 @@
 //! `Initialize` instruction builder.
 //!
 //! Allocates the singleton settlement state PDA (see [`crate::pda::state`])
-//! and the native SOL buffer (see [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`]).
+//! and the native SOL buffer (see [`crate::pda::buffer::find_native_sol_buffer_pda`]).
 
 use core::mem::size_of;
 
@@ -27,9 +27,11 @@ pub const INITIALIZER: Pubkey =
 /// deployment and never deallocated, so there's no need for a dedicated
 /// funding account separate from whoever pays for the deployment transaction.
 ///
-/// `state_pda` must be [`crate::pda::state::STATE_PDA`] and
-/// `native_sol_buffer` must be [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`];
-/// the program rejects any other address.
+/// `state_pda` must be the settlement state PDA (see
+/// [`crate::pda::state::find_state_pda`]) and `native_sol_buffer` must be the
+/// native SOL buffer PDA (see
+/// [`crate::pda::buffer::find_native_sol_buffer_pda`]); the program rejects any
+/// other address.
 ///
 /// All data input accounts are recorded verbatim in the state PDA's data: the
 /// account authorized to transfer any role, the account authorized to add and
@@ -44,8 +46,9 @@ pub const INITIALIZER: Pubkey =
 /// Wire format: `[discriminator=3, manager (32 bytes), solver_authority (32
 /// bytes), reclaim_authority (32 bytes), settlement_owned_order_authority (32
 /// bytes)]`, 129 bytes. Required accounts: `[payer (W,S), state_pda (W),
-/// native_sol_buffer (W), system_program (R)]`. The system program must be available for the
-/// `CreateAccount` CPI but doesn't need to sit at that specific position.
+/// native_sol_buffer (W), system_program (R)]`. The system program must be
+/// available for the `CreateAccount` CPI but doesn't need to sit at that
+/// specific position.
 pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,

@@ -614,10 +614,15 @@ mod tests {
     }
 
     mod load_from_pda {
+        use std::sync::LazyLock;
+
         use super::*;
+        use crate::fixtures::pubkey_from_seed;
         use crate::instruction::fixtures::fake_account_with_data;
         use crate::pda::order::find_order_pda;
-        use crate::ID as PROGRAM_ID;
+
+        static PROGRAM_ID: LazyLock<Pubkey> =
+            LazyLock::new(|| pubkey_from_seed("tests::load_from_pda's arbitrary program id"));
 
         /// [`sample_order_bytes`] carrying its own canonical bump, plus the
         /// address of the PDA it belongs at.

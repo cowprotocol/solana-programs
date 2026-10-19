@@ -1,10 +1,11 @@
 //! Integration tests for withdrawing lamports from the native SOL buffer.
 
+use cow_settlement::pda::buffer::NATIVE_SOL_BUFFER_PDA;
+use cow_settlement::pda::state::STATE_PDA;
 use cow_settlement_client::instruction::WithdrawNativeSol;
 use cow_settlement_interface::{
-    instruction::withdraw_native_sol::WithdrawNativeSol as WithdrawNativeSolRaw,
-    pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::STATE_PDA},
-    Instruction, SettlementError,
+    instruction::withdraw_native_sol::WithdrawNativeSol as WithdrawNativeSolRaw, Instruction,
+    SettlementError,
 };
 use solana_sdk::signature::Signer;
 

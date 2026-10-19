@@ -1,8 +1,7 @@
 //! Buffer-account helpers for the settlement integration tests.
 
-use cow_settlement_client::cow_settlement_interface::pda::buffer::{
-    find_buffer_pda, NATIVE_SOL_BUFFER_PDA,
-};
+use cow_settlement::pda::buffer::NATIVE_SOL_BUFFER_PDA;
+use cow_settlement_client::cow_settlement_interface::pda::buffer::find_buffer_pda;
 use cow_settlement_client::cow_settlement_interface::Instruction;
 use cow_settlement_client::instruction::CreateBuffers;
 use cow_settlement_interface::token_program::TokenProgram;

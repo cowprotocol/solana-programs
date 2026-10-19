@@ -58,7 +58,7 @@ struct Cli {
     keypair: String,
 
     /// Settlement program ID
-    #[arg(long, global = true, default_value_t = cow_settlement_client::cow_settlement_interface::ID)]
+    #[arg(long, global = true, default_value_t = cow_settlement_client::cow_settlement_interface::PROD_ID)]
     program_id: Pubkey,
 
     /// Propose transactions to this Squads multisig instead of sending them,

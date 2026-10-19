@@ -10,13 +10,12 @@ use crate::common::{
     },
     setup_settle_ready, token, unique_pubkey,
 };
+use cow_settlement::pda::buffer::{NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP};
+use cow_settlement::pda::state::STATE_PDA;
 use cow_settlement_client::cow_settlement_interface::{
     data::intent::{Asset, OrderIntent, OrderKind},
     instruction::settle::FinalizeSettle as FinalizeSettleRaw,
-    pda::{
-        buffer::{find_buffer_pda, NATIVE_SOL_BUFFER_PDA, NATIVE_SOL_BUFFER_PDA_AND_BUMP},
-        state::STATE_PDA,
-    },
+    pda::buffer::find_buffer_pda,
     SettlementError,
 };
 use cow_settlement_client::instruction::FinalizedIntent;

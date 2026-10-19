@@ -1,9 +1,10 @@
 //! `ReclaimOrder` instruction handler.
 
+use crate::pda::ID;
 use cow_settlement_interface::{
     data::order::OrderAccount,
     instruction::{reclaim_order::ReclaimOrderInput, InstructionInputParsing},
-    SettlementError, ID,
+    SettlementError,
 };
 use pinocchio::{
     error::ProgramError,
@@ -90,6 +91,7 @@ fn is_reclaimable(
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::ID as PROGRAM_ID;
     use cow_settlement_interface::data::intent::OrderIntent;
     use cow_settlement_interface::data::order::fixtures::OrderFields;
     use cow_settlement_interface::instruction::{
@@ -98,7 +100,6 @@ mod tests {
     };
     use cow_settlement_interface::pda::order::find_order_pda;
     use cow_settlement_interface::SettlementInstruction;
-    use cow_settlement_interface::ID as PROGRAM_ID;
     use pinocchio::Address;
 
     use super::*;

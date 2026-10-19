@@ -21,9 +21,9 @@ pub mod token_2022;
 )]
 pub(crate) use active_token::also_under_token_2022;
 
+use cow_settlement::pda::state::STATE_PDA;
 use cow_settlement_client::instruction::{AddSolver, Initialize};
 use cow_settlement_interface::instruction::initialize::INITIALIZER;
-use cow_settlement_interface::pda::state::STATE_PDA;
 use cow_settlement_interface::Instruction;
 use litesvm::{types::TransactionMetadata, LiteSVM};
 use solana_sdk::{
@@ -79,7 +79,7 @@ pub fn unique_keypair() -> Keypair {
 /// payer keypair.
 pub fn setup() -> (LiteSVM, Pubkey, Keypair) {
     let mut svm = LiteSVM::new();
-    let program_id = cow_settlement_interface::ID;
+    let program_id = cow_settlement::pda::ID;
     svm.add_program_from_file(program_id, PROGRAM_SO)
         .expect("compiled program .so not found, run `just build-program` first");
 

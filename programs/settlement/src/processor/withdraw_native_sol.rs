@@ -6,10 +6,10 @@
 //! buffer always stays alive and a balance that shrank since the transaction
 //! was built lowers the payout instead of reverting it.
 
+use crate::pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::validate_is_state_pda};
 use cow_settlement_interface::{
     data::state::StateAccount,
     instruction::{withdraw_native_sol::WithdrawNativeSolInput, InstructionInputParsing},
-    pda::{buffer::NATIVE_SOL_BUFFER_PDA, state::validate_is_state_pda},
     Pubkey, Role, SettlementError,
 };
 use pinocchio::{
@@ -65,6 +65,7 @@ pub fn process_withdraw_native_sol(
 
 #[cfg(test)]
 mod tests {
+    use crate::pda::state::STATE_PDA;
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::StateInitArgs;
     use cow_settlement_interface::fixtures::pubkey_from_seed;
@@ -74,7 +75,6 @@ mod tests {
     use cow_settlement_interface::instruction::withdraw_native_sol::fixtures::{
         withdraw_native_sol_data, NUM_ACCOUNTS,
     };
-    use cow_settlement_interface::pda::state::STATE_PDA;
     use pinocchio::error::ProgramError;
     use std::sync::LazyLock;
 

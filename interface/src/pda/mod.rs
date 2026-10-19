@@ -205,13 +205,14 @@ mod tests {
     /// results in the expected PDA on the current version.
     #[track_caller]
     pub(crate) fn assert_distinct_versions_yield_distinct_pdas(
+        program_id: &Pubkey,
         cur_version_pda: &Pubkey,
         trailing_seeds: &[&[u8]],
     ) {
         let mut cur_version_seeds: Vec<&[u8]> = vec![&SETTLEMENT_SEED];
         cur_version_seeds.extend_from_slice(trailing_seeds);
         let (cur_version_derived_pda, _) =
-            Pubkey::find_program_address(&cur_version_seeds, &crate::ID);
+            Pubkey::find_program_address(&cur_version_seeds, program_id);
         assert_eq!(cur_version_pda, &cur_version_derived_pda);
 
         let mut seen_pdas = HashSet::new();
@@ -220,7 +221,7 @@ mod tests {
             let mut seeds: Vec<&[u8]> = vec![&other_seed];
             seeds.extend_from_slice(trailing_seeds);
 
-            let (other_pda, _) = Pubkey::find_program_address(&seeds, &crate::ID);
+            let (other_pda, _) = Pubkey::find_program_address(&seeds, program_id);
             assert!(seen_pdas.insert(other_pda));
         }
     }

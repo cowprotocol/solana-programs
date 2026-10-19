@@ -18,12 +18,13 @@ use crate::common::{
     settlement::{build_matching_settlement, build_settlement, BEGIN_INDEX, FINALIZE_INDEX},
     setup_settle_ready, token, unique_pubkey,
 };
+use cow_settlement::pda::state::STATE_PDA;
 use cow_settlement_client::instruction::{FinalizeSettle, FinalizedIntent};
 use cow_settlement_client::{
     cow_settlement_interface::{
         data::intent::{Asset, OrderIntent, TokenAsset},
         instruction::settle::FINALIZE_FIXED_ACCOUNTS,
-        pda::{buffer::KNOWN_MINTS, state::STATE_PDA},
+        pda::buffer::KNOWN_MINTS,
         Instruction, SettlementError,
     },
     instruction::TokenProgram,

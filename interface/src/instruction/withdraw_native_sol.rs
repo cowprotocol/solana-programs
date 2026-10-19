@@ -1,7 +1,7 @@
 //! `WithdrawNativeSol` instruction builder and parser.
 //!
 //! Moves lamports out of the native SOL buffer (see
-//! [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`]) to a `recipient` of the
+//! [`crate::pda::buffer::find_native_sol_buffer_pda`]) to a `recipient` of the
 //! caller's choosing. Only the settlement's configured
 //! `settlement_owned_order_authority` (see
 //! [`crate::data::state::StateAccount`]) may authorize this.
@@ -25,11 +25,12 @@ use crate::SettlementInstruction;
 
 /// Builder for a `WithdrawNativeSol` instruction.
 ///
-/// `state_pda` must be [`crate::pda::state::STATE_PDA`]. `authority` must sign
-/// and must match the `settlement_owned_order_authority` recorded in the state
-/// PDA's data. `native_sol_buffer` must be
-/// [`crate::pda::buffer::NATIVE_SOL_BUFFER_PDA`]. `recipient` receives up to
-/// `amount` lamports, capped to the buffer's balance above rent.
+/// `state_pda` must be the settlement state PDA (see
+/// [`crate::pda::state::find_state_pda`]). `authority` must sign and must match
+/// the `settlement_owned_order_authority` recorded in the state PDA's data.
+/// `native_sol_buffer` must be the native SOL buffer PDA (see
+/// [`crate::pda::buffer::find_native_sol_buffer_pda`]). `recipient` receives up
+/// to `amount` lamports, capped to the buffer's balance above rent.
 pub struct WithdrawNativeSol {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,

@@ -2,6 +2,7 @@
 
 use std::ops::Deref;
 
+use crate::pda::{buffer::validate_buffer_pda, state::validate_is_state_pda};
 use cow_settlement_interface::{
     data::{
         intent::{Flags, OrderKind},
@@ -14,7 +15,6 @@ use cow_settlement_interface::{
         },
         InstructionInputParsing,
     },
-    pda::{buffer::validate_buffer_pda, state::validate_is_state_pda},
     recover_discriminator, SettlementError, SettlementInstruction,
 };
 use pinocchio::{
