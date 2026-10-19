@@ -13,16 +13,12 @@ use solana_instruction::Instruction;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::message::Message;
 
-use program::accounts::{
-    Multisig as MultisigAccount, Proposal as ProposalAccount, VaultTransaction,
-    MULTISIG_DISCRIMINATOR, PROPOSAL_DISCRIMINATOR, VAULT_TRANSACTION_DISCRIMINATOR,
-};
+use program::accounts::{Multisig as MultisigAccount, MULTISIG_DISCRIMINATOR};
 use program::instructions::{
     ProposalApprove, ProposalApproveInstructionArgs, ProposalCreate, ProposalCreateInstructionArgs,
     VaultTransactionCreate, VaultTransactionCreateInstructionArgs,
 };
 pub use program::programs::SQUADS_MULTISIG_PROGRAM_ID;
-use program::types::{MultisigCompiledInstruction, ProposalStatus, VaultTransactionMessage};
 
 #[allow(clippy::all, clippy::arithmetic_side_effects, unexpected_cfgs, unused)]
 pub mod program;
@@ -43,14 +39,6 @@ pub struct Multisig {
     pub account: MultisigAccount,
 }
 
-/// A vault transaction on chain, with its proposal if one was opened.
-#[derive(Debug)]
-pub struct Existing {
-    index: u64,
-    transaction: VaultTransaction,
-    proposal: Option<ProposalAccount>,
-}
-
 impl Multisig {
     /// Fetch and decode the multisig at `address`.
     pub fn fetch(rpc: &RpcClient, address: &Pubkey) -> anyhow::Result<Self> {
@@ -69,35 +57,6 @@ impl Multisig {
         Ok(Self {
             address,
             account: decode(data, &MULTISIG_DISCRIMINATOR).context("malformed multisig account")?,
-        })
-    }
-
-    /// Fetch the vault transaction at `index` and its proposal.
-    pub fn fetch_transaction(&self, rpc: &RpcClient, index: u64) -> anyhow::Result<Existing> {
-        let accounts = rpc
-            .get_multiple_accounts(&[self.transaction(index), self.proposal(index)])
-            .with_context(|| format!("failed to fetch Squads transaction {index}"))?;
-        let [transaction, proposal] = &accounts[..] else {
-            anyhow::bail!("expected a transaction and a proposal account");
-        };
-
-        let transaction = transaction
-            .as_ref()
-            .with_context(|| format!("Squads transaction {index} doesn't exist"))?;
-        let transaction = decode(&transaction.data, &VAULT_TRANSACTION_DISCRIMINATOR)
-            .with_context(|| format!("Squads transaction {index} isn't a vault transaction"))?;
-        let proposal = proposal
-            .as_ref()
-            .map(|proposal| {
-                decode(&proposal.data, &PROPOSAL_DISCRIMINATOR)
-                    .with_context(|| format!("malformed proposal for Squads transaction {index}"))
-            })
-            .transpose()?;
-
-        Ok(Existing {
-            index,
-            transaction,
-            proposal,
         })
     }
 
@@ -163,7 +122,7 @@ impl Multisig {
             .context("multisig transaction index overflow")?;
         let transaction = self.transaction(transaction_index);
         let approved = permissions & PERMISSION_VOTE != 0;
-        let message = vault_message(&Message::new(ixs, Some(&self.vault(vault_index))))?;
+        let message = Message::new(ixs, Some(&self.vault(vault_index)));
 
         let mut instructions = vec![
             VaultTransactionCreate {
@@ -190,77 +149,7 @@ impl Multisig {
             transaction_index,
             transaction,
             proposal: self.proposal(transaction_index),
-            created: true,
             approved,
-        })
-    }
-
-    /// The instructions casting `member`'s approval of the `existing`
-    /// transaction, opening its proposal first if nobody has. The transaction
-    /// must hold exactly `ixs`, executed by the vault at `vault_index`.
-    pub fn approve(
-        &self,
-        member: &Pubkey,
-        vault_index: u8,
-        ixs: &[Instruction],
-        existing: &Existing,
-    ) -> anyhow::Result<Proposal> {
-        let index = existing.index;
-        anyhow::ensure!(
-            self.member_permissions(member)? & PERMISSION_VOTE != 0,
-            "{member} lacks the vote permission on multisig {}",
-            self.address
-        );
-        anyhow::ensure!(
-            existing.transaction.vault_index == vault_index,
-            "Squads transaction {index} is for vault {}, not vault {vault_index}",
-            existing.transaction.vault_index
-        );
-        let message = vault_message(&Message::new(ixs, Some(&self.vault(vault_index))))?;
-        anyhow::ensure!(
-            existing.transaction.ephemeral_signer_bumps.is_empty()
-                && existing.transaction.message == message,
-            "Squads transaction {index} holds different instructions than this command builds"
-        );
-        anyhow::ensure!(
-            index > self.account.stale_transaction_index,
-            "Squads transaction {index} is stale: the multisig's members or threshold changed since"
-        );
-
-        let mut instructions = Vec::new();
-        match &existing.proposal {
-            None => instructions.push(self.proposal_create_ix(member, index)),
-            Some(proposal) => match proposal.status {
-                ProposalStatus::Active { .. } => anyhow::ensure!(
-                    !proposal.approved.contains(member),
-                    "{member} already approved Squads transaction {index}"
-                ),
-                ProposalStatus::Approved { .. } => anyhow::bail!(
-                    "Squads transaction {index} is already approved and awaits execution"
-                ),
-                ProposalStatus::Draft { .. } => anyhow::bail!(
-                    "Squads transaction {index} has a draft proposal, which must be activated before voting"
-                ),
-                ProposalStatus::Rejected { .. } => {
-                    anyhow::bail!("Squads transaction {index} was rejected")
-                }
-                ProposalStatus::Executing | ProposalStatus::Executed { .. } => {
-                    anyhow::bail!("Squads transaction {index} was already executed")
-                }
-                ProposalStatus::Cancelled { .. } => {
-                    anyhow::bail!("Squads transaction {index} was cancelled")
-                }
-            },
-        }
-        instructions.push(self.proposal_approve_ix(member, index));
-
-        Ok(Proposal {
-            instructions,
-            transaction_index: index,
-            transaction: self.transaction(index),
-            proposal: self.proposal(index),
-            created: false,
-            approved: true,
         })
     }
 
@@ -302,8 +191,7 @@ fn decode<T: BorshDeserialize>(data: &[u8], discriminator: &[u8; 8]) -> Option<T
         .flatten()
 }
 
-/// A proposal ready to be sent, as built by [`Multisig::propose`] or
-/// [`Multisig::approve`].
+/// A proposal ready to be sent, as built by [`Multisig::propose`].
 #[derive(Debug)]
 pub struct Proposal {
     pub instructions: Vec<Instruction>,
@@ -311,16 +199,17 @@ pub struct Proposal {
     /// The vault transaction account holding the proposed instructions.
     pub transaction: Pubkey,
     pub proposal: Pubkey,
-    /// Whether `instructions` create a new vault transaction rather than
-    /// approve an existing one.
-    pub created: bool,
     /// Whether `instructions` also cast the member's approval.
     pub approved: bool,
 }
 
-/// A compiled legacy `message` as the Squads program stores it, which replaces
-/// the header with signer and writable counts.
-fn vault_message(message: &Message) -> anyhow::Result<VaultTransactionMessage> {
+/// Encode a compiled legacy `message` in the compact `TransactionMessage`
+/// layout that `vault_transaction_create` takes, which replaces the header with
+/// signer and writable counts and shortens every length prefix to a `u8` (`u16`
+/// for instruction data).
+fn transaction_message(message: &Message) -> anyhow::Result<Vec<u8>> {
+    let len = |len: usize| u8::try_from(len).context("too many items for a Squads transaction");
+
     let header = &message.header;
     let num_signers = header.num_required_signatures;
     let num_writable_non_signers = message
@@ -330,37 +219,12 @@ fn vault_message(message: &Message) -> anyhow::Result<VaultTransactionMessage> {
         .and_then(|n| n.checked_sub(usize::from(header.num_readonly_unsigned_accounts)))
         .context("malformed message header")?;
 
-    Ok(VaultTransactionMessage {
+    let mut data = vec![
         num_signers,
-        num_writable_signers: num_signers
+        num_signers
             .checked_sub(header.num_readonly_signed_accounts)
             .context("malformed message header")?,
-        num_writable_non_signers: u8::try_from(num_writable_non_signers)
-            .context("too many writable accounts")?,
-        account_keys: message.account_keys.clone(),
-        instructions: message
-            .instructions
-            .iter()
-            .map(|ix| MultisigCompiledInstruction {
-                program_id_index: ix.program_id_index,
-                account_indexes: ix.accounts.clone(),
-                data: ix.data.clone(),
-            })
-            .collect(),
-        address_table_lookups: Vec::new(),
-    })
-}
-
-/// Encode `message` in the compact `TransactionMessage` layout that
-/// `vault_transaction_create` takes, which shortens every length prefix to a
-/// `u8` (`u16` for instruction data).
-fn transaction_message(message: &VaultTransactionMessage) -> anyhow::Result<Vec<u8>> {
-    let len = |len: usize| u8::try_from(len).context("too many items for a Squads transaction");
-
-    let mut data = vec![
-        message.num_signers,
-        message.num_writable_signers,
-        message.num_writable_non_signers,
+        u8::try_from(num_writable_non_signers).context("too many writable accounts")?,
         len(message.account_keys.len())?,
     ];
     for key in &message.account_keys {
@@ -370,8 +234,8 @@ fn transaction_message(message: &VaultTransactionMessage) -> anyhow::Result<Vec<
     data.push(len(message.instructions.len())?);
     for ix in &message.instructions {
         data.push(ix.program_id_index);
-        data.push(len(ix.account_indexes.len())?);
-        data.extend(&ix.account_indexes);
+        data.push(len(ix.accounts.len())?);
+        data.extend(&ix.accounts);
         data.extend(
             u16::try_from(ix.data.len())
                 .context("instruction data too long")?
@@ -380,14 +244,8 @@ fn transaction_message(message: &VaultTransactionMessage) -> anyhow::Result<Vec<
         data.extend(&ix.data);
     }
 
-    data.push(len(message.address_table_lookups.len())?);
-    for lookup in &message.address_table_lookups {
-        data.extend(lookup.account_key.as_ref());
-        data.push(len(lookup.writable_indexes.len())?);
-        data.extend(&lookup.writable_indexes);
-        data.push(len(lookup.readonly_indexes.len())?);
-        data.extend(&lookup.readonly_indexes);
-    }
+    // Legacy messages have no address table lookups.
+    data.push(0);
 
     Ok(data)
 }
@@ -432,44 +290,6 @@ mod tests {
             vec![AccountMeta::new(multisig.vault(vault_index), true)],
         )
     }
-
-    /// The vault transaction `index` holding `ixs`, with a proposal in
-    /// `status` approved by `approved`, if any.
-    fn existing(
-        multisig: &Multisig,
-        index: u64,
-        vault_index: u8,
-        ixs: &[Instruction],
-        proposal: Option<(ProposalStatus, Vec<Pubkey>)>,
-    ) -> Existing {
-        Existing {
-            index,
-            transaction: VaultTransaction {
-                discriminator: VAULT_TRANSACTION_DISCRIMINATOR,
-                multisig: multisig.address,
-                creator: Pubkey::new_unique(),
-                index,
-                bump: 255,
-                vault_index,
-                vault_bump: 255,
-                ephemeral_signer_bumps: Vec::new(),
-                message: vault_message(&Message::new(ixs, Some(&multisig.vault(vault_index))))
-                    .unwrap(),
-            },
-            proposal: proposal.map(|(status, approved)| ProposalAccount {
-                discriminator: PROPOSAL_DISCRIMINATOR,
-                multisig: multisig.address,
-                transaction_index: index,
-                status,
-                bump: 255,
-                approved,
-                rejected: Vec::new(),
-                cancelled: Vec::new(),
-            }),
-        }
-    }
-
-    const ACTIVE: ProposalStatus = ProposalStatus::Active { timestamp: 0 };
 
     #[test]
     fn decodes_multisig_account() {
@@ -542,7 +362,6 @@ mod tests {
         expected.extend([3, 0, 1, 2, 3]);
         expected.push(0);
 
-        let message = vault_message(&message).unwrap();
         assert_eq!(transaction_message(&message).unwrap(), expected);
     }
 
@@ -558,7 +377,6 @@ mod tests {
         assert_eq!(proposal.transaction_index, 8);
         assert_eq!(proposal.transaction, multisig.transaction(8));
         assert_eq!(proposal.proposal, multisig.proposal(8));
-        assert!(proposal.created);
         assert!(proposal.approved);
 
         let [create, proposal_create, approve] = &proposal.instructions[..] else {
@@ -573,7 +391,7 @@ mod tests {
         let args =
             VaultTransactionCreateInstructionArgs::try_from_slice(&create.data[8..]).unwrap();
         assert_eq!(args.vault_index, 3);
-        let message = vault_message(&Message::new(&[inner], Some(&multisig.vault(3)))).unwrap();
+        let message = Message::new(&[inner], Some(&multisig.vault(3)));
         assert_eq!(
             args.transaction_message,
             transaction_message(&message).unwrap()
@@ -591,7 +409,6 @@ mod tests {
         let proposal = multisig(vec![member(member_key, PERMISSION_INITIATE)])
             .propose(&member_key, 0, &[])
             .unwrap();
-        assert!(proposal.created);
         assert!(!proposal.approved);
         assert_eq!(proposal.instructions.len(), 2);
     }
@@ -609,147 +426,5 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("not a member"), "{err}");
-    }
-
-    /// A voting member of a multisig and the instructions they build.
-    fn voter_setup() -> (Multisig, Pubkey, [Instruction; 1]) {
-        let voter = Pubkey::new_unique();
-        let multisig = multisig(vec![member(voter, PERMISSION_VOTE)]);
-        let ixs = [inner_ix(&multisig, 0)];
-        (multisig, voter, ixs)
-    }
-
-    #[test]
-    fn approves_transaction_holding_the_same_instructions() {
-        let creator = Pubkey::new_unique();
-        let (mut multisig, voter, ixs) = voter_setup();
-        multisig.account.members.push(member(creator, VOTER));
-        let existing = existing(&multisig, 5, 0, &ixs, Some((ACTIVE, vec![creator])));
-
-        let proposal = multisig.approve(&voter, 0, &ixs, &existing).unwrap();
-        assert!(!proposal.created);
-        assert!(proposal.approved);
-        assert_eq!(proposal.transaction_index, 5);
-        assert_eq!(proposal.transaction, multisig.transaction(5));
-        assert_eq!(proposal.proposal, multisig.proposal(5));
-        assert_eq!(
-            proposal.instructions,
-            [multisig.proposal_approve_ix(&voter, 5)]
-        );
-    }
-
-    #[test]
-    fn opens_missing_proposal_when_approving() {
-        let (multisig, voter, ixs) = voter_setup();
-        let existing = existing(&multisig, 5, 0, &ixs, None);
-
-        let proposal = multisig.approve(&voter, 0, &ixs, &existing).unwrap();
-        assert_eq!(
-            proposal.instructions,
-            [
-                multisig.proposal_create_ix(&voter, 5),
-                multisig.proposal_approve_ix(&voter, 5),
-            ]
-        );
-    }
-
-    /// Why `voter` can't approve `existing` with `ixs` for vault 0.
-    fn approve_error(
-        multisig: &Multisig,
-        voter: &Pubkey,
-        ixs: &[Instruction],
-        existing: &Existing,
-    ) -> String {
-        multisig
-            .approve(voter, 0, ixs, existing)
-            .unwrap_err()
-            .to_string()
-    }
-
-    #[test]
-    fn rejects_approving_different_instructions() {
-        let (multisig, voter, ixs) = voter_setup();
-        let existing = existing(
-            &multisig,
-            5,
-            0,
-            &[inner_ix(&multisig, 0)],
-            Some((ACTIVE, vec![])),
-        );
-        let err = approve_error(&multisig, &voter, &ixs, &existing);
-        assert!(err.contains("holds different instructions"), "{err}");
-    }
-
-    #[test]
-    fn rejects_approving_another_vaults_transaction() {
-        let (multisig, voter, ixs) = voter_setup();
-        let existing = existing(&multisig, 5, 1, &ixs, Some((ACTIVE, vec![])));
-        let err = approve_error(&multisig, &voter, &ixs, &existing);
-        assert!(err.contains("is for vault 1, not vault 0"), "{err}");
-    }
-
-    #[test]
-    fn rejects_approving_stale_transaction() {
-        let (mut multisig, voter, ixs) = voter_setup();
-        multisig.account.stale_transaction_index = 5;
-        let existing = existing(&multisig, 5, 0, &ixs, Some((ACTIVE, vec![])));
-        let err = approve_error(&multisig, &voter, &ixs, &existing);
-        assert!(err.contains("is stale"), "{err}");
-    }
-
-    #[test]
-    fn rejects_approving_twice() {
-        let (multisig, voter, ixs) = voter_setup();
-        let existing = existing(&multisig, 5, 0, &ixs, Some((ACTIVE, vec![voter])));
-        let err = approve_error(&multisig, &voter, &ixs, &existing);
-        assert!(
-            err.contains("already approved Squads transaction 5"),
-            "{err}"
-        );
-    }
-
-    #[test]
-    fn rejects_approving_transaction_awaiting_execution() {
-        let (multisig, voter, ixs) = voter_setup();
-        let status = ProposalStatus::Approved { timestamp: 0 };
-        let existing = existing(&multisig, 5, 0, &ixs, Some((status, vec![])));
-        let err = approve_error(&multisig, &voter, &ixs, &existing);
-        assert!(err.contains("awaits execution"), "{err}");
-    }
-
-    #[test]
-    fn rejects_approving_draft_proposal() {
-        let (multisig, voter, ixs) = voter_setup();
-        let status = ProposalStatus::Draft { timestamp: 0 };
-        let existing = existing(&multisig, 5, 0, &ixs, Some((status, vec![])));
-        let err = approve_error(&multisig, &voter, &ixs, &existing);
-        assert!(err.contains("draft proposal"), "{err}");
-    }
-
-    #[test]
-    fn rejects_approving_closed_proposals() {
-        let (multisig, voter, ixs) = voter_setup();
-        for (status, expected) in [
-            (ProposalStatus::Rejected { timestamp: 0 }, "was rejected"),
-            (
-                ProposalStatus::Executed { timestamp: 0 },
-                "was already executed",
-            ),
-            (ProposalStatus::Cancelled { timestamp: 0 }, "was cancelled"),
-        ] {
-            let existing = existing(&multisig, 5, 0, &ixs, Some((status, vec![])));
-            let err = approve_error(&multisig, &voter, &ixs, &existing);
-            assert!(err.contains(expected), "{err}");
-        }
-    }
-
-    #[test]
-    fn rejects_approving_without_vote_permission() {
-        let initiator = Pubkey::new_unique();
-        let multisig = multisig(vec![member(initiator, PERMISSION_INITIATE)]);
-        let ixs = [inner_ix(&multisig, 0)];
-        let existing = existing(&multisig, 5, 0, &ixs, Some((ACTIVE, vec![])));
-        let err = approve_error(&multisig, &initiator, &ixs, &existing);
-        assert!(err.contains("lacks the vote permission"), "{err}");
     }
 }

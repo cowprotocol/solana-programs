@@ -71,12 +71,6 @@ struct Cli {
     #[arg(long, global = true)]
     squads_vault_index: Option<u8>,
 
-    /// Approve the existing Squads transaction at this index instead of
-    /// proposing a new one. It must hold exactly the instructions the command
-    /// builds
-    #[arg(long, global = true)]
-    squads_transaction_index: Option<u64>,
-
     #[command(subcommand)]
     command: Commands,
 }

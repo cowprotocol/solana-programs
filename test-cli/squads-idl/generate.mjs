@@ -6,7 +6,7 @@ import IDL from "./squads_multisig_program.json" with { type: "json" };
 // The CLI only proposes and approves vault transactions, so only render what
 // that needs rather than the whole Squads program.
 const INSTRUCTIONS = ["vaultTransactionCreate", "proposalCreate", "proposalApprove"];
-const ACCOUNTS = ["Multisig", "Proposal", "VaultTransaction"];
+const ACCOUNTS = ["Multisig"];
 
 const instructions = IDL.instructions.filter(({ name }) => INSTRUCTIONS.includes(name));
 const accounts = IDL.accounts.filter(({ name }) => ACCOUNTS.includes(name));
