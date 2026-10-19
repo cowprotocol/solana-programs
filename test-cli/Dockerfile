@@ -4,13 +4,13 @@ FROM docker.io/debian:trixie-slim
 ARG SOLANA_VERSION=v4.0.3
 ARG TARGETARCH
 
+# We install extra tools to allow building and giving more features to the CLI user (like `bc`). 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl jq bc bzip2 && \
     rm -rf /var/lib/apt/lists/*
 
-# Buffer reclaim derives PDAs and reads keypairs with the Solana CLI and prices
-# dust with bc. Agave ships a prebuilt CLI for x86_64 Linux only, so the Solana
-# CLI goes in on amd64 alone; order reclaim needs neither tool.
+# This isn't strictly needed but may be useful when using the CLI.
+# Only available on x86_64.
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         curl -sSfL -o /tmp/solana.tar.bz2 "https://release.anza.xyz/${SOLANA_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" && \
         tar -xjf /tmp/solana.tar.bz2 -C /usr/local --strip-components=1 solana-release/bin/solana && \
