@@ -9,6 +9,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
+use crate::utils::parsing::KeypairArg;
 use crate::utils::pda::find_state_pda;
 
 #[derive(ClapArgs)]
@@ -22,8 +23,8 @@ pub struct TransferArgs {
     /// Path to the keypair authorizing the transfer, which must be the manager
     /// or the role's current holder and must sign it (defaults to the payer
     /// keypair)
-    #[arg(long)]
-    signer: Option<String>,
+    #[arg(long, value_parser = KeypairArg::parse)]
+    signer: Option<KeypairArg>,
 }
 
 pub fn run(ctx: Context, args: TransferArgs) -> anyhow::Result<()> {

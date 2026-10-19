@@ -6,6 +6,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
+use crate::utils::parsing::KeypairArg;
 use crate::utils::pda::find_state_pda;
 
 #[derive(ClapArgs)]
@@ -15,8 +16,8 @@ pub struct RemoveArgs {
 
     /// Path to the solver-authority keypair, which authorizes the change and
     /// must sign it (defaults to the payer keypair)
-    #[arg(long)]
-    solver_authority: Option<String>,
+    #[arg(long, value_parser = KeypairArg::parse)]
+    solver_authority: Option<KeypairArg>,
 
     /// Account that receives the rent freed by removing the solver (defaults to
     /// the payer)

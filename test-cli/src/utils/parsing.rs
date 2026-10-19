@@ -1,10 +1,12 @@
 //! Parsing of command-line inputs.
 
 use std::fmt;
+use std::path::PathBuf;
 
 use anyhow::Context as _;
 use cow_settlement_client::cow_settlement_interface::{pda::order, Pubkey};
 use solana_hash::Hash;
+use solana_sdk::signature::{read_keypair_file, Keypair};
 
 /// An order, named by its PDA or by its UID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,9 +88,29 @@ impl BufferArg {
     }
 }
 
+/// The path of a keypair file, for a key that must sign.
+///
+/// The file is read on use rather than when parsing, as clap needs parsed
+/// values to be `Clone` and a `Keypair` deliberately isn't.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeypairArg(PathBuf);
+
+impl KeypairArg {
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        Ok(Self(s.into()))
+    }
+
+    /// Reads the keypair from the file.
+    pub fn signer(&self) -> anyhow::Result<Keypair> {
+        read_keypair_file(&self.0)
+            .map_err(|e| anyhow::anyhow!("failed to read keypair from {}: {e}", self.0.display()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use solana_sdk::signature::Signer;
 
     #[test]
     fn order_arg_passes_through_base58_pda() {
@@ -128,5 +150,29 @@ mod tests {
             .expect_err("64 non-hex chars are not a valid UID")
             .to_string();
         assert!(err.contains("invalid hex in UID"), "{err}");
+    }
+
+    #[test]
+    fn keypair_arg_reads_signer_from_file() {
+        let keypair = Keypair::new();
+        let path = std::env::temp_dir().join(format!("keypair-arg-{}.json", keypair.pubkey()));
+        solana_sdk::signature::write_keypair_file(&keypair, &path).unwrap();
+
+        let arg = KeypairArg::parse(path.to_str().unwrap()).unwrap();
+        assert_eq!(arg.signer().unwrap().pubkey(), keypair.pubkey());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn keypair_arg_reports_unreadable_file() {
+        let arg = KeypairArg::parse("/nonexistent/keypair.json").unwrap();
+        let err = arg
+            .signer()
+            .expect_err("a missing file has no keypair")
+            .to_string();
+        assert!(
+            err.contains("failed to read keypair from /nonexistent/keypair.json"),
+            "{err}"
+        );
     }
 }

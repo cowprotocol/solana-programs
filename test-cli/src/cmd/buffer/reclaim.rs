@@ -13,7 +13,7 @@ use super::send;
 use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
-use crate::utils::parsing::BufferArg;
+use crate::utils::parsing::{BufferArg, KeypairArg};
 use crate::utils::pda::SettlementSeed;
 use crate::utils::token::{token_program_of, unpack_token_account};
 
@@ -31,8 +31,8 @@ pub struct ReclaimArgs {
 
     /// Path to the reclaim-authority keypair, which must sign (defaults to the
     /// payer keypair)
-    #[arg(long)]
-    reclaim_authority: Option<String>,
+    #[arg(long, value_parser = KeypairArg::parse)]
+    reclaim_authority: Option<KeypairArg>,
 
     /// `<major>.<minor>` release the program runs, which its state and buffer
     /// PDAs are derived from. Set it to reclaim the buffers of a deployment of
