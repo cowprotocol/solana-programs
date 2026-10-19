@@ -37,6 +37,8 @@ pub struct SquadsVault {
     pub multisig: Pubkey,
     pub vault_index: u8,
     pub vault: Pubkey,
+    /// The existing transaction to approve rather than proposing a new one.
+    pub transaction_index: Option<u64>,
 }
 
 impl Context {
@@ -52,14 +54,15 @@ impl Context {
                     multisig,
                     vault_index,
                     vault: Multisig::fetch(&rpc, &multisig)?.vault(vault_index),
+                    transaction_index: cli.squads_transaction_index,
                 })
             }
             None => {
                 // Checked here rather than with clap's `requires`, which
                 // misses a global argument given before the subcommand.
                 anyhow::ensure!(
-                    cli.squads_vault_index.is_none(),
-                    "--squads-vault-index requires --squads-multisig"
+                    cli.squads_vault_index.is_none() && cli.squads_transaction_index.is_none(),
+                    "--squads-vault-index and --squads-transaction-index require --squads-multisig"
                 );
                 None
             }
@@ -94,8 +97,9 @@ impl Context {
         }
     }
 
-    /// Sends a transaction using the configured wallet, or proposes it to the
-    /// configured multisig.
+    /// Sends a transaction using the configured wallet.
+    /// If configured with a multisig and the supplied transaction to propose already matches
+    /// one proposed on the multisig, it will sign the transaction instead without proposing a duplicate.
     pub fn submit(&self, ixs: &[Instruction], signers: &[&TxSigner]) -> anyhow::Result<Submission> {
         // Are we signing the transaction with a local EOA file or multisig?
         // If its an EOA (aka, NOT a multisig), then send the transaction and break off early.
@@ -109,9 +113,18 @@ impl Context {
         };
 
         // Fetched again rather than kept from `from_args`, since its
-        // transaction index must be current.
+        // transaction indexes must be current.
         let multisig = Multisig::fetch(&self.rpc, &squads.multisig)?;
-        let proposal = multisig.propose(&self.signer.pubkey(), squads.vault_index, ixs)?;
+        let member = self.signer.pubkey();
+        let proposal = match squads.transaction_index {
+            Some(index) => multisig.approve(
+                &member,
+                squads.vault_index,
+                ixs,
+                &multisig.fetch_transaction(&self.rpc, index)?,
+            )?,
+            None => multisig.propose(&member, squads.vault_index, ixs)?,
+        };
         let signature = self.send(&proposal.instructions, &[&self.signer])?;
         Ok(Submission::Proposed(Proposed {
             signature,
@@ -120,6 +133,7 @@ impl Context {
             transaction_index: proposal.transaction_index,
             transaction: proposal.transaction,
             proposal: proposal.proposal,
+            created: proposal.created,
             approved: proposal.approved,
         }))
     }
@@ -191,6 +205,9 @@ pub struct Proposed {
     /// The vault transaction account holding the proposed instructions.
     pub transaction: Pubkey,
     pub proposal: Pubkey,
+    /// Whether the vault transaction is new, rather than an existing one the
+    /// local keypair approved.
+    pub created: bool,
     /// Whether the local keypair approved the proposal.
     pub approved: bool,
 }
@@ -220,6 +237,7 @@ impl Proposed {
             ("squadsTransactionIndex", &self.transaction_index),
             ("squadsTransaction", &self.transaction),
             ("squadsProposal", &self.proposal),
+            ("squadsCreated", &self.created),
             ("squadsApproved", &self.approved),
         ]
     }

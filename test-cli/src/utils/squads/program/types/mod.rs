@@ -6,7 +6,15 @@
 //!
 
 pub(crate) mod r#member;
+pub(crate) mod r#multisig_compiled_instruction;
+pub(crate) mod r#multisig_message_address_table_lookup;
 pub(crate) mod r#permissions;
+pub(crate) mod r#proposal_status;
+pub(crate) mod r#vault_transaction_message;
 
 pub use self::r#member::*;
+pub use self::r#multisig_compiled_instruction::*;
+pub use self::r#multisig_message_address_table_lookup::*;
 pub use self::r#permissions::*;
+pub use self::r#proposal_status::*;
+pub use self::r#vault_transaction_message::*;
