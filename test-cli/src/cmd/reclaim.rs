@@ -1,7 +1,8 @@
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
 use cow_settlement_client::cow_settlement_interface::{
-    data::order::OrderAccount, instruction::reclaim_order::ReclaimOrder, Pubkey, SettlementError,
+    data::order::OrderAccount, instruction::reclaim_order::ReclaimOrder, parse_settlement_error,
+    Pubkey,
 };
 use solana_sdk::{
     account::Account,
@@ -69,7 +70,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
         // If the transaction failed, try to introspect and neatly print out the failing error
         if let Some(TransactionError::InstructionError(index, err)) = e.get_transaction_error() {
             if let Some(order) = orders.get(usize::from(index)) {
-                let reason = match SettlementError::try_from(err) {
+                let reason = match parse_settlement_error(err) {
                     Ok(err) => format!("{err:?}"),
                     Err(err) => err.to_string(),
                 };
