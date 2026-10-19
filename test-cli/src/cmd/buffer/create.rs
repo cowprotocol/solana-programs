@@ -12,14 +12,25 @@ use solana_sdk::{account::Account, signature::Signer};
 use super::send;
 use crate::cmd::Context;
 use crate::utils::output::{print_failures, print_summary};
+use crate::utils::parsing::BufferArg;
 use crate::utils::token::{token_program_of, unpack_mint};
 
 #[derive(ClapArgs)]
 pub struct CreateArgs {
     /// The mints to create a buffer for, in one transaction. The payer funds
     /// each new buffer's rent; mints whose buffer already exists are skipped.
-    #[arg(required = true)]
+    #[arg(required = true, value_parser = parse_mint)]
     mints: Vec<Pubkey>,
+}
+
+/// Parses a [`BufferArg`], which a new buffer has nothing to burn from.
+fn parse_mint(arg: &str) -> anyhow::Result<Pubkey> {
+    let BufferArg { address, max_burn } = BufferArg::parse(arg)?;
+    anyhow::ensure!(
+        max_burn == 0,
+        "max burn {max_burn} given, but creating a buffer burns nothing"
+    );
+    Ok(address)
 }
 
 /// Creates the missing buffers in a single transaction. If any mint is not associated

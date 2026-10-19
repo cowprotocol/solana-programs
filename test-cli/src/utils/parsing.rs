@@ -29,6 +29,36 @@ pub fn parse_order_input(program_id: &Pubkey, s: &str) -> anyhow::Result<Pubkey>
     Ok(pda)
 }
 
+/// A pubkey, and the most of its buffer's balance that may be burned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BufferArg {
+    pub address: Pubkey,
+    pub max_burn: u64,
+}
+
+impl BufferArg {
+    /// Parses `<pubkey>` (no burning) or `<pubkey>:<max burn>`.
+    pub fn parse(arg: &str) -> anyhow::Result<Self> {
+        let (address, max_burn) = match arg.split_once(':') {
+            Some((address, max_burn)) => (address, Some(max_burn)),
+            None => (arg, None),
+        };
+        // Clap prints only the top-level message, so causes go inline rather
+        // than as anyhow context.
+        let address = address
+            .parse::<Pubkey>()
+            .map_err(|e| anyhow::anyhow!("invalid pubkey '{address}': {e}"))?;
+        let max_burn = max_burn
+            .map(|m| {
+                m.parse()
+                    .map_err(|e| anyhow::anyhow!("invalid max burn '{m}': {e}"))
+            })
+            .transpose()?
+            .unwrap_or(0);
+        Ok(Self { address, max_burn })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
