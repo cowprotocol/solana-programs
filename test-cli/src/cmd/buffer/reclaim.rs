@@ -12,7 +12,7 @@ use solana_sdk::{account::Account, signature::Signer};
 use super::send;
 use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
-use crate::utils::output::{print_failures, print_summary};
+use crate::utils::output::print_summary;
 use crate::utils::parsing::BufferArg;
 use crate::utils::pda::SettlementSeed;
 use crate::utils::token::{token_program_of, unpack_token_account};
@@ -49,7 +49,6 @@ pub struct ReclaimArgs {
 /// up to the specified number of tokens in order to do so.
 pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     let reclaim_authority = read_keypair_or(args.reclaim_authority, &ctx.payer)?;
-    let mut failures: Vec<(String, String)> = Vec::new();
 
     let addresses: Vec<Pubkey> = args.buffers.iter().map(|b| b.address).collect();
     let accounts = ctx
@@ -62,14 +61,15 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     let mut non_empty = Vec::new();
     for (i, (buffer, account)) in args.buffers.iter().zip(accounts).enumerate() {
         let address = buffer.address;
-        if addresses[..i].contains(&address) {
-            failures.push((
-                address.to_string(),
-                "buffer listed more than once".to_string(),
-            ));
-            continue;
-        }
-        let decoded = account
+        anyhow::ensure!(
+            !addresses[..i].contains(&address),
+            "bad buffer {address}, nothing was reclaimed: buffer listed more than once"
+        );
+        let Buffer {
+            amount,
+            token_program,
+            mint,
+        } = account
             .context("buffer account not found")
             .and_then(|account| {
                 decode_buffer(
@@ -78,30 +78,17 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
                     &ctx.program_id,
                     &args.settlement_version,
                 )
-            });
-        match decoded {
-            Ok(Buffer {
-                amount,
-                token_program,
-                mint,
-            }) if amount <= buffer.max_burn => {
-                by_program
-                    .entry(token_program)
-                    .or_default()
-                    .push((address, mint, buffer.max_burn));
-                to_close.push(address);
-            }
-            Ok(Buffer { .. }) => non_empty.push(address),
-            Err(e) => failures.push((address.to_string(), format!("{e:#}"))),
+            })
+            .with_context(|| format!("bad buffer {address}, nothing was reclaimed"))?;
+        if amount <= buffer.max_burn {
+            by_program
+                .entry(token_program)
+                .or_default()
+                .push((address, mint, buffer.max_burn));
+            to_close.push(address);
+        } else {
+            non_empty.push(address);
         }
-    }
-    if !failures.is_empty() {
-        print_failures(&failures);
-        anyhow::bail!(
-            "{} of {} buffers are bad, nothing was reclaimed",
-            failures.len(),
-            args.buffers.len()
-        );
     }
 
     let mut reclaimed = Vec::new();
