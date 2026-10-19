@@ -9,7 +9,7 @@ on:
 permissions: {}
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/cow-cli
+  IMAGE: ghcr.io/${{ github.repository_owner }}/cow-solana-cli
 
 jobs:
   build:
@@ -21,7 +21,6 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
-    # The runner's glibc must not be newer than the image's (debian trixie).
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
