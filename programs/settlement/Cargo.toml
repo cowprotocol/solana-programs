@@ -53,6 +53,9 @@ spl-token-2022-interface.workspace = true
 syn.workspace = true
 
 [features]
+# Target the prod build. Already the default; it exists so the Justfile can pass
+# `--features=<env>` for either env.
+prod = []
 # Target the barn (staging) build instead of the prod one.
 barn = []
 

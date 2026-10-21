@@ -106,30 +106,17 @@ doc *args:
 doc-dev *args:
     cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]' {{ args }}
 
-# Emit the cargo feature flag for `env`: nothing for prod, `--features=barn` for barn.
-[private]
-feature-args env:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    case "{{env}}" in
-        prod) ;;
-        barn) echo --features=barn ;;
-        *) echo "env must be prod or barn, got '{{env}}'" >&2; exit 1 ;;
-    esac
-
 # Build the settlement program for `env` (prod/barn) with reproducible builds.
+[arg("env", pattern="prod|barn")]
 build-verified env: install-solana-verify
-    #!/usr/bin/env bash
-    set -euo pipefail
-    feature_arg=$({{just_executable()}} feature-args {{env}})
-    {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
+    {{solana_verify}} build --library-name {{settlement_program}} -- --features={{env}}
 
 # Deploy (or upgrade) the settlement program for a committed deployment.
 [private]
+[arg("env", pattern="prod|barn")]
 deploy-default env programid keypair: install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
-    feature_arg=$({{just_executable()}} feature-args {{env}})
     case "{{env}}" in
         prod) expected=$(sed -n 's/.*declare_id!("\([^"]*\)").*/\1/p' interface/src/lib.rs) ;;
         barn) expected=$(sed -n 's/.*BARN_ID.*from_str_const("\([^"]*\)").*/\1/p' interface/src/lib.rs) ;;
@@ -140,7 +127,7 @@ deploy-default env programid keypair: install-solana-verify
         echo "refusing to deploy {{env}}: $target is not the {{env}} address ($expected)" >&2
         exit 1
     fi
-    {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
+    {{solana_verify}} build --library-name {{settlement_program}} -- --features={{env}}
     solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}
     cargo run -p cow-test-cli -- --program-id "$target" --keypair "{{keypair}}" initialize
 
@@ -160,10 +147,10 @@ deploy-at programid keypair:
     cargo run -p cow-test-cli -- --program-id "$target" --keypair "{{keypair}}" initialize
 
 # Register the on-chain verification for an already-deployed program.
+[arg("env", pattern="prod|barn")]
 verify env programid keypair commit_hash="": install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
-    feature_arg=$({{just_executable()}} feature-args {{env}})
     commit_arg=""
     if [ -n "{{commit_hash}}" ]; then
         commit_arg="--commit-hash={{commit_hash}}"
@@ -175,7 +162,7 @@ verify env programid keypair commit_hash="": install-solana-verify
         --library-name {{settlement_program}} \
         ${commit_arg:+"$commit_arg"} \
         {{repo_url}} \
-        -- ${feature_arg:+"$feature_arg"}
+        -- --features={{env}}
     # Step 2: queue remote worker to rebuild from the PDA.
     {{solana_verify}} remote submit-job \
         --program-id "{{programid}}" \
