@@ -15,7 +15,7 @@ pub mod pda;
 pub mod role;
 pub mod token_program;
 
-pub use error::SettlementError;
+pub use error::{parse_settlement_error, SettlementError};
 pub use instruction::{recover_discriminator, SettlementInstruction};
 pub use pda::SettlementAccount;
 pub use role::Role;

@@ -947,6 +947,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cow-settlement-client",
+ "proptest",
  "solana-commitment-config",
  "solana-hash 4.5.0",
  "solana-instruction",
