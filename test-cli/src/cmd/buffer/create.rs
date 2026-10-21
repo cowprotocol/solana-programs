@@ -22,36 +22,67 @@ pub struct CreateArgs {
     mints: Vec<Pubkey>,
 }
 
+struct ResolvedMint {
+    /// The mint as given on the command line.
+    mint: Pubkey,
+    /// Its buffer PDA.
+    buffer: Pubkey,
+    /// The account found at `mint`.
+    mint_account: Option<Account>,
+    /// Whether an account already exists at `buffer`.
+    buffer_exists: bool,
+}
+
 /// Creates the missing buffers in a single transaction. If any mint is not associated
 /// with a supported token program, no transaction is created and the first offending mint is shown.
 pub fn run(ctx: Context, args: CreateArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    let buffers: Vec<Pubkey> = args
-        .mints
-        .iter()
-        .map(|mint| find_buffer_pda(&ctx.program_id, mint).0)
-        .collect();
-    let accounts = ctx
-        .rpc
-        .get_multiple_accounts(&[&args.mints[..], &buffers].concat())
-        .context("failed to fetch mint and buffer accounts")?;
-    let (mint_accounts, buffer_accounts) = accounts.split_at(args.mints.len());
+    let mints: Vec<ResolvedMint> = {
+        let buffers: Vec<Pubkey> = args
+            .mints
+            .iter()
+            .map(|mint| find_buffer_pda(&ctx.program_id, mint).0)
+            .collect();
+        let mut accounts = ctx
+            .rpc
+            .get_multiple_accounts(&[&args.mints[..], &buffers].concat())
+            .context("failed to fetch mint and buffer accounts")?;
+        let buffer_accounts = accounts.split_off(args.mints.len());
+        args.mints
+            .iter()
+            .zip(buffers)
+            .zip(accounts)
+            .zip(buffer_accounts)
+            .map(
+                |(((&mint, buffer), mint_account), buffer_account)| ResolvedMint {
+                    mint,
+                    buffer,
+                    mint_account,
+                    buffer_exists: buffer_account.is_some(),
+                },
+            )
+            .collect()
+    };
 
     let mut by_program: HashMap<TokenProgram, Vec<Pubkey>> = HashMap::new();
     let mut created = Vec::new();
     let mut existing = Vec::new();
-    for (i, mint) in args.mints.iter().enumerate() {
-        if buffer_accounts[i].is_some() {
-            existing.push(buffers[i]);
+    for resolved in &mints {
+        if resolved.buffer_exists {
+            existing.push(resolved.buffer);
             continue;
         }
-        let token_program = mint_accounts[i]
+        let token_program = resolved
+            .mint_account
             .as_ref()
             .context("mint account not found")
             .and_then(mint_token_program)
-            .with_context(|| format!("bad mint {mint}, nothing was created"))?;
-        by_program.entry(token_program).or_default().push(*mint);
-        created.push(buffers[i]);
+            .with_context(|| format!("bad mint {}, nothing was created", resolved.mint))?;
+        by_program
+            .entry(token_program)
+            .or_default()
+            .push(resolved.mint);
+        created.push(resolved.buffer);
     }
 
     let sig = if created.is_empty() {
