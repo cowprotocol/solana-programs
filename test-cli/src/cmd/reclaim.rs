@@ -23,32 +23,50 @@ pub struct ReclaimArgs {
     orders: Vec<OrderArg>,
 }
 
+struct ResolvedOrder {
+    /// The order as given on the command line.
+    arg: OrderArg,
+    /// Its on-chain account address.
+    pda: Pubkey,
+    /// The account found at `pda`.
+    account: Account,
+}
+
 /// Reclaims the orders in a single transaction. Errors if the order's reclaim
 /// recipients couldn't be read, or the account is not owned by the settlement
 /// program.
 pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
-    let orders = &args.orders;
-    let pdas: Vec<Pubkey> = orders
-        .iter()
-        .map(|order| order.pda(&ctx.program_id))
-        .collect();
-    let accounts = ctx
-        .rpc
-        .get_multiple_accounts(&pdas)
-        .context("failed to fetch order accounts")?;
-    let mut ixs = Vec::new();
-    for ((order, &order_pda), account) in orders.iter().zip(&pdas).zip(accounts) {
-        let reclaim_recipient = account
-            .context("order account not found")
-            .and_then(|account| {
-                reclaim_recipient(&account, &ctx.program_id)
-                    .with_context(|| format!("not an order of {}", ctx.program_id))
+    let orders: Vec<ResolvedOrder> = {
+        let pdas: Vec<Pubkey> = args
+            .orders
+            .iter()
+            .map(|order| order.pda(&ctx.program_id))
+            .collect();
+        let accounts = ctx
+            .rpc
+            .get_multiple_accounts(&pdas)
+            .context("failed to fetch order accounts")?;
+        args.orders
+            .iter()
+            .zip(pdas)
+            .zip(accounts)
+            .map(|((&arg, pda), account)| {
+                let account = account
+                    .context("order account not found")
+                    .with_context(|| format!("bad order {arg}, nothing was reclaimed"))?;
+                anyhow::Ok(ResolvedOrder { arg, pda, account })
             })
-            .with_context(|| format!("bad order {order}, nothing was reclaimed"))?;
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+
+    let mut ixs = Vec::new();
+    for order in &orders {
+        let reclaim_recipient = reclaim_recipient(&order.account, &ctx.program_id)
+            .with_context(|| format!("bad order {}, nothing was reclaimed", order.arg))?;
         ixs.push(
             ReclaimOrder {
                 program_id: ctx.program_id,
-                order_pda,
+                order_pda: order.pda,
                 reclaim_recipient,
                 owner: Some(ctx.payer.pubkey()),
             }
@@ -74,14 +92,18 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
                     Ok(err) => format!("{err:?}"),
                     Err(err) => err.to_string(),
                 };
-                print_failures(&[(order.to_string(), reason)]);
+                print_failures(&[(order.arg.to_string(), reason)]);
             }
         }
         anyhow::Error::new(e).context("transaction failed, nothing was reclaimed")
     })?;
 
     let mut summary: Vec<(&str, &dyn ToString)> = vec![("signature", &sig)];
-    summary.extend(pdas.iter().map(|pda| ("orderPda", pda as &dyn ToString)));
+    summary.extend(
+        orders
+            .iter()
+            .map(|order| ("orderPda", &order.pda as &dyn ToString)),
+    );
     print_summary(&summary);
 
     Ok(())
