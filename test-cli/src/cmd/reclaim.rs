@@ -92,7 +92,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
                     Ok(err) => format!("{err:?}"),
                     Err(err) => err.to_string(),
                 };
-                print_failures(&[(order.arg.to_string(), reason)]);
+                print_failures(&[(&order.arg.to_string(), &reason)]);
             }
         }
         anyhow::Error::new(e).context("transaction failed, nothing was reclaimed")
