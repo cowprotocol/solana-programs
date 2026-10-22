@@ -9,3 +9,13 @@ pub fn print_summary(results: &[(&str, &dyn ToString)]) {
         println!("{:>max_key_len$} = {}", k, v.to_string())
     }
 }
+
+/// Lists each offending input with why it was rejected.
+pub fn print_failures(failures: &[(&str, &str)]) {
+    print_summary(
+        &failures
+            .iter()
+            .map(|(input, reason)| (*input, reason as &dyn ToString))
+            .collect::<Vec<_>>(),
+    );
+}

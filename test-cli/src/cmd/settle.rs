@@ -12,7 +12,6 @@ use cow_settlement_client::{
     },
     pda::order::DecodedOrderAccount,
 };
-use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_rpc_client::{api::config::RpcTransactionConfig, rpc_client::RpcClient};
 use solana_sdk::{
@@ -21,7 +20,10 @@ use solana_sdk::{
 };
 use std::collections::{HashMap, HashSet};
 
-use crate::utils::token::{resolve_from_token_account, TokenAccountInfo};
+use crate::utils::{
+    parsing::OrderArg,
+    token::{resolve_from_token_account, TokenAccountInfo},
+};
 
 use super::Context;
 
@@ -29,8 +31,8 @@ use super::Context;
 pub struct SettleArgs {
     /// Order UIDs (64-char hex) or PDA addresses (base58), one or more
     /// The order accounts are expected to have already been created on-chain (i.e. the CLI will not create the orders for you)
-    #[arg(required = true, num_args = 1..)]
-    orders: Vec<String>,
+    #[arg(required = true, num_args = 1.., value_parser = OrderArg::parse)]
+    orders: Vec<OrderArg>,
 
     /// Build and print the settlement without sending the transaction on-chain
     #[arg(long)]
@@ -225,7 +227,7 @@ fn resolve_intents(ctx: &Context, args: &SettleArgs) -> anyhow::Result<Vec<Resol
     let intents = args
         .orders
         .iter()
-        .map(|s| fetch_order_intent(&ctx.rpc, ctx, s))
+        .map(|order| fetch_order_intent(&ctx.rpc, ctx, order))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     intents
@@ -386,8 +388,12 @@ fn print_settlement_summary(outcome: &SettleOutcome, intents: &[ResolvedIntent])
     }
 }
 
-fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result<OrderIntent> {
-    let pda = parse_order_input(&ctx.program_id, s)?;
+fn fetch_order_intent(
+    rpc: &RpcClient,
+    ctx: &Context,
+    order: &OrderArg,
+) -> anyhow::Result<OrderIntent> {
+    let pda = order.pda(&ctx.program_id);
     let data = rpc
         .get_account_data(&pda)
         .with_context(|| format!("failed to get order account data for {pda}"))?;
@@ -398,33 +404,6 @@ fn fetch_order_intent(rpc: &RpcClient, ctx: &Context, s: &str) -> anyhow::Result
         )
     })?;
     Ok(order_account.intent)
-}
-
-/// Accept either a 64-char hex UID or a base58 pubkey (the PDA directly).
-fn parse_order_input(program_id: &Pubkey, s: &str) -> anyhow::Result<Pubkey> {
-    if let Ok(pubkey) = s.parse::<Pubkey>() {
-        return Ok(pubkey);
-    }
-    anyhow::ensure!(
-        s.len() == 64,
-        "expected a base58 order PDA or a 64-char hex UID, got '{s}'"
-    );
-
-    // TODO: after a bit of research, this appears to be the most recommended way in std + solana_hash to
-    // convert a string into a hash. We might want to move this into a proper function later.
-    let mut bytes = [0u8; 32];
-    for (i, piece) in s.as_bytes().chunks(2).enumerate() {
-        bytes[i] = u8::from_str_radix(
-            std::str::from_utf8(piece).context("Should return to utf8 string")?,
-            16,
-        )
-        .with_context(|| format!("invalid hex in UID '{s}' at byte {i}"))?;
-    }
-    let uid = Hash::new_from_array(bytes);
-    let (pda, _) = cow_settlement_client::cow_settlement_interface::pda::order::find_order_pda(
-        program_id, &uid,
-    );
-    Ok(pda)
 }
 
 #[cfg(test)]
@@ -492,46 +471,5 @@ mod tests {
         // A mint nobody sells has nothing in its buffer to push from.
         let bought = HashMap::from([(Pubkey::new_unique(), 1)]);
         assert!(ensure_cow_balance(&HashMap::new(), &bought).is_err());
-    }
-
-    #[test]
-    fn parse_order_input_passes_through_base58_pda() {
-        let pda = Pubkey::new_unique();
-        assert_eq!(
-            parse_order_input(&Pubkey::new_unique(), &pda.to_string()).unwrap(),
-            pda,
-        );
-    }
-
-    #[test]
-    fn parse_order_input_derives_pda_from_hex_uid() {
-        let program_id = Pubkey::new_unique();
-        let uid = Hash::new_from_array(*Pubkey::new_unique().as_array());
-        let (expected, _) =
-            cow_settlement_client::cow_settlement_interface::pda::order::find_order_pda(
-                &program_id,
-                &uid,
-            );
-
-        // `Hash`'s `Display` is base58, so spell the hex out from the raw bytes.
-        let hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(hex.len(), 64);
-
-        assert_eq!(parse_order_input(&program_id, &hex).unwrap(), expected);
-    }
-
-    #[test]
-    fn parse_order_input_rejects_input_that_is_neither() {
-        // Not base58 (so not a pubkey) and not 64 chars long.
-        let err = parse_order_input(&Pubkey::new_unique(), "0x1234")
-            .expect_err("short non-base58 input is not a valid order reference")
-            .to_string();
-        assert!(err.contains("expected a base58 order PDA"), "{err}");
-
-        // Right length, but not hex.
-        let err = parse_order_input(&Pubkey::new_unique(), &"z".repeat(64))
-            .expect_err("64 non-hex chars are not a valid UID")
-            .to_string();
-        assert!(err.contains("invalid hex in UID"), "{err}");
     }
 }
