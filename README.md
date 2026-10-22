@@ -184,7 +184,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Deploy on `ENV=barn`.
   - [Deploy the programs](#how-to-deploy): `PROGRAM_KEYFILE="../deploy-v$VERSION-$ENV.json"`. The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
   - Switch your network to mainnet (`solana config set --url mainnet-beta`).
-  - Authorize all [currently existing solvers](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair "$DEPLOYER_KEYFILE" <solver-address>`).
+  - Authorize all [currently existing solvers](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair "$DEPLOYER_KEYFILE" --program-id "$ENV" <solver-address>`).
 - Deploy on `ENV=prod` as before once confirming that barn is healthy.
 - Make sure the package installs without errors: run `cargo install --path ./test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
