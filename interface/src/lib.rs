@@ -8,6 +8,9 @@ solana_pubkey::declare_id!("Moook87DzJ25dELx3LXJ3dnu5a4ERVFwKo1PWWF4p7Y");
 /// Program address of the production settlement deployment.
 pub const PROD_ID: Pubkey = ID;
 
+/// Program address of the staging ("barn") settlement deployment.
+pub const BARN_ID: Pubkey = Pubkey::from_str_const("EzHqcdJssenE2R8xogJ8wpL66PRQet9M6ubpsX4QxpPb");
+
 pub mod data;
 pub mod error;
 pub mod instruction;

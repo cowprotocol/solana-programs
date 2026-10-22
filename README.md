@@ -80,9 +80,13 @@ just bench
 
 Requires [Docker](https://docs.docker.com/engine/install/).
 
+The program bakes in the address it will be deployed at, chosen at build time, so pass the target deployment as `$ENV` (either `prod` for production or `barn` for staging):
+
 ```sh
-just build-verified
+just build-verified "$ENV"
 ```
+
+Verified builds are only available for the committed `prod` and `barn` addresses, since one can't pass build flags to a verified build process.
 
 ## How to deploy
 
@@ -92,18 +96,26 @@ You will need a **deployer keypair** — a Solana wallet funded with enough SOL 
 
 > Do not fund the program address itself. Only the deployer wallet needs SOL.
 
-There are two distinct flows depending on whether this is a first-time deploy or an upgrade to an existing program.
+There are two environments, each pinned to its own fixed address: barn (staging, used for testing) and prod (production, the actual contract).
+Deploy either with `just deploy "$ENV" …`, where `$ENV` is `barn` or `prod`.
+
+The recipe refuses to run unless the keypair/address you pass resolves to that environment's committed address.
+It covers both a first-time deploy and an upgrade, and finishes by running the `initialize` script (a no-op if the program is already initialized).
+
+For a one-off build at an arbitrary address use [`just deploy-at`](#devnet--one-off-example).
+
+In the case of a first deployment, the deployer must be `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`, otherwise initialization fails.
 
 ### Initial deployment
 
-The program only works at the address in `declare_id!`, which its pinned state PDA is derived from. `initialize` rejects a deployment anywhere else.
+The program only works at the specified hardcoded addresses (either `PROD_ID` or `BARN_ID` from the interface), which its pinned state PDA is derived from. `initialize` rejects a deployment anywhere else.
 
 `initialize` also only accepts the hardcoded `INITIALIZER` (`cow_settlement_interface::instruction::initialize::INITIALIZER`) as its payer, so the deployer keypair must be that key.
 
-Pass the **program keypair file** as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
+Pass the program keypair file as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
 
 ```sh
-just deploy "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
+just deploy "$ENV" "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
 ```
 
 ### Upgrading an existing program
@@ -111,13 +123,11 @@ just deploy "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
 > [!IMPORTANT]
 > Before upgrading, if the storage format has been changed for any existing PDAs, ensure that the MINOR (aka v0.x.0) version in the Cargo.toml is bumped. This will relocate all program storage, preventing unintended collisions with incompatible data.
 
-Pass the **program's public key (address)** as the first argument. The deployer wallet must already be the upgrade authority:
+Pass the program's public key (address) as the first argument. The deployer wallet must already be the upgrade authority:
 
 ```sh
-just deploy "$PROGRAM_ID" "$DEPLOYER_KEYFILE"
+just deploy "$ENV" "$PROGRAM_ID" "$DEPLOYER_KEYFILE"
 ```
-
-`just deploy` finishes by running `initialize` to create the program's state PDA.
 
 ### Verifying the deployment on-chain
 
@@ -126,10 +136,13 @@ Since we use verified builds, we can have our program marked as verified on vari
 To do so, run this once the program is deployed and the matching source is pushed to the public repository:
 
 ```sh
-just verify "$PROGRAM_ID" "$DEPLOYER_KEYFILE" <optional-commit-hash>
+just verify "$ENV" "$PROGRAM_ID" "$DEPLOYER_KEYFILE" <optional-commit-hash>
 ```
 
-The first argument is the program address, the second is the upgrade authority keypair (it signs the on-chain verification PDA) and the third is an optional `<commit-hash>` for the verification, and it uses the current `HEAD` otherwise.
+- `$ENV`: the environment it was built for (`prod` or `barn`).
+- `$PROGRAM_ID`: the program address.
+- `$DEPLOYER_KEYFILE`: the upgrade authority keypair.
+- `<optional-commit-hash>`: the commit that will be verified; current `HEAD` otherwise.
 
 ### Publishing the cargo packages
 
@@ -141,14 +154,14 @@ Then, all packages can published in one go:
 cargo publish
 ```
 
-### Devnet example
+### One-off example
 
 ```sh
 solana config set --url devnet
-just deploy "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
+just deploy-at "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
 ```
 
-The deployer for the canonical devnet program is stored in the team password manager under `B6acm3swJK9pJ7fe4i4GQgP7x5A3RndvsdV2bKhcA1i5`.
+`$PROGRAM_KEYFILE` may be an address in the case of an upgrade.
 
 ## Alpha releases
 
@@ -161,35 +174,38 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 ### Breaking change
 
 - Create a new branch based off the `main` branch, pull the latest changes. Make sure there are no local changes (`git status --porcelain` is empty).
-- Follow the instruction to [bump the versions in the project](#bumping-the-version-in-the-projects) *by at least a minor version*.
-- Generate a new account (`PROGRAM_KEYFILE=../deploy-v$VERSION.json`; `solana-keygen new --no-bip39-passphrase -o "$PROGRAM_KEYFILE"`). This will be the address of the new deployment.
-- Store the newly generated account in 1password (under "Settlement account by version").
-- Update the account in `solana_pubkey::declare_id!` to the new account. Search and replace entries with the old account to the newly generated address.
+- Follow the instruction to [bump the versions in the project](#bump-the-versions-in-the-project) *by at least a minor version*.
+- Generate new accounts (`for env in prod barn; do solana-keygen new --no-bip39-passphrase -o "../deploy-v$VERSION-$env.json"; done`). These will be the addresses of the new deployment.
+- Store the newly generated accounts in 1password (under "Settlement account by version").
+- Update the production address in `solana_pubkey::declare_id!` and `BARN_ID` in `interface/src/lib.rs` to the newly generated addresses (search and replace).
 - Update the state PDA bytes in the IDL (use the test to see the bytes to change).
 - Commit the code changes resulting from the steps above (excluding the key of the generated account).
-- Switch your network to devnet (`solana config set --url devnet`). 
-- [Deploy the programs](#how-to-deploy). The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
-- Authorize all [currently existing solver](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair "$DEPLOYER_KEYFILE" <solver-address>`).
-- Switch your network to mainnet (`solana config set --url mainnet-beta`) and repeat the last two deployment steps.
+- Switch your network to devnet (`solana config set --url devnet`).
+- Deploy on `ENV=barn`.
+  - [Deploy the programs](#how-to-deploy): `PROGRAM_KEYFILE="../deploy-v$VERSION-$ENV.json"`. The deployer keypair is in 1password (under "Solana Deployer"). The program keypair file is the key that was generated before.
+  - Switch your network to mainnet (`solana config set --url mainnet-beta`).
+  - Authorize all [currently existing solvers](https://app.notion.com/p/cownation/Solvers-for-Solana-Dev-Contracts-3ca8da5f04ca80968642e85640178cbd) using the solver CLI (`cow solver add --keypair "$DEPLOYER_KEYFILE" --program-id "$ENV" <solver-address>`).
+- Deploy on `ENV=prod` as before once confirming that barn is healthy.
 - Make sure the package installs without errors: run `cargo install --path ./test-cli --locked` (it depends on all other packages).
 - Create a PR with the changes and wait for approval.
-- [Publish the IDL](#publishing-the-idl).
-- Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
+- (Only for `ENV=prod`!) [Publish the IDL](#publishing-the-idl).
+- Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain) for both barn and prod.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
 - Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
 
 ### Patch update
 
 - Create a new branch based off the `main` branch. Make sure there are no local changes (`git status --porcelain` is empty).
-- Follow the instruction to [bump the versions in the project](#bumping-the-version-in-the-projects) by a patch version.
+- Follow the instruction to [bump the versions in the project](#bump-the-versions-in-the-project) by a patch version.
 - Commit the code changes resulting from the changes above.
-- Make sure the package installs without errors: run `cargo install --path /mnt/lima-solana/repos/solana-programs/solana-program-workbench/test-cli --locked` (it depends on all other packages).
-- Create a PR with the changes and wait for approval.
-- Set the `PROGRAM_ID` variable to the target address and [update the programs](#how-to-deploy). The deployer keypair is in 1password (stored under "Solana Deployer").
-- Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain).
-- [Publish the IDL](#publishing-the-idl), if changed.
+- Make sure the package installs without errors: run `cargo install --path ./test-cli --locked` (it depends on all other packages).
+- Create a PR with the changes and wait for approval, then merge on `main`; check out main and pull the changes.
+- [Upgrade](#how-to-deploy) `ENV=barn`.
+- [Verify the deployment on-chain](#verifying-the-deployment-on-chain).
+- Repeat the previous two steps with `ENV=prod`.
+- Only for `prod`, [publish the IDL](#publishing-the-idl), if changed.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
-- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42.1337`; title "Alpha release, v0.42.1337".
 
 ### Bump the versions in the project
 
@@ -219,6 +235,8 @@ Block explorers will then use the IDL to show decoded transactions to the user.
 PROGRAM_ID="the IDL will be registered for the program at the address specified in this string"
 npx @solana-program/program-metadata@v0.9.3 write idl "$PROGRAM_ID" ./programs/settlement/idl/cow_settlement.json --keypair "$DEPLOYER_KEYFILE"
 ```
+
+The IDL is only available for the `prod` environment.
 
 ## License
 

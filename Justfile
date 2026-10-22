@@ -16,7 +16,7 @@ default:
 install-solana-verify:
     cargo install solana-verify --version "$(cat .solana-verify-version.txt)" --root {{cargo_root}}
 
-# Build the on-chain settlement program (.so) for Solana.
+# Build the on-chain settlement program (.so) for Solana prod.
 build-program:
     cargo build-sbf --manifest-path programs/settlement/Cargo.toml
 
@@ -106,39 +106,73 @@ doc *args:
 doc-dev *args:
     cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]' {{ args }}
 
-# Build the settlement program using solana-verify's reproducible Docker build.
-build-verified: install-solana-verify
-    {{solana_verify}} build --library-name {{settlement_program}}
+# Confirm that the env is the right one.
+[private]
+[arg("env", pattern="prod|barn")]
+require-env env:
 
-# Deploy the settlement program, then create its state PDA.
-deploy programid keypair: build-verified
+# Emit the cargo feature flag for `env`: nothing for prod, `--features=barn` for barn.
+[private]
+feature-args env: (require-env env)
     #!/usr/bin/env bash
     set -euo pipefail
-    solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}
+    case "{{env}}" in
+        prod) ;;
+        barn) echo --features=barn ;;
+    esac
 
-    # `programid` is a keypair file on a first deploy and an address on an upgrade,
-    # but the CLI only takes the address.
-    program_id=$(solana address --keypair "{{programid}}" 2>/dev/null || echo "{{programid}}")
-    cargo run -p cow-test-cli -- \
-        --program-id "$program_id" \
-        --keypair "{{keypair}}" \
-        initialize
+# Build the settlement program for `env` (prod/barn) with reproducible builds.
+build-verified env: (require-env env) install-solana-verify
+    #!/usr/bin/env bash
+    set -euo pipefail
+    feature_arg=$({{just_executable()}} feature-args {{env}})
+    {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
+
+# Deploy (or upgrade) the committed settlement program for `env` (prod/barn).
+deploy env programid keypair: (require-env env) install-solana-verify
+    #!/usr/bin/env bash
+    set -euo pipefail
+    feature_arg=$({{just_executable()}} feature-args {{env}})
+    case "{{env}}" in
+        prod) expected=$(sed -n 's/.*declare_id!("\([^"]*\)").*/\1/p' interface/src/lib.rs) ;;
+        barn) expected=$(sed -n 's/.*BARN_ID.*from_str_const("\([^"]*\)").*/\1/p' interface/src/lib.rs) ;;
+    esac
+    [ -n "$expected" ] || { echo "could not parse the {{env}} address from interface/src/lib.rs" >&2; exit 1; }
+    target=$(solana address --keypair "{{programid}}" 2>/dev/null || echo "{{programid}}")
+    if [ "$target" != "$expected" ]; then
+        echo "refusing to deploy {{env}}: $target is not the {{env}} address ($expected)" >&2
+        exit 1
+    fi
+    {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
+    solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}
+    cargo run -p cow-test-cli -- --program-id "$target" --keypair "{{keypair}}" initialize
+
+# Deploy (or upgrade) an ad-hoc program baked for the address of `programid`.
+deploy-at programid keypair:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target=$(solana address --keypair "{{programid}}" 2>/dev/null || echo "{{programid}}")
+    SETTLEMENT_PROGRAM_ID="$target" cargo build-sbf --manifest-path programs/settlement/Cargo.toml
+    solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}
+    cargo run -p cow-test-cli -- --program-id "$target" --keypair "{{keypair}}" initialize
 
 # Register the on-chain verification for an already-deployed program.
-verify programid keypair commit_hash="": install-solana-verify
+verify env programid keypair commit_hash="": (require-env env) install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
-    commit_args=()
+    feature_arg=$({{just_executable()}} feature-args {{env}})
+    commit_arg=""
     if [ -n "{{commit_hash}}" ]; then
-        commit_args=(--commit-hash "{{commit_hash}}")
+        commit_arg="--commit-hash={{commit_hash}}"
     fi
     # Step 1: write the otter-verify PDA, signed by the upgrade authority.
     {{solana_verify}} verify-from-repo \
         --keypair "{{keypair}}" \
         --program-id "{{programid}}" \
         --library-name {{settlement_program}} \
-        "${commit_args[@]}" \
-        {{repo_url}}
+        ${commit_arg:+"$commit_arg"} \
+        {{repo_url}} \
+        -- ${feature_arg:+"$feature_arg"}
     # Step 2: queue remote worker to rebuild from the PDA.
     {{solana_verify}} remote submit-job \
         --program-id "{{programid}}" \

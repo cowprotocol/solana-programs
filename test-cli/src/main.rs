@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand};
-use cow_settlement_client::cow_settlement_interface::Pubkey;
 
 mod cmd;
 mod utils;
+
+use utils::parsing::{Env, ProgramIdArg};
 
 fn home_dir() -> String {
     std::env::var("HOME").expect("`HOME` env not available")
@@ -53,9 +54,14 @@ struct Cli {
     )]
     keypair: String,
 
-    /// Settlement program ID
-    #[arg(long, global = true, default_value_t = cow_settlement_client::cow_settlement_interface::PROD_ID)]
-    program_id: Pubkey,
+    /// Settlement program: `prod`, `barn`, or a base58 program address
+    #[arg(
+        long,
+        global = true,
+        value_parser = ProgramIdArg::parse,
+        default_value_t = ProgramIdArg::Env(Env::Prod),
+    )]
+    program_id: ProgramIdArg,
 
     #[command(subcommand)]
     command: Commands,
