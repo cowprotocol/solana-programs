@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
@@ -35,8 +35,11 @@ struct ResolvedMint {
 
 /// Creates the missing buffers in a single transaction. If any mint is not associated
 /// with a supported token program, no transaction is created and the first offending mint is shown.
-pub fn run(ctx: Context, args: CreateArgs) -> anyhow::Result<()> {
+pub fn run(ctx: Context, mut args: CreateArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
+    // A repeated mint would otherwise be listed as created twice.
+    let mut seen = HashSet::new();
+    args.mints.retain(|mint| seen.insert(*mint));
     let mints: Vec<ResolvedMint> = {
         let buffers: Vec<Pubkey> = args
             .mints
