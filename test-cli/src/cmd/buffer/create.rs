@@ -9,10 +9,10 @@ use cow_settlement_client::{
 use solana_instruction::Instruction;
 use solana_sdk::{account::Account, signature::Signer};
 
-use super::send;
 use crate::cmd::Context;
 use crate::utils::output::print_summary;
 use crate::utils::token::{token_program_of, unpack_mint};
+use crate::utils::transaction::send;
 
 #[derive(ClapArgs)]
 pub struct CreateArgs {
