@@ -8,7 +8,7 @@ use cow_settlement_client::cow_settlement_interface::{pda::order, Pubkey, BARN_I
 use solana_hash::Hash;
 
 /// Spelled as its lowercase clap name (`prod` / `barn`), so it round-trips
-/// through [`ProgramId::parse`].
+/// through [`ProgramIdArg::parse`].
 impl fmt::Display for Env {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.to_possible_value()
