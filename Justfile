@@ -106,26 +106,30 @@ doc *args:
 doc-dev *args:
     cargo doc --workspace --no-deps --all-features --document-private-items --config 'build.rustdocflags=["--deny=warnings"]' {{ args }}
 
+# Confirm that the env is the right one.
+[private]
+[arg("env", pattern="prod|barn")]
+require-env env:
+
 # Emit the cargo feature flag for `env`: nothing for prod, `--features=barn` for barn.
 [private]
-feature-args env:
+feature-args env: (require-env env)
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{env}}" in
         prod) ;;
         barn) echo --features=barn ;;
-        *) echo "env must be prod or barn, got '{{env}}'" >&2; exit 1 ;;
     esac
 
 # Build the settlement program for `env` (prod/barn) with reproducible builds.
-build-verified env: install-solana-verify
+build-verified env: (require-env env) install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
     feature_arg=$({{just_executable()}} feature-args {{env}})
     {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
 
 # Deploy (or upgrade) the committed settlement program for `env` (prod/barn).
-deploy env programid keypair: install-solana-verify
+deploy env programid keypair: (require-env env) install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
     feature_arg=$({{just_executable()}} feature-args {{env}})
@@ -153,7 +157,7 @@ deploy-at programid keypair:
     cargo run -p cow-test-cli -- --program-id "$target" --keypair "{{keypair}}" initialize
 
 # Register the on-chain verification for an already-deployed program.
-verify env programid keypair commit_hash="": install-solana-verify
+verify env programid keypair commit_hash="": (require-env env) install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
     feature_arg=$({{just_executable()}} feature-args {{env}})
