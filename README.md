@@ -97,7 +97,7 @@ You will need a **deployer keypair** — a Solana wallet funded with enough SOL 
 > Do not fund the program address itself. Only the deployer wallet needs SOL.
 
 There are two environments, each pinned to its own fixed address: barn (staging, used for testing) and prod (production, the actual contract).
-Deploy either with `just deploy-$ENV`, where `$ENV` is `barn` or `prod`.
+Deploy either with `just deploy "$ENV" …`, where `$ENV` is `barn` or `prod`.
 
 The recipe refuses to run unless the keypair/address you pass resolves to that environment's committed address.
 It covers both a first-time deploy and an upgrade, and finishes by running the `initialize` script (a no-op if the program is already initialized).
@@ -115,7 +115,7 @@ The program only works at the specified hardcoded addresses (either `PROD_ID` or
 Pass the program keypair file as the first argument. Solana derives the program address from it and registers the deployer as the upgrade authority:
 
 ```sh
-just "deploy-$ENV" "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
+just deploy "$ENV" "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
 ```
 
 ### Upgrading an existing program
@@ -126,7 +126,7 @@ just "deploy-$ENV" "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
 Pass the program's public key (address) as the first argument. The deployer wallet must already be the upgrade authority:
 
 ```sh
-just "deploy-$ENV" "$PROGRAM_ID" "$DEPLOYER_KEYFILE"
+just deploy "$ENV" "$PROGRAM_ID" "$DEPLOYER_KEYFILE"
 ```
 
 ### Verifying the deployment on-chain

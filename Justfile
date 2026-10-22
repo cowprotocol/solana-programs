@@ -124,9 +124,8 @@ build-verified env: install-solana-verify
     feature_arg=$({{just_executable()}} feature-args {{env}})
     {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
 
-# Deploy (or upgrade) the settlement program for a committed deployment.
-[private]
-deploy-default env programid keypair: install-solana-verify
+# Deploy (or upgrade) the committed settlement program for `env` (prod/barn).
+deploy env programid keypair: install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
     feature_arg=$({{just_executable()}} feature-args {{env}})
@@ -143,12 +142,6 @@ deploy-default env programid keypair: install-solana-verify
     {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
     solana program deploy ./target/deploy/{{settlement_program}}.so --program-id {{programid}} --keypair {{keypair}}
     cargo run -p cow-test-cli -- --program-id "$target" --keypair "{{keypair}}" initialize
-
-# Deploy (or upgrade) the production program.
-deploy-prod programid keypair: (deploy-default "prod" programid keypair)
-
-# Deploy (or upgrade) the staging ("barn") program.
-deploy-barn programid keypair: (deploy-default "barn" programid keypair)
 
 # Deploy (or upgrade) an ad-hoc program baked for the address of `programid`.
 deploy-at programid keypair:
