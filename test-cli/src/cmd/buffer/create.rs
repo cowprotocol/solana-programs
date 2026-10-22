@@ -85,27 +85,16 @@ pub fn run(ctx: Context, args: CreateArgs) -> anyhow::Result<()> {
         created.push(resolved.buffer);
     }
 
-    let sig = if created.is_empty() {
-        None
-    } else {
-        let ixs = instructions(&ctx.program_id, &payer, &by_program);
-        Some(send(&ctx, &ixs, &[])?)
-    };
-
+    let sig;
     let mut summary: Vec<(&str, &dyn ToString)> = Vec::new();
-    if let Some(sig) = &sig {
-        summary.push(("signature", sig));
+    if !created.is_empty() {
+        let ixs = instructions(&ctx.program_id, &payer, &by_program);
+        sig = send(&ctx, &ixs, &[])?;
+        summary.push(("signature", &sig));
     }
-    summary.extend(
-        created
-            .iter()
-            .map(|pda| ("bufferPda", pda as &dyn ToString)),
-    );
-    summary.extend(
-        existing
-            .iter()
-            .map(|pda| ("existingBufferPda", pda as &dyn ToString)),
-    );
+    for (label, pdas) in [("bufferPda", &created), ("existingBufferPda", &existing)] {
+        summary.extend(pdas.iter().map(|pda| (label, pda as &dyn ToString)));
+    }
     print_summary(&summary);
 
     Ok(())
