@@ -46,6 +46,29 @@ jobs:
           path: bench-report.json
           retention-days: 1
 
+  # The other jobs only ever build the default (prod) target. Exercise the barn
+  # feature and the SETTLEMENT_PROGRAM_ID override.
+  deployment-targets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Barn target compiles
+        run: |
+          cargo check -p settlement --features barn
+          cargo test -p settlement --lib --features barn pda::tests
+
+      - name: A custom SETTLEMENT_PROGRAM_ID overrides the address, even for barn
+        run: |
+          SETTLEMENT_PROGRAM_ID=13371337133713371337133713371337133713371337 cargo check -p settlement
+          SETTLEMENT_PROGRAM_ID=13371337133713371337133713371337133713371337 cargo test -p settlement --lib pda::tests
+          SETTLEMENT_PROGRAM_ID=13371337133713371337133713371337133713371337 cargo check -p settlement --features barn
+          SETTLEMENT_PROGRAM_ID=13371337133713371337133713371337133713371337 cargo test -p settlement --lib --features barn pda::tests
+
   bench:
     needs: test
     runs-on: ubuntu-latest
@@ -155,7 +178,7 @@ jobs:
       - name: Verify build
         run: |
           set -o pipefail
-          just build-verified | tee /tmp/build-verified.log
+          just build-verified prod | tee /tmp/build-verified.log
           echo "Reproducible build hash: $(tail -1 /tmp/build-verified.log)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload program artifact

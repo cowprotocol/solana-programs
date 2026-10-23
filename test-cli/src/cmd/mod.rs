@@ -27,7 +27,7 @@ impl Context {
             .map_err(|e| anyhow::anyhow!("failed to read keypair from {}: {e}", cli.keypair))?;
         Ok(Self {
             payer,
-            program_id: cli.program_id,
+            program_id: cli.program_id.pubkey(),
             rpc: RpcClient::new_with_commitment(cli.rpc_url.clone(), CommitmentConfig::confirmed()),
         })
     }

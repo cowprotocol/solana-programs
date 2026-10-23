@@ -4,9 +4,68 @@ use std::fmt;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
-use cow_settlement_client::cow_settlement_interface::{pda::order, Pubkey};
+use clap::ValueEnum;
+use cow_settlement_client::cow_settlement_interface::{pda::order, Pubkey, BARN_ID, PROD_ID};
 use solana_hash::Hash;
 use solana_sdk::signature::{read_keypair_file, Keypair};
+
+/// Spelled as its lowercase clap name (`prod` / `barn`), so it round-trips
+/// through [`ProgramIdArg::parse`].
+impl fmt::Display for Env {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_possible_value()
+            .expect("no env is skipped")
+            .get_name()
+            .fmt(f)
+    }
+}
+
+/// The settlement program to target, named either by a known [`Env`] or by a
+/// raw program address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProgramIdArg {
+    Env(Env),
+    Address(Pubkey),
+}
+
+impl ProgramIdArg {
+    /// Accept a known environment name (`prod` / `barn`, case-insensitive) or a
+    /// base58 program address.
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        if let Ok(env) = Env::from_str(s, true) {
+            return Ok(Self::Env(env));
+        }
+        if let Ok(pubkey) = s.parse::<Pubkey>() {
+            return Ok(Self::Address(pubkey));
+        }
+        anyhow::bail!(
+            "expected a settlement environment ({}) or a base58 program address, got '{s}'",
+            Env::value_variants()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("/"),
+        )
+    }
+
+    /// The resolved program address.
+    pub fn pubkey(self) -> Pubkey {
+        match self {
+            Self::Env(env) => env.program_id(),
+            Self::Address(address) => address,
+        }
+    }
+}
+
+/// Spelled as parsed: the environment name for an [`Env`], base58 for an address.
+impl fmt::Display for ProgramIdArg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Env(env) => env.fmt(f),
+            Self::Address(address) => address.fmt(f),
+        }
+    }
+}
 
 /// An order, named by its PDA or by its UID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,6 +172,56 @@ mod tests {
 
     use super::*;
     use solana_sdk::signature::Signer;
+
+    #[test]
+    fn program_id_parses_env_names_case_insensitively() {
+        for (input, env) in [
+            ("prod", Env::Prod),
+            ("PROD", Env::Prod),
+            ("barn", Env::Barn),
+            ("Barn", Env::Barn),
+        ] {
+            assert_eq!(ProgramIdArg::parse(input).unwrap(), ProgramIdArg::Env(env));
+        }
+    }
+
+    #[test]
+    fn program_id_resolves_envs_to_the_known_deployment_ids() {
+        assert_eq!(ProgramIdArg::Env(Env::Prod).pubkey(), PROD_ID);
+        assert_eq!(ProgramIdArg::Env(Env::Barn).pubkey(), BARN_ID);
+    }
+
+    #[test]
+    fn program_id_rejects_input_that_is_neither() {
+        let err = ProgramIdArg::parse("not-an-env-or-address")
+            .expect_err("a word that is neither an env nor a base58 address")
+            .to_string();
+        assert!(err.contains("expected a settlement environment"), "{err}");
+    }
+
+    proptest! {
+        #[test]
+        fn program_id_passes_through_base58_address(address in any::<[u8; 32]>()) {
+            let address = Pubkey::new_from_array(address);
+            let parsed = ProgramIdArg::parse(&address.to_string()).unwrap();
+            prop_assert_eq!(parsed, ProgramIdArg::Address(address));
+            prop_assert_eq!(parsed.pubkey(), address);
+        }
+    }
+
+    #[test]
+    fn program_id_round_trips_through_display() {
+        for program_id in [
+            ProgramIdArg::Env(Env::Prod),
+            ProgramIdArg::Env(Env::Barn),
+            ProgramIdArg::Address(Pubkey::new_from_array([7; 32])),
+        ] {
+            assert_eq!(
+                ProgramIdArg::parse(&program_id.to_string()).unwrap(),
+                program_id
+            );
+        }
+    }
 
     proptest! {
         #[test]
