@@ -117,6 +117,26 @@ impl fmt::Display for OrderArg {
     }
 }
 
+/// A named settlement deployment. Each environment resolves to a well-known
+/// program address, so `prod` / `barn` can stand in for the full program ID.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum Env {
+    /// The production deployment ([`PROD_ID`]).
+    Prod,
+    /// The staging ("barn") deployment ([`BARN_ID`]).
+    Barn,
+}
+
+impl Env {
+    /// The settlement program ID this environment is deployed at.
+    pub fn program_id(self) -> Pubkey {
+        match self {
+            Self::Prod => PROD_ID,
+            Self::Barn => BARN_ID,
+        }
+    }
+}
+
 /// A pubkey, and the most of its buffer's balance that may be burned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BufferArg {

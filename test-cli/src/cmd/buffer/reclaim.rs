@@ -56,7 +56,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
             !addresses[..i].contains(&address),
             "bad buffer {address}, nothing was reclaimed: buffer listed more than once"
         );
-        let Buffer {
+        let BufferState {
             amount,
             token_program,
             mint,
@@ -147,8 +147,7 @@ fn instructions(
 }
 
 /// What closing a buffer depends on.
-#[derive(Debug, PartialEq)]
-struct Buffer {
+struct BufferState {
     token_program: TokenProgram,
     mint: Pubkey,
     amount: u64,
@@ -161,7 +160,7 @@ fn decode_buffer(
     account: &Account,
     address: &Pubkey,
     program_id: &Pubkey,
-) -> anyhow::Result<Buffer> {
+) -> anyhow::Result<BufferState> {
     let token_program = token_program_of(account)?;
     let token_account =
         unpack_token_account(&account.data).context("account is not a token account")?;
@@ -170,7 +169,7 @@ fn decode_buffer(
         find_buffer_pda(program_id, &mint).0 == *address,
         "not the buffer of mint {mint} under {program_id}"
     );
-    Ok(Buffer {
+    Ok(BufferState {
         token_program,
         mint,
         amount: token_account.amount,
