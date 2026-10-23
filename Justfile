@@ -179,18 +179,13 @@ verify env programid keypair commit_hash="": (require-env env) install-solana-ve
         --uploader "$(solana address --keypair "{{keypair}}")"
 
 # Print the transaction for the upgrade-authority multisig (`authority` is its vault address) to register the on-chain verification.
-verify-multisig env programid authority commit_hash="": (require-env env) install-solana-verify
+verify-multisig env programid authority: (require-env env) install-solana-verify
     #!/usr/bin/env bash
     set -euo pipefail
     feature_arg=$({{just_executable()}} feature-args {{env}})
-    commit_ref="{{commit_hash}}"
     commit=$(git rev-parse --verify "${commit_ref:-HEAD}^{commit}")
-    # Unlike `verify-from-repo`, `export-pda-tx` doesn't rebuild and compare against the deployed program,
-    # so check that here before the multisig signs a commitment to the wrong build.
-    if [ "$commit" != "$(git rev-parse HEAD)" ] || ! git diff --quiet HEAD --; then
-        echo "check out a clean $commit first: the deployed program is compared against a local build" >&2
-        exit 1
-    fi
+
+    # 1. Build with verified build and confirm the hash matches
     {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
     built=$({{solana_verify}} get-executable-hash ./target/deploy/{{settlement_program}}.so | tail -n1)
     deployed=$({{solana_verify}} get-program-hash "{{programid}}" | tail -n1)
@@ -198,7 +193,8 @@ verify-multisig env programid authority commit_hash="": (require-env env) instal
         echo "refusing to export: the build of $commit ($built) does not match the deployed program ($deployed)" >&2
         exit 1
     fi
-    # Step 1: the multisig writes the otter-verify PDA; the last line printed is the base58 transaction.
+
+    # 2. Write the command needed to export the metadata for the solana code to be verified
     {{solana_verify}} export-pda-tx \
         --program-id "{{programid}}" \
         --uploader "{{authority}}" \
@@ -206,7 +202,9 @@ verify-multisig env programid authority commit_hash="": (require-env env) instal
         --commit-hash "$commit" \
         {{repo_url}} \
         -- ${feature_arg:+"$feature_arg"}
-    # Step 2 needs no signature but can only run once the multisig has executed step 1.
+
+    # 3. Submit the verification job to the API
+    # This needs to be executed after the multisig has executed the transaction, so we just print the command to execute instead
     echo
     echo "once the multisig has executed the transaction, queue the remote worker with:"
     echo "  {{solana_verify}} remote submit-job --program-id {{programid}} --uploader {{authority}}"
