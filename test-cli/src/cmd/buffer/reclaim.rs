@@ -75,10 +75,10 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
         }
     }
 
+    let sig;
     let mut reclaimed = Vec::new();
-    let sig = if to_close.is_empty() {
-        None
-    } else {
+    let mut summary: Vec<(&str, &dyn ToString)> = Vec::new();
+    if !to_close.is_empty() {
         let ixs = instructions(
             &ctx.program_id,
             &find_state_pda(&ctx.program_id),
@@ -86,7 +86,8 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
             &args.receiver,
             &by_program,
         );
-        let sig = send(&ctx, &ixs, &[&reclaim_authority])?;
+        sig = send(&ctx, &ixs, &[&reclaim_authority])?;
+        summary.push(("signature", &sig));
         // The program skips rather than rejects a buffer that received tokens
         // since it was fetched, so check which ones are gone.
         let accounts = ctx
@@ -99,24 +100,11 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
                 Some(_) => non_empty.push(*buffer),
             }
         }
-        Some(sig)
-    };
-
-    let mut summary: Vec<(&str, &dyn ToString)> = Vec::new();
-    if let Some(sig) = &sig {
-        summary.push(("signature", sig));
     }
     summary.push(("reclaimRecipient", &args.receiver));
-    summary.extend(
-        reclaimed
-            .iter()
-            .map(|pda| ("bufferPda", pda as &dyn ToString)),
-    );
-    summary.extend(
-        non_empty
-            .iter()
-            .map(|pda| ("nonEmptyBufferPda", pda as &dyn ToString)),
-    );
+    for (label, pdas) in [("bufferPda", &reclaimed), ("nonEmptyBufferPda", &non_empty)] {
+        summary.extend(pdas.iter().map(|pda| (label, pda as &dyn ToString)));
+    }
     print_summary(&summary);
 
     Ok(())
