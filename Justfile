@@ -178,4 +178,35 @@ verify env programid keypair commit_hash="": (require-env env) install-solana-ve
         --program-id "{{programid}}" \
         --uploader "$(solana address --keypair "{{keypair}}")"
 
+# Print the transaction for the upgrade-authority multisig (`authority` is its vault address) to register the on-chain verification.
+verify-multisig env programid authority: (require-env env) install-solana-verify
+    #!/usr/bin/env bash
+    set -euo pipefail
+    feature_arg=$({{just_executable()}} feature-args {{env}})
+    commit=$(git rev-parse --verify "${commit_ref:-HEAD}^{commit}")
+
+    # 1. Build with verified build and confirm the hash matches
+    {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
+    built=$({{solana_verify}} get-executable-hash ./target/deploy/{{settlement_program}}.so | tail -n1)
+    deployed=$({{solana_verify}} get-program-hash "{{programid}}" | tail -n1)
+    if [ "$built" != "$deployed" ]; then
+        echo "refusing to export: the build of $commit ($built) does not match the deployed program ($deployed)" >&2
+        exit 1
+    fi
+
+    # 2. Write the command needed to export the metadata for the solana code to be verified
+    {{solana_verify}} export-pda-tx \
+        --program-id "{{programid}}" \
+        --uploader "{{authority}}" \
+        --library-name {{settlement_program}} \
+        --commit-hash "$commit" \
+        {{repo_url}} \
+        -- ${feature_arg:+"$feature_arg"}
+
+    # 3. Submit the verification job to the API
+    # This needs to be executed after the multisig has executed the transaction, so we just print the command to execute instead
+    echo
+    echo "once the multisig has executed the transaction, queue the remote worker with:"
+    echo "  {{solana_verify}} remote submit-job --program-id {{programid}} --uploader {{authority}}"
+
 all: build bench test-js-client lint fmt-check fmt-check-js-client doc-dev
