@@ -31,7 +31,7 @@ use super::Context;
 pub struct SettleArgs {
     /// Order UIDs (64-char hex) or PDA addresses (base58), one or more
     /// The order accounts are expected to have already been created on-chain (i.e. the CLI will not create the orders for you)
-    #[arg(required = true, num_args = 1.., value_parser = OrderArg::parse)]
+    #[arg(required = true, num_args = 1..)]
     orders: Vec<OrderArg>,
 
     /// Build and print the settlement without sending the transaction on-chain

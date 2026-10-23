@@ -17,7 +17,7 @@ pub struct AddArgs {
     /// Path to the solver-authority keypair, which authorizes the change and
     /// must sign it (defaults to the payer keypair, which always funds the
     /// state PDA's growth)
-    #[arg(long, value_parser = KeypairArg::parse)]
+    #[arg(long)]
     solver_authority: Option<KeypairArg>,
 }
 

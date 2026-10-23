@@ -1,7 +1,9 @@
 //! Parsing of command-line inputs.
 
+use std::convert::Infallible;
 use std::fmt;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use anyhow::Context as _;
 use clap::ValueEnum;
@@ -10,7 +12,7 @@ use solana_hash::Hash;
 use solana_sdk::signature::{read_keypair_file, Keypair};
 
 /// Spelled as its lowercase clap name (`prod` / `barn`), so it round-trips
-/// through [`ProgramIdArg::parse`].
+/// through [`ProgramIdArg`]'s [`FromStr`].
 impl fmt::Display for Env {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.to_possible_value()
@@ -28,10 +30,12 @@ pub enum ProgramIdArg {
     Address(Pubkey),
 }
 
-impl ProgramIdArg {
-    /// Accept a known environment name (`prod` / `barn`, case-insensitive) or a
-    /// base58 program address.
-    pub fn parse(s: &str) -> anyhow::Result<Self> {
+/// Accept a known environment name (`prod` / `barn`, case-insensitive) or a
+/// base58 program address.
+impl FromStr for ProgramIdArg {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         if let Ok(env) = Env::from_str(s, true) {
             return Ok(Self::Env(env));
         }
@@ -47,7 +51,9 @@ impl ProgramIdArg {
                 .join("/"),
         )
     }
+}
 
+impl ProgramIdArg {
     /// The resolved program address.
     pub fn pubkey(self) -> Pubkey {
         match self {
@@ -74,9 +80,11 @@ pub enum OrderArg {
     Uid(Hash),
 }
 
-impl OrderArg {
-    /// Accept either a 64-char hex UID or a base58 pubkey (the PDA directly).
-    pub fn parse(s: &str) -> anyhow::Result<Self> {
+/// Accept either a 64-char hex UID or a base58 pubkey (the PDA directly).
+impl FromStr for OrderArg {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         if let Ok(pubkey) = s.parse::<Pubkey>() {
             return Ok(Self::Pda(pubkey));
         }
@@ -97,7 +105,9 @@ impl OrderArg {
         }
         Ok(Self::Uid(Hash::new_from_array(bytes)))
     }
+}
 
+impl OrderArg {
     /// The order's PDA under `program_id`.
     pub fn pda(&self, program_id: &Pubkey) -> Pubkey {
         match self {
@@ -144,9 +154,11 @@ pub struct BufferArg {
     pub max_burn: u64,
 }
 
-impl BufferArg {
-    /// Parses `<pubkey>` (no burning) or `<pubkey>:<max burn>`.
-    pub fn parse(arg: &str) -> anyhow::Result<Self> {
+/// Parses `<pubkey>` (no burning) or `<pubkey>:<max burn in atoms>`.
+impl FromStr for BufferArg {
+    type Err = anyhow::Error;
+
+    fn from_str(arg: &str) -> anyhow::Result<Self> {
         let (address, max_burn) = match arg.split_once(':') {
             Some((address, max_burn)) => (address, Some(max_burn)),
             None => (arg, None),
@@ -174,11 +186,15 @@ impl BufferArg {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeypairArg(PathBuf);
 
-impl KeypairArg {
-    pub fn parse(s: &str) -> anyhow::Result<Self> {
+impl FromStr for KeypairArg {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Infallible> {
         Ok(Self(s.into()))
     }
+}
 
+impl KeypairArg {
     /// Reads the keypair from the file.
     pub fn signer(&self) -> anyhow::Result<Keypair> {
         read_keypair_file(&self.0)
@@ -201,7 +217,10 @@ mod tests {
             ("barn", Env::Barn),
             ("Barn", Env::Barn),
         ] {
-            assert_eq!(ProgramIdArg::parse(input).unwrap(), ProgramIdArg::Env(env));
+            assert_eq!(
+                ProgramIdArg::from_str(input).unwrap(),
+                ProgramIdArg::Env(env)
+            );
         }
     }
 
@@ -213,7 +232,7 @@ mod tests {
 
     #[test]
     fn program_id_rejects_input_that_is_neither() {
-        let err = ProgramIdArg::parse("not-an-env-or-address")
+        let err = ProgramIdArg::from_str("not-an-env-or-address")
             .expect_err("a word that is neither an env nor a base58 address")
             .to_string();
         assert!(err.contains("expected a settlement environment"), "{err}");
@@ -223,7 +242,7 @@ mod tests {
         #[test]
         fn program_id_passes_through_base58_address(address in any::<[u8; 32]>()) {
             let address = Pubkey::new_from_array(address);
-            let parsed = ProgramIdArg::parse(&address.to_string()).unwrap();
+            let parsed = ProgramIdArg::from_str(&address.to_string()).unwrap();
             prop_assert_eq!(parsed, ProgramIdArg::Address(address));
             prop_assert_eq!(parsed.pubkey(), address);
         }
@@ -237,7 +256,7 @@ mod tests {
             ProgramIdArg::Address(Pubkey::new_from_array([7; 32])),
         ] {
             assert_eq!(
-                ProgramIdArg::parse(&program_id.to_string()).unwrap(),
+                ProgramIdArg::from_str(&program_id.to_string()).unwrap(),
                 program_id
             );
         }
@@ -247,7 +266,7 @@ mod tests {
         #[test]
         fn order_arg_passes_through_base58_pda(pda in any::<[u8; 32]>()) {
             let pda = Pubkey::new_from_array(pda);
-            prop_assert_eq!(OrderArg::parse(&pda.to_string()).unwrap(), OrderArg::Pda(pda));
+            prop_assert_eq!(OrderArg::from_str(&pda.to_string()).unwrap(), OrderArg::Pda(pda));
         }
 
         #[test]
@@ -263,7 +282,7 @@ mod tests {
             let hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
             prop_assert_eq!(hex.len(), 64);
 
-            let arg = OrderArg::parse(&hex).unwrap();
+            let arg = OrderArg::from_str(&hex).unwrap();
             prop_assert_eq!(arg, OrderArg::Uid(uid));
             prop_assert_eq!(arg.pda(&program_id), expected);
             prop_assert_eq!(arg.to_string(), hex);
@@ -273,13 +292,13 @@ mod tests {
     #[test]
     fn order_arg_rejects_input_that_is_neither() {
         // Not base58 (so not a pubkey) and not 64 chars long.
-        let err = OrderArg::parse("0x1234")
+        let err = OrderArg::from_str("0x1234")
             .expect_err("short non-base58 input is not a valid order reference")
             .to_string();
         assert!(err.contains("expected a base58 order PDA"), "{err}");
 
         // Right length, but not hex.
-        let err = OrderArg::parse(&"z".repeat(64))
+        let err = OrderArg::from_str(&"z".repeat(64))
             .expect_err("64 non-hex chars are not a valid UID")
             .to_string();
         assert!(err.contains("invalid hex in UID"), "{err}");
@@ -291,14 +310,14 @@ mod tests {
         let path = std::env::temp_dir().join(format!("keypair-arg-{}.json", keypair.pubkey()));
         solana_sdk::signature::write_keypair_file(&keypair, &path).unwrap();
 
-        let arg = KeypairArg::parse(path.to_str().unwrap()).unwrap();
+        let arg = KeypairArg::from_str(path.to_str().unwrap()).unwrap();
         assert_eq!(arg.signer().unwrap().pubkey(), keypair.pubkey());
         std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
     fn keypair_arg_reports_unreadable_file() {
-        let arg = KeypairArg::parse("/nonexistent/keypair.json").unwrap();
+        let arg = KeypairArg::from_str("/nonexistent/keypair.json").unwrap();
         let err = arg
             .signer()
             .expect_err("a missing file has no keypair")

@@ -23,7 +23,7 @@ pub struct TransferArgs {
     /// Path to the keypair authorizing the transfer, which must be the manager
     /// or the role's current holder and must sign it (defaults to the payer
     /// keypair)
-    #[arg(long, value_parser = KeypairArg::parse)]
+    #[arg(long)]
     signer: Option<KeypairArg>,
 }
 

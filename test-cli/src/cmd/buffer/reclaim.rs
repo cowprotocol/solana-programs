@@ -21,18 +21,18 @@ use crate::{cmd::Context, utils::transaction::send};
 #[derive(ClapArgs)]
 pub struct ReclaimArgs {
     /// The account receiving the closed buffers' rent
-    target: Pubkey,
+    receiver: Pubkey,
 
     /// The buffer PDAs to close, all in one transaction.
     /// Buffers holding more tokens than their burn limit are left open.
     /// Specify just the buffer pubkey to close without burning, or if burning some
-    /// tokens is desired, use the syntax `<pubkey>:<max burn>`.
-    #[arg(required = true, value_parser = BufferArg::parse)]
+    /// tokens is desired, use the syntax `<pubkey>:<max burn in atoms>`.
+    #[arg(required = true)]
     buffers: Vec<BufferArg>,
 
     /// Path to the reclaim-authority keypair, which must sign (defaults to the
     /// payer keypair)
-    #[arg(long, value_parser = KeypairArg::parse)]
+    #[arg(long)]
     reclaim_authority: Option<KeypairArg>,
 }
 
@@ -83,7 +83,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
             &ctx.program_id,
             &find_state_pda(&ctx.program_id),
             &reclaim_authority.pubkey(),
-            &args.target,
+            &args.receiver,
             &by_program,
         );
         let sig = send(&ctx, &ixs, &[&reclaim_authority])?;
@@ -106,7 +106,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     if let Some(sig) = &sig {
         summary.push(("signature", sig));
     }
-    summary.push(("reclaimRecipient", &args.target));
+    summary.push(("reclaimRecipient", &args.receiver));
     summary.extend(
         reclaimed
             .iter()

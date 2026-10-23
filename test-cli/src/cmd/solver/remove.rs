@@ -16,7 +16,7 @@ pub struct RemoveArgs {
 
     /// Path to the solver-authority keypair, which authorizes the change and
     /// must sign it (defaults to the payer keypair)
-    #[arg(long, value_parser = KeypairArg::parse)]
+    #[arg(long)]
     solver_authority: Option<KeypairArg>,
 
     /// Account that receives the rent freed by removing the solver (defaults to
