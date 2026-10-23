@@ -109,32 +109,36 @@ impl KeypairArg {
 
 #[cfg(test)]
 mod tests {
+    use ::proptest::prelude::*;
+
     use super::*;
     use solana_sdk::signature::Signer;
 
-    #[test]
-    fn order_arg_passes_through_base58_pda() {
-        let pda = Pubkey::new_unique();
-        assert_eq!(
-            OrderArg::parse(&pda.to_string()).unwrap(),
-            OrderArg::Pda(pda),
-        );
-    }
+    proptest! {
+        #[test]
+        fn order_arg_passes_through_base58_pda(pda in any::<[u8; 32]>()) {
+            let pda = Pubkey::new_from_array(pda);
+            prop_assert_eq!(OrderArg::parse(&pda.to_string()).unwrap(), OrderArg::Pda(pda));
+        }
 
-    #[test]
-    fn order_arg_derives_pda_from_hex_uid() {
-        let program_id = Pubkey::new_unique();
-        let uid = Hash::new_from_array(*Pubkey::new_unique().as_array());
-        let (expected, _) = order::find_order_pda(&program_id, &uid);
+        #[test]
+        fn order_arg_derives_pda_from_hex_uid(
+            program_id in any::<[u8; 32]>(),
+            uid in any::<[u8; 32]>(),
+        ) {
+            let program_id = Pubkey::new_from_array(program_id);
+            let uid = Hash::new_from_array(uid);
+            let (expected, _) = order::find_order_pda(&program_id, &uid);
 
-        // `Hash`'s `Display` is base58, so spell the hex out from the raw bytes.
-        let hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(hex.len(), 64);
+            // `Hash`'s `Display` is base58, so spell the hex out from the raw bytes.
+            let hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
+            prop_assert_eq!(hex.len(), 64);
 
-        let arg = OrderArg::parse(&hex).unwrap();
-        assert_eq!(arg, OrderArg::Uid(uid));
-        assert_eq!(arg.pda(&program_id), expected);
-        assert_eq!(arg.to_string(), hex);
+            let arg = OrderArg::parse(&hex).unwrap();
+            prop_assert_eq!(arg, OrderArg::Uid(uid));
+            prop_assert_eq!(arg.pda(&program_id), expected);
+            prop_assert_eq!(arg.to_string(), hex);
+        }
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
@@ -9,82 +9,95 @@ use cow_settlement_client::{
 use solana_instruction::Instruction;
 use solana_sdk::{account::Account, signature::Signer};
 
-use super::send;
 use crate::cmd::Context;
 use crate::utils::output::print_summary;
-use crate::utils::parsing::BufferArg;
 use crate::utils::token::{token_program_of, unpack_mint};
+use crate::utils::transaction::send;
 
 #[derive(ClapArgs)]
 pub struct CreateArgs {
     /// The mints to create a buffer for, in one transaction. The payer funds
     /// each new buffer's rent; mints whose buffer already exists are skipped.
-    #[arg(required = true, value_parser = parse_mint)]
+    #[arg(required = true)]
     mints: Vec<Pubkey>,
 }
 
-fn parse_mint(arg: &str) -> anyhow::Result<Pubkey> {
-    let BufferArg { address, max_burn } = BufferArg::parse(arg)?;
-    anyhow::ensure!(
-        max_burn == 0,
-        "max burn {max_burn} given, but creating a buffer burns nothing"
-    );
-    Ok(address)
+struct ResolvedMint {
+    /// The mint as given on the command line.
+    mint: Pubkey,
+    /// Its buffer PDA.
+    buffer: Pubkey,
+    /// The account found at `mint`.
+    mint_account: Option<Account>,
+    /// Whether an account already exists at `buffer`.
+    buffer_exists: bool,
 }
 
 /// Creates the missing buffers in a single transaction. If any mint is not associated
 /// with a supported token program, no transaction is created and the first offending mint is shown.
-pub fn run(ctx: Context, args: CreateArgs) -> anyhow::Result<()> {
+pub fn run(ctx: Context, mut args: CreateArgs) -> anyhow::Result<()> {
     let payer = ctx.payer.pubkey();
-    let buffers: Vec<Pubkey> = args
-        .mints
-        .iter()
-        .map(|mint| find_buffer_pda(&ctx.program_id, mint).0)
-        .collect();
-    let accounts = ctx
-        .rpc
-        .get_multiple_accounts(&[&args.mints[..], &buffers].concat())
-        .context("failed to fetch mint and buffer accounts")?;
-    let (mint_accounts, buffer_accounts) = accounts.split_at(args.mints.len());
+    // A repeated mint would otherwise be listed as created twice.
+    let mut seen = HashSet::new();
+    args.mints.retain(|mint| seen.insert(*mint));
+    let mints: Vec<ResolvedMint> = {
+        let buffers: Vec<Pubkey> = args
+            .mints
+            .iter()
+            .map(|mint| find_buffer_pda(&ctx.program_id, mint).0)
+            .collect();
+        let mut accounts = ctx
+            .rpc
+            .get_multiple_accounts(&[&args.mints[..], &buffers].concat())
+            .context("failed to fetch mint and buffer accounts")?;
+        let buffer_accounts = accounts.split_off(args.mints.len());
+        args.mints
+            .iter()
+            .zip(buffers)
+            .zip(accounts)
+            .zip(buffer_accounts)
+            .map(
+                |(((&mint, buffer), mint_account), buffer_account)| ResolvedMint {
+                    mint,
+                    buffer,
+                    mint_account,
+                    buffer_exists: buffer_account.is_some(),
+                },
+            )
+            .collect()
+    };
 
     let mut by_program: HashMap<TokenProgram, Vec<Pubkey>> = HashMap::new();
     let mut created = Vec::new();
     let mut existing = Vec::new();
-    for (i, mint) in args.mints.iter().enumerate() {
-        if buffer_accounts[i].is_some() {
-            existing.push(buffers[i]);
+    for resolved in &mints {
+        if resolved.buffer_exists {
+            existing.push(resolved.buffer);
             continue;
         }
-        let token_program = mint_accounts[i]
+        let token_program = resolved
+            .mint_account
             .as_ref()
             .context("mint account not found")
             .and_then(mint_token_program)
-            .with_context(|| format!("bad mint {mint}, nothing was created"))?;
-        by_program.entry(token_program).or_default().push(*mint);
-        created.push(buffers[i]);
+            .with_context(|| format!("bad mint {}, nothing was created", resolved.mint))?;
+        by_program
+            .entry(token_program)
+            .or_default()
+            .push(resolved.mint);
+        created.push(resolved.buffer);
     }
 
-    let sig = if created.is_empty() {
-        None
-    } else {
-        let ixs = instructions(&ctx.program_id, &payer, &by_program);
-        Some(send(&ctx, &ixs, &[])?)
-    };
-
+    let sig;
     let mut summary: Vec<(&str, &dyn ToString)> = Vec::new();
-    if let Some(sig) = &sig {
-        summary.push(("signature", sig));
+    if !created.is_empty() {
+        let ixs = instructions(&ctx.program_id, &payer, &by_program);
+        sig = send(&ctx, &ixs, &[])?;
+        summary.push(("signature", &sig));
     }
-    summary.extend(
-        created
-            .iter()
-            .map(|pda| ("bufferPda", pda as &dyn ToString)),
-    );
-    summary.extend(
-        existing
-            .iter()
-            .map(|pda| ("existingBufferPda", pda as &dyn ToString)),
-    );
+    for (label, pdas) in [("bufferPda", &created), ("existingBufferPda", &existing)] {
+        summary.extend(pdas.iter().map(|pda| (label, pda as &dyn ToString)));
+    }
     print_summary(&summary);
 
     Ok(())

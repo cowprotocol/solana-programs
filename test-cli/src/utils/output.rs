@@ -11,11 +11,11 @@ pub fn print_summary(results: &[(&str, &dyn ToString)]) {
 }
 
 /// Lists each offending input with why it was rejected.
-pub fn print_failures<K: AsRef<str>>(failures: &[(K, String)]) {
+pub fn print_failures(failures: &[(&str, &str)]) {
     print_summary(
         &failures
             .iter()
-            .map(|(input, reason)| (input.as_ref(), reason as &dyn ToString))
+            .map(|(input, reason)| (*input, reason as &dyn ToString))
             .collect::<Vec<_>>(),
     );
 }
