@@ -52,10 +52,9 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     let mut non_empty = Vec::new();
     for (i, (buffer, account)) in args.buffers.iter().zip(accounts).enumerate() {
         let address = buffer.address;
-        anyhow::ensure!(
-            !addresses[..i].contains(&address),
-            "bad buffer {address}, nothing was reclaimed: buffer listed more than once"
-        );
+        if addresses[..i].contains(&address) {
+            continue;
+        }
         let BufferState {
             amount,
             token_program,
