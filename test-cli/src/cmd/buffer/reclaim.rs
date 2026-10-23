@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use anyhow::Context as _;
 use clap::Args as ClapArgs;
 use cow_settlement_client::{
-    cow_settlement_interface::{instruction::reclaim_buffer::ReclaimBuffer, Pubkey},
+    cow_settlement_interface::{
+        instruction::reclaim_buffer::ReclaimBuffer, pda::buffer::find_buffer_pda, Pubkey,
+    },
     instruction::TokenProgram,
 };
 use solana_instruction::Instruction;
@@ -12,7 +14,7 @@ use solana_sdk::{account::Account, signature::Signer};
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
 use crate::utils::parsing::{BufferArg, KeypairArg};
-use crate::utils::pda::SettlementSeed;
+use crate::utils::pda::find_state_pda;
 use crate::utils::token::{token_program_of, unpack_token_account};
 use crate::{cmd::Context, utils::transaction::send};
 
@@ -32,16 +34,6 @@ pub struct ReclaimArgs {
     /// payer keypair)
     #[arg(long, value_parser = KeypairArg::parse)]
     reclaim_authority: Option<KeypairArg>,
-
-    /// `<major>.<minor>` release the program runs, which its state and buffer
-    /// PDAs are derived from. Set it to reclaim the buffers of a deployment of
-    /// an older release (e.g. `0.4`)
-    #[arg(
-        long,
-        default_value = SettlementSeed::CURRENT_VERSION,
-        value_parser = SettlementSeed::parse
-    )]
-    settlement_version: SettlementSeed,
 }
 
 /// Issues a transaction to reclaim the specified buffers, optionally burning
@@ -70,14 +62,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
             mint,
         } = account
             .context("buffer account not found")
-            .and_then(|account| {
-                decode_buffer(
-                    &account,
-                    &address,
-                    &ctx.program_id,
-                    &args.settlement_version,
-                )
-            })
+            .and_then(|account| decode_buffer(&account, &address, &ctx.program_id))
             .with_context(|| format!("bad buffer {address}, nothing was reclaimed"))?;
         if amount <= buffer.max_burn {
             by_program
@@ -96,7 +81,7 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
     } else {
         let ixs = instructions(
             &ctx.program_id,
-            &args.settlement_version.state_pda(&ctx.program_id),
+            &find_state_pda(&ctx.program_id),
             &reclaim_authority.pubkey(),
             &args.target,
             &by_program,
@@ -171,19 +156,18 @@ struct Buffer {
 
 /// Decodes `account`, stored at `address`. Fails unless it's a token account
 /// of a supported token program at the buffer PDA of its mint under
-/// `program_id`, derived from `seed`.
+/// `program_id`.
 fn decode_buffer(
     account: &Account,
     address: &Pubkey,
     program_id: &Pubkey,
-    seed: &SettlementSeed,
 ) -> anyhow::Result<Buffer> {
     let token_program = token_program_of(account)?;
     let token_account =
         unpack_token_account(&account.data).context("account is not a token account")?;
     let mint = token_account.mint;
     anyhow::ensure!(
-        seed.buffer_pda(program_id, &mint) == *address,
+        find_buffer_pda(program_id, &mint).0 == *address,
         "not the buffer of mint {mint} under {program_id}"
     );
     Ok(Buffer {
