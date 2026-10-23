@@ -1,6 +1,6 @@
 //! Parsing of command-line inputs.
 
-use std::convert::Infallible;
+use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -186,11 +186,9 @@ impl FromStr for BufferArg {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeypairArg(PathBuf);
 
-impl FromStr for KeypairArg {
-    type Err = Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Infallible> {
-        Ok(Self(s.into()))
+impl From<OsString> for KeypairArg {
+    fn from(s: OsString) -> Self {
+        Self(s.into())
     }
 }
 
@@ -310,14 +308,14 @@ mod tests {
         let path = std::env::temp_dir().join(format!("keypair-arg-{}.json", keypair.pubkey()));
         solana_sdk::signature::write_keypair_file(&keypair, &path).unwrap();
 
-        let arg = KeypairArg::from_str(path.to_str().unwrap()).unwrap();
+        let arg = KeypairArg::from(path.clone().into_os_string());
         assert_eq!(arg.signer().unwrap().pubkey(), keypair.pubkey());
         std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
     fn keypair_arg_reports_unreadable_file() {
-        let arg = KeypairArg::from_str("/nonexistent/keypair.json").unwrap();
+        let arg = KeypairArg::from(OsString::from("/nonexistent/keypair.json"));
         let err = arg
             .signer()
             .expect_err("a missing file has no keypair")
