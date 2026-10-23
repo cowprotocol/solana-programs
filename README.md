@@ -147,10 +147,10 @@ just verify "$ENV" "$PROGRAM_ID" "$DEPLOYER_KEYFILE" <optional-commit-hash>
 If the upgrade authority is a multisig (e.g. Squads), print the transaction it has to execute instead:
 
 ```sh
-just verify-multisig "$ENV" "$PROGRAM_ID" "$MULTISIG_VAULT" <optional-commit-hash>
+just verify-multisig "$ENV" "$PROGRAM_ID" "$MULTISIG_VAULT"
 ```
 
-This first rebuilds the checked-out commit and refuses to continue unless it matches the deployed program. Import the printed base58 transaction into the multisig; once it has executed, run the `submit-job` command printed at the end. That last step needs no signature.
+Import the printed base58 transaction into the multisig; once it has executed, run the `submit-job` command printed at the end. That last step needs no signature.
 
 ### Publishing the cargo packages
 
