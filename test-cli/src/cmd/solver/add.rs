@@ -6,6 +6,7 @@ use solana_sdk::{signature::Signer, transaction::Transaction};
 use crate::cmd::Context;
 use crate::utils::keypair::read_keypair_or;
 use crate::utils::output::print_summary;
+use crate::utils::parsing::KeypairArg;
 use crate::utils::pda::find_state_pda;
 
 #[derive(ClapArgs)]
@@ -17,7 +18,7 @@ pub struct AddArgs {
     /// must sign it (defaults to the payer keypair, which always funds the
     /// state PDA's growth)
     #[arg(long)]
-    solver_authority: Option<String>,
+    solver_authority: Option<KeypairArg>,
 }
 
 pub fn run(ctx: Context, args: AddArgs) -> anyhow::Result<()> {

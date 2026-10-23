@@ -19,7 +19,7 @@ use crate::utils::{
 #[derive(ClapArgs)]
 pub struct ReclaimArgs {
     /// The orders to close, each a base58 order PDA or a 64-char hex UID.
-    #[arg(required = true, value_parser = OrderArg::parse)]
+    #[arg(required = true)]
     orders: Vec<OrderArg>,
 }
 

@@ -58,7 +58,6 @@ struct Cli {
     #[arg(
         long,
         global = true,
-        value_parser = ProgramIdArg::parse,
         default_value_t = ProgramIdArg::Env(Env::Prod),
     )]
     program_id: ProgramIdArg,
