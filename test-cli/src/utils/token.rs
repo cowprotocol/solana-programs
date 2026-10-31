@@ -5,6 +5,7 @@
 //! Entry point: [`resolve`].
 
 use anyhow::Context as _;
+use cow_settlement_client::cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
 use cow_settlement_client::cow_settlement_interface::Pubkey;
 use cow_settlement_client::instruction::TokenProgram;
 use solana_instruction::Instruction;
@@ -15,8 +16,8 @@ use solana_sdk::program_error::ProgramError;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
 use spl_token_2022_interface::extension::StateWithExtensions;
-use spl_token_2022_interface::native_mint;
 use spl_token_2022_interface::state::{Account as TokenAccount, Mint};
+use spl_token_interface::native_mint;
 
 /// Inline registry of recognised token symbols.
 /// Avoids an RPC round-trip for well-known mints whose decimals are fixed.
@@ -51,7 +52,14 @@ pub struct TokenAccountDetails {
     pub mint_data: Mint,
     /// `Some(owner)` when `handle.account` does not yet exist on-chain. Call
     /// with the transaction fee payer to build the instruction that creates it.
-    create_ata: Option<Pubkey>,
+    pub(crate) create_ata: Option<Pubkey>,
+    /// The token balance currently held by `handle.account`, in atoms. Zero when
+    /// the account does not exist yet.
+    pub(crate) balance: u64,
+    /// Whether the user named native SOL rather than the wrapped token. Lamports
+    /// can only be sold wrapped, so the caller wraps them on the user's behalf;
+    /// naming the wrapped token instead means "spend what the account holds".
+    pub(crate) names_native_sol: bool,
 }
 
 pub struct TokenAccountInfo {
@@ -87,17 +95,28 @@ pub fn resolve(
 ) -> anyhow::Result<TokenAccountDetails> {
     let upper = token_str.to_uppercase();
 
-    // 1. `"SOL"` / `"WSOL"` — payer's ATA for the native mint.
-    if matches!(upper.as_str(), "SOL" | "WSOL") {
+    // 1. Native SOL, named either `"SOL"` or by the marker the wire uses for it.
+    // A sell side can only carry it wrapped, so it resolves to the same account
+    // as `"WSOL"` and is flagged for the caller to wrap.
+    if names_native_sol(token_str) {
+        let mut details = resolve_from_mint(rpc, owner, &native_mint::ID)?;
+        details.names_native_sol = true;
+        return Ok(details);
+    }
+
+    // 2. `"WSOL"` — the wrapped token itself, spent from the balance already
+    // there. The legacy mint is the one that carries the liquidity; Token-2022's
+    // native mint is only reachable by passing its address explicitly.
+    if upper == "WSOL" {
         return resolve_from_mint(rpc, owner, &native_mint::ID);
     }
 
-    // 2. Base58 mint or token-account address — fetches decimals from the mint, and possibly the token account owner.
+    // 3. Base58 mint or token-account address — fetches decimals from the mint, and possibly the token account owner.
     if let Ok(pubkey) = token_str.parse::<Pubkey>() {
         return interpret_token_from_user_input(rpc, owner, &pubkey);
     }
 
-    // 3. Known symbol (e.g. `"USDC"`) — payer's ATA for the registered mint, RPC call required to get genesis hash (detecting the network).
+    // 4. Known symbol (e.g. `"USDC"`) — payer's ATA for the registered mint, RPC call required to get genesis hash (detecting the network).
     let genesis_hash = rpc
         .get_genesis_hash()
         .with_context(|| "failed to fetch genesis hash (is the RPC URL correct?)")?
@@ -167,6 +186,8 @@ pub fn interpret_token_from_user_input(
             mint_data: fetch_mint(rpc, &token_account.mint)?.1,
             // The account was just fetched and unpacked above, so it already exists.
             create_ata: None,
+            balance: token_account.amount,
+            names_native_sol: false,
         })
     } else if let Ok(mint) = unpack_mint(account.data()) {
         let ata = get_associated_token_address_with_program_id(
@@ -174,6 +195,7 @@ pub fn interpret_token_from_user_input(
             token_account_or_mint,
             &token_program.address(),
         );
+        let (create_ata, balance) = inspect_ata(rpc, &ata, owner)?;
         Ok(TokenAccountDetails {
             handle: TokenAccountInfo {
                 account: ata,
@@ -181,7 +203,9 @@ pub fn interpret_token_from_user_input(
                 token_program,
             },
             mint_data: mint,
-            create_ata: determine_create_ata(rpc, &ata, owner)?,
+            create_ata,
+            balance,
+            names_native_sol: false,
         })
     } else {
         anyhow::bail!(
@@ -201,6 +225,7 @@ fn resolve_from_mint(
 ) -> anyhow::Result<TokenAccountDetails> {
     let (token_program, mint_data) = fetch_mint(rpc, mint)?;
     let ata = get_associated_token_address_with_program_id(owner, mint, &token_program.address());
+    let (create_ata, balance) = inspect_ata(rpc, &ata, owner)?;
 
     Ok(TokenAccountDetails {
         handle: TokenAccountInfo {
@@ -209,8 +234,21 @@ fn resolve_from_mint(
             token_program,
         },
         mint_data,
-        create_ata: determine_create_ata(rpc, &ata, owner)?,
+        create_ata,
+        balance,
+        names_native_sol: false,
     })
+}
+
+/// Whether `token_str` names native SOL: the `SOL` symbol, or the marker the
+/// wire uses for a native side ([`ENCODED_NATIVE_SOL_TRANSFER`], the system
+/// program). `WSOL` and the wrapped mint's address are the wrapped token, not
+/// this.
+pub(crate) fn names_native_sol(token_str: &str) -> bool {
+    token_str.eq_ignore_ascii_case("sol")
+        || token_str
+            .parse::<Pubkey>()
+            .is_ok_and(|address| address == ENCODED_NATIVE_SOL_TRANSFER)
 }
 
 /// The token program owning `account`, rejecting anything the settlement
@@ -220,22 +258,21 @@ pub(crate) fn token_program_of(account: &Account) -> anyhow::Result<TokenProgram
     TokenProgram::try_from(&owner).context(format!("{owner} is not a supported token program"))
 }
 
-/// Used to set `create_ata` on `ResolvedToken`. Returns the ATA `owner` when the
-/// account still needs to be created.
-fn determine_create_ata(
+/// Used to set `create_ata` and `balance` on [`TokenAccountDetails`]. Returns
+/// the ATA `owner` when the account still needs to be created, alongside the
+/// balance it currently holds (zero when it does not exist yet).
+fn inspect_ata(
     rpc: &RpcClient,
     token_account_address: &Pubkey,
     owner: &Pubkey,
-) -> anyhow::Result<Option<Pubkey>> {
+) -> anyhow::Result<(Option<Pubkey>, u64)> {
     let Ok(data) = rpc.get_account_data(token_account_address) else {
-        return Ok(Some(*owner));
+        return Ok((Some(*owner), 0));
     };
 
-    anyhow::ensure!(
-        unpack_token_account(&data).is_ok(),
-        "account {token_account_address} is not a token account"
-    );
-    Ok(None)
+    let token_account = unpack_token_account(&data)
+        .map_err(|_| anyhow::anyhow!("account {token_account_address} is not a token account"))?;
+    Ok((None, token_account.amount))
 }
 
 /// Fetch `mint` and return the token program owning it alongside its decoded state.
@@ -273,6 +310,7 @@ mod tests {
     use spl_token_2022_interface::extension::{
         BaseStateWithExtensionsMut as _, ExtensionType, StateWithExtensionsMut,
     };
+    use spl_token_2022_interface::native_mint as native_mint_2022;
     use spl_token_2022_interface::state::AccountState;
 
     /// A mint as the legacy token program stores it: exactly `Mint::LEN` bytes.
@@ -417,5 +455,35 @@ mod tests {
             .expect_err("a non-token program is not a token program")
             .to_string();
         assert!(err.contains("is not a supported token program"), "{err}");
+    }
+
+    #[test]
+    fn sol_resolves_to_the_legacy_wrapped_sol_mint() {
+        // The liquid wrapped SOL, not Token-2022's own native mint: an order
+        // against the latter is unfillable, since no solver quotes it.
+        assert_eq!(
+            native_mint::ID.to_string(),
+            "So11111111111111111111111111111111111111112"
+        );
+    }
+
+    #[test]
+    fn native_sol_is_named_by_symbol_or_by_the_wire_marker() {
+        assert!(names_native_sol("SOL"));
+        assert!(names_native_sol("sol"), "the symbol is case-insensitive");
+        assert!(
+            names_native_sol(&ENCODED_NATIVE_SOL_TRANSFER.to_string()),
+            "the marker a native side carries on the wire"
+        );
+    }
+
+    #[test]
+    fn the_wrapped_token_is_not_native_sol() {
+        // Naming the wrapped token spends the balance already held, so these
+        // must not be mistaken for a request to wrap lamports.
+        assert!(!names_native_sol("WSOL"));
+        assert!(!names_native_sol(&native_mint::ID.to_string()));
+        assert!(!names_native_sol(&native_mint_2022::ID.to_string()));
+        assert!(!names_native_sol("USDC"));
     }
 }

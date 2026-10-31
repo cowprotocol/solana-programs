@@ -40,7 +40,12 @@ itself execute the swap. Supported forms:
   cow buy 1.0 SOL USDC              buy exactly 1.0 SOL, spending any USDC
   cow buy 1.0 USDC                  buy 1.0 USDC, selling any amount of SOL (implied)
 
-Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address.")]
+Tokens can be a builtin symbol (SOL, WSOL, USDC), a mint address, or a token-account address.
+
+Selling SOL — named `SOL` or `11111111111111111111111111111111`, the marker the \
+wire uses for native SOL — wraps enough lamports to cover the sell amount, creating \
+the wrapped SOL account if needed. Naming `WSOL` or a mint address spends the \
+balance that account already holds instead, and fails if it is short.")]
 pub struct BuyOrSellArgs {
     /// Remaining terms (tokens and/or an amount) — run with --help for supported forms
     #[arg(num_args = 2..=5)]
@@ -68,7 +73,6 @@ struct ParsedOrder {
     kind: OrderKind,
     sell: TokenAccountDetails,
     sell_amount: NonZeroU64,
-    sell_is_sol: bool,
     buy: TokenAccountDetails,
     buy_amount: NonZeroU64,
 }
@@ -129,7 +133,6 @@ fn parse(ctx: &Context, kind: OrderKind, terms: &[String]) -> anyhow::Result<Par
 
     Ok(ParsedOrder {
         kind,
-        sell_is_sol: sell_tok.eq_ignore_ascii_case("sol"),
         sell,
         sell_amount,
         buy,
@@ -142,20 +145,39 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
         kind,
         sell,
         sell_amount,
-        sell_is_sol,
         buy,
         buy_amount,
     } = parsed;
 
-    // If the sell token is SOL, wrap it into the payer's WSOL ATA first.
+    // Selling native SOL means wrapping it: the wire has no mint for lamports,
+    // so the sell side can only be the wrapped token. Only the shortfall is
+    // wrapped, leaving an account that already holds enough alone.
     // NOTE: later this will be swapped for the solflow program.
     let mut ixs = Vec::new();
+    let wrapped = if sell.names_native_sol {
+        sell_amount.get().saturating_sub(sell.balance)
+    } else {
+        0
+    };
 
-    if sell_is_sol {
-        let (wsol_ata, wrap_ixs) =
-            utils::spl_instructions::wrap_sol(&ctx.rpc, &ctx.payer.pubkey(), sell_amount.get())?;
-        assert_eq!(wsol_ata, sell.handle.account, "resolved WSOL ATA mismatch");
-        ixs.extend(wrap_ixs);
+    if sell.names_native_sol {
+        ixs.extend(utils::spl_instructions::wrap_sol(
+            &ctx.payer.pubkey(),
+            &sell,
+            sell_amount.get(),
+        )?);
+    } else {
+        // Naming the token itself spends the balance that is already there. An
+        // order over an account that can't cover it would be created happily and
+        // then never fill, so it's refused here rather than on the orderbook.
+        anyhow::ensure!(
+            sell.balance >= sell_amount.get(),
+            "{} holds {} but the order sells {}; fund it first, or name the sell \
+             token `SOL` to wrap the difference automatically",
+            sell.handle.account,
+            sell.balance,
+            sell_amount,
+        );
     }
 
     // Create the account on the buy side if necessary
@@ -220,11 +242,18 @@ fn execute(ctx: Context, parsed: ParsedOrder, common: CommonArgs) -> anyhow::Res
 
     let uid_hex: String = uid.as_ref().iter().map(|b| format!("{b:02x}")).collect();
 
-    print_summary(&[
+    // The sell mint is worth showing: native SOL is spelled one way on the
+    // command line and another on the wire, and only the latter can be settled.
+    let mut summary: Vec<(&str, &dyn ToString)> = vec![
         ("signature", &sig),
         ("orderPda", &order_pda),
         ("orderUid", &uid_hex),
-    ]);
+        ("sellMint", &sell.handle.mint),
+    ];
+    if wrapped > 0 {
+        summary.push(("wrappedLamports", &wrapped));
+    }
+    print_summary(&summary);
 
     Ok(())
 }

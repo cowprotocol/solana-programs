@@ -959,6 +959,7 @@ dependencies = [
  "spl-associated-token-account-interface",
  "spl-token",
  "spl-token-2022-interface 3.1.1",
+ "spl-token-interface 3.0.0",
 ]
 
 [[package]]
