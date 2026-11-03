@@ -45,5 +45,8 @@ spl-token.workspace = true
 spl-token-2022-interface.workspace = true
 thiserror.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

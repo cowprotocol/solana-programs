@@ -2,8 +2,9 @@
 
 use std::ops::Deref;
 
-use solana_sdk::signature::read_keypair_file;
 use solana_sdk::signer::keypair::Keypair;
+
+use super::parsing::KeypairArg;
 
 /// A keypair the caller either owns or borrows.
 ///
@@ -26,15 +27,13 @@ impl Deref for MaybeKeypair<'_> {
     }
 }
 
-/// The keypair at `path`, or `default` borrowed when no `path` is given.
+/// The keypair `arg` names, or `default` borrowed when no `arg` is given.
 pub fn read_keypair_or(
-    path: Option<String>,
+    arg: Option<KeypairArg>,
     default: &Keypair,
 ) -> anyhow::Result<MaybeKeypair<'_>> {
-    match path {
-        Some(path) => read_keypair_file(&path)
-            .map(MaybeKeypair::Owned)
-            .map_err(|e| anyhow::anyhow!("failed to read keypair from {path}: {e}")),
+    match arg {
+        Some(arg) => arg.signer().map(MaybeKeypair::Owned),
         None => Ok(MaybeKeypair::Borrowed(default)),
     }
 }

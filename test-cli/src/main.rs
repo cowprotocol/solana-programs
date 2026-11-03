@@ -1,10 +1,11 @@
 use clap::{Parser, Subcommand};
-use cow_settlement_client::cow_settlement_interface::Pubkey;
 
 mod cmd;
 mod utils;
 
+use solana_pubkey::Pubkey;
 // The generated Squads client refers to its program ID from the crate root.
+use utils::parsing::{Env, ProgramIdArg};
 use utils::squads::SQUADS_MULTISIG_PROGRAM_ID;
 
 fn home_dir() -> String {
@@ -36,7 +37,7 @@ fn default_rpc_url() -> String {
 }
 
 #[derive(Parser)]
-#[command(name = "cow", about = "CoW Protocol Solana dev/testing CLI")]
+#[command(name = "cow", version, about = "CoW Protocol Solana dev/testing CLI")]
 struct Cli {
     /// Solana RPC endpoint (defaults to the `solana config` endpoint, or mainnet-beta if not available.)
     #[arg(
@@ -58,9 +59,13 @@ struct Cli {
     )]
     keypair: String,
 
-    /// Settlement program ID
-    #[arg(long, global = true, default_value_t = cow_settlement_client::cow_settlement_interface::PROD_ID)]
-    program_id: Pubkey,
+    /// Settlement program: `prod`, `barn`, or a base58 program address
+    #[arg(
+        long,
+        global = true,
+        default_value_t = ProgramIdArg::Env(Env::Prod),
+    )]
+    program_id: ProgramIdArg,
 
     /// Propose transactions to this Squads multisig instead of sending them,
     /// with its vault standing in for the payer and every other signer
@@ -86,6 +91,10 @@ enum Commands {
     Buy(cmd::create_order::BuyOrSellArgs),
     #[command(about = "Settle one or more orders")]
     Settle(cmd::settle::SettleArgs),
+    #[command(about = "Close order PDAs and refund their rent to each order's creator")]
+    Reclaim(cmd::reclaim::ReclaimArgs),
+    #[command(about = "Manage token buffers (e.g. `cow buffer create <mint>...`)")]
+    Buffer(cmd::buffer::BufferArgs),
     #[command(about = "Manage the program's solvers (e.g. `cow solver add <address>`)")]
     Solver(cmd::solver::SolverArgs),
     #[command(about = "Manage authorities (e.g. `cow authority transfer manager <address>`)")]
@@ -100,6 +109,8 @@ fn main() -> anyhow::Result<()> {
         Commands::Sell(args) => cmd::create_order::run_sell(ctx, args),
         Commands::Buy(args) => cmd::create_order::run_buy(ctx, args),
         Commands::Settle(args) => cmd::settle::run(ctx, args),
+        Commands::Reclaim(args) => cmd::reclaim::run(ctx, args),
+        Commands::Buffer(args) => cmd::buffer::run(ctx, args),
         Commands::Solver(args) => cmd::solver::run(ctx, args),
         Commands::Authority(args) => cmd::authority::run(ctx, args),
     }

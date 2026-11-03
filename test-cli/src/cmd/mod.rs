@@ -12,12 +12,15 @@ use solana_sdk::signer::keypair::Keypair;
 use solana_sdk::transaction::Transaction;
 
 use crate::utils::keypair::{read_keypair_or, MaybeKeypair};
+use crate::utils::parsing::KeypairArg;
 use crate::utils::squads::Multisig;
 use crate::Cli;
 
 pub mod authority;
+pub mod buffer;
 pub mod create_order;
 pub mod initialize;
+pub mod reclaim;
 pub mod settle;
 pub mod solver;
 
@@ -66,7 +69,7 @@ impl Context {
         };
         Ok(Self {
             signer,
-            program_id: cli.program_id,
+            program_id: cli.program_id.pubkey(),
             rpc,
             squads,
         })
@@ -84,11 +87,11 @@ impl Context {
     /// Retrieves the signer at the specified path
     ///
     /// Returns an error if the signer configuration is not supported (ex. squads does not support co-signing.)
-    pub fn signer_or(&self, path: Option<String>) -> anyhow::Result<TxSigner<'_>> {
+    pub fn signer_or(&self, path: Option<KeypairArg>) -> anyhow::Result<TxSigner<'_>> {
         match (&self.squads, path) {
             (Some(squads), None) => Ok(TxSigner::Vault(squads.vault)),
             (Some(_), Some(path)) => anyhow::bail!(
-                "{path} was specified to sign, but it can't be used with --squads-multisig as co-signing is not possible with multisigs."
+                "{path:?} was specified to sign, but it can't be used with --squads-multisig as co-signing is not possible with multisigs."
             ),
             (None, path) => read_keypair_or(path, &self.signer).map(TxSigner::Keypair),
         }
