@@ -624,6 +624,33 @@ mod settlement_owned {
     }
 
     #[test]
+    fn authority_cancels_its_own_order() {
+        // An order owned by the authority's own key is a plain user order: it
+        // cancels as its owner, without the state PDA.
+        let (mut svm, params) = setup_init();
+        let authority = params.settlement_owned_order.pubkey();
+        let intent = sample_intent(authority, 0);
+        let pda = plant_order(&mut svm, &params, &intent, unique_pubkey());
+
+        let ix = CancelOrder {
+            program_id: params.program_id,
+            owner: authority,
+            created_by: authority,
+            order_pda: pda,
+            intent_bytes: None,
+            state_pda: None,
+        };
+        send_with_signers(
+            &mut svm,
+            &params.payer,
+            &[&params.settlement_owned_order],
+            &[ix.into()],
+        )
+        .expect("the authority should cancel its own order like any owner");
+        assert!(read_order(&svm, &pda).cancelled);
+    }
+
+    #[test]
     fn rejects_a_settlement_owned_order_without_the_state_pda() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
@@ -654,9 +681,6 @@ mod settlement_owned {
 
     #[test]
     fn rejects_creating_a_cancelled_settlement_owned_order() {
-        // Settlement-owned orders only come into existence through
-        // `CreateSettlementOwnedOrder`: nobody can sign as the state PDA to
-        // create one already cancelled.
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
         let (encoded, pda, _) = encode_and_derive(&intent, &params.program_id);

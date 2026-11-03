@@ -35,9 +35,9 @@ pub fn process_cancel_order(
         let mut order_pda = *order_pda;
         let mut order = OrderAccount::load_from_pda_mut(&mut order_pda, program_id)?;
         let intent = OrderIntentAccessor::from_order(&order)?;
+
+        // Is this a settlement owned order?
         if intent.owner() == STATE_PDA.as_array() {
-            // The state PDA can't sign: the settlement-owned-order authority
-            // cancels on its behalf.
             let state_pda = state_pda.ok_or(ProgramError::NotEnoughAccountKeys)?;
             validate_is_state_pda(state_pda.address().as_array())?;
             let authority = StateAccount::from_account(state_pda)?
