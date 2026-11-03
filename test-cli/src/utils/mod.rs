@@ -5,5 +5,5 @@ pub mod output;
 pub mod parsing;
 pub mod pda;
 pub mod spl_instructions;
+pub mod squads;
 pub mod token;
-pub mod transaction;
