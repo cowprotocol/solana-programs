@@ -48,7 +48,8 @@ struct Cli {
     rpc_url: String,
 
     /// Path to the payer keypair (JSON format as written by `solana-keygen`).
-    /// With `--squads-multisig`, the multisig member proposing the transaction
+    /// With `--squads-multisig` it is the multisig member that proposes the
+    /// transaction and pays the rent for the proposal.
     #[arg(
         long,
         global = true,

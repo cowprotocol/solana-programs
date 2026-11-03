@@ -173,7 +173,7 @@ pub fn run(ctx: Context, args: SettleArgs) -> anyhow::Result<()> {
     } else {
         let sig = match ctx
             .submit(&all_ixs, &[])
-            .context("settle transaction failed")?
+            .context("failed to submit the settlement")?
         {
             Submission::Sent(sig) => sig,
             Submission::Proposed(proposed) => {
