@@ -25,7 +25,9 @@ describe("cancelOrder on a settlement-owned order", () => {
     svm = newSvm();
   });
 
-  it("cancels an order owned by the state PDA", async () => {
+  /// Initializes the program and returns a funded payer and the
+  /// settlement-owned-order authority.
+  async function initialize() {
     const [payer, manager, solverAuthority, reclaimAuthority, settlementOwnedOrderAuthority] =
       await Promise.all(Array.from({ length: 5 }, () => generateKeyPairSigner()));
     svm.airdrop(payer.address, lamports(1_000_000_000n));
@@ -40,7 +42,11 @@ describe("cancelOrder on a settlement-owned order", () => {
       settlementOwnedOrderAuthority: settlementOwnedOrderAuthority.address,
     });
     await sendUnverifiedInstruction(svm, payer, initialize, "initialize");
+    return { payer, settlementOwnedOrderAuthority };
+  }
 
+  it("cancels an order owned by the state PDA", async () => {
+    const { payer, settlementOwnedOrderAuthority } = await initialize();
     const [statePda] = await findStatePda();
     const intent = await buildOrderIntent({ owner: statePda });
     const create = await getCreateSettlementOwnedOrderInstructionAsync({

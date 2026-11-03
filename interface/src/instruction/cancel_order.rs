@@ -34,7 +34,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// owner. They're cancelled by the
 /// [`SettlementOwnedOrderAuthority`](crate::Role::SettlementOwnedOrderAuthority)
 /// signing as `owner` instead, with `state_pda` supplied so the program can
-/// check it. Such an order must already exist.
+/// check it.
 ///
 /// Cancelling is idempotent: cancelling an already-cancelled order does
 /// nothing.

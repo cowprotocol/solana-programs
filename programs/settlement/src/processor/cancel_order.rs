@@ -1,7 +1,7 @@
 //! `CancelOrder` instruction handler.
 
 use cow_settlement_interface::{
-    data::{order::OrderAccount, state::StateAccount},
+    data::{intent::intent_slots, order::OrderAccount, state::StateAccount},
     instruction::{cancel_order::CancelOrderInput, InstructionInputParsing},
     Role, SettlementError,
 };
@@ -38,13 +38,7 @@ pub fn process_cancel_order(
 
         // Is this a settlement owned order?
         if intent.owner() == STATE_PDA.as_array() {
-            let state_pda = state_pda.ok_or(ProgramError::NotEnoughAccountKeys)?;
-            validate_is_state_pda(state_pda.address().as_array())?;
-            let authority = StateAccount::from_account(state_pda)?
-                .authority(Role::SettlementOwnedOrderAuthority);
-            if owner.address() != &authority {
-                return Err(SettlementError::UnauthorizedSettlementOwnedOrder.into());
-            }
+            check_settlement_owned_order_authority(owner, state_pda)?;
         } else if owner.address().as_array() != intent.owner() {
             return Err(SettlementError::OwnerMismatch.into());
         }
@@ -52,19 +46,43 @@ pub fn process_cancel_order(
         Ok(())
     } else {
         // The order doesn't exist yet. Then we create the input intent in an
-        // already cancelled state. A settlement-owned intent is rejected here,
-        // since no signer can match the state PDA as owner.
+        // already cancelled state.
         let Some(intent_bytes) = intent_bytes else {
             return Err(ProgramError::UninitializedAccount);
+        };
+        // `process_new_onchain_order` validates the intent; only its owner is
+        // needed beforehand, to pick who authorizes the creation.
+        let expected_owner = if intent_slots(&intent_bytes).owner == STATE_PDA.as_array() {
+            check_settlement_owned_order_authority(owner, state_pda)?;
+            &STATE_PDA
+        } else {
+            owner.address()
         };
         process_new_onchain_order(
             program_id,
             (order_pda, &intent_bytes),
-            owner.address(),
+            expected_owner,
             created_by,
             true,
         )
     }
+}
+
+/// Checks that `signer` is the settlement-owned-order authority recorded in
+/// `state_pda`, which must be the canonical state PDA.
+#[inline(always)]
+fn check_settlement_owned_order_authority(
+    signer: &AccountView,
+    state_pda: Option<&AccountView>,
+) -> ProgramResult {
+    let state_pda = state_pda.ok_or(ProgramError::NotEnoughAccountKeys)?;
+    validate_is_state_pda(state_pda.address().as_array())?;
+    let authority =
+        StateAccount::from_account(state_pda)?.authority(Role::SettlementOwnedOrderAuthority);
+    if signer.address() != &authority {
+        return Err(SettlementError::UnauthorizedSettlementOwnedOrder.into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -142,6 +160,29 @@ mod tests {
             state_account,
         ];
         (accounts, fields)
+    }
+
+    /// Instruction data and accounts for cancelling a not-yet-created order
+    /// owned by the state PDA, signed by `signer` and with `state_account` as
+    /// the trailing state PDA. The order PDA is a placeholder: every test using
+    /// this stops before the (CPI-based) allocation.
+    fn new_settlement_owned(
+        signer: Address,
+        state_account: AccountView,
+    ) -> (Vec<u8>, [AccountView; NUM_ACCOUNTS + 1]) {
+        let intent = OrderIntent {
+            owner: STATE_PDA,
+            ..sample_order_fields(false).intent
+        };
+        let data = default_cancel_data(Some((&EncodedOrderIntent::from(&intent)).into()));
+        let accounts = [
+            fake_signer(signer),
+            fake_signer(pubkey_from_seed("created by")),
+            fake_account(pubkey_from_seed("missing order pda")),
+            fake_account(pubkey_from_seed("system program")),
+            state_account,
+        ];
+        (data, accounts)
     }
 
     /// The canonical state PDA, recording [`SETTLEMENT_OWNED_ORDER_AUTHORITY`].
@@ -346,6 +387,40 @@ mod tests {
 
         assert_eq!(
             process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
+            Err(SettlementError::StateAccountMismatch.into()),
+        );
+    }
+
+    #[test]
+    fn process_cancel_order_rejects_wrong_authority_creating_settlement_owned_order() {
+        let (data, mut accounts) =
+            new_settlement_owned(pubkey_from_seed("unrelated"), state_account());
+
+        assert_eq!(
+            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+            Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
+        );
+    }
+
+    #[test]
+    fn process_cancel_order_rejects_creating_settlement_owned_order_without_state_pda() {
+        let (data, mut accounts) =
+            new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
+
+        assert_eq!(
+            process_cancel_order(&PROGRAM_ID, &mut accounts[..NUM_ACCOUNTS], &data),
+            Err(ProgramError::NotEnoughAccountKeys),
+        );
+    }
+
+    #[test]
+    fn process_cancel_order_rejects_non_canonical_state_pda_creating_settlement_owned_order() {
+        let impostor_state = fake_account(pubkey_from_seed("impostor state"));
+        let (data, mut accounts) =
+            new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, impostor_state);
+
+        assert_eq!(
+            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
             Err(SettlementError::StateAccountMismatch.into()),
         );
     }
