@@ -58,7 +58,7 @@
             ]
           },
           "docs": [
-            "Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+            "Must be the canonical state PDA."
           ]
         },
         {
@@ -393,7 +393,7 @@
             ]
           },
           "docs": [
-            "Names the settlement-owned-order authority the signer is checked against and is the owner every settlement-owned order is bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
+            "Must be the canonical state PDA; names the settlement-owned-order authority the signer is checked against and is the owner every settlement-owned order is bound to."
           ]
         },
         {
@@ -658,7 +658,7 @@
             ]
           },
           "docs": [
-            "Must be the canonical state PDA; holds the reclaim_authority the signer is checked against, and is the buffers' SPL token authority. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+            "Must be the canonical state PDA; holds the reclaim_authority the signer is checked against, and is the buffers' SPL token authority."
           ]
         },
         {
@@ -789,7 +789,7 @@
             ]
           },
           "docs": [
-            "Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+            "Must be the canonical state PDA."
           ]
         }
       ],
@@ -871,7 +871,7 @@
             ]
           },
           "docs": [
-            "Holds the solver authority the signer is checked against and the solver list the new solver is inserted into; grown by one address. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+            "Must be the canonical state PDA; holds the solver authority the signer is checked against and the solver list the new solver is inserted into; grown by one address."
           ]
         },
         {
@@ -945,7 +945,7 @@
             ]
           },
           "docs": [
-            "Holds the solver authority the signer is checked against and the solver list the removed solver is taken from; shrunk by one address. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+            "Must be the canonical state PDA; holds the solver authority the signer is checked against and the solver list the removed solver is taken from; shrunk by one address."
           ]
         }
       ],
@@ -1000,7 +1000,7 @@
             ]
           },
           "docs": [
-            "Must be the canonical state PDA; holds the settlement_owned_order_authority the signer is checked against. Canonical PDA seeded by SETTLEMENT_SEED alone. SETTLEMENT_SEED is the ASCII prefix \"settlement v\" followed by the program's major.minor version, right-padded with spaces to a fixed 19 bytes; the fixed width prevents one version's seeds from being a prefix of another's."
+            "Must be the canonical state PDA; holds the settlement_owned_order_authority the signer is checked against."
           ]
         },
         {
