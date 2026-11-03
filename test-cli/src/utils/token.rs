@@ -15,8 +15,8 @@ use solana_sdk::program_error::ProgramError;
 use spl_associated_token_account_interface::address::get_associated_token_address_with_program_id;
 use spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent;
 use spl_token_2022_interface::extension::StateWithExtensions;
-use spl_token_2022_interface::native_mint;
 use spl_token_2022_interface::state::{Account as TokenAccount, Mint};
+use spl_token_interface::native_mint;
 
 /// Inline registry of recognised token symbols.
 /// Avoids an RPC round-trip for well-known mints whose decimals are fixed.
