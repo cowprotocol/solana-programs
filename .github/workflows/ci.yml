@@ -40,7 +40,7 @@ jobs:
       # Hand the freshly generated report to the separate `bench` job, which
       # checks it for drift.
       - name: Upload bench report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bench-report
           path: bench-report.json
@@ -73,7 +73,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
@@ -182,7 +182,7 @@ jobs:
           echo "Reproducible build hash: $(tail -1 /tmp/build-verified.log)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload program artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cow_settlement.so
           path: target/deploy/cow_settlement.so
