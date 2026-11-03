@@ -420,6 +420,67 @@
       ]
     },
     {
+      "name": "cancel_settlement_owned_order",
+      "docs": [
+        "Cancels an order owned by the state PDA so it can no longer be settled. Only the current holder of the SettlementOwnedOrderAuthority role may cancel, and the order must already exist.",
+        "The order's owner is the settlement state PDA, which has no key, so the settlement-owned-order authority signs instead. Only orders whose intent.owner is the state PDA can be cancelled this way; user orders are rejected. Cancelling is idempotent."
+      ],
+      "discriminator": [
+        13
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "docs": [
+            "Must match the settlement_owned_order_authority recorded in the state PDA."
+          ]
+        },
+        {
+          "name": "state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  53,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              }
+            ]
+          },
+          "docs": [
+            "Names the settlement-owned-order authority the signer is checked against and is the owner the cancelled order must be bound to. Canonical PDA seeded by SETTLEMENT_SEED alone."
+          ]
+        },
+        {
+          "name": "order_pda",
+          "writable": true,
+          "docs": [
+            "The existing settlement-owned order to cancel. Its canonical seeds include sha256(intent), so it cannot be auto-derived by IDL-driven tooling."
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "begin_settle",
       "docs": [
         "Pulls funds for a batch of orders. Must be paired in the same transaction with a FinalizeSettle at `finalize_ix_index`.",

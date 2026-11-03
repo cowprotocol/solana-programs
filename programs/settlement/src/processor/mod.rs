@@ -3,6 +3,7 @@
 mod add_solver;
 mod begin_settle;
 mod cancel_order;
+mod cancel_settlement_owned_order;
 mod create_buffer;
 mod create_order;
 mod create_settlement_owned_order;
@@ -18,6 +19,7 @@ mod withdraw_native_sol;
 use add_solver::process_add_solver;
 use begin_settle::process_begin_settle;
 use cancel_order::process_cancel_order;
+use cancel_settlement_owned_order::process_cancel_settlement_owned_order;
 use create_buffer::process_create_buffer;
 use create_order::process_create_order;
 use create_settlement_owned_order::process_create_settlement_owned_order;
@@ -47,6 +49,9 @@ pub fn process_instruction(
         }
         SettlementInstruction::CancelOrder => {
             process_cancel_order(program_id, accounts, instruction_data)
+        }
+        SettlementInstruction::CancelSettlementOwnedOrder => {
+            process_cancel_settlement_owned_order(program_id, accounts, instruction_data)
         }
         SettlementInstruction::CreateOrder => {
             process_create_order(program_id, accounts, instruction_data)

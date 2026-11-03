@@ -80,6 +80,11 @@ pub const CANCEL_ORDER_RS: Source = Source {
     text: include_str!("../../../../interface/src/instruction/cancel_order.rs"),
 };
 
+pub const CANCEL_SETTLEMENT_OWNED_ORDER_RS: Source = Source {
+    display: "interface/src/instruction/cancel_settlement_owned_order.rs",
+    text: include_str!("../../../../interface/src/instruction/cancel_settlement_owned_order.rs"),
+};
+
 pub const BEGIN_SETTLE_RS: Source = Source {
     display: "interface/src/instruction/settle/begin.rs",
     text: include_str!("../../../../interface/src/instruction/settle/begin.rs"),

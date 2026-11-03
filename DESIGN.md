@@ -92,6 +92,8 @@ Fees are withdrawn by placing an order, owned by the settlement state PDA, that 
 
 The order is placed through the `CreateSettlementOwnedOrder` instruction. The settlement-owned-order authority can specify arbitrary order parameters, as long as the owner is the state PDA.
 
+The settlement-owned-order authority can cancel such an order through the `CancelSettlementOwnedOrder` instruction. Unlike `CancelOrder`, the order must already exist: settlement-owned orders can only come into existence through `CreateSettlementOwnedOrder`, so there's nothing to cancel in advance.
+
 Native SOL isn't a token, so it can't be sold through an order. The settlement-owned-order authority instead withdraws it directly from the native SOL buffer with the `WithdrawNativeSol` instruction, to a recipient of its choosing. The buffer's rent can't be withdrawn.
 
 Differences with Ethereum:

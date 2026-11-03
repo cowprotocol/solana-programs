@@ -8,6 +8,7 @@ use solana_program_error::ProgramError;
 
 pub mod add_solver;
 pub mod cancel_order;
+pub mod cancel_settlement_owned_order;
 pub mod create_buffer;
 pub mod create_order;
 pub mod create_settlement_owned_order;
@@ -75,6 +76,10 @@ pub enum SettlementInstruction {
     /// SettlementOwnedOrderAuthority role may authorize this, and the buffer's
     /// rent can't be withdrawn.
     WithdrawNativeSol = 12,
+    /// Cancels an order owned by the state PDA so it can no longer be settled.
+    /// Only the current holder of the SettlementOwnedOrderAuthority role may
+    /// cancel, and the order must already exist.
+    CancelSettlementOwnedOrder = 13,
 }
 
 impl SettlementInstruction {

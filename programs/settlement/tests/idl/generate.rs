@@ -104,6 +104,11 @@ const INSTRUCTIONS: &[Instruction] = &[
         pda_accounts: &[],
     },
     Instruction {
+        variant: SettlementInstruction::CancelSettlementOwnedOrder,
+        input: &parse_rust::CANCEL_SETTLEMENT_OWNED_ORDER_RS,
+        pda_accounts: &[("state", STATE_PDA)],
+    },
+    Instruction {
         variant: SettlementInstruction::BeginSettle,
         input: &parse_rust::BEGIN_SETTLE_RS,
         pda_accounts: &[("state", STATE_PDA)],

@@ -7,6 +7,7 @@ use cow_settlement_interface::{
     instruction::{
         add_solver::AddSolverInput,
         cancel_order::CancelOrderInput,
+        cancel_settlement_owned_order::CancelSettlementOwnedOrderInput,
         create_buffer::CreateBufferInput,
         create_order::CreateOrderInput,
         create_settlement_owned_order::CreateSettlementOwnedOrderInput,
@@ -28,6 +29,7 @@ pub enum ParsedInstruction<'a, A> {
     Initialize(InitializeInput<'a, A>),
     CreateOrder(CreateOrderInput<'a, A>),
     CancelOrder(CancelOrderInput<'a, A>),
+    CancelSettlementOwnedOrder(CancelSettlementOwnedOrderInput<'a, A>),
     CreateSettlementOwnedOrder(CreateSettlementOwnedOrderInput<'a, A>),
     CreateBuffer(CreateBufferInput<'a, A>),
     BeginSettle(BeginSettleInput<'a, A>),
@@ -55,6 +57,11 @@ pub fn parse_instruction<'a, A>(
         }
         SettlementInstruction::CancelOrder => {
             ParsedInstruction::CancelOrder(CancelOrderInput::parse_body(remaining_data, accounts)?)
+        }
+        SettlementInstruction::CancelSettlementOwnedOrder => {
+            ParsedInstruction::CancelSettlementOwnedOrder(
+                CancelSettlementOwnedOrderInput::parse_body(remaining_data, accounts)?,
+            )
         }
         SettlementInstruction::CreateSettlementOwnedOrder => {
             ParsedInstruction::CreateSettlementOwnedOrder(
@@ -95,9 +102,9 @@ pub fn parse_instruction<'a, A>(
 mod tests {
     use super::*;
     use crate::instruction::{
-        AddSolver, BeginSettle, CancelOrder, CreateBuffers, CreateOrder,
-        CreateSettlementOwnedOrder, FinalizeSettle, Initialize, InitializedIntent, RemoveSolver,
-        WithdrawNativeSol,
+        AddSolver, BeginSettle, CancelOrder, CancelSettlementOwnedOrder, CreateBuffers,
+        CreateOrder, CreateSettlementOwnedOrder, FinalizeSettle, Initialize, InitializedIntent,
+        RemoveSolver, WithdrawNativeSol,
     };
     use cow_settlement_interface::{
         data::intent::fixtures::sample_intent,
@@ -137,6 +144,12 @@ mod tests {
                 program_id,
                 owner: intent.owner,
                 created_by: payer,
+                intent: &intent,
+            }
+            .into(),
+            SettlementInstruction::CancelSettlementOwnedOrder => CancelSettlementOwnedOrder {
+                program_id,
+                authority: payer,
                 intent: &intent,
             }
             .into(),
@@ -231,6 +244,7 @@ mod tests {
             SettlementInstruction::Initialize,
             SettlementInstruction::CreateOrder,
             SettlementInstruction::CancelOrder,
+            SettlementInstruction::CancelSettlementOwnedOrder,
             SettlementInstruction::CreateSettlementOwnedOrder,
             SettlementInstruction::CreateBuffer,
             SettlementInstruction::BeginSettle,
@@ -254,6 +268,9 @@ mod tests {
                 ParsedInstruction::Initialize(_) => SettlementInstruction::Initialize,
                 ParsedInstruction::CreateOrder(_) => SettlementInstruction::CreateOrder,
                 ParsedInstruction::CancelOrder(_) => SettlementInstruction::CancelOrder,
+                ParsedInstruction::CancelSettlementOwnedOrder(_) => {
+                    SettlementInstruction::CancelSettlementOwnedOrder
+                }
                 ParsedInstruction::CreateSettlementOwnedOrder(_) => {
                     SettlementInstruction::CreateSettlementOwnedOrder
                 }

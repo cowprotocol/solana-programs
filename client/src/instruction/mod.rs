@@ -8,6 +8,7 @@
 pub mod add_solver;
 pub mod begin_settle;
 pub mod cancel_order;
+pub mod cancel_settlement_owned_order;
 pub mod create_buffer;
 pub mod create_order;
 pub mod create_settlement_owned_order;
@@ -21,6 +22,7 @@ pub mod withdraw_native_sol;
 pub use add_solver::AddSolver;
 pub use begin_settle::{BeginSettle, InitializedIntent, Pull, TokenProgram};
 pub use cancel_order::CancelOrder;
+pub use cancel_settlement_owned_order::CancelSettlementOwnedOrder;
 pub use create_buffer::CreateBuffers;
 pub use create_order::CreateOrder;
 pub use create_settlement_owned_order::CreateSettlementOwnedOrder;
