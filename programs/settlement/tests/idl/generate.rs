@@ -101,7 +101,7 @@ const INSTRUCTIONS: &[Instruction] = &[
         input: &parse_rust::CANCEL_ORDER_RS,
         // Like `create_order`, `order_pda`'s canonical seeds include
         // `sha256(intent)`, which the IDL has no `seeds` kind for.
-        pda_accounts: &[],
+        pda_accounts: &[("state", STATE_PDA)],
     },
     Instruction {
         variant: SettlementInstruction::BeginSettle,

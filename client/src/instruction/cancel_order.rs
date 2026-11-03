@@ -2,7 +2,7 @@
 
 use cow_settlement_interface::{
     data::intent::{EncodedOrderIntent, OrderIntent},
-    pda::order::find_order_pda,
+    pda::{order::find_order_pda, state::find_state_pda},
     Instruction, Pubkey,
 };
 
@@ -24,6 +24,7 @@ impl From<CancelOrder<'_>> for Instruction {
             created_by: builder.created_by,
             order_pda,
             intent_bytes: Some(intent_bytes),
+            state_pda: None,
         }
         .into()
     }
@@ -48,6 +49,32 @@ impl From<CancelOutstandingOrder<'_>> for Instruction {
             created_by: builder.created_by,
             order_pda,
             intent_bytes: None,
+            state_pda: None,
+        }
+        .into()
+    }
+}
+
+/// [`CancelOrder`] for an existing order owned by the settlement state PDA,
+/// signed by the settlement-owned-order `authority` in place of the owner.
+pub struct CancelSettlementOwnedOrder<'a> {
+    pub program_id: Pubkey,
+    pub authority: Pubkey,
+    pub intent: &'a OrderIntent,
+}
+
+impl From<CancelSettlementOwnedOrder<'_>> for Instruction {
+    fn from(builder: CancelSettlementOwnedOrder<'_>) -> Self {
+        let encoded = EncodedOrderIntent::from(builder.intent);
+        let (order_pda, _bump) = find_order_pda(&builder.program_id, &encoded.hash());
+        cow_settlement_interface::instruction::cancel_order::CancelOrder {
+            program_id: builder.program_id,
+            owner: builder.authority,
+            // No rent moves when cancelling an existing order.
+            created_by: builder.authority,
+            order_pda,
+            intent_bytes: None,
+            state_pda: Some(find_state_pda(&builder.program_id).0),
         }
         .into()
     }

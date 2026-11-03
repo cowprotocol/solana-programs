@@ -620,6 +620,7 @@ fn cancellation_blocks_withheld_sponsored_creation() {
             created_by: sponsor.pubkey(),
             order_pda: pda,
             intent_bytes: Some(encoded),
+            state_pda: None,
         },
     ))
     .expect("cancellation must create a tombstone before creation lands");

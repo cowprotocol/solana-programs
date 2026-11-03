@@ -29,6 +29,13 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// `created_by` is unused, so it doesn't need to sign (and doesn't need to be
 /// meaningful when `intent_bytes` is absent).
 ///
+/// Orders owned by the settlement state PDA (see
+/// [`super::create_settlement_owned_order`]) can't be signed for by their
+/// owner. They're cancelled by the
+/// [`SettlementOwnedOrderAuthority`](crate::Role::SettlementOwnedOrderAuthority)
+/// signing as `owner` instead, with `state_pda` supplied so the program can
+/// check it. Such an order must already exist.
+///
 /// Cancelling is idempotent: cancelling an already-cancelled order does
 /// nothing.
 ///
@@ -39,17 +46,20 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// `[discriminator=11, ..intent bytes]` (1 + [`EncodedOrderIntent::SIZE`]
 /// bytes) to also create it already cancelled when it's missing.
 /// Required accounts:
-/// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
+/// `[owner (S), created_by (W,S), order_pda (W), system_program (R),
+/// state_pda (R, optional)]`.
 /// When the PDA already exists, `created_by` neither signs nor is written and
 /// the system program is unused, but the accounts must still occupy these
 /// slots. The system program needs to be available but doesn't need to be at
 /// that specific position in the instruction, unlike the others.
+/// `state_pda` is only needed to cancel a settlement-owned order.
 pub struct CancelOrder {
     pub program_id: Pubkey,
     pub owner: Pubkey,
     pub created_by: Pubkey,
     pub order_pda: Pubkey,
     pub intent_bytes: Option<[u8; EncodedOrderIntent::SIZE]>,
+    pub state_pda: Option<Pubkey>,
 }
 
 impl From<CancelOrder> for Instruction {
@@ -68,14 +78,18 @@ impl From<CancelOrder> for Instruction {
             None => AccountMeta::new_readonly(builder.created_by, false),
         };
 
+        let mut accounts = vec![
+            AccountMeta::new_readonly(builder.owner, true),
+            created_by,
+            AccountMeta::new(builder.order_pda, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ];
+        if let Some(state_pda) = builder.state_pda {
+            accounts.push(AccountMeta::new_readonly(state_pda, false));
+        }
         Instruction {
             program_id: builder.program_id,
-            accounts: vec![
-                AccountMeta::new_readonly(builder.owner, true),
-                created_by,
-                AccountMeta::new(builder.order_pda, false),
-                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
-            ],
+            accounts,
             data,
         }
     }
@@ -89,6 +103,9 @@ pub struct CancelOrderInput<'a, A> {
     pub owner: &'a A,
     pub created_by: &'a A,
     pub order_pda: &'a A,
+    /// The settlement state PDA, needed only to cancel a settlement-owned
+    /// order.
+    pub state_pda: Option<&'a A>,
 }
 
 impl<'a, A> InstructionInputParsing<'a, A> for CancelOrderInput<'a, A> {
@@ -109,7 +126,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for CancelOrderInput<'a, A> {
         // account]. We check that there are four accounts because the
         // instruction needs to specify `SYSTEM_PROGRAM_ID` as one of the
         // signers. It doesn't have to be the fourth though.
-        let [owner, created_by, order_pda, _, ..] = accounts else {
+        let [owner, created_by, order_pda, _, remaining @ ..] = accounts else {
             return Err(ProgramError::NotEnoughAccountKeys);
         };
 
@@ -118,6 +135,7 @@ impl<'a, A> InstructionInputParsing<'a, A> for CancelOrderInput<'a, A> {
             owner,
             created_by,
             order_pda,
+            state_pda: remaining.first(),
         })
     }
 }
@@ -150,6 +168,7 @@ pub mod fixtures {
             created_by: zero,
             order_pda: zero,
             intent_bytes,
+            state_pda: None,
         })
         .data
     }
@@ -181,6 +200,7 @@ mod tests {
             created_by,
             order_pda,
             intent_bytes: Some(intent_bytes),
+            state_pda: None,
         })
         .data;
         let accounts = [
@@ -195,8 +215,10 @@ mod tests {
             owner: derived_owner,
             created_by: derived_created_by,
             order_pda: derived_order_pda,
+            state_pda: derived_state_pda,
         } = CancelOrderInput::parse(&data, &accounts).expect("parse should succeed");
 
+        assert!(derived_state_pda.is_none());
         assert_eq!(derived_intent_bytes, Some(intent_bytes));
         assert_eq!(*derived_order_pda.address(), order_pda);
         assert_eq!(*derived_owner.address(), owner);
@@ -230,6 +252,29 @@ mod tests {
         );
         assert_eq!(*derived_order_pda.address(), order_pda);
         assert_eq!(*derived_owner.address(), owner);
+    }
+
+    #[test]
+    fn cancel_order_input_parses_trailing_state_pda() {
+        let state_pda = pubkey_from_seed("state pda");
+        let data = default_cancel_data(None);
+        let accounts = [
+            fake_account(pubkey_from_seed("authority")),
+            fake_account(pubkey_from_seed("created by")),
+            fake_account(pubkey_from_seed("order pda")),
+            fake_account(pubkey_from_seed("system program")),
+            fake_account(state_pda),
+        ];
+
+        let CancelOrderInput {
+            state_pda: derived_state_pda,
+            ..
+        } = CancelOrderInput::parse(&data, &accounts).expect("parse should succeed");
+
+        assert_eq!(
+            derived_state_pda.map(|account| *account.address()),
+            Some(state_pda)
+        );
     }
 
     #[test]
@@ -282,6 +327,7 @@ mod tests {
             created_by,
             order_pda,
             intent_bytes: Some(intent_bytes),
+            state_pda: None,
         }
         .into();
 
@@ -298,6 +344,7 @@ mod tests {
             created_by: pubkey_from_seed("created by"),
             order_pda: pubkey_from_seed("order pda"),
             intent_bytes: None,
+            state_pda: None,
         }
         .into();
 
@@ -321,6 +368,7 @@ mod tests {
             created_by,
             order_pda,
             intent_bytes: None,
+            state_pda: None,
         }
         .into();
 
@@ -331,6 +379,32 @@ mod tests {
         assert_readonly_nonsigner(&accounts[1], created_by);
         assert_writable_nonsigner(&accounts[2], order_pda);
         assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
+    }
+
+    #[test]
+    fn instruction_accounts_with_state_pda_append_it_readonly() {
+        let program_id = pubkey_from_seed("program id");
+        let authority = pubkey_from_seed("authority");
+        let created_by = pubkey_from_seed("created by");
+        let order_pda = pubkey_from_seed("order pda");
+        let state_pda = pubkey_from_seed("state pda");
+
+        let Instruction { accounts, .. } = CancelOrder {
+            program_id,
+            owner: authority,
+            created_by,
+            order_pda,
+            intent_bytes: None,
+            state_pda: Some(state_pda),
+        }
+        .into();
+
+        assert_eq!(accounts.len(), 5);
+        assert_readonly_signer(&accounts[0], authority);
+        assert_readonly_nonsigner(&accounts[1], created_by);
+        assert_writable_nonsigner(&accounts[2], order_pda);
+        assert_readonly_nonsigner(&accounts[3], SYSTEM_PROGRAM_ID);
+        assert_readonly_nonsigner(&accounts[4], state_pda);
     }
 
     #[test]
@@ -347,6 +421,7 @@ mod tests {
             created_by,
             order_pda,
             intent_bytes: Some(intent_bytes),
+            state_pda: None,
         }
         .into();
 

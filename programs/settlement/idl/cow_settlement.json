@@ -292,7 +292,8 @@
       "name": "cancel_order",
       "docs": [
         "Cancels an order so it can no longer be settled. Only the order owner may cancel.",
-        "If the order PDA doesn't exist yet, it's created already cancelled. For this, some arbitrary account needs to pay the rent and sign."
+        "If the order PDA doesn't exist yet, it's created already cancelled. For this, some arbitrary account needs to pay the rent and sign.",
+        "An existing order owned by the state PDA is cancelled by the SettlementOwnedOrderAuthority instead, with the state PDA supplied."
       ],
       "discriminator": [
         11
@@ -302,7 +303,7 @@
           "name": "owner",
           "signer": true,
           "docs": [
-            "Must match intent.owner; authenticates the cancellation."
+            "Must match intent.owner; authenticates the cancellation. For an order owned by the state PDA, must instead match the settlement_owned_order_authority recorded in state."
           ]
         },
         {
@@ -323,6 +324,41 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "state",
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116,
+                  32,
+                  118,
+                  48,
+                  46,
+                  53,
+                  32,
+                  32,
+                  32,
+                  32
+                ]
+              }
+            ]
+          },
+          "docs": [
+            "Required only to cancel an order owned by the state PDA; names the settlement-owned-order authority the signer is checked against. Canonical PDA seeded by SETTLEMENT_SEED alone."
+          ]
         }
       ],
       "args": [

@@ -84,6 +84,7 @@ fn cancels_existing_active_order() {
         created_by: unrelated.pubkey(),
         order_pda: pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     };
     let tx = Transaction::new_signed_with_payer(
         &[cancel.into()],
@@ -132,6 +133,7 @@ fn cancels_existing_order_without_created_by_signature() {
         created_by,
         order_pda: pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     });
     for meta in &mut cancel.accounts {
         if meta.pubkey == created_by {
@@ -170,6 +172,7 @@ fn cancels_existing_order_without_intent_bytes() {
         created_by: unique_pubkey(),
         order_pda: pda,
         intent_bytes: None,
+        state_pda: None,
     };
     let tx = Transaction::new_signed_with_payer(
         &[cancel.into()],
@@ -210,6 +213,7 @@ fn rejects_intentless_cancellation_of_nonexistent_order() {
         created_by: unique_pubkey(),
         order_pda: pda,
         intent_bytes: None,
+        state_pda: None,
     };
     let err = svm
         .send_transaction(signed_tx(&svm, &owner, &owner, cancel))
@@ -245,6 +249,7 @@ fn creates_cancelled_pda_for_nonexistent_order() {
         created_by: created_by.pubkey(),
         order_pda: pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     };
     let tx = Transaction::new_signed_with_payer(
         &[cancel.into()],
@@ -282,6 +287,7 @@ fn a_cancelled_order_cannot_be_uncancelled_by_creating_it() {
         created_by: owner.pubkey(),
         order_pda: pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     };
     svm.send_transaction(signed_tx(&svm, &owner, &owner, cancel))
         .expect("cancel_order should create the order already cancelled");
@@ -336,6 +342,7 @@ fn creating_cancelled_order_requires_created_by_signature() {
         created_by,
         order_pda: pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     });
     for meta in &mut cancel.accounts {
         if meta.pubkey == created_by {
@@ -369,6 +376,7 @@ fn cancelling_is_idempotent() {
         created_by: owner.pubkey(),
         order_pda: pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     };
 
     // First cancellation creates the order cancelled.
@@ -412,6 +420,7 @@ fn rejects_cancellation_by_non_owner() {
         created_by: attacker.pubkey(),
         order_pda: pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     };
     let err = svm
         .send_transaction(signed_tx(&svm, &attacker, &attacker, cancel))
@@ -446,6 +455,7 @@ fn rejects_cancellation_when_owner_does_not_sign() {
         created_by: owner.pubkey(),
         order_pda: pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     });
     for meta in &mut cancel.accounts {
         if meta.pubkey == owner.pubkey() {
@@ -492,7 +502,181 @@ fn rejects_arbitrary_wrong_pda() {
         created_by: owner.pubkey(),
         order_pda: wrong_pda,
         intent_bytes: Some(encoded),
+        state_pda: None,
     };
     let tx = signed_tx(&svm, &owner, &owner, cancel);
     common::pda::assert_rejected_as_noncanonical(&mut svm, tx, &wrong_pda);
+}
+
+/// Cancelling orders owned by the settlement state PDA, which the
+/// settlement-owned-order authority signs for in place of the owner.
+mod settlement_owned {
+    use cow_settlement_client::cow_settlement_interface::{
+        data::intent::OrderIntent, instruction::cancel_order::CancelOrder,
+        pda::order::find_order_pda, SettlementError,
+    };
+    use cow_settlement_client::instruction::CancelSettlementOwnedOrder;
+    use cow_settlement_client::pda::order::DecodedOrderAccount;
+    use litesvm::LiteSVM;
+    use solana_sdk::{
+        instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey,
+        signature::Signer,
+    };
+
+    use crate::common::{
+        assert_instruction_error,
+        benchmark::{send_transaction_metered, BenchLabel},
+        create_account_at,
+        order::{read_order, sample_intent},
+        send_with_signers, setup_init, signed_tx, unique_keypair, unique_pubkey, InitializedParams,
+    };
+
+    use super::encode_and_derive;
+
+    /// Plant an active order for `intent` at its canonical PDA, funded by
+    /// `created_by`, and return the PDA.
+    fn plant_order(
+        svm: &mut LiteSVM,
+        params: &InitializedParams,
+        intent: &OrderIntent,
+        created_by: Pubkey,
+    ) -> Pubkey {
+        let (pda, bump) = find_order_pda(&params.program_id, &intent.uid());
+        let body = DecodedOrderAccount {
+            bump,
+            cancelled: false,
+            amount_withdrawn: 0,
+            amount_received: 0,
+            created_by,
+            intent: intent.clone(),
+        }
+        .encode();
+        create_account_at(svm, pda, &params.program_id, &body);
+        pda
+    }
+
+    #[test]
+    fn authority_cancels_an_order_owned_by_the_state_pda() {
+        let (mut svm, params) = setup_init();
+        let intent = sample_intent(params.state_pda, 0);
+        let created_by = unique_pubkey();
+        let pda = plant_order(&mut svm, &params, &intent, created_by);
+
+        let ix = CancelSettlementOwnedOrder {
+            program_id: params.program_id,
+            authority: params.settlement_owned_order.pubkey(),
+            intent: &intent,
+        };
+        let tx = signed_tx(&svm, &params.payer, &params.settlement_owned_order, ix);
+        send_transaction_metered(&mut svm, tx, BenchLabel::CancelOrder)
+            .expect("cancelling a settlement-owned order should succeed");
+
+        let DecodedOrderAccount {
+            cancelled,
+            created_by: stored_created_by,
+            intent: stored_intent,
+            ..
+        } = read_order(&svm, &pda);
+        assert!(cancelled, "the order must be marked cancelled");
+        assert_eq!(stored_intent, intent, "the stored intent must be untouched");
+        assert_eq!(
+            stored_created_by, created_by,
+            "the rent refund target must be untouched"
+        );
+    }
+
+    #[test]
+    fn rejects_a_caller_that_is_not_the_settlement_owned_order_authority() {
+        let (mut svm, params) = setup_init();
+        let intent = sample_intent(params.state_pda, 0);
+        let pda = plant_order(&mut svm, &params, &intent, unique_pubkey());
+
+        let impostor = unique_keypair();
+        let ix = CancelSettlementOwnedOrder {
+            program_id: params.program_id,
+            authority: impostor.pubkey(),
+            intent: &intent,
+        };
+        let result = send_with_signers(&mut svm, &params.payer, &[&impostor], &[ix.into()]);
+        assert_instruction_error(result, SettlementError::UnauthorizedSettlementOwnedOrder);
+        assert!(!read_order(&svm, &pda).cancelled);
+    }
+
+    #[test]
+    fn authority_cannot_cancel_a_user_order() {
+        let (mut svm, params) = setup_init();
+        let intent = sample_intent(unique_pubkey(), 0);
+        let pda = plant_order(&mut svm, &params, &intent, unique_pubkey());
+
+        let ix = CancelSettlementOwnedOrder {
+            program_id: params.program_id,
+            authority: params.settlement_owned_order.pubkey(),
+            intent: &intent,
+        };
+        let result = send_with_signers(
+            &mut svm,
+            &params.payer,
+            &[&params.settlement_owned_order],
+            &[ix.into()],
+        );
+        assert_instruction_error(result, SettlementError::OwnerMismatch);
+        assert!(!read_order(&svm, &pda).cancelled);
+    }
+
+    #[test]
+    fn rejects_a_settlement_owned_order_without_the_state_pda() {
+        let (mut svm, params) = setup_init();
+        let intent = sample_intent(params.state_pda, 0);
+        let pda = plant_order(&mut svm, &params, &intent, unique_pubkey());
+        let authority = params.settlement_owned_order.pubkey();
+
+        let ix = CancelOrder {
+            program_id: params.program_id,
+            owner: authority,
+            created_by: authority,
+            order_pda: pda,
+            intent_bytes: None,
+            state_pda: None,
+        };
+        let result = send_with_signers(
+            &mut svm,
+            &params.payer,
+            &[&params.settlement_owned_order],
+            &[ix.into()],
+        );
+        // The runtime maps the handler's error to a deprecated `InstructionError`
+        // variant, so go through its code rather than naming the variant.
+        assert_instruction_error(
+            result,
+            InstructionError::from(u64::from(ProgramError::NotEnoughAccountKeys)),
+        );
+    }
+
+    #[test]
+    fn rejects_creating_a_cancelled_settlement_owned_order() {
+        // Settlement-owned orders only come into existence through
+        // `CreateSettlementOwnedOrder`: nobody can sign as the state PDA to
+        // create one already cancelled.
+        let (mut svm, params) = setup_init();
+        let intent = sample_intent(params.state_pda, 0);
+        let (encoded, pda, _) = encode_and_derive(&intent, &params.program_id);
+        let authority = params.settlement_owned_order.pubkey();
+
+        let ix = CancelOrder {
+            program_id: params.program_id,
+            owner: authority,
+            created_by: params.payer.pubkey(),
+            order_pda: pda,
+            intent_bytes: Some(encoded),
+            state_pda: Some(params.state_pda),
+        };
+        let result = send_with_signers(
+            &mut svm,
+            &params.payer,
+            &[&params.settlement_owned_order],
+            &[ix.into()],
+        );
+        assert_instruction_error(result, SettlementError::OwnerMismatch);
+        assert!(svm.get_account(&pda).is_none());
+    }
 }
