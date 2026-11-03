@@ -91,7 +91,7 @@ impl Context {
         match (&self.squads, path) {
             (Some(squads), None) => Ok(TxSigner::Vault(squads.vault)),
             (Some(_), Some(path)) => anyhow::bail!(
-                "{path:?} was specified to sign, but it can't be used with --multisig-address as co-signing is not possible with multisigs."
+                "{path:?} was specified to sign, but it can't be used with --squads-multisig as co-signing is not possible with multisigs."
             ),
             (None, path) => read_keypair_or(path, &self.signer).map(TxSigner::Keypair),
         }
@@ -110,6 +110,18 @@ impl Context {
             }));
             return self.send(ixs, &keypairs).map(Submission::Sent);
         };
+
+        // `propose` builds the message with the vault as its only signer, so
+        // the signers are implied rather than passed on. Anything else would
+        // be silently dropped here.
+        for signer in signers {
+            anyhow::ensure!(
+                signer.pubkey() == squads.vault,
+                "{} was asked to sign, but a proposal is only signed by the vault {}",
+                signer.pubkey(),
+                squads.vault,
+            );
+        }
 
         // Fetched again rather than kept from `from_args`, since its
         // transaction index must be current.

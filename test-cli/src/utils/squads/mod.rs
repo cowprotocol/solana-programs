@@ -123,6 +123,14 @@ impl Multisig {
         let transaction = self.transaction(transaction_index);
         let approved = permissions & PERMISSION_VOTE != 0;
         let message = Message::new(ixs, Some(&self.vault(vault_index)));
+        // No ephemeral signers are requested, so the vault is the only key
+        // that can sign on execution. A message needing more would stage
+        // fine and then be impossible to execute.
+        anyhow::ensure!(
+            message.header.num_required_signatures == 1,
+            "the instructions need {} signers, but a vault transaction is only signed by the vault",
+            message.header.num_required_signatures,
+        );
 
         let mut instructions = vec![
             VaultTransactionCreate {
@@ -411,6 +419,26 @@ mod tests {
             .unwrap();
         assert!(!proposal.approved);
         assert_eq!(proposal.instructions.len(), 2);
+    }
+
+    #[test]
+    fn rejects_instructions_needing_another_signer() {
+        let member_key = Pubkey::new_unique();
+        let multisig = multisig(vec![member(member_key, VOTER)]);
+        let ix = Instruction::new_with_bytes(
+            Pubkey::new_unique(),
+            &[],
+            vec![
+                AccountMeta::new(multisig.vault(0), true),
+                AccountMeta::new_readonly(Pubkey::new_unique(), true),
+            ],
+        );
+
+        let err = multisig
+            .propose(&member_key, 0, &[ix])
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("only signed by the vault"), "{err}");
     }
 
     #[test]
