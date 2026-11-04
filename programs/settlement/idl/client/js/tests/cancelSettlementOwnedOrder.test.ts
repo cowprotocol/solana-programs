@@ -50,7 +50,7 @@ describe("cancelSettlementOwnedOrder", () => {
       owner: settlementOwnedOrderAuthority,
       orderPda: await findOrderPda(intent),
       createdBy: settlementOwnedOrderAuthority,
-      intent
+      intent,
     });
     await sendInstruction(svm, payer, cancel, "cancelOrder");
 
