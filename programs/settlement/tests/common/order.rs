@@ -123,7 +123,7 @@ pub fn create_order_pda(
 /// Place `intent` as a settlement-owned order through
 /// `CreateSettlementOwnedOrder`: an order owned by the state PDA, funded by
 /// `payer` and gated by the settlement-owned-order `authority`, which co-signs.
-fn create_settlement_owned_order_pda(
+pub fn create_settlement_owned_order_pda(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,

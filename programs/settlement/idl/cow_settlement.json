@@ -293,7 +293,7 @@
       "docs": [
         "Cancels an order so it can no longer be settled. Only the order owner may cancel.",
         "If the order PDA doesn't exist yet, it's created already cancelled. For this, some arbitrary account needs to pay the rent and sign.",
-        "An existing order owned by the state PDA is cancelled by the SettlementOwnedOrderAuthority instead, with the state PDA supplied."
+        "An existing order owned by the state PDA is cancelled by the SettlementOwnedOrderAuthority instead."
       ],
       "discriminator": [
         11

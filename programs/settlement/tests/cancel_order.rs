@@ -512,57 +512,37 @@ fn rejects_arbitrary_wrong_pda() {
 /// settlement-owned-order authority signs for in place of the owner.
 mod settlement_owned {
     use cow_settlement_client::cow_settlement_interface::{
-        data::intent::OrderIntent, instruction::cancel_order::CancelOrder,
-        pda::order::find_order_pda, SettlementError,
+        instruction::cancel_order::CancelOrder, SettlementError,
     };
     use cow_settlement_client::instruction::{
         CancelSettlementOwnedOrder, CreateSettlementOwnedOrder,
     };
     use cow_settlement_client::pda::order::DecodedOrderAccount;
-    use litesvm::LiteSVM;
     use solana_sdk::{
-        instruction::InstructionError, program_error::ProgramError, pubkey::Pubkey,
-        signature::Signer,
+        instruction::InstructionError, program_error::ProgramError, signature::Signer,
     };
 
     use crate::common::{
         assert_instruction_error,
         benchmark::{send_transaction_metered, BenchLabel},
-        create_account_at,
-        order::{read_order, sample_intent},
-        send_with_signers, setup_init, signed_tx, unique_keypair, unique_pubkey, InitializedParams,
+        order::{create_order_pda, create_settlement_owned_order_pda, read_order, sample_intent},
+        send_with_signers, setup_init, signed_tx, unique_keypair,
     };
 
     use super::{encode_and_derive, expected_cancelled_body};
-
-    /// Plant an active order for `intent` at its canonical PDA, funded by
-    /// `created_by`, and return the PDA.
-    fn plant_order(
-        svm: &mut LiteSVM,
-        program_id: &Pubkey,
-        intent: &OrderIntent,
-        created_by: Pubkey,
-    ) -> Pubkey {
-        let (pda, bump) = find_order_pda(program_id, &intent.uid());
-        let body = DecodedOrderAccount {
-            bump,
-            cancelled: false,
-            amount_withdrawn: 0,
-            amount_received: 0,
-            created_by,
-            intent: intent.clone(),
-        }
-        .encode();
-        create_account_at(svm, pda, program_id, &body);
-        pda
-    }
 
     #[test]
     fn authority_cancels_an_order_owned_by_the_state_pda() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        let created_by = unique_pubkey();
-        let pda = plant_order(&mut svm, &params.program_id, &intent, created_by);
+        create_settlement_owned_order_pda(
+            &mut svm,
+            &params.program_id,
+            &params.payer,
+            &params.settlement_owned_order,
+            &intent,
+        );
+        let (_, pda, bump) = encode_and_derive(&intent, &params.program_id);
 
         let ix = CancelSettlementOwnedOrder {
             program_id: params.program_id,
@@ -578,13 +558,25 @@ mod settlement_owned {
             cancelled,
             created_by: stored_created_by,
             intent: stored_intent,
-            ..
+            bump: stored_bump,
+            amount_withdrawn: stored_amount_withdrawn,
+            amount_received: stored_amount_received,
         } = read_order(&svm, &pda);
         assert!(cancelled, "the order must be marked cancelled");
         assert_eq!(stored_intent, intent, "the stored intent must be untouched");
         assert_eq!(
-            stored_created_by, created_by,
+            stored_created_by,
+            params.payer.pubkey(),
             "the rent refund target must be untouched"
+        );
+        assert_eq!(stored_bump, bump, "the bump must be untouched");
+        assert_eq!(
+            stored_amount_withdrawn, 0,
+            "nothing should have been withdrawn"
+        );
+        assert_eq!(
+            stored_amount_received, 0,
+            "nothing should have been received"
         );
     }
 
@@ -592,7 +584,14 @@ mod settlement_owned {
     fn rejects_a_caller_that_is_not_the_settlement_owned_order_authority() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        let pda = plant_order(&mut svm, &params.program_id, &intent, unique_pubkey());
+        create_settlement_owned_order_pda(
+            &mut svm,
+            &params.program_id,
+            &params.payer,
+            &params.settlement_owned_order,
+            &intent,
+        );
+        let (_, pda, _) = encode_and_derive(&intent, &params.program_id);
 
         let impostor = unique_keypair();
         let ix = CancelSettlementOwnedOrder {
@@ -609,8 +608,9 @@ mod settlement_owned {
     #[test]
     fn authority_cannot_cancel_a_user_order() {
         let (mut svm, params) = setup_init();
-        let intent = sample_intent(unique_pubkey(), 0);
-        let pda = plant_order(&mut svm, &params.program_id, &intent, unique_pubkey());
+        let intent = sample_intent(params.payer.pubkey(), 0);
+        create_order_pda(&mut svm, &params.program_id, &params.payer, &intent);
+        let (_, pda, _) = encode_and_derive(&intent, &params.program_id);
 
         let ix = CancelSettlementOwnedOrder {
             program_id: params.program_id,
@@ -635,7 +635,15 @@ mod settlement_owned {
         let (mut svm, params) = setup_init();
         let authority = params.settlement_owned_order.pubkey();
         let intent = sample_intent(authority, 0);
-        let pda = plant_order(&mut svm, &params.program_id, &intent, unique_pubkey());
+        svm.airdrop(&authority, 1_000_000_000)
+            .expect("airdrop to the authority should succeed");
+        create_order_pda(
+            &mut svm,
+            &params.program_id,
+            &params.settlement_owned_order,
+            &intent,
+        );
+        let (_, pda, _) = encode_and_derive(&intent, &params.program_id);
 
         let ix = CancelOrder {
             program_id: params.program_id,
@@ -659,7 +667,14 @@ mod settlement_owned {
     fn rejects_a_settlement_owned_order_without_the_state_pda() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        let pda = plant_order(&mut svm, &params.program_id, &intent, unique_pubkey());
+        create_settlement_owned_order_pda(
+            &mut svm,
+            &params.program_id,
+            &params.payer,
+            &params.settlement_owned_order,
+            &intent,
+        );
+        let (_, pda, _) = encode_and_derive(&intent, &params.program_id);
         let authority = params.settlement_owned_order.pubkey();
 
         let ix = CancelOrder {
