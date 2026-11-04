@@ -320,6 +320,45 @@ mod tests {
             fake_account_with_data(STATE_PDA, &state_account_bytes(&init_args, &[]))
         }
 
+        /// Builds instruction data and accounts for cancelling a settlement-owned
+        /// order, signed by the given signer and with the given account as the
+        /// trailing state PDA.
+        type SetupFn = fn(Address, AccountView) -> (Vec<u8>, [AccountView; NUM_ACCOUNTS + 1]);
+
+        fn assert_rejects_wrong_authority(setup: SetupFn) {
+            let (data, mut accounts) = setup(pubkey_from_seed("unrelated"), state_account());
+
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
+            );
+        }
+
+        fn assert_rejects_missing_state_pda(setup: SetupFn) {
+            let (data, mut accounts) = setup(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
+
+            let (state_pda, accounts) = accounts
+                .split_last_mut()
+                .expect("should have a last element");
+
+            assert_eq!(state_pda.address(), &STATE_PDA);
+
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, accounts, &data),
+                Err(ProgramError::NotEnoughAccountKeys),
+            );
+        }
+
+        fn assert_rejects_non_canonical_state_pda(setup: SetupFn) {
+            let impostor_state = fake_account(pubkey_from_seed("impostor state"));
+            let (data, mut accounts) = setup(*SETTLEMENT_OWNED_ORDER_AUTHORITY, impostor_state);
+
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Err(SettlementError::StateAccountMismatch.into()),
+            );
+        }
+
         mod existing_order {
             use super::*;
 
@@ -374,48 +413,28 @@ mod tests {
                 );
             }
 
+            /// [`accounts_for_settlement_owned`] paired with its instruction data.
+            fn existing_settlement_owned(
+                signer: Address,
+                state_account: AccountView,
+            ) -> (Vec<u8>, [AccountView; NUM_ACCOUNTS + 1]) {
+                let (accounts, _) = accounts_for_settlement_owned(signer, state_account);
+                (default_cancel_data(None), accounts)
+            }
+
             #[test]
             fn rejects_wrong_authority() {
-                let (mut accounts, _) =
-                    accounts_for_settlement_owned(pubkey_from_seed("unrelated"), state_account());
-
-                assert_eq!(
-                    process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
-                    Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
-                );
+                assert_rejects_wrong_authority(existing_settlement_owned);
             }
 
             #[test]
             fn rejects_missing_state_pda() {
-                let (mut accounts, _) = accounts_for_settlement_owned(
-                    *SETTLEMENT_OWNED_ORDER_AUTHORITY,
-                    state_account(),
-                );
-
-                let (state_pda, accounts) = accounts
-                    .split_last_mut()
-                    .expect("should have a last element");
-
-                assert_eq!(state_pda.address(), &STATE_PDA);
-
-                assert_eq!(
-                    process_cancel_order(&PROGRAM_ID, accounts, &default_cancel_data(None)),
-                    Err(ProgramError::NotEnoughAccountKeys),
-                );
+                assert_rejects_missing_state_pda(existing_settlement_owned);
             }
 
             #[test]
             fn rejects_non_canonical_state_pda() {
-                let impostor_state = fake_account(pubkey_from_seed("impostor state"));
-                let (mut accounts, _) = accounts_for_settlement_owned(
-                    *SETTLEMENT_OWNED_ORDER_AUTHORITY,
-                    impostor_state,
-                );
-
-                assert_eq!(
-                    process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
-                    Err(SettlementError::StateAccountMismatch.into()),
-                );
+                assert_rejects_non_canonical_state_pda(existing_settlement_owned);
             }
         }
 
@@ -447,42 +466,17 @@ mod tests {
 
             #[test]
             fn rejects_wrong_authority() {
-                let (data, mut accounts) =
-                    new_settlement_owned(pubkey_from_seed("unrelated"), state_account());
-
-                assert_eq!(
-                    process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-                    Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
-                );
+                assert_rejects_wrong_authority(new_settlement_owned);
             }
 
             #[test]
             fn rejects_missing_state_pda() {
-                let (data, mut accounts) =
-                    new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
-
-                let (state_pda, accounts) = accounts
-                    .split_last_mut()
-                    .expect("should have a last element");
-
-                assert_eq!(state_pda.address(), &STATE_PDA);
-
-                assert_eq!(
-                    process_cancel_order(&PROGRAM_ID, accounts, &data),
-                    Err(ProgramError::NotEnoughAccountKeys),
-                );
+                assert_rejects_missing_state_pda(new_settlement_owned);
             }
 
             #[test]
             fn rejects_non_canonical_state_pda() {
-                let impostor_state = fake_account(pubkey_from_seed("impostor state"));
-                let (data, mut accounts) =
-                    new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, impostor_state);
-
-                assert_eq!(
-                    process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-                    Err(SettlementError::StateAccountMismatch.into()),
-                );
+                assert_rejects_non_canonical_state_pda(new_settlement_owned);
             }
         }
     }
