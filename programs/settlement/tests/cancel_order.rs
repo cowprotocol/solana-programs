@@ -539,11 +539,11 @@ mod settlement_owned {
     /// `created_by`, and return the PDA.
     fn plant_order(
         svm: &mut LiteSVM,
-        params: &InitializedParams,
+        program_id: &Pubkey,
         intent: &OrderIntent,
         created_by: Pubkey,
     ) -> Pubkey {
-        let (pda, bump) = find_order_pda(&params.program_id, &intent.uid());
+        let (pda, bump) = find_order_pda(program_id, &intent.uid());
         let body = DecodedOrderAccount {
             bump,
             cancelled: false,
@@ -553,7 +553,7 @@ mod settlement_owned {
             intent: intent.clone(),
         }
         .encode();
-        create_account_at(svm, pda, &params.program_id, &body);
+        create_account_at(svm, pda, program_id, &body);
         pda
     }
 
@@ -562,7 +562,7 @@ mod settlement_owned {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
         let created_by = unique_pubkey();
-        let pda = plant_order(&mut svm, &params, &intent, created_by);
+        let pda = plant_order(&mut svm, &params.program_id, &intent, created_by);
 
         let ix = CancelSettlementOwnedOrder {
             program_id: params.program_id,
@@ -592,7 +592,7 @@ mod settlement_owned {
     fn rejects_a_caller_that_is_not_the_settlement_owned_order_authority() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        let pda = plant_order(&mut svm, &params, &intent, unique_pubkey());
+        let pda = plant_order(&mut svm, &params.program_id, &intent, unique_pubkey());
 
         let impostor = unique_keypair();
         let ix = CancelSettlementOwnedOrder {
@@ -610,7 +610,7 @@ mod settlement_owned {
     fn authority_cannot_cancel_a_user_order() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(unique_pubkey(), 0);
-        let pda = plant_order(&mut svm, &params, &intent, unique_pubkey());
+        let pda = plant_order(&mut svm, &params.program_id, &intent, unique_pubkey());
 
         let ix = CancelSettlementOwnedOrder {
             program_id: params.program_id,
@@ -635,7 +635,7 @@ mod settlement_owned {
         let (mut svm, params) = setup_init();
         let authority = params.settlement_owned_order.pubkey();
         let intent = sample_intent(authority, 0);
-        let pda = plant_order(&mut svm, &params, &intent, unique_pubkey());
+        let pda = plant_order(&mut svm, &params.program_id, &intent, unique_pubkey());
 
         let ix = CancelOrder {
             program_id: params.program_id,
@@ -659,7 +659,7 @@ mod settlement_owned {
     fn rejects_a_settlement_owned_order_without_the_state_pda() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        let pda = plant_order(&mut svm, &params, &intent, unique_pubkey());
+        let pda = plant_order(&mut svm, &params.program_id, &intent, unique_pubkey());
         let authority = params.settlement_owned_order.pubkey();
 
         let ix = CancelOrder {
