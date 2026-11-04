@@ -519,7 +519,9 @@ mod settlement_owned {
     };
     use cow_settlement_client::pda::order::DecodedOrderAccount;
     use solana_sdk::{
-        instruction::InstructionError, program_error::ProgramError, signature::Signer,
+        instruction::{Instruction, InstructionError},
+        program_error::ProgramError,
+        signature::Signer,
     };
 
     use crate::common::{
@@ -603,6 +605,47 @@ mod settlement_owned {
         let result = send_with_signers(&mut svm, &params.payer, &[&impostor], &[ix.into()]);
         assert_instruction_error(result, SettlementError::UnauthorizedSettlementOwnedOrder);
         assert!(!read_order(&svm, &pda).cancelled);
+    }
+
+    #[test]
+    fn rejects_the_authority_when_it_does_not_sign() {
+        let (mut svm, params) = setup_init();
+        let intent = sample_intent(params.state_pda, 0);
+        create_settlement_owned_order_pda(
+            &mut svm,
+            &params.program_id,
+            &params.payer,
+            &params.settlement_owned_order,
+            &intent,
+        );
+        let (_, pda, _) = encode_and_derive(&intent, &params.program_id);
+        let before = svm.get_account(&pda).expect("order PDA must exist");
+
+        // The right authority fills the owner slot, but without its signature.
+        let authority = params.settlement_owned_order.pubkey();
+        let mut ix = Instruction::from(CancelSettlementOwnedOrder {
+            program_id: params.program_id,
+            authority,
+            created_by: params.payer.pubkey(),
+            intent: &intent,
+        });
+        for meta in &mut ix.accounts {
+            if meta.pubkey == authority {
+                assert!(
+                    meta.is_signer,
+                    "sanity check failed: authority is expected to be a signer"
+                );
+                meta.is_signer = false;
+            }
+        }
+        let result = send_with_signers(&mut svm, &params.payer, &[], &[ix]);
+        assert_instruction_error(result, InstructionError::MissingRequiredSignature);
+
+        let after = svm.get_account(&pda).expect("order PDA must still exist");
+        assert_eq!(
+            before, after,
+            "a rejected cancellation must not change the order"
+        );
     }
 
     #[test]
