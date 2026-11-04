@@ -1,7 +1,7 @@
 //! `CancelOrder` instruction handler.
 
 use cow_settlement_interface::{
-    data::{intent::intent_slots, order::OrderAccount, state::StateAccount},
+    data::{intent::extract_owner, order::OrderAccount, state::StateAccount},
     instruction::{cancel_order::CancelOrderInput, InstructionInputParsing},
     Role, SettlementError,
 };
@@ -52,7 +52,7 @@ pub fn process_cancel_order(
         };
         // `process_new_onchain_order` validates the intent; only its owner is
         // needed beforehand, to pick who authorizes the creation.
-        let expected_owner = if intent_slots(&intent_bytes).owner == STATE_PDA.as_array() {
+        let expected_owner = if extract_owner(&intent_bytes) == STATE_PDA.as_array() {
             check_settlement_owned_order_authority(owner, state_pda)?;
             &STATE_PDA
         } else {
