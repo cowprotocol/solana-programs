@@ -106,17 +106,6 @@ mod tests {
 
     use super::*;
 
-    static SETTLEMENT_OWNED_ORDER_AUTHORITY: LazyLock<Address> =
-        LazyLock::new(|| pubkey_from_seed("settlement-owned-order authority"));
-
-    /// [`sample_order_fields`] carrying its own canonical bump, plus the address
-    /// of the PDA it belongs at.
-    fn canonical_fields(cancelled: bool) -> (OrderFields, Address) {
-        let fields = sample_order_fields(cancelled);
-        let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &fields.intent.uid());
-        (OrderFields { bump, ..fields }, pda_address)
-    }
-
     /// The account in `accounts` at the canonical PDA of the order `fields`.
     fn order_account<'a>(accounts: &'a [AccountView], fields: &OrderFields) -> &'a AccountView {
         let (address, _) = find_order_pda(&PROGRAM_ID, &fields.intent.uid());
@@ -126,334 +115,375 @@ mod tests {
             .expect("order PDA among the accounts")
     }
 
-    /// Whether the order stored at the canonical PDA of `fields` is cancelled.
-    fn is_cancelled(accounts: &[AccountView], fields: &OrderFields) -> bool {
-        OrderAccount::load_from_pda(order_account(accounts, fields), &PROGRAM_ID)
-            .and_then(|order| order.cancelled())
-            .expect("order readable")
+    mod input {
+        use super::*;
+
+        #[test]
+        fn propagates_parse_error() {
+            let intent_bytes = valid_intent_bytes();
+            let mut data = default_cancel_data(Some(intent_bytes));
+            data.pop(); // fewer bytes than necessary triggers a parse error
+            let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Err(ProgramError::InvalidInstructionData),
+            );
+        }
+
+        #[test]
+        fn rejects_nonsigner_owner() {
+            let intent_bytes = valid_intent_bytes();
+            let data = default_cancel_data(Some(intent_bytes));
+            // `fake_sequential_accounts` leaves the owner (index 0) unsigned.
+            let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Err(ProgramError::MissingRequiredSignature),
+            );
+        }
     }
 
-    /// Accounts for cancelling the given existing order: a signing `owner`, an
-    /// unused `created_by`, the program-owned order PDA carrying `fields`, and a
-    /// placeholder system program.
-    fn accounts_for_existing(
-        owner: Address,
-        fields: &OrderFields,
-        pda_address: Address,
-    ) -> [AccountView; NUM_ACCOUNTS] {
-        [
-            fake_signer(owner),
-            fake_signer(pubkey_from_seed("created by")),
-            fake_account_owned_by(pda_address, PROGRAM_ID, &fields.encode()[..]),
-            fake_signer(pubkey_from_seed("system program")),
-        ]
-    }
+    mod existing_order {
+        use super::*;
 
-    /// Accounts for cancelling an existing order owned by the state PDA, signed
-    /// by `signer` and with `state_account` as the trailing state PDA.
-    fn accounts_for_settlement_owned(
-        signer: Address,
-        state_account: AccountView,
-    ) -> ([AccountView; NUM_ACCOUNTS + 1], OrderFields) {
-        let fields = sample_order_fields(false);
-        let intent = OrderIntent {
-            owner: STATE_PDA,
-            ..fields.intent
-        };
-        let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &intent.uid());
-        let fields = OrderFields {
-            bump,
-            intent,
-            ..fields
-        };
-        let accounts = [
-            fake_signer(signer),
-            fake_account(pubkey_from_seed("created by")),
-            fake_account_owned_by(pda_address, PROGRAM_ID, &fields.encode()[..]),
-            fake_account(pubkey_from_seed("system program")),
-            state_account,
-        ];
-        (accounts, fields)
-    }
+        /// [`sample_order_fields`] carrying its own canonical bump, plus the address
+        /// of the PDA it belongs at.
+        fn canonical_fields(cancelled: bool) -> (OrderFields, Address) {
+            let fields = sample_order_fields(cancelled);
+            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &fields.intent.uid());
+            (OrderFields { bump, ..fields }, pda_address)
+        }
 
-    /// Instruction data and accounts for cancelling a not-yet-created order
-    /// owned by the state PDA, signed by `signer` and with `state_account` as
-    /// the trailing state PDA. The order PDA is a placeholder: every test using
-    /// this stops before the (CPI-based) allocation.
-    fn new_settlement_owned(
-        signer: Address,
-        state_account: AccountView,
-    ) -> (Vec<u8>, [AccountView; NUM_ACCOUNTS + 1]) {
-        let intent = OrderIntent {
-            owner: STATE_PDA,
-            ..sample_order_fields(false).intent
-        };
-        let data = default_cancel_data(Some((&EncodedOrderIntent::from(&intent)).into()));
-        let accounts = [
-            fake_signer(signer),
-            fake_signer(pubkey_from_seed("created by")),
-            fake_account(pubkey_from_seed("missing order pda")),
-            fake_account(pubkey_from_seed("system program")),
-            state_account,
-        ];
-        (data, accounts)
-    }
+        /// Whether the order stored at the canonical PDA of `fields` is cancelled.
+        fn is_cancelled(accounts: &[AccountView], fields: &OrderFields) -> bool {
+            OrderAccount::load_from_pda(order_account(accounts, fields), &PROGRAM_ID)
+                .and_then(|order| order.cancelled())
+                .expect("order readable")
+        }
 
-    /// The canonical state PDA, recording [`SETTLEMENT_OWNED_ORDER_AUTHORITY`].
-    fn state_account() -> AccountView {
-        let init_args = StateInitArgs {
-            manager: pubkey_from_seed("unused manager"),
-            solver_authority: pubkey_from_seed("unused solver authority"),
-            reclaim_authority: pubkey_from_seed("unused reclaim authority"),
-            settlement_owned_order_authority: *SETTLEMENT_OWNED_ORDER_AUTHORITY,
-        };
-        fake_account_with_data(STATE_PDA, &state_account_bytes(&init_args, &[]))
-    }
+        /// Accounts for cancelling the given existing order: a signing `owner`, an
+        /// unused `created_by`, the program-owned order PDA carrying `fields`, and a
+        /// placeholder system program.
+        fn accounts_for_existing(
+            owner: Address,
+            fields: &OrderFields,
+            pda_address: Address,
+        ) -> [AccountView; NUM_ACCOUNTS] {
+            [
+                fake_signer(owner),
+                fake_signer(pubkey_from_seed("created by")),
+                fake_account_owned_by(pda_address, PROGRAM_ID, &fields.encode()[..]),
+                fake_signer(pubkey_from_seed("system program")),
+            ]
+        }
 
-    #[test]
-    fn process_cancel_order_propagates_parse_error() {
-        let intent_bytes = valid_intent_bytes();
-        let mut data = default_cancel_data(Some(intent_bytes));
-        data.pop(); // fewer bytes than necessary triggers a parse error
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+        #[test]
+        fn rejects_owner_mismatch() {
+            let (fields, pda_address) = canonical_fields(false);
+            let wrong_owner = pubkey_from_seed("wrong owner");
+            assert_ne!(wrong_owner, fields.intent.owner);
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(ProgramError::InvalidInstructionData),
-        );
-    }
+            let data = default_cancel_data(Some(valid_intent_bytes()));
+            let mut accounts = accounts_for_existing(wrong_owner, &fields, pda_address);
 
-    #[test]
-    fn process_cancel_order_rejects_nonsigner_owner() {
-        let intent_bytes = valid_intent_bytes();
-        let data = default_cancel_data(Some(intent_bytes));
-        // `fake_sequential_accounts` leaves the owner (index 0) unsigned.
-        let mut accounts = fake_sequential_accounts::<NUM_ACCOUNTS>();
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Err(SettlementError::OwnerMismatch.into()),
+            );
+        }
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(ProgramError::MissingRequiredSignature),
-        );
-    }
+        #[test]
+        fn marks_active_order_cancelled() {
+            let (fields, pda_address) = canonical_fields(false);
+            let owner = fields.intent.owner;
 
-    #[test]
-    fn process_cancel_order_rejects_owner_mismatch_on_existing_order() {
-        let (fields, pda_address) = canonical_fields(false);
-        let wrong_owner = pubkey_from_seed("wrong owner");
-        assert_ne!(wrong_owner, fields.intent.owner);
+            let data = default_cancel_data(Some(valid_intent_bytes()));
+            let mut accounts = accounts_for_existing(owner, &fields, pda_address);
 
-        let data = default_cancel_data(Some(valid_intent_bytes()));
-        let mut accounts = accounts_for_existing(wrong_owner, &fields, pda_address);
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Ok(()),
+            );
+            assert!(
+                is_cancelled(&accounts, &fields),
+                "order must be marked cancelled"
+            );
+        }
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(SettlementError::OwnerMismatch.into()),
-        );
-    }
+        #[test]
+        fn recovers_intent_from_pda() {
+            let (fields, pda_address) = canonical_fields(false);
+            let owner = fields.intent.owner;
 
-    #[test]
-    fn process_cancel_order_marks_active_order_cancelled() {
-        let (fields, pda_address) = canonical_fields(false);
-        let owner = fields.intent.owner;
+            // No intent bytes on the wire: the order's data is recovered from the PDA.
+            let data = default_cancel_data(None);
+            let mut accounts = accounts_for_existing(owner, &fields, pda_address);
 
-        let data = default_cancel_data(Some(valid_intent_bytes()));
-        let mut accounts = accounts_for_existing(owner, &fields, pda_address);
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Ok(()),
+            );
+            assert!(
+                is_cancelled(&accounts, &fields),
+                "order must be marked cancelled"
+            );
+        }
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Ok(()),
-        );
-        assert!(
-            is_cancelled(&accounts, &fields),
-            "order must be marked cancelled"
-        );
-    }
+        #[test]
+        fn ignores_wire_intent() {
+            let (fields, pda_address) = canonical_fields(false);
+            let owner = fields.intent.owner;
 
-    #[test]
-    fn process_cancel_order_recovers_intent_from_existing_pda() {
-        let (fields, pda_address) = canonical_fields(false);
-        let owner = fields.intent.owner;
+            let another_intent = [0xff; EncodedOrderIntent::SIZE];
+            let data = default_cancel_data(Some(another_intent));
+            let mut accounts = accounts_for_existing(owner, &fields, pda_address);
 
-        // No intent bytes on the wire: the order's data is recovered from the PDA.
-        let data = default_cancel_data(None);
-        let mut accounts = accounts_for_existing(owner, &fields, pda_address);
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Ok(()),
+            );
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Ok(()),
-        );
-        assert!(
-            is_cancelled(&accounts, &fields),
-            "order must be marked cancelled"
-        );
-    }
+            // Only the cancelled flag flips; the stored intent (and the rest of the
+            // body) is untouched.
+            let (cancelled_fields, _) = canonical_fields(true);
+            assert_eq!(
+                &order_account(&accounts, &fields)
+                    .try_borrow()
+                    .expect("order data readable")[..],
+                &cancelled_fields.encode()[..],
+                "the wire intent must not leak into the stored order"
+            );
+        }
 
-    #[test]
-    fn process_cancel_order_ignores_wire_intent_for_existing_order() {
-        let (fields, pda_address) = canonical_fields(false);
-        let owner = fields.intent.owner;
+        #[test]
+        fn is_idempotent_on_cancelled_order() {
+            let (fields, pda_address) = canonical_fields(true);
+            let owner = fields.intent.owner;
+            let before: [u8; SIZE] = fields.encode();
 
-        let another_intent = [0xff; EncodedOrderIntent::SIZE];
-        let data = default_cancel_data(Some(another_intent));
-        let mut accounts = accounts_for_existing(owner, &fields, pda_address);
+            let data = default_cancel_data(Some(valid_intent_bytes()));
+            let mut accounts = accounts_for_existing(owner, &fields, pda_address);
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Ok(()),
-        );
-
-        // Only the cancelled flag flips; the stored intent (and the rest of the
-        // body) is untouched.
-        let (cancelled_fields, _) = canonical_fields(true);
-        assert_eq!(
-            &order_account(&accounts, &fields)
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Ok(()),
+            );
+            let after = order_account(&accounts, &fields)
                 .try_borrow()
-                .expect("order data readable")[..],
-            &cancelled_fields.encode()[..],
-            "the wire intent must not leak into the stored order"
-        );
+                .expect("order data readable");
+            assert_eq!(
+                &after[..],
+                &before[..],
+                "cancelling again must not change the order"
+            );
+        }
     }
 
-    #[test]
-    fn process_cancel_order_rejects_missing_intent_for_nonexistent_order() {
-        // No intent bytes and no order PDA to recover from: there's nothing to
-        // cancel, and no data to create the order from either.
-        let data = default_cancel_data(None);
-        let mut accounts = [
-            fake_signer(pubkey_from_seed("owner")),
-            fake_signer(pubkey_from_seed("created by")),
-            fake_account(pubkey_from_seed("missing order pda")),
-            fake_signer(pubkey_from_seed("system program")),
-        ];
+    mod new_order {
+        use super::*;
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(ProgramError::UninitializedAccount),
-        );
+        #[test]
+        fn rejects_missing_intent() {
+            // No intent bytes and no order PDA to recover from: there's nothing to
+            // cancel, and no data to create the order from either.
+            let data = default_cancel_data(None);
+            let mut accounts = [
+                fake_signer(pubkey_from_seed("owner")),
+                fake_signer(pubkey_from_seed("created by")),
+                fake_account(pubkey_from_seed("missing order pda")),
+                fake_signer(pubkey_from_seed("system program")),
+            ];
+
+            assert_eq!(
+                process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                Err(ProgramError::UninitializedAccount),
+            );
+        }
     }
 
-    #[test]
-    fn process_cancel_order_is_idempotent_on_cancelled_order() {
-        let (fields, pda_address) = canonical_fields(true);
-        let owner = fields.intent.owner;
-        let before: [u8; SIZE] = fields.encode();
+    mod settlement_owned {
+        use super::*;
 
-        let data = default_cancel_data(Some(valid_intent_bytes()));
-        let mut accounts = accounts_for_existing(owner, &fields, pda_address);
+        static SETTLEMENT_OWNED_ORDER_AUTHORITY: LazyLock<Address> =
+            LazyLock::new(|| pubkey_from_seed("settlement-owned-order authority"));
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Ok(()),
-        );
-        let after = order_account(&accounts, &fields)
-            .try_borrow()
-            .expect("order data readable");
-        assert_eq!(
-            &after[..],
-            &before[..],
-            "cancelling again must not change the order"
-        );
-    }
+        /// The canonical state PDA, recording [`SETTLEMENT_OWNED_ORDER_AUTHORITY`].
+        fn state_account() -> AccountView {
+            let init_args = StateInitArgs {
+                manager: pubkey_from_seed("unused manager"),
+                solver_authority: pubkey_from_seed("unused solver authority"),
+                reclaim_authority: pubkey_from_seed("unused reclaim authority"),
+                settlement_owned_order_authority: *SETTLEMENT_OWNED_ORDER_AUTHORITY,
+            };
+            fake_account_with_data(STATE_PDA, &state_account_bytes(&init_args, &[]))
+        }
 
-    #[test]
-    fn process_cancel_order_lets_authority_cancel_settlement_owned_order() {
-        let (mut accounts, fields) =
-            accounts_for_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
+        mod existing_order {
+            use super::*;
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
-            Ok(()),
-        );
-        let expected = OrderFields {
-            cancelled: true,
-            ..fields
-        };
-        assert_eq!(
-            &order_account(&accounts, &expected)
-                .try_borrow()
-                .expect("order data readable")[..],
-            &expected.encode()[..],
-            "only the cancelled flag may change"
-        );
-    }
+            /// Accounts for cancelling an existing order owned by the state PDA, signed
+            /// by `signer` and with `state_account` as the trailing state PDA.
+            fn accounts_for_settlement_owned(
+                signer: Address,
+                state_account: AccountView,
+            ) -> ([AccountView; NUM_ACCOUNTS + 1], OrderFields) {
+                let fields = sample_order_fields(false);
+                let intent = OrderIntent {
+                    owner: STATE_PDA,
+                    ..fields.intent
+                };
+                let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &intent.uid());
+                let fields = OrderFields {
+                    bump,
+                    intent,
+                    ..fields
+                };
+                let accounts = [
+                    fake_signer(signer),
+                    fake_account(pubkey_from_seed("created by")),
+                    fake_account_owned_by(pda_address, PROGRAM_ID, &fields.encode()[..]),
+                    fake_account(pubkey_from_seed("system program")),
+                    state_account,
+                ];
+                (accounts, fields)
+            }
 
-    #[test]
-    fn process_cancel_order_rejects_wrong_authority_for_settlement_owned_order() {
-        let (mut accounts, _) =
-            accounts_for_settlement_owned(pubkey_from_seed("unrelated"), state_account());
+            #[test]
+            fn lets_authority_cancel() {
+                let (mut accounts, fields) = accounts_for_settlement_owned(
+                    *SETTLEMENT_OWNED_ORDER_AUTHORITY,
+                    state_account(),
+                );
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
-            Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
-        );
-    }
+                assert_eq!(
+                    process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
+                    Ok(()),
+                );
+                let expected = OrderFields {
+                    cancelled: true,
+                    ..fields
+                };
+                assert_eq!(
+                    &order_account(&accounts, &expected)
+                        .try_borrow()
+                        .expect("order data readable")[..],
+                    &expected.encode()[..],
+                    "only the cancelled flag may change"
+                );
+            }
 
-    #[test]
-    fn process_cancel_order_rejects_settlement_owned_order_without_state_pda() {
-        let (mut accounts, _) =
-            accounts_for_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
+            #[test]
+            fn rejects_wrong_authority() {
+                let (mut accounts, _) =
+                    accounts_for_settlement_owned(pubkey_from_seed("unrelated"), state_account());
 
-        let (state_pda, mut accounts) = accounts
-            .split_last_mut()
-            .expect("should have a last element");
+                assert_eq!(
+                    process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
+                    Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
+                );
+            }
 
-        assert_eq!(state_pda.address(), &STATE_PDA);
+            #[test]
+            fn rejects_missing_state_pda() {
+                let (mut accounts, _) = accounts_for_settlement_owned(
+                    *SETTLEMENT_OWNED_ORDER_AUTHORITY,
+                    state_account(),
+                );
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
-            Err(ProgramError::NotEnoughAccountKeys),
-        );
-    }
+                let (state_pda, accounts) = accounts
+                    .split_last_mut()
+                    .expect("should have a last element");
 
-    #[test]
-    fn process_cancel_order_rejects_non_canonical_state_pda_for_settlement_owned_order() {
-        let impostor_state = fake_account(pubkey_from_seed("impostor state"));
-        let (mut accounts, _) =
-            accounts_for_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, impostor_state);
+                assert_eq!(state_pda.address(), &STATE_PDA);
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
-            Err(SettlementError::StateAccountMismatch.into()),
-        );
-    }
+                assert_eq!(
+                    process_cancel_order(&PROGRAM_ID, accounts, &default_cancel_data(None)),
+                    Err(ProgramError::NotEnoughAccountKeys),
+                );
+            }
 
-    #[test]
-    fn process_cancel_order_rejects_wrong_authority_creating_settlement_owned_order() {
-        let (data, mut accounts) =
-            new_settlement_owned(pubkey_from_seed("unrelated"), state_account());
+            #[test]
+            fn rejects_non_canonical_state_pda() {
+                let impostor_state = fake_account(pubkey_from_seed("impostor state"));
+                let (mut accounts, _) = accounts_for_settlement_owned(
+                    *SETTLEMENT_OWNED_ORDER_AUTHORITY,
+                    impostor_state,
+                );
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
-        );
-    }
+                assert_eq!(
+                    process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
+                    Err(SettlementError::StateAccountMismatch.into()),
+                );
+            }
+        }
 
-    #[test]
-    fn process_cancel_order_rejects_creating_settlement_owned_order_without_state_pda() {
-        let (data, mut accounts) =
-            new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
+        mod new_order {
+            use super::*;
 
-        let (state_pda, mut accounts) = accounts
-            .split_last_mut()
-            .expect("should have a last element");
+            /// Instruction data and accounts for cancelling a not-yet-created order
+            /// owned by the state PDA, signed by `signer` and with `state_account` as
+            /// the trailing state PDA. The order PDA is a placeholder: every test using
+            /// this stops before the (CPI-based) allocation.
+            fn new_settlement_owned(
+                signer: Address,
+                state_account: AccountView,
+            ) -> (Vec<u8>, [AccountView; NUM_ACCOUNTS + 1]) {
+                let intent = OrderIntent {
+                    owner: STATE_PDA,
+                    ..sample_order_fields(false).intent
+                };
+                let data = default_cancel_data(Some((&EncodedOrderIntent::from(&intent)).into()));
+                let accounts = [
+                    fake_signer(signer),
+                    fake_signer(pubkey_from_seed("created by")),
+                    fake_account(pubkey_from_seed("missing order pda")),
+                    fake_account(pubkey_from_seed("system program")),
+                    state_account,
+                ];
+                (data, accounts)
+            }
 
-        assert_eq!(state_pda.address(), &STATE_PDA);
+            #[test]
+            fn rejects_wrong_authority() {
+                let (data, mut accounts) =
+                    new_settlement_owned(pubkey_from_seed("unrelated"), state_account());
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(ProgramError::NotEnoughAccountKeys),
-        );
-    }
+                assert_eq!(
+                    process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                    Err(SettlementError::UnauthorizedSettlementOwnedOrder.into()),
+                );
+            }
 
-    #[test]
-    fn process_cancel_order_rejects_non_canonical_state_pda_creating_settlement_owned_order() {
-        let impostor_state = fake_account(pubkey_from_seed("impostor state"));
-        let (data, mut accounts) =
-            new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, impostor_state);
+            #[test]
+            fn rejects_missing_state_pda() {
+                let (data, mut accounts) =
+                    new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
 
-        assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
-            Err(SettlementError::StateAccountMismatch.into()),
-        );
+                let (state_pda, accounts) = accounts
+                    .split_last_mut()
+                    .expect("should have a last element");
+
+                assert_eq!(state_pda.address(), &STATE_PDA);
+
+                assert_eq!(
+                    process_cancel_order(&PROGRAM_ID, accounts, &data),
+                    Err(ProgramError::NotEnoughAccountKeys),
+                );
+            }
+
+            #[test]
+            fn rejects_non_canonical_state_pda() {
+                let impostor_state = fake_account(pubkey_from_seed("impostor state"));
+                let (data, mut accounts) =
+                    new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, impostor_state);
+
+                assert_eq!(
+                    process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
+                    Err(SettlementError::StateAccountMismatch.into()),
+                );
+            }
+        }
     }
 }
