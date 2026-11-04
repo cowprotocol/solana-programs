@@ -807,6 +807,34 @@ mod settlement_owned {
     }
 
     #[test]
+    fn rejects_creating_a_cancelled_order_when_the_authority_does_not_sign() {
+        let (mut svm, params) = setup_init();
+        let intent = sample_intent(params.state_pda, 0);
+        let (_encoded, pda, _bump) = encode_and_derive(&intent, &params.program_id);
+
+        // The right authority fills the owner slot, but without its signature.
+        let authority = params.settlement_owned_order.pubkey();
+        let mut ix = Instruction::from(CancelSettlementOwnedOrder {
+            program_id: params.program_id,
+            authority,
+            created_by: params.payer.pubkey(),
+            intent: &intent,
+        });
+        for meta in &mut ix.accounts {
+            if meta.pubkey == authority {
+                assert!(
+                    meta.is_signer,
+                    "sanity check failed: authority is expected to be a signer"
+                );
+                meta.is_signer = false;
+            }
+        }
+        let result = send_with_signers(&mut svm, &params.payer, &[], &[ix]);
+        assert_instruction_error(result, InstructionError::MissingRequiredSignature);
+        assert!(svm.get_account(&pda).is_none());
+    }
+
+    #[test]
     fn rejects_creating_a_cancelled_settlement_owned_order_without_the_state_pda() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
