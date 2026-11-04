@@ -89,9 +89,7 @@ fn check_settlement_owned_order_authority(
 mod tests {
     use crate::pda::ID as PROGRAM_ID;
     use cow_settlement_interface::data::intent::{EncodedOrderIntent, OrderIntent};
-    use cow_settlement_interface::data::order::fixtures::{
-        sample_order_fields, OrderFields, CANCELLED_OFFSET,
-    };
+    use cow_settlement_interface::data::order::fixtures::{sample_order_fields, OrderFields};
     use cow_settlement_interface::data::order::SIZE;
     use cow_settlement_interface::data::state::fixtures::state_account_bytes;
     use cow_settlement_interface::data::state::StateInitArgs;
@@ -117,6 +115,22 @@ mod tests {
         let fields = sample_order_fields(cancelled);
         let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &fields.intent.uid());
         (OrderFields { bump, ..fields }, pda_address)
+    }
+
+    /// The account in `accounts` at the canonical PDA of the order `fields`.
+    fn order_account<'a>(accounts: &'a [AccountView], fields: &OrderFields) -> &'a AccountView {
+        let (address, _) = find_order_pda(&PROGRAM_ID, &fields.intent.uid());
+        accounts
+            .iter()
+            .find(|account| account.address() == &address)
+            .expect("order PDA among the accounts")
+    }
+
+    /// Whether the order stored at the canonical PDA of `fields` is cancelled.
+    fn is_cancelled(accounts: &[AccountView], fields: &OrderFields) -> bool {
+        OrderAccount::load_from_pda(order_account(accounts, fields), &PROGRAM_ID)
+            .and_then(|order| order.cancelled())
+            .expect("order readable")
     }
 
     /// Accounts for cancelling the given existing order: a signing `owner`, an
@@ -249,8 +263,10 @@ mod tests {
             process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
             Ok(()),
         );
-        let data = accounts[2].try_borrow().expect("order data readable");
-        assert_eq!(data[CANCELLED_OFFSET], 1, "order must be marked cancelled");
+        assert!(
+            is_cancelled(&accounts, &fields),
+            "order must be marked cancelled"
+        );
     }
 
     #[test]
@@ -266,8 +282,10 @@ mod tests {
             process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
             Ok(()),
         );
-        let data = accounts[2].try_borrow().expect("order data readable");
-        assert_eq!(data[CANCELLED_OFFSET], 1, "order must be marked cancelled");
+        assert!(
+            is_cancelled(&accounts, &fields),
+            "order must be marked cancelled"
+        );
     }
 
     #[test]
@@ -288,7 +306,9 @@ mod tests {
         // body) is untouched.
         let (cancelled_fields, _) = canonical_fields(true);
         assert_eq!(
-            &accounts[2].try_borrow().expect("order data readable")[..],
+            &order_account(&accounts, &fields)
+                .try_borrow()
+                .expect("order data readable")[..],
             &cancelled_fields.encode()[..],
             "the wire intent must not leak into the stored order"
         );
@@ -325,7 +345,9 @@ mod tests {
             process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
             Ok(()),
         );
-        let after = accounts[2].try_borrow().expect("order data readable");
+        let after = order_account(&accounts, &fields)
+            .try_borrow()
+            .expect("order data readable");
         assert_eq!(
             &after[..],
             &before[..],
@@ -347,7 +369,9 @@ mod tests {
             ..fields
         };
         assert_eq!(
-            &accounts[2].try_borrow().expect("order data readable")[..],
+            &order_account(&accounts, &expected)
+                .try_borrow()
+                .expect("order data readable")[..],
             &expected.encode()[..],
             "only the cancelled flag may change"
         );
