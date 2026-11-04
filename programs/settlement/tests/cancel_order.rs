@@ -537,14 +537,13 @@ mod settlement_owned {
     fn authority_cancels_an_order_owned_by_the_state_pda() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        create_settlement_owned_order_pda(
+        let (pda, bump) = create_settlement_owned_order_pda(
             &mut svm,
             &params.program_id,
             &params.payer,
             &params.settlement_owned_order,
             &intent,
         );
-        let (_, pda, bump) = encode_and_derive(&intent, &params.program_id);
 
         let ix = CancelSettlementOwnedOrder {
             program_id: params.program_id,
@@ -586,14 +585,13 @@ mod settlement_owned {
     fn rejects_a_caller_that_is_not_the_settlement_owned_order_authority() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        create_settlement_owned_order_pda(
+        let (pda, _) = create_settlement_owned_order_pda(
             &mut svm,
             &params.program_id,
             &params.payer,
             &params.settlement_owned_order,
             &intent,
         );
-        let (_, pda, _) = encode_and_derive(&intent, &params.program_id);
 
         let impostor = unique_keypair();
         let ix = CancelSettlementOwnedOrder {
@@ -611,14 +609,13 @@ mod settlement_owned {
     fn rejects_the_authority_when_it_does_not_sign() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        create_settlement_owned_order_pda(
+        let (pda, _) = create_settlement_owned_order_pda(
             &mut svm,
             &params.program_id,
             &params.payer,
             &params.settlement_owned_order,
             &intent,
         );
-        let (_, pda, _) = encode_and_derive(&intent, &params.program_id);
         let before = svm.get_account(&pda).expect("order PDA must exist");
 
         // The right authority fills the owner slot, but without its signature.
@@ -710,14 +707,13 @@ mod settlement_owned {
     fn rejects_a_settlement_owned_order_without_the_state_pda() {
         let (mut svm, params) = setup_init();
         let intent = sample_intent(params.state_pda, 0);
-        create_settlement_owned_order_pda(
+        let (pda, _) = create_settlement_owned_order_pda(
             &mut svm,
             &params.program_id,
             &params.payer,
             &params.settlement_owned_order,
             &intent,
         );
-        let (_, pda, _) = encode_and_derive(&intent, &params.program_id);
         let authority = params.settlement_owned_order.pubkey();
 
         let ix = CancelOrder {
