@@ -1,72 +1,56 @@
 import { LiteSVM } from "litesvm";
 import { beforeEach, describe, expect, it } from "vitest";
-import { generateKeyPairSigner, lamports } from "@solana/kit";
+import type { TransactionSigner } from "@solana/kit";
 import {
-  COW_SETTLEMENT_PROGRAM_ADDRESS,
   findStatePda,
   getCancelOrderInstructionAsync,
   getCreateSettlementOwnedOrderInstructionAsync,
-  getInitializeInstructionAsync,
+  type OrderIntentArgs,
 } from "../src/generated";
-import { resolveOrderPda } from "../src/hooked";
 import {
   buildOrderIntent,
-  initializerSigner,
   fetchOrderAccount,
+  findOrderPda,
+  initializeProgram,
   newSvm,
   sendInstruction,
-  sendUnverifiedInstruction,
 } from "./fixtures";
 
-describe("cancelOrder on a settlement-owned order", () => {
+/// Create an order owned by the state PDA and return its intent.
+async function createSettlementOwnedOrder(
+  svm: LiteSVM,
+  payer: TransactionSigner,
+  authority: TransactionSigner,
+): Promise<OrderIntentArgs> {
+  const [statePda] = await findStatePda();
+  const intent = await buildOrderIntent({ owner: statePda });
+  const create = await getCreateSettlementOwnedOrderInstructionAsync({
+    authority,
+    createdBy: payer,
+    intent,
+  });
+  await sendInstruction(svm, payer, create, "createSettlementOwnedOrder");
+  return intent;
+}
+
+describe("cancelSettlementOwnedOrder", () => {
   let svm: LiteSVM;
 
   beforeEach(() => {
     svm = newSvm();
   });
 
-  /// Initializes the program and returns a funded payer and the
-  /// settlement-owned-order authority.
-  async function initialize() {
-    const [payer, manager, solverAuthority, reclaimAuthority, settlementOwnedOrderAuthority] =
-      await Promise.all(Array.from({ length: 5 }, () => generateKeyPairSigner()));
-    svm.airdrop(payer.address, lamports(1_000_000_000n));
-
-    const initializer = initializerSigner();
-    svm.airdrop(initializer.address, lamports(1_000_000_000n));
-    const initialize = await getInitializeInstructionAsync({
-      payer: initializer,
-      manager: manager.address,
-      solverAuthority: solverAuthority.address,
-      reclaimAuthority: reclaimAuthority.address,
-      settlementOwnedOrderAuthority: settlementOwnedOrderAuthority.address,
-    });
-    await sendUnverifiedInstruction(svm, payer, initialize, "initialize");
-    return { payer, settlementOwnedOrderAuthority };
-  }
-
   it("cancels an order owned by the state PDA", async () => {
-    const { payer, settlementOwnedOrderAuthority } = await initialize();
-    const [statePda] = await findStatePda();
-    const intent = await buildOrderIntent({ owner: statePda });
-    const create = await getCreateSettlementOwnedOrderInstructionAsync({
-      authority: settlementOwnedOrderAuthority,
-      createdBy: payer,
-      intent,
-    });
-    await sendInstruction(svm, payer, create, "createSettlementOwnedOrder");
+    const { payer, settlementOwnedOrderAuthority } = await initializeProgram(svm);
+    const intent = await createSettlementOwnedOrder(svm, payer, settlementOwnedOrderAuthority);
 
-    // cancelOrder has no orderPda resolver, so the caller derives it. The
-    // state PDA is filled in by default.
-    const { value: orderPda } = await resolveOrderPda({
-      programAddress: COW_SETTLEMENT_PROGRAM_ADDRESS,
-      args: { intent },
-    });
+    // The instruction carries no intent, so orderPda can't be resolved from
+    // its arguments: the caller derives it.
     const cancel = await getCancelOrderInstructionAsync({
       owner: settlementOwnedOrderAuthority,
-      createdBy: payer,
-      orderPda,
-      intent,
+      orderPda: await findOrderPda(intent),
+      createdBy: settlementOwnedOrderAuthority,
+      intent
     });
     await sendInstruction(svm, payer, cancel, "cancelOrder");
 

@@ -516,8 +516,7 @@ mod settlement_owned {
         pda::order::find_order_pda, SettlementError,
     };
     use cow_settlement_client::instruction::{
-        CancelSettlementOwnedOrder,
-        CreateSettlementOwnedOrder,
+        CancelSettlementOwnedOrder, CreateSettlementOwnedOrder,
     };
     use cow_settlement_client::pda::order::DecodedOrderAccount;
     use litesvm::LiteSVM;
