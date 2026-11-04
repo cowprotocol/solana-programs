@@ -393,12 +393,14 @@ mod tests {
         let (mut accounts, _) =
             accounts_for_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
 
+        let (state_pda, mut accounts) = accounts
+            .split_last_mut()
+            .expect("should have a last element");
+
+        assert_eq!(state_pda.address(), &STATE_PDA);
+
         assert_eq!(
-            process_cancel_order(
-                &PROGRAM_ID,
-                &mut accounts[..NUM_ACCOUNTS],
-                &default_cancel_data(None)
-            ),
+            process_cancel_order(&PROGRAM_ID, &mut accounts, &default_cancel_data(None)),
             Err(ProgramError::NotEnoughAccountKeys),
         );
     }
@@ -431,8 +433,14 @@ mod tests {
         let (data, mut accounts) =
             new_settlement_owned(*SETTLEMENT_OWNED_ORDER_AUTHORITY, state_account());
 
+        let (state_pda, mut accounts) = accounts
+            .split_last_mut()
+            .expect("should have a last element");
+
+        assert_eq!(state_pda.address(), &STATE_PDA);
+
         assert_eq!(
-            process_cancel_order(&PROGRAM_ID, &mut accounts[..NUM_ACCOUNTS], &data),
+            process_cancel_order(&PROGRAM_ID, &mut accounts, &data),
             Err(ProgramError::NotEnoughAccountKeys),
         );
     }
