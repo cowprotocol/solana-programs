@@ -145,15 +145,34 @@ mod tests {
         }
     }
 
+    /// The stored body of an order owned by `owner`, otherwise
+    /// [`sample_order_fields`], with the bump of its canonical PDA, plus that
+    /// PDA's address. For an order whose owner matters to the test, such as one
+    /// owned by the state PDA; [`existing_order::user_order_at_pda`] covers the
+    /// plain user-owned case.
+    fn order_at_pda_owned_by(owner: Address, cancelled: bool) -> (OrderFields, Address) {
+        let fields = sample_order_fields(cancelled);
+        let intent = OrderIntent {
+            owner,
+            ..fields.intent
+        };
+        let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &intent.uid());
+        (
+            OrderFields {
+                bump,
+                intent,
+                ..fields
+            },
+            pda_address,
+        )
+    }
+
     mod existing_order {
         use super::*;
 
-        /// [`sample_order_fields`] carrying its own canonical bump, plus the address
-        /// of the PDA it belongs at.
-        fn canonical_fields(cancelled: bool) -> (OrderFields, Address) {
-            let fields = sample_order_fields(cancelled);
-            let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &fields.intent.uid());
-            (OrderFields { bump, ..fields }, pda_address)
+        /// [`order_at_pda_owned_by`] a user: the sample order's own owner.
+        fn user_order_at_pda(cancelled: bool) -> (OrderFields, Address) {
+            order_at_pda_owned_by(sample_order_fields(cancelled).intent.owner, cancelled)
         }
 
         /// Whether the order stored at the canonical PDA of `fields` is cancelled.
@@ -181,7 +200,7 @@ mod tests {
 
         #[test]
         fn rejects_owner_mismatch() {
-            let (fields, pda_address) = canonical_fields(false);
+            let (fields, pda_address) = user_order_at_pda(false);
             let wrong_owner = pubkey_from_seed("wrong owner");
             assert_ne!(wrong_owner, fields.intent.owner);
 
@@ -196,7 +215,7 @@ mod tests {
 
         #[test]
         fn marks_active_order_cancelled() {
-            let (fields, pda_address) = canonical_fields(false);
+            let (fields, pda_address) = user_order_at_pda(false);
             let owner = fields.intent.owner;
 
             let data = default_cancel_data(Some(valid_intent_bytes()));
@@ -214,7 +233,7 @@ mod tests {
 
         #[test]
         fn recovers_intent_from_pda() {
-            let (fields, pda_address) = canonical_fields(false);
+            let (fields, pda_address) = user_order_at_pda(false);
             let owner = fields.intent.owner;
 
             // No intent bytes on the wire: the order's data is recovered from the PDA.
@@ -233,7 +252,7 @@ mod tests {
 
         #[test]
         fn ignores_wire_intent() {
-            let (fields, pda_address) = canonical_fields(false);
+            let (fields, pda_address) = user_order_at_pda(false);
             let owner = fields.intent.owner;
 
             let another_intent = [0xff; EncodedOrderIntent::SIZE];
@@ -247,7 +266,7 @@ mod tests {
 
             // Only the cancelled flag flips; the stored intent (and the rest of the
             // body) is untouched.
-            let (cancelled_fields, _) = canonical_fields(true);
+            let (cancelled_fields, _) = user_order_at_pda(true);
             assert_eq!(
                 &order_account(&accounts, &fields)
                     .try_borrow()
@@ -259,7 +278,7 @@ mod tests {
 
         #[test]
         fn is_idempotent_on_cancelled_order() {
-            let (fields, pda_address) = canonical_fields(true);
+            let (fields, pda_address) = user_order_at_pda(true);
             let owner = fields.intent.owner;
             let before: [u8; SIZE] = fields.encode();
 
@@ -368,17 +387,7 @@ mod tests {
                 signer: Address,
                 state_account: AccountView,
             ) -> ([AccountView; NUM_ACCOUNTS + 1], OrderFields) {
-                let fields = sample_order_fields(false);
-                let intent = OrderIntent {
-                    owner: STATE_PDA,
-                    ..fields.intent
-                };
-                let (pda_address, bump) = find_order_pda(&PROGRAM_ID, &intent.uid());
-                let fields = OrderFields {
-                    bump,
-                    intent,
-                    ..fields
-                };
+                let (fields, pda_address) = order_at_pda_owned_by(STATE_PDA, false);
                 let accounts = [
                     fake_signer(signer),
                     fake_account(pubkey_from_seed("created by")),

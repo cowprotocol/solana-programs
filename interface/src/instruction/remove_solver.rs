@@ -23,6 +23,7 @@ use crate::SettlementInstruction;
 ///
 /// Wire format: `[discriminator=9, solver (32 bytes)]`.
 /// Required accounts: `[authority (S), rent_recipient (W), state_pda (W)]`.
+#[derive(Clone, Debug)]
 pub struct RemoveSolver {
     pub program_id: Pubkey,
     pub authority: Pubkey,

@@ -53,6 +53,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// slots. The system program needs to be available but doesn't need to be at
 /// that specific position in the instruction, unlike the others.
 /// `state_pda` is only needed to cancel a settlement-owned order.
+#[derive(Clone, Debug)]
 pub struct CancelOrder {
     pub program_id: Pubkey,
     pub owner: Pubkey,
