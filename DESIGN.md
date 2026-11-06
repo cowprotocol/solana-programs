@@ -216,6 +216,8 @@ Cancelling an order requires an on-chain operation, executed through the `Cancel
 
 Creating the order in advance is _not_ needed: if the order wasn’t created before cancelling, the corresponding order PDA is created and then cancelled.
 
+Settlement owned orders can also be cancelled through the same way as long as the settlement-owned-order-authority is signing.
+
 ### Order clearing
 
 Allocating an order PDA requires paying rent.

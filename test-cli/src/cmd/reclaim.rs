@@ -4,11 +4,8 @@ use cow_settlement_client::cow_settlement_interface::{
     data::order::OrderAccount, instruction::reclaim_order::ReclaimOrder, parse_settlement_error,
     Pubkey,
 };
-use solana_sdk::{
-    account::Account,
-    signature::Signer,
-    transaction::{Transaction, TransactionError},
-};
+use solana_rpc_client::api::client_error::Error as ClientError;
+use solana_sdk::{account::Account, transaction::TransactionError};
 
 use crate::cmd::Context;
 use crate::utils::{
@@ -68,25 +65,20 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
                 program_id: ctx.program_id,
                 order_pda: order.pda,
                 reclaim_recipient,
-                owner: Some(ctx.payer.pubkey()),
+                owner: Some(ctx.payer()),
             }
             .instruction(),
         );
     }
 
-    let blockhash = ctx
-        .rpc
-        .get_latest_blockhash()
-        .context("failed to fetch blockhash")?;
-    let tx = Transaction::new_signed_with_payer(
-        &ixs,
-        Some(&ctx.payer.pubkey()),
-        &[&ctx.payer],
-        blockhash,
-    );
-    let sig = ctx.rpc.send_and_confirm_transaction(&tx).map_err(|e| {
-        // If the transaction failed, try to introspect and neatly print out the failing error
-        if let Some(TransactionError::InstructionError(index, err)) = e.get_transaction_error() {
+    let submission = ctx.submit(&ixs, &[]).map_err(|e| {
+        // If the transaction failed, try to introspect and neatly print out the failing error.
+        // Only a sent transaction's instructions line up with the orders.
+        let tx_err = e
+            .downcast_ref::<ClientError>()
+            .and_then(ClientError::get_transaction_error);
+        if let (None, Some(TransactionError::InstructionError(index, err))) = (&ctx.squads, tx_err)
+        {
             if let Some(order) = orders.get(usize::from(index)) {
                 let reason = match parse_settlement_error(err) {
                     Ok(err) => format!("{err:?}"),
@@ -95,10 +87,10 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
                 print_failures(&[(&order.arg.to_string(), &reason)]);
             }
         }
-        anyhow::Error::new(e).context("transaction failed, nothing was reclaimed")
+        e.context("nothing was reclaimed")
     })?;
 
-    let mut summary: Vec<(&str, &dyn ToString)> = vec![("signature", &sig)];
+    let mut summary = submission.summary(&[]);
     summary.extend(
         orders
             .iter()

@@ -5,6 +5,7 @@ import {
   createNoopSigner,
   createTransactionMessage,
   generateKeyPairSigner,
+  lamports,
   partiallySignTransactionMessageWithSigners,
   pipe,
   setTransactionMessageFeePayerSigner,
@@ -17,6 +18,7 @@ import { LiteSVM } from "litesvm";
 import { encodeFlags } from "../src/order";
 import {
   COW_SETTLEMENT_PROGRAM_ADDRESS,
+  getInitializeInstructionAsync,
   getOrderAccountDecoder,
   OrderKind,
   type OrderIntentArgs,
@@ -96,14 +98,39 @@ export async function sendUnverifiedInstruction(
   }
 }
 
-/// Resolve the order PDA `intent` hashes to, assert the account exists, and
-/// return its decoded body.
-export async function fetchOrderAccount(svm: LiteSVM, intent: OrderIntentArgs) {
-  const { value: orderPda } = await resolveOrderPda({
+/// Fund a fresh payer and initialize the program with fresh authorities, all returned.
+export async function initializeProgram(svm: LiteSVM) {
+  const [payer, manager, solverAuthority, reclaimAuthority, settlementOwnedOrderAuthority] =
+    await Promise.all(Array.from({ length: 5 }, () => generateKeyPairSigner()));
+  svm.airdrop(payer.address, lamports(1_000_000_000n));
+
+  const initializer = initializerSigner();
+  svm.airdrop(initializer.address, lamports(1_000_000_000n));
+  const initialize = await getInitializeInstructionAsync({
+    payer: initializer,
+    manager: manager.address,
+    solverAuthority: solverAuthority.address,
+    reclaimAuthority: reclaimAuthority.address,
+    settlementOwnedOrderAuthority: settlementOwnedOrderAuthority.address,
+  });
+  await sendUnverifiedInstruction(svm, payer, initialize, "initialize");
+
+  return { payer, manager, solverAuthority, reclaimAuthority, settlementOwnedOrderAuthority };
+}
+
+/// The order PDA `intent` hashes to.
+export async function findOrderPda(intent: OrderIntentArgs): Promise<Address> {
+  const { value } = await resolveOrderPda({
     programAddress: COW_SETTLEMENT_PROGRAM_ADDRESS,
     args: { intent },
   });
-  const account = svm.getAccount(orderPda);
+  return value;
+}
+
+/// Resolve the order PDA `intent` hashes to, assert the account exists, and
+/// return its decoded body.
+export async function fetchOrderAccount(svm: LiteSVM, intent: OrderIntentArgs) {
+  const account = svm.getAccount(await findOrderPda(intent));
   assertAccountExists(account);
   return getOrderAccountDecoder().decode(account.data);
 }

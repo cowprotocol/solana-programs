@@ -49,6 +49,7 @@ pub const ACCOUNTS_PER_BUFFER: usize = 2;
 /// non-empty) and closed, while one that exceeds its limit is skipped so the
 /// rest of the batch still closes; the instruction reverts only when every
 /// buffer is over its limit. A zero limit prevents any burning.
+#[derive(Clone, Debug)]
 pub struct ReclaimBuffer<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,

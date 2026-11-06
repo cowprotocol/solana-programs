@@ -9,14 +9,13 @@ use cow_settlement_client::{
     instruction::TokenProgram,
 };
 use solana_instruction::Instruction;
-use solana_sdk::{account::Account, signature::Signer};
+use solana_sdk::account::Account;
 
-use crate::utils::keypair::read_keypair_or;
+use crate::cmd::{Context, Submission};
 use crate::utils::output::print_summary;
 use crate::utils::parsing::{BufferArg, KeypairArg};
 use crate::utils::pda::find_state_pda;
 use crate::utils::token::{token_program_of, unpack_token_account};
-use crate::{cmd::Context, utils::transaction::send};
 
 #[derive(ClapArgs)]
 pub struct ReclaimArgs {
@@ -39,7 +38,7 @@ pub struct ReclaimArgs {
 /// Issues a transaction to reclaim the specified buffers, optionally burning
 /// up to the specified number of tokens in order to do so.
 pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
-    let reclaim_authority = read_keypair_or(args.reclaim_authority, &ctx.payer)?;
+    let reclaim_authority = ctx.signer_or(args.reclaim_authority)?;
 
     let addresses: Vec<Pubkey> = args.buffers.iter().map(|b| b.address).collect();
     let accounts = ctx
@@ -74,8 +73,9 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
         }
     }
 
-    let sig;
+    let submission;
     let mut reclaimed = Vec::new();
+    let mut proposed = Vec::new();
     let mut summary: Vec<(&str, &dyn ToString)> = Vec::new();
     if !to_close.is_empty() {
         let ixs = instructions(
@@ -85,23 +85,33 @@ pub fn run(ctx: Context, args: ReclaimArgs) -> anyhow::Result<()> {
             &args.receiver,
             &by_program,
         );
-        sig = send(&ctx, &ixs, &[&reclaim_authority])?;
-        summary.push(("signature", &sig));
-        // The program skips rather than rejects a buffer that received tokens
-        // since it was fetched, so check which ones are gone.
-        let accounts = ctx
-            .rpc
-            .get_multiple_accounts(&to_close)
-            .with_context(|| format!("sent {sig}, but failed to check the outcome"))?;
-        for (buffer, account) in to_close.iter().zip(accounts) {
-            match account {
-                None => reclaimed.push(*buffer),
-                Some(_) => non_empty.push(*buffer),
+        submission = ctx.submit(&ixs, &[&reclaim_authority])?;
+        match &submission {
+            Submission::Sent(sig) => {
+                // The program skips rather than rejects a buffer that received tokens
+                // since it was fetched, so check which ones are gone.
+                let accounts = ctx
+                    .rpc
+                    .get_multiple_accounts(&to_close)
+                    .with_context(|| format!("sent {sig}, but failed to check the outcome"))?;
+                for (buffer, account) in to_close.iter().zip(accounts) {
+                    match account {
+                        None => reclaimed.push(*buffer),
+                        Some(_) => non_empty.push(*buffer),
+                    }
+                }
             }
+            // Nothing is closed until the proposal executes.
+            Submission::Proposed(_) => proposed = to_close,
         }
+        summary = submission.summary(&[]);
     }
     summary.push(("reclaimRecipient", &args.receiver));
-    for (label, pdas) in [("bufferPda", &reclaimed), ("nonEmptyBufferPda", &non_empty)] {
+    for (label, pdas) in [
+        ("bufferPda", &reclaimed),
+        ("proposedBufferPda", &proposed),
+        ("nonEmptyBufferPda", &non_empty),
+    ] {
         summary.extend(pdas.iter().map(|pda| (label, pda as &dyn ToString)));
     }
     print_summary(&summary);

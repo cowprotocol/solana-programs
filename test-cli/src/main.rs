@@ -3,7 +3,10 @@ use clap::{Parser, Subcommand};
 mod cmd;
 mod utils;
 
+use solana_pubkey::Pubkey;
+// The generated Squads client refers to its program ID from the crate root.
 use utils::parsing::{Env, ProgramIdArg};
+use utils::squads::SQUADS_MULTISIG_PROGRAM_ID;
 
 fn home_dir() -> String {
     std::env::var("HOME").expect("`HOME` env not available")
@@ -45,7 +48,9 @@ struct Cli {
     )]
     rpc_url: String,
 
-    /// Path to the payer keypair (JSON format as written by `solana-keygen`)
+    /// Path to the payer keypair (JSON format as written by `solana-keygen`).
+    /// With `--squads-multisig` it is the multisig member that proposes the
+    /// transaction and pays the rent for the proposal.
     #[arg(
         long,
         global = true,
@@ -61,6 +66,16 @@ struct Cli {
         default_value_t = ProgramIdArg::Env(Env::Prod),
     )]
     program_id: ProgramIdArg,
+
+    /// Propose transactions to this Squads multisig instead of sending them,
+    /// with its vault standing in for the payer and every other signer
+    #[arg(long, global = true, env = "SQUADS_MULTISIG")]
+    squads_multisig: Option<Pubkey>,
+
+    /// Index of the Squads vault that executes proposed transactions (defaults
+    /// to 0)
+    #[arg(long, global = true)]
+    squads_vault_index: Option<u8>,
 
     #[command(subcommand)]
     command: Commands,
