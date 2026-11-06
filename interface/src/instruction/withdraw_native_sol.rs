@@ -31,6 +31,7 @@ use crate::SettlementInstruction;
 /// `native_sol_buffer` must be the native SOL buffer PDA (see
 /// [`crate::pda::buffer::find_native_sol_buffer_pda`]). `recipient` receives up
 /// to `amount` lamports, capped to the buffer's balance above rent.
+#[derive(Clone, Debug)]
 pub struct WithdrawNativeSol {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,

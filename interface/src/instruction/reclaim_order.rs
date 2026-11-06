@@ -26,6 +26,7 @@ use crate::SettlementInstruction;
 /// Reclaiming a cancelled order that is not completely filled while
 /// `now <= valid_to` requires `owner` to match the stored intent owner and
 /// sign, independently of the rent recipient.
+#[derive(Clone, Debug)]
 pub struct ReclaimOrder {
     pub program_id: Pubkey,
     pub order_pda: Pubkey,

@@ -31,6 +31,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// `1 + EncodedOrderIntent::SIZE` bytes. Required accounts:
 /// `[authority (S), created_by (W,S), state_pda (R), order_pda (W),
 /// system_program (R)]`.
+#[derive(Clone, Debug)]
 pub struct CreateSettlementOwnedOrder {
     pub program_id: Pubkey,
     pub authority: Pubkey,
