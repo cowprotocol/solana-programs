@@ -123,11 +123,7 @@ impl Fixture {
 
     /// The canonical order PDA of the intent, whatever the instruction names.
     fn order_pda(&self) -> Pubkey {
-        find_order_pda(
-            &self.params.program_id,
-            &EncodedOrderIntent::from(&self.intent).hash(),
-        )
-        .0
+        find_order_pda(&self.params.program_id, &self.intent.uid()).0
     }
 
     fn instruction(&self) -> Instruction {
