@@ -144,6 +144,14 @@ just verify "$ENV" "$PROGRAM_ID" "$DEPLOYER_KEYFILE" <optional-commit-hash>
 - `$DEPLOYER_KEYFILE`: the upgrade authority keypair.
 - `<optional-commit-hash>`: the commit that will be verified; current `HEAD` otherwise.
 
+If the upgrade authority is a multisig (e.g. Squads), print the transaction it has to execute instead:
+
+```sh
+just verify-multisig "$ENV" "$PROGRAM_ID" "$MULTISIG_VAULT"
+```
+
+Import the printed base58 transaction into the multisig; once it has executed, run the `submit-job` command printed at the end. That last step needs no signature.
+
 ### Publishing the cargo packages
 
 Authenticate your cargo cli with `cargo login`. Ensure you have permission to publish `cow-settlement-interface`, `cow-settlement-client`, and `cow-test-cli`.
