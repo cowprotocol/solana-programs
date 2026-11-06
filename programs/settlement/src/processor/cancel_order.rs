@@ -170,9 +170,8 @@ mod tests {
     mod existing_order {
         use super::*;
 
-        /// [`order_at_pda_owned_by`] a user: the sample order's own owner.
         fn user_order_at_pda(cancelled: bool) -> (OrderFields, Address) {
-            order_at_pda_owned_by(sample_order_fields(cancelled).intent.owner, cancelled)
+            order_at_pda_owned_by(pubkey_from_seed("user_order_at_pda's owner"), cancelled)
         }
 
         /// Whether the order stored at the canonical PDA of `fields` is cancelled.
