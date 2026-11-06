@@ -145,11 +145,8 @@ mod tests {
         }
     }
 
-    /// The stored body of an order owned by `owner`, otherwise
-    /// [`sample_order_fields`], with the bump of its canonical PDA, plus that
-    /// PDA's address. For an order whose owner matters to the test, such as one
-    /// owned by the state PDA; [`existing_order::user_order_at_pda`] covers the
-    /// plain user-owned case.
+    /// Generate arbitrary order data and the corresponding PDA.
+    /// The intent owner and cancelled state are determined by the input.
     fn order_at_pda_owned_by(owner: Address, cancelled: bool) -> (OrderFields, Address) {
         let fields = sample_order_fields(cancelled);
         let intent = OrderIntent {
