@@ -2,7 +2,7 @@
   "address": "Moook87DzJ25dELx3LXJ3dnu5a4ERVFwKo1PWWF4p7Y",
   "metadata": {
     "name": "cow_settlement",
-    "version": "0.5.3",
+    "version": "0.5.4",
     "spec": "0.1.0",
     "description": "CoW Protocol settlement program. Some of the properties and instructions of this program can't be represented via a standard IDL, please be careful to read the documentation on the function you are using.",
     "repository": "https://github.com/cowprotocol/solana-programs"
