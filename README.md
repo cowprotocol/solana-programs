@@ -2,10 +2,16 @@
 
 [CoW Protocol](https://cow.fi) is an open-source trading protocol that settles user intents in batch auctions. It supports direct matching between users (Coincidence of Wants) as well as on-chain liquidity sources.
 
-This repository hosts the Solana implementation, currently in early development. The protocol is already live on Ethereum and other EVM chains; the Solidity contracts are at [cowprotocol/contracts](https://github.com/cowprotocol/contracts).
+This repository hosts the Solana implementation. The protocol is also live on Ethereum and other EVM chains; the Solidity contracts are at [cowprotocol/contracts](https://github.com/cowprotocol/contracts).
 
-> [!CAUTION]
-> These Solana programs are a work in progress and are **not ready for production use**. The code is unaudited, subject to change, and may contain significant vulnerabilities that could lead to loss of funds. Please do not rely on it with real assets. Any deployment to mainnet is for testing purposes only. We're sharing it openly to develop in the open and welcome your feedback.
+## Audit
+
+The settlement program was audited by [Neodyme](https://neodyme.io) in October 2026. The audit covered the on-chain program's implementation security and design. Off-chain components — the auction and solver backend, the Rust and JS clients, and the test CLI — were out of scope.
+
+One low-severity finding was reported and resolved. There were no critical, high, medium, or informational findings. The report is in [`audits/`](./audits).
+
+> [!NOTE]
+> The report in `audits/` is the draft Neodyme delivered. It will be replaced with the final report once we receive it.
 
 ## Design
 
@@ -163,9 +169,9 @@ just deploy-at "$PROGRAM_KEYFILE" "$DEPLOYER_KEYFILE"
 
 `$PROGRAM_KEYFILE` may be an address in the case of an upgrade.
 
-## Alpha releases
+## Releases
 
-There are two possible release flows while the project is in alpha:
+There are two possible release flows:
 - Program breaking change: the logic of the program changes meaningfully or there's some change on the layout of _any_ PDA.
 - Patch update: it's mostly a hotfix for the program that doesn't meaningfully change the program state. The old client/interface should still work with the new program code. 
 
@@ -191,7 +197,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - (Only for `ENV=prod`!) [Publish the IDL](#publishing-the-idl).
 - Once the PR is merged to `main`, check out that commit and [verify the deployment on-chain](#verifying-the-deployment-on-chain) for both barn and prod.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
-- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Alpha release, v0.42".
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42`; title "Release, v0.42".
 
 ### Patch update
 
@@ -205,7 +211,7 @@ You can use the settle CLI for a smoke test of the programs after a release. See
 - Repeat the previous two steps with `ENV=prod`.
 - Only for `prod`, [publish the IDL](#publishing-the-idl), if changed.
 - [Publish the cargo packages](#publishing-the-cargo-packages).
-- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42.1337`; title "Alpha release, v0.42.1337".
+- Create a [new GitHub release](https://github.com/cowprotocol/solana-programs/releases/new); in doing so, create a new tag like `v0.42.1337`; title "Release, v0.42.1337".
 
 ### Bump the versions in the project
 

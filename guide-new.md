@@ -73,8 +73,8 @@ Allowlisting occurs separately on each environment.
 
 ### Placing an Order
 
-> [!WARNING]
-> While the settlement program is nearing final release, it has **not yet been audited**. Only use play/testing funds, and don't approve the settlement program from a wallet that holds significant funds.
+> [!NOTE]
+> The settlement program was audited by [Neodyme](https://neodyme.io) in October 2026. The report is in [`audits/`](./audits).
 
 You can place orders with the CLI, without the CoW API, for testing your own settlements. Every order field is stored in plain form on-chain, so a driver can read the order directly.
 
