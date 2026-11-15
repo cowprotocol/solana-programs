@@ -73,9 +73,6 @@ Allowlisting occurs separately on each environment.
 
 ### Placing an Order
 
-> [!WARNING]
-> While the settlement program is nearing final release, it has **not yet been audited**. Only use play/testing funds, and don't approve the settlement program from a wallet that holds significant funds.
-
 You can place orders with the CLI, without the CoW API, for testing your own settlements. Every order field is stored in plain form on-chain, so a driver can read the order directly.
 
 ```sh

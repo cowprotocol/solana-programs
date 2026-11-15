@@ -54,10 +54,6 @@ As we continue to release updated settlement programs, you can always pull the c
 
 ### Placing an Order
 
-> [!WARNING]
-> The settlement program is under active development and has **not yet been audited**. Only use play/testing funds, and do not set any 
-> Approvals to the settlement program from a wallet that contains significant funds.
-
 A CLI can be used to place orders without the CoW API for testing purposes. All fields and data for the order are written plain on-chain, so the driver can pick up the order directly.
 
 For example, to use the CLI to place an order:
