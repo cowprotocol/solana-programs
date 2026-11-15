@@ -54,9 +54,6 @@ As we continue to release updated settlement programs, you can always pull the c
 
 ### Placing an Order
 
-> [!NOTE]
-> The settlement program was audited by [Neodyme](https://neodyme.io) in October 2026. The report is in [`audits/`](./audits).
-
 A CLI can be used to place orders without the CoW API for testing purposes. All fields and data for the order are written plain on-chain, so the driver can pick up the order directly.
 
 For example, to use the CLI to place an order:

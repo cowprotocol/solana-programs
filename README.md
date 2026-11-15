@@ -10,9 +10,6 @@ The settlement program was audited by [Neodyme](https://neodyme.io) in October 2
 
 One low-severity finding was reported and resolved. There were no critical, high, medium, or informational findings. The report is in [`audits/`](./audits).
 
-> [!NOTE]
-> The report in `audits/` is the draft Neodyme delivered. It will be replaced with the final report once we receive it.
-
 ## Design
 
 The design of the program is documented in [DESIGN.md](./DESIGN.md).
