@@ -6,9 +6,7 @@ This repository hosts the Solana implementation. The protocol is also live on Et
 
 ## Audit
 
-The settlement program was audited by [Neodyme](https://neodyme.io) in October 2026. The audit covered the on-chain program's implementation security and design. Off-chain components — the auction and solver backend, the Rust and JS clients, and the test CLI — were out of scope.
-
-One low-severity finding was reported and resolved. There were no critical, high, medium, or informational findings. The report is in [`audits/`](./audits).
+The settlement program was audited by [Neodyme](https://neodyme.io). The report is in [`audits/`](./audits).
 
 ## Design
 
