@@ -10,13 +10,13 @@ It uses a dedicated state account to:
 - Store the accounts that can execute a settlement (the _solvers_).
 - Act as a token delegate to manage user funds.
 
-Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement    v0.1"]`.
+Its state is stored in a PDA generated using a seed based on the cargo package version, like `["settlement v0.1    "]`.
 
 Once the testing phase has ended, we will make the code at that account unchangeable.
 
 ## State versioning
 
-Every PDA the program derives starts with the same prefix seed: the string `settlement`, then the current cargo package major and minor version prefixed by `v`, space-padded to a fixed width to prevent accidental prefix collisions. While we expect the ultimate settlement program to be immutable so this measure would normally not be needed, during development we want to avoid any possible confusion or losses that could occur as a result of stale data still existing within the settlement program.
+Every PDA the program derives starts with the same prefix seed: the string `settlement v` followed by the current cargo package major and minor version, right-padded with spaces to a fixed width to prevent accidental prefix collisions. While we expect the ultimate settlement program to be immutable so this measure would normally not be needed, during development we want to avoid any possible confusion or losses that could occur as a result of stale data still existing within the settlement program.
 
 Bumping the minor version relocates the program's entire account storage at once — the state account, every buffer, and every order.
 
@@ -53,6 +53,8 @@ These token accounts are accessible to all solvers and effectively work like the
 
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, token, "buffer"]`.
 
+A buffer is created by the `CreateBuffer` instruction.
+
 The buffer account for native SOL is an empty account owned by the settlement program whose funds on top of the necessary rent are paid out. 
 
 A buffer (except for the native SOL buffer) is closed by the `ReclaimBuffer` instruction, which only the [reclaim authority](#authorities) can call.
@@ -82,7 +84,7 @@ Differences with Ethereum:
 
 Limitation:
 
-- Storing all solvers on the same account limits the amount of possible solver accounts to ~64k.
+- Storing all solvers in a single account caps their number at what fits within the maximum account data size (a few hundred thousand entries).
 
 ## Fee withdrawals
 
@@ -196,8 +198,6 @@ At the time of order creation, the executor can specify a different address as t
 
 Corresponding PDAs are generated using seed `[SETTLEMENT_SEED, hash(intent), "order"]`.
 
-The serialization of the parameters before hashing and the hashing function will be formally specified at a later point.
-
 ### Identifying an order (order UID)
 
 We use the hash of the intent parameters to represent the order, `hash(parameters)`. This is the same hash used to generate the order PDA.
@@ -285,52 +285,6 @@ Differences with Ethereum:
 - Interactions aren’t executed from the context of the settlement program but from the context of the solver as completely separate instructions.
   - Notably: a solver doesn’t have to set approvals from the settlement contract to on-chain contracts. Once solver privileges are removed, there’s no way for old solvers to access the buffers anymore, unlike in the current Ethereum contract.
 - Fund transfers are explicit instead of being automatically done as part of the order inclusion. These transfers aren’t automatically done to the buffers, they may go to different accounts.
-
-## Selling SOL (a.k.a. ETH flow)
-
-Selling SOL is supported through a separate program (called SOL flow).
-
-Selling native tokens requires taking control of the user funds and wrapping them.
-
-While the technical details are different, for the user this will be very similar to the ETH flow experience.
-
-Differences with Ethereum:
-
-- Minimum order size: needed to pay for rent by the user when the order is created. (But the rent will be used in the trade, there won’t be leftovers or need to recover this SOL by the user.)
-- No unlimited order deadline.
-- Different execution flow for solvers compared to EVM.
-
-### Creating a SOL sell order (user facing)
-
-The user interacts with the SolFlow program through the instruction `CreateSolOrder`. This instruction takes the traded amount of SOL and the data describing a [user intent](#intents) minus the owner (implicitly assumed to be the instruction signer), the sell token account, and the amount (assumed to be the SOL amount in the instruction).
-
-This will create an SPL token account for WSOL, owned by the SolFlow PDA, with seeds equal to (`intent`, `owner`), storing the intent data and the user’s lamports. We call this the _custodial_ account of the user for that intent.
-
-The token account will be created automatically with the delegate set to the settlement program.
-
-### Enabling a SOL sell order (solver facing)
-
-Any unprivileged participant can interact with the SolFlow program to have it create an Order in the Settlement program using the funds in the dedicated custodial account. We call that unprivileged participant the _enabler_.
-
-The enabler calls the `SetUpOrder` instruction passing on the user accounts (custodial and buy token accounts) and the user order intent.
-
-Then, the `SolFlow` processor creates an order on the `SettlementProgram` using a modified version of the original intent:
-
-- Order owner becomes the `SolFlow` PDA.
-- Sell token becomes the _custodial_ token account.
-- Order `created_by` field is set to enabler’s address.
-
-The `SetUpOrder` validates the given intent by successfully re-deriving the custodial account.
-
-### Recovering funds by the user
-
-Each intermediate step can be reverted by the original owner to recover the funds, as long as the order hasn’t been executed. It supports partial execution.
-
-### Comparison with direct wrapping and order creation
-
-Wrapping and creating an order is easier in Solana and everything can be executed in the same transaction. The delegation instruction can be bundled as well.
-
-The main reason to prefer the SOL flow described here is the handling of the rent amount. When wrapping and creating an order, the user needs to pay rent possibly for creating the order account. This is particularly notable for small orders: the order account would have to be refunded later to recover the user’s SOL.
 
 ## Token 2022
 
