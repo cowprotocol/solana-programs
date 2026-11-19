@@ -265,6 +265,15 @@ pub fn check_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Result<(), Program
     Ok(())
 }
 
+/// Pulls the owner out of intent bytes. Intended to be used in cases
+/// where the intent bytes aren't validated.
+#[inline]
+pub fn extract_owner(
+    bytes: &[u8; EncodedOrderIntent::SIZE],
+) -> &[u8; EncodedOrderIntent::WIDTH_OWNER] {
+    intent_slots(bytes).owner
+}
+
 pub fn hash_bytes(bytes: &[u8; EncodedOrderIntent::SIZE]) -> Hash {
     solana_sha256_hasher::hashv(&[bytes.as_slice()])
 }
@@ -924,6 +933,19 @@ mod tests {
                     OrderIntent::try_from(&bytes),
                     Err(SettlementError::ZeroOrderAmount.into()),
                 );
+            }
+
+            // The owner reads back even from bytes that fail validation.
+            #[test]
+            fn extract_owner_from_invalid_bytes(
+                intent in arb_order_intent(),
+                bad_flags in arb_invalid_flags_byte(),
+            ) {
+                let mut bytes = *EncodedOrderIntent::from(&intent);
+                bytes[FLAGS_OFFSET] = bad_flags;
+                bytes[SELL_AMOUNT_OFFSET..SELL_AMOUNT_OFFSET.strict_add(size_of::<u64>())].fill(0);
+                prop_assert!(check_bytes(&bytes).is_err());
+                prop_assert_eq!(extract_owner(&bytes), intent.owner.as_array());
             }
 
             #[test]

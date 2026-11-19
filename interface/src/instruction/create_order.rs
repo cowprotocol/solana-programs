@@ -46,6 +46,7 @@ use crate::{data::intent::EncodedOrderIntent, SettlementInstruction};
 /// `[owner (S), created_by (W,S), order_pda (W), system_program (R)]`.
 /// The system program needs to be available but doesn't need to be at that
 /// specific position in the instruction, unlike the others.
+#[derive(Clone, Debug)]
 pub struct CreateOrder {
     pub program_id: Pubkey,
     pub owner: Pubkey,

@@ -8,3 +8,5 @@ generated/
 *.json
 !bench-report.json
 !programs/settlement/idl/**/*.json
+!test-cli/squads-idl/package.json
+!test-cli/squads-idl/squads_multisig_program.json

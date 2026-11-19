@@ -7,12 +7,11 @@ use cow_settlement_client::{
     instruction::{CreateBuffers, TokenProgram},
 };
 use solana_instruction::Instruction;
-use solana_sdk::{account::Account, signature::Signer};
+use solana_sdk::account::Account;
 
 use crate::cmd::Context;
 use crate::utils::output::print_summary;
 use crate::utils::token::{token_program_of, unpack_mint};
-use crate::utils::transaction::send;
 
 #[derive(ClapArgs)]
 pub struct CreateArgs {
@@ -36,7 +35,7 @@ struct ResolvedMint {
 /// Creates the missing buffers in a single transaction. If any mint is not associated
 /// with a supported token program, no transaction is created and the first offending mint is shown.
 pub fn run(ctx: Context, mut args: CreateArgs) -> anyhow::Result<()> {
-    let payer = ctx.payer.pubkey();
+    let payer = ctx.payer();
     // A repeated mint would otherwise be listed as created twice.
     let mut seen = HashSet::new();
     args.mints.retain(|mint| seen.insert(*mint));
@@ -88,12 +87,12 @@ pub fn run(ctx: Context, mut args: CreateArgs) -> anyhow::Result<()> {
         created.push(resolved.buffer);
     }
 
-    let sig;
+    let submission;
     let mut summary: Vec<(&str, &dyn ToString)> = Vec::new();
     if !created.is_empty() {
         let ixs = instructions(&ctx.program_id, &payer, &by_program);
-        sig = send(&ctx, &ixs, &[])?;
-        summary.push(("signature", &sig));
+        submission = ctx.submit(&ixs, &[])?;
+        summary = submission.summary(&[]);
     }
     for (label, pdas) in [("bufferPda", &created), ("existingBufferPda", &existing)] {
         summary.extend(pdas.iter().map(|pda| (label, pda as &dyn ToString)));

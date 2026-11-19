@@ -27,6 +27,7 @@ use crate::SettlementInstruction;
 /// Required accounts: `[authority (S), payer (W,S), state_pda (W),
 /// system_program (R)]`. The system program must be available for the
 /// rent-funding `Transfer` CPI but doesn't need to sit at a specific position.
+#[derive(Clone, Debug)]
 pub struct AddSolver {
     pub program_id: Pubkey,
     pub authority: Pubkey,

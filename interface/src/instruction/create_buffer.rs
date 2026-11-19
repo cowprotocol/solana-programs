@@ -38,6 +38,7 @@ use crate::SettlementInstruction;
 /// The three shared accounts come first and are read positionally; the
 /// per-buffer pairs follow. The system program only has to be present so the
 /// `CreateAccount` CPI can execute; it isn't read by index.
+#[derive(Clone, Debug)]
 pub struct CreateBuffers<'a> {
     pub program_id: Pubkey,
     pub payer: Pubkey,

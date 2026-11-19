@@ -1,7 +1,6 @@
-use anyhow::Context as _;
 use clap::Args as ClapArgs;
 use cow_settlement_client::instruction::Initialize;
-use solana_sdk::{pubkey::Pubkey, signature::Signer, transaction::Transaction};
+use solana_sdk::pubkey::Pubkey;
 
 use crate::utils::output::print_summary;
 use crate::utils::pda::find_state_pda;
@@ -26,7 +25,7 @@ pub struct InitializeArgs {
 }
 
 pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
-    let payer = ctx.payer.pubkey();
+    let payer = ctx.payer();
     let state_pda = find_state_pda(&ctx.program_id);
 
     if matches!(ctx.rpc.get_account(&state_pda), Ok(account) if account.owner == ctx.program_id) {
@@ -43,18 +42,9 @@ pub fn run(ctx: Context, args: InitializeArgs) -> anyhow::Result<()> {
         settlement_owned_order_authority: args.settlement_owned_order_authority.unwrap_or(payer),
     };
 
-    let blockhash = ctx
-        .rpc
-        .get_latest_blockhash()
-        .context("failed to fetch blockhash")?;
-    let tx =
-        Transaction::new_signed_with_payer(&[ix.into()], Some(&payer), &[&ctx.payer], blockhash);
-    let sig = ctx
-        .rpc
-        .send_and_confirm_transaction(&tx)
-        .context("transaction failed")?;
+    let submission = ctx.submit(&[ix.into()], &[])?;
 
-    print_summary(&[("signature", &sig), ("statePda", &state_pda)]);
+    print_summary(&submission.summary(&[("statePda", &state_pda)]));
 
     Ok(())
 }

@@ -54,6 +54,7 @@ pub struct Pull {
 /// PDA address, carrying each order's sell token account, transfer count,
 /// amounts, and destination metas before emitting them.
 #[cfg_attr(any(test, feature = "test-fixtures"), derive(Default))]
+#[derive(Clone, Debug)]
 pub struct BeginSettle<'a> {
     pub program_id: Pubkey,
     pub state_pda: Pubkey,

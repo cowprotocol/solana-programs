@@ -299,6 +299,24 @@ pub fn replace_first_matching_account(instruction: &mut Instruction, from: &Pubk
     meta.pubkey = to;
 }
 
+/// In `instruction`, clear the signer flag on every account set to `key`. All of
+/// them, since a single remaining signer meta would still have the account sign
+/// once the message is compiled. Panics if none of them was a signer, so a stale
+/// strip fails loudly rather than silently testing nothing.
+#[track_caller]
+pub fn strip_signer(instruction: &mut Instruction, key: &Pubkey) {
+    let mut stripped = false;
+    for meta in instruction
+        .accounts
+        .iter_mut()
+        .filter(|meta| meta.pubkey == *key)
+    {
+        stripped |= meta.is_signer;
+        meta.is_signer = false;
+    }
+    assert!(stripped, "instruction should have {key} as a signer");
+}
+
 /// Assemble `instructions` into a transaction with `payer` as fee payer, signed
 /// by `payer` and `additional_signers`, and aimed at the active token program.
 ///

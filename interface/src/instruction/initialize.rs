@@ -49,6 +49,7 @@ pub const INITIALIZER: Pubkey =
 /// native_sol_buffer (W), system_program (R)]`. The system program must be
 /// available for the `CreateAccount` CPI but doesn't need to sit at that
 /// specific position.
+#[derive(Clone, Debug)]
 pub struct Initialize {
     pub program_id: Pubkey,
     pub payer: Pubkey,

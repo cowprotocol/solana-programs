@@ -1,18 +1,12 @@
 import { LiteSVM } from "litesvm";
 import { beforeEach, describe, expect, it } from "vitest";
-import { generateKeyPairSigner, lamports } from "@solana/kit";
-import {
-  findStatePda,
-  getCreateSettlementOwnedOrderInstructionAsync,
-  getInitializeInstructionAsync,
-} from "../src/generated";
+import { findStatePda, getCreateSettlementOwnedOrderInstructionAsync } from "../src/generated";
 import {
   buildOrderIntent,
-  initializerSigner,
   fetchOrderAccount,
+  initializeProgram,
   newSvm,
   sendInstruction,
-  sendUnverifiedInstruction,
 } from "./fixtures";
 
 describe("createSettlementOwnedOrder", () => {
@@ -23,21 +17,8 @@ describe("createSettlementOwnedOrder", () => {
   });
 
   it("resolves the order PDA and creates an order owned by the state PDA", async () => {
-    const [payer, manager, solverAuthority, reclaimAuthority, settlementOwnedOrderAuthority] =
-      await Promise.all(Array.from({ length: 5 }, () => generateKeyPairSigner()));
-    svm.airdrop(payer.address, lamports(1_000_000_000n));
-
     // Put a settlement-owned-order authority on record so it can place the order.
-    const initializer = initializerSigner();
-    svm.airdrop(initializer.address, lamports(1_000_000_000n));
-    const initialize = await getInitializeInstructionAsync({
-      payer: initializer,
-      manager: manager.address,
-      solverAuthority: solverAuthority.address,
-      reclaimAuthority: reclaimAuthority.address,
-      settlementOwnedOrderAuthority: settlementOwnedOrderAuthority.address,
-    });
-    await sendUnverifiedInstruction(svm, payer, initialize, "initialize");
+    const { payer, settlementOwnedOrderAuthority } = await initializeProgram(svm);
 
     // A settlement-owned order must be owned by the state PDA.
     const [statePda] = await findStatePda();

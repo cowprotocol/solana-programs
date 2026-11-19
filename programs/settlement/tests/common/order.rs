@@ -2,8 +2,9 @@
 
 use cow_settlement::pda::state::STATE_PDA;
 use cow_settlement_client::cow_settlement_interface::data::intent::{
-    Asset, Flags, OrderIntent, OrderKind, TokenAsset,
+    Asset, EncodedOrderIntent, Flags, OrderIntent, OrderKind, TokenAsset,
 };
+use cow_settlement_client::cow_settlement_interface::pda::order::find_order_pda;
 use cow_settlement_client::instruction::{CreateOrder, CreateSettlementOwnedOrder};
 use cow_settlement_client::pda::order::DecodedOrderAccount;
 use cow_settlement_interface::data::intent::ENCODED_NATIVE_SOL_TRANSFER;
@@ -123,13 +124,14 @@ pub fn create_order_pda(
 /// Place `intent` as a settlement-owned order through
 /// `CreateSettlementOwnedOrder`: an order owned by the state PDA, funded by
 /// `payer` and gated by the settlement-owned-order `authority`, which co-signs.
-fn create_settlement_owned_order_pda(
+/// Returns the order PDA and its bump.
+pub fn create_settlement_owned_order_pda(
     svm: &mut LiteSVM,
     program_id: &Pubkey,
     payer: &Keypair,
     authority: &Keypair,
     intent: &OrderIntent,
-) {
+) -> (Pubkey, u8) {
     let ix = CreateSettlementOwnedOrder {
         program_id: *program_id,
         authority: authority.pubkey(),
@@ -140,6 +142,7 @@ fn create_settlement_owned_order_pda(
     let tx = signed_tx(svm, payer, authority, ix);
     svm.send_transaction(tx)
         .expect("create_settlement_owned_order should succeed");
+    find_order_pda(program_id, &EncodedOrderIntent::from(intent).hash())
 }
 
 /// How an [`OrderBuilder`] sources one side of an order.

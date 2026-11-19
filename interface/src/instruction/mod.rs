@@ -69,6 +69,8 @@ pub enum SettlementInstruction {
     /// may cancel.
     /// If the order PDA doesn't exist yet, it's created already cancelled. For
     /// this, some arbitrary account needs to pay the rent and sign.
+    /// An existing order owned by the state PDA is cancelled by the
+    /// SettlementOwnedOrderAuthority instead.
     CancelOrder = 11,
     /// Moves lamports out of the native SOL buffer to a recipient of the
     /// caller's choosing. Only the current holder of the

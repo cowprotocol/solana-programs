@@ -25,6 +25,7 @@ use crate::{Role, SettlementInstruction};
 ///
 /// Wire format: `[discriminator=7, role (1 byte), new_authority (32 bytes)]`.
 /// Required accounts: `[signer (S), state_pda (W)]`.
+#[derive(Clone, Debug)]
 pub struct TransferAuthority {
     pub program_id: Pubkey,
     pub signer: Pubkey,
