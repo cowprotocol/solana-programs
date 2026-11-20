@@ -202,7 +202,9 @@ verify-multisig env programid authority: (require-env env) install-solana-verify
     fi
 
     # 2. Write the command needed to export the metadata for the solana code to be verified
+    # A zero price omits the priority-fee instruction, which has no effect inside a multisig vault transaction.
     {{solana_verify}} export-pda-tx \
+        --compute-unit-price 0 \
         --program-id "{{programid}}" \
         --uploader "{{authority}}" \
         --library-name {{settlement_program}} \
