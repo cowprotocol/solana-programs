@@ -191,6 +191,11 @@ verify-multisig env programid authority: (require-env env) install-solana-verify
     set -euo pipefail
     feature_arg=$({{just_executable()}} feature-args {{env}})
     commit=$(git rev-parse --verify "${commit_ref:-HEAD}^{commit}")
+    # The build below uses the working tree, so it must match the exported commit.
+    if ! git diff --quiet HEAD; then
+        echo "refusing to export: there are uncommitted changes" >&2
+        exit 1
+    fi
 
     # 1. Build with verified build and confirm the hash matches
     {{solana_verify}} build --library-name {{settlement_program}} -- ${feature_arg:+"$feature_arg"}
