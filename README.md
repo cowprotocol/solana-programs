@@ -143,7 +143,7 @@ just verify "$ENV" "$PROGRAM_ID" "$DEPLOYER_KEYFILE" <optional-commit-hash>
 - `$ENV`: the environment it was built for (`prod` or `barn`).
 - `$PROGRAM_ID`: the program address.
 - `$DEPLOYER_KEYFILE`: the upgrade authority keypair.
-- `<optional-commit-hash>`: the commit that will be verified; current `HEAD` otherwise.
+- `<optional-commit-hash>`: the commit that will be verified; the latest commit on the default branch of the public repository otherwise.
 
 If the upgrade authority is a multisig (e.g. Squads), print the transaction it has to execute instead:
 
