@@ -151,6 +151,8 @@ If the upgrade authority is a multisig (e.g. Squads), print the transaction it h
 just verify-multisig "$ENV" "$PROGRAM_ID" "$MULTISIG_VAULT"
 ```
 
+Run the multisig command with the deployed commit checked out.
+
 Import the printed base58 transaction into the multisig; once it has executed, run the `submit-job` command printed at the end. That last step needs no signature.
 
 ### Publishing the cargo packages
